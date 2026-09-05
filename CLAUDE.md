@@ -160,6 +160,42 @@ Custom emoji in text requires the bot owner to hold Telegram Premium, and a laps
 
 `[xarita:41.3111,69.2797,13]` becomes `<tg-map lat=… long=… zoom=…/>`. Coordinates come from the model — no geocoding, which would add a network call, a rate limit and a failure point. The code validates only the *ranges* (lat −90…90, long −180…180, zoom 1…20) and drops the marker when they fail; it cannot validate the *place*, since 41.9/12.5 is Rome and 41.3/69.3 is Tashkent and both look fine, so accuracy is the prompt's job. `<tg-map/>` is self-closing — written as `<tg-map></tg-map>` it gets the whole message rejected, which is exactly why the tag is emitted by code and not by the model. Like premium emoji, it is skipped inside table cells and `<aside>` via `_outside_dead_zones()`.
 
+### What the model may claim it can do
+
+The model's capability list is not prose in the system prompt — it is built per
+request from the **actual tool schemas** (`_capability_manifest()` in
+`services/ai.py`) and sent as a `developer` message. Tool schemas alone were not
+enough: they say what exists and nothing about what does not, so the model filled
+the gap by guessing — promising drawn images to a free user (`generate_image` is
+Pro-only) and PPTX in a group (`output_files=None` there, so the file tool is
+never attached). The manifest names the attached tools, the missing ones *with
+the reason*, and the things that are never possible (video, YouTube, music,
+mini apps, choosing to answer by voice — TTS runs only on the voice-in path).
+Because the names come from the schema dicts, renaming a tool moves the text
+with it; a hand-written list would rot silently. It is skipped when
+`tools_enabled=False` (internal calls) and must stay out of `instructions` —
+its content depends on the user's plan, so caching it would poison the prefix
+for everyone. `tests/test_capability_manifest.py` guards all of that.
+
+### The model can draw a real button, not describe one
+
+`[tugma: Label | https://…]` becomes `<tg-button type="url">` inside a
+`<tg-button-row>`. Before this the only path to a Telegram button was code, so
+"show me what it looks like" could only ever be answered with words. Same
+discipline as the other markers: only `http(s)`, a malformed marker is dropped,
+code blocks are untouched, and `strip_rich_tokens()` degrades it to `Label: url`
+for the draft and the plain fallback. `callback_data` is deliberately not
+offered — a model-invented callback has no handler and would be a dead button.
+
+⚠️ `_RICH_PROTECT_RE` matches `https?://[^\s\]]+`, not `\S+`: the old pattern
+swallowed the `]` that closes the marker, so the button never formed. A literal
+`]` does not occur in a real URL (it is `%5D`).
+
+Tables are **allowed** and the prompt says so. `_compact_tables()` turns GFM
+into a real `<table compact>` (2-20 columns, separator row required). The prompt
+used to forbid tables outright, which is what produced space-aligned
+pseudo-tables that look fine on screen and lose all structure when copied.
+
 ### Inline button styles
 
 Telegram accepts only `primary` / `success` / `danger` on a real `InlineKeyboardButton`. Any other value is rejected and **the whole message fails to send**. Use `pro_module.btn()` and the `BTN_*` constants. Where delivery matters, build a plain fallback keyboard too — `pro.send_rich()` degrades progressively, and the broadcast sender switches the entire run to plain on the first rejection.

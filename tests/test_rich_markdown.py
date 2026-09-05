@@ -195,6 +195,58 @@ def test_premium_emoji_chegarasi_va_qaytishi():
     print("[18] chegara ishladi, emojisiz zaxira variant asl matnni tikladi OK")
 
 
+def test_tugma_belgisi():
+    """`[tugma: Yozuv | url]` → HAQIQIY `<tg-button>`.
+
+    Muammo tarixi: modelning javob matnidan Telegram UI elementiga yo'l
+    YO'Q edi — tugmalar faqat kod yozgan joyda paydo bo'lardi. Shuning
+    uchun "kodini emas, ko'rinishini ko'rsat" so'roviga model yana matn
+    bilan tushuntirardi.
+    """
+    out = build_rich_markdown("Manba:\n\n[tugma: Saytga o'tish | https://cbu.uz/uz/]")
+    assert '<tg-button type="url" url="https://cbu.uz/uz/">' in out, out
+    assert "<tg-button-row" in out and "[tugma" not in out, out
+    print("[19] [tugma: ...] haqiqiy <tg-button> ga aylandi OK")
+
+
+def test_tugma_buzuq_va_kod():
+    """Noto'g'ri belgi tashlanadi, kod bloki tegilmaydi."""
+    yomon = build_rich_markdown("[tugma: Yomon | ftp://x] va [tugma: Havolasiz]")
+    assert "<tg-button" not in yomon and "[tugma" not in yomon, yomon
+    assert "va" in yomon, yomon
+
+    kod = '```\nx = "[tugma: K | https://a.b]"\n```'
+    assert build_rich_markdown(kod) == kod
+
+    oddiy = strip_rich_tokens("Manba [tugma: Sayt | https://cbu.uz] oxiri")
+    assert "Sayt: https://cbu.uz" in oddiy and "[tugma" not in oddiy, oddiy
+    print("[20] buzuq belgi tashlandi, kod va oddiy yo'l joyida OK")
+
+
+def test_havola_himoyasi_buzilmadi():
+    """`]` istisnosi havola himoyasini BUZMASLIGI kerak (regressiya)."""
+    url = "https://uz.kursiv.media/uz/2026-08-20/dollar/"
+    yalangoch = build_rich_markdown(f"Havola: {url} va matn")
+    assert url in yalangoch and "<tg-time" not in yalangoch, yalangoch
+
+    ichida = build_rich_markdown(f"- [Kursiv]({url})")
+    assert url in ichida and "<tg-time" not in ichida, ichida
+
+    aralash = build_rich_markdown(
+        "Sana 2026-08-21 [tugma: Ochish | https://a.uz/2026-08-21/x]")
+    assert "<tg-time" in aralash.split("<tg-button")[0], aralash
+    assert 'url="https://a.uz/2026-08-21/x"' in aralash, aralash
+    print("[21] havola himoyasi saqlandi, faqat tugma yopilishi ochildi OK")
+
+
+def test_jadval_haqiqiy():
+    """GFM jadval HAQIQIY <table> ga aylanadi — pseudo-jadval emas."""
+    out = build_rich_markdown("| Model | Narxi |\n|---|---|\n| H5 | 300 mln |")
+    assert "<table compact>" in out and "<th>Model</th>" in out, out
+    assert "<td>300 mln</td>" in out, out
+    print("[22] markdown jadval haqiqiy <table> ga aylandi OK")
+
+
 if __name__ == "__main__":
     test_url_sanasi_tegilmaydi()
     test_yalangoch_url_ham_himoyalangan()
@@ -214,4 +266,8 @@ if __name__ == "__main__":
     test_premium_emoji_matnda()
     test_premium_emoji_tegilmaydigan_joylar()
     test_premium_emoji_chegarasi_va_qaytishi()
-    print("\nrich_markdown: barcha tekshiruvlar o'tdi (18/18).")
+    test_tugma_belgisi()
+    test_tugma_buzuq_va_kod()
+    test_havola_himoyasi_buzilmadi()
+    test_jadval_haqiqiy()
+    print("\nrich_markdown: barcha tekshiruvlar o'tdi (22/22).")

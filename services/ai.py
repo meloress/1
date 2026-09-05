@@ -156,11 +156,17 @@ _RICH_CODE_RE = re.compile(r"```([a-zA-Z0-9_+-]*)\n(.*?)\n```", re.S)
 #   2. `markdown` maydoniga HTML-only teg tushadi, Telegram parseri
 #      to'xtaydi va BUTUN xabar xom ko'rinadi (`*yulduzcha*`lar ham).
 # Ikkinchisi aynan `_rich_message_payload()` izohida ogohlantirilgan xato.
-# `\S+` havola oxiridagi `)` ni ham qamrab oladi — bu zararsiz, chunki
+# Naqsh havola oxiridagi `)` ni ham qamrab oladi — bu zararsiz, chunki
 # bo'lak keyin AYNAN o'zi holida qaytariladi.
+#
+# ⚠️ `]` esa ATAYLAB istisno qilingan. Ilgari bu yerda `\S+` turardi va u
+# havoladan keyingi kvadrat qavsni ham yutib yuborardi — natijada
+# `[tugma: Yozuv | https://…]` belgisining YOPILISHI himoya ichida qolib,
+# belgi hech qachon tugmaga aylanmasdi. Amalda `]` URL tarkibida
+# uchramaydi (kodlangan holda `%5D` bo'ladi).
 _RICH_PROTECT_RE = re.compile(
     r"```[a-zA-Z0-9_+-]*\n.*?\n```"   # kod bloklari
-    r"|https?://\S+",                  # havolalar
+    r"|https?://[^\s\]]+",             # havolalar
     re.S,
 )
 _RICH_MATH_BLOCK_RE = re.compile(r"(?<!\\)\$\$(.+?)\$\$", re.S)
@@ -456,8 +462,12 @@ def strip_rich_tokens(text: str) -> str:
     out = _DETAILS_OPEN_RE.sub(lambda m: f"**{m.group(1).strip()}**", text)
     out = _DETAILS_CLOSE_RE.sub("", out)
     # Xarita oddiy xabarda chizilmaydi — belgi shunchaki olib tashlanadi
-    # (matnning o'zi joyni baribir aytadi).
+    # (matnning o'zi joyni baribir aytadi). Tugma esa havolaga aylanadi:
+    # oddiy xabarda tugma yo'q, lekin havolani yo'qotish ma'lumot
+    # yo'qotish bo'lardi.
     out = _MAP_RE.sub("", out)
+    out = _BUTTON_RE.sub(lambda m: f"{m.group(1).strip()}: {m.group(2)}", out)
+    out = _BUTTON_ANY_RE.sub("", out)
     return _QUOTE_RE.sub(_plain_quote, out)
 
 
@@ -560,6 +570,47 @@ def _replace_map(match) -> str:
     return f'\n\n<tg-map lat="{lat}" long="{long_}" zoom="{zoom}"/>\n\n'
 
 
+# ─────────────────────────────────────────────────────────────
+# 🔘 TUGMA — [tugma: Yozuv | https://havola]
+#
+# Muammo: model Telegram UI elementini KO'RSATA olmasdi. Tugmalar kodda
+# bor (`pro.rich_button()`), lekin ular faqat KOD yozgan joyda paydo
+# bo'ladi — modelning javob matnidan tugmaga yo'l yo'q edi. Shu sababdan
+# "kodini emas, ko'rinishini ko'rsat" so'roviga model yana matn bilan
+# tushuntirardi.
+#
+# ⚠️ Faqat http(s) havola tugmasi. `callback_data` ATAYLAB yo'q: uni
+# bosganda javob beradigan handler kerak bo'lardi, ya'ni model o'zi
+# yaratgan tugma "o'lik" bo'lib qolardi.
+#
+# Teg shakli `pro.rich_button()` bilan bir xil; u yerdan import
+# qilinmaydi — `services` → `handlers` bog'lanishi aylanma import xavfi.
+# ─────────────────────────────────────────────────────────────
+# ⚠️ URL bu bosqichda HIMOYADA turadi (`@@RICH_PROTECT_N@@`) — havolalar
+# sana/matematika naqshlaridan yashirilgan. Shuning uchun naqsh ikkala
+# shaklni ham qabul qiladi, haqiqiy manzil esa himoya ro'yxatidan olinadi.
+_BUTTON_RE = re.compile(
+    r"\[tugma:\s*([^\]|\n]{1,64}?)\s*\|\s*"
+    r"(https?://[^\]\s]{1,512}|@@RICH_PROTECT_\d+@@)\s*\]", re.I)
+_BUTTON_ANY_RE = re.compile(r"\[tugma:[^\]\n]{0,600}\]", re.I)
+
+
+def _replace_buttons(text: str, placeholders) -> str:
+    """Belgilarni `<tg-button>` ga o'giradi, qolgan/buzuqlarini tashlaydi."""
+    himoya = dict(placeholders)
+
+    def one(match) -> str:
+        yozuv = html_escape(" ".join(match.group(1).split()))
+        url = himoya.get(match.group(2), match.group(2))
+        if not yozuv or not url.lower().startswith(("http://", "https://")):
+            return ""
+        return (f'\n\n<tg-button-row align="center">'
+                f'<tg-button type="url" url="{html_escape(url, quote=True)}">'
+                f'{yozuv}</tg-button></tg-button-row>\n\n')
+
+    return _BUTTON_ANY_RE.sub("", _BUTTON_RE.sub(one, text))
+
+
 def strip_custom_emoji(markdown: str) -> str:
     """Premium emojini oddiy emojiga QAYTARADI (zaxira pog'onasi uchun).
 
@@ -598,6 +649,10 @@ def build_rich_markdown(text: str) -> str:
     # Xarita — media blok, ya'ni jadval katagi va <aside> ichida emas.
     protected = _outside_dead_zones(
         protected, lambda t: _MAP_RE.sub(_replace_map, t))
+    # Tugma — xuddi shunday, va noto'g'ri yozilgani (havolasiz yoki
+    # http'siz) shunchaki tashlanadi: yarim belgi xabarni buzmasin.
+    protected = _outside_dead_zones(
+        protected, lambda t: _replace_buttons(t, placeholders))
     # Premium emoji ENG OXIRIDA: yuqoridagi bosqichlar hosil qilgan
     # jadval va <aside> bloklarini ko'rib, ularni chetlab o'tishi kerak.
     protected = _replace_text_emoji(protected)
@@ -1974,6 +2029,62 @@ _FILE_TASK_TOOL = {
     "strict": False,
 }
 
+# ─────────────────────────────────────────────────────────────
+# 🧭 IMKONIYATLAR MANIFESTI — modelga "hozir nima QILA OLAMAN"
+#
+# Muammo: model o'z imkoniyatlarini TAXMIN qilardi. Tool sxemalari faqat
+# BOR narsani ko'rsatadi; YO'Q narsa haqida hech narsa demaydi, model esa
+# bo'shliqni tasavvur bilan to'ldiradi. Natijada bepul foydalanuvchiga
+# "rasm chizib beraman" (generate_image faqat Pro'da), guest rejimda esa
+# "PPTX yasab beraman" (u yerda fayl tool'i umuman biriktirilmaydi) deb
+# va'da berardi.
+#
+# Ro'yxat sxemalarning O'ZIDAN quriladi — qo'lda takrorlangan ro'yxat
+# tool nomi yoki tarif sharti o'zgarganda jimgina eskirardi.
+# ─────────────────────────────────────────────────────────────
+def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
+                         reminder_enabled: bool, memory_enabled: bool) -> dict:
+    bor = [_TOOLS[0]["name"]]                     # internet_search — doim
+    yoq: list[str] = []
+    for shart, tool, sabab in (
+        (file_task_enabled, _FILE_TASK_TOOL, "not available in this chat type"),
+        (image_enabled, _IMAGE_TOOL, "Pro only"),
+        (memory_enabled, _MEMORY_TOOL, "needs a known user"),
+        (reminder_enabled, _REMINDER_TOOL, "Pro only"),
+    ):
+        (bor if shart else yoq).append(
+            tool["name"] if shart else f"{tool['name']} ({sabab})")
+
+    satrlar = [
+        "[CAPABILITIES — GROUND TRUTH FOR THIS REQUEST]",
+        "Tools you CAN run right now: " + ", ".join(bor) + ".",
+    ]
+    if yoq:
+        satrlar.append("NOT available in this request: " + "; ".join(yoq) + ".")
+    satrlar += [
+        "Always available without any tool: reading the photo, document or "
+        "voice message the user sends; translation; code; maths; tables; "
+        "LaTeX; Telegram formatting.",
+        "Never available: watching video/GIF, opening YouTube links, "
+        "listening to music files, downloading files from the internet, "
+        "writing to anyone on the user's behalf, Telegram mini apps.",
+        # ⚠️ Ovozli javob BOR, lekin uni model TANLAY olmaydi: u faqat
+        # foydalanuvchi ovozli xabar yuborgan yo'lda yaratiladi
+        # (handlers/messages.py: handle_voice). Buni aytmasak, model
+        # "javobni ovozda yuboraman" deb bajarilmaydigan va'da berardi.
+        "Voice replies exist but you cannot choose them: the bot speaks only "
+        "when the user sent a voice message. Never promise to send audio.",
+        "RULES: (1) Claim NOTHING outside these lists — for anything marked "
+        "NOT available say plainly that it is unavailable here (name the "
+        "reason) instead of promising it. (2) When the user says show / send "
+        "/ make / do it, CALL the tool; explaining what you could do instead "
+        "of doing it is a failed answer. (3) Asked what you can do — "
+        "demonstrate with the tools listed above in the same reply, not just "
+        "a list of words. (4) Stay on what was asked.",
+    ]
+    return {"role": "developer", "content": "\n".join(satrlar)}
+
+
 _SYNTHESIS_SYSTEM = """QAT'IY BUYRUQ — ANIQ VA CHUQUR JAVOB YOZ:
 
 0. TIL — ENG MUHIM QOIDA: Yakuniy javobni albatta foydalanuvchining ASL savoli
@@ -2836,6 +2947,26 @@ async def get_openai_reply(
     reminder_rounds = 0
     # Status animatsiyasi bir marta almashadi (qidiruv/rasm bilan bir xil).
     reminder_started = False
+
+    # ⚠️ MODELGA HOZIRGI IMKONIYATLARINI AYTAMIZ. Tool sxemalari o'z-o'zidan
+    # yetarli emas: "generate_image yo'q" degani modelga "rasm chiza
+    # olmayman" degan XULOSA bermaydi — u bo'shliqni o'z tasavvuri bilan
+    # to'ldiradi va bajarilmaydigan va'da beradi (Pro'siz foydalanuvchiga
+    # "rasm chizib beraman", guest rejimda "PPTX yasayman"). Ro'yxat
+    # SXEMALARNING O'ZIDAN olinadi, ya'ni tool nomi o'zgarsa yoki tarif
+    # sharti o'zgarsa matn ham avtomatik ergashadi — qo'lda yozilgan
+    # ro'yxat esa jimgina eskirardi.
+    #
+    # Bu `developer` xabari, `instructions` EMAS: mazmuni foydalanuvchiga
+    # (tarif, rejim) bog'liq, ya'ni system promptga qo'yilsa prompt
+    # caching hamma uchun buzilardi.
+    if tools_enabled:
+        messages.append(_capability_manifest(
+            file_task_enabled=file_task_enabled,
+            image_enabled=image_enabled,
+            reminder_enabled=reminder_enabled,
+            memory_enabled=user_id is not None,
+        ))
 
     while True:
         # MUHIM: qidiruv 1-2 bosqichda tugasa ham (model ko'proq tool
