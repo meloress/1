@@ -28,6 +28,7 @@ from handlers.guest import router as guest_router
 from handlers import pro as pro_module
 from handlers import digest as digest_module
 from handlers.helpers import premium_expiry_watcher, reminder_watcher
+from services import ai as ai_service
 from services import menu as menu_module
 from services import sandbox
 
@@ -48,6 +49,14 @@ async def main():
         config.apply_limit_overrides(await database.get_limit_overrides())
     except Exception:
         logger.exception("limit sozlamalari yuklanmadi — config'dagi qiymat ishlatiladi")
+    # AI javobidagi emojilarni animatsiyali nusxasiga almashtiruvchi paket.
+    # BIR MARTA o'qiladi — har xabarda so'rov qilib bo'lmaydi. Xato bo'lsa
+    # ichida yutiladi va config'dagi eski ro'yxat qoladi, ya'ni bot
+    # emoji tufayli ishga tushmay qolmaydi.
+    try:
+        await ai_service.load_text_emoji_pack()
+    except Exception:
+        logger.exception("emoji paketi yuklanmadi — oddiy emoji ishlatiladi")
     await init_db()
     asyncio.create_task(start_cleanup_task())
 

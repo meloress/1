@@ -38,6 +38,7 @@ try:
         SEARCH_IMAGE_SAFESEARCH, SEARCH_COMMONS_UA, SEARCH_COMMONS_TIMEOUT,
         SEARCH_IMAGE_MAX_BYTES, SEARCH_IMAGE_GALLERY_MIN,
         SEARCH_IMAGE_COLLAGE_MAX, TEXT_CUSTOM_EMOJI, TEXT_CUSTOM_EMOJI_MAX,
+        TEXT_EMOJI_PACK,
         FILE_IMAGE_MAX_QUERIES, FILE_IMAGE_CANDIDATES, FILE_IMAGE_TIMEOUT,
         FILE_IMAGE_MAX_BYTES, FILE_IMAGE_MAX_SIDE, FILE_IMAGE_JPEG_QUALITY,
         INTERNAL_TOOL_NAMES,
@@ -66,6 +67,7 @@ except ImportError:
     SEARCH_IMAGE_GALLERY_MIN = 2
     SEARCH_IMAGE_COLLAGE_MAX = 4
     TEXT_CUSTOM_EMOJI = {}
+    TEXT_EMOJI_PACK = ""
     TEXT_CUSTOM_EMOJI_MAX = 12
     SEARCH_IMAGE_SAFESEARCH = "on"
     SEARCH_COMMONS_UA = "TramplinBot/1.0 (Telegram bot; https://t.me)"
@@ -557,15 +559,81 @@ def _plain_quote(match) -> str:
 # `![ ](tg://...)` degan XOM matnni ekranga chiqarardi. O'sha joylarda
 # oddiy emoji o'z holicha qoladi va normal ko'rinadi.
 # ─────────────────────────────────────────────────────────────
-_EMOJI_IDS = {e.rstrip("️"): i for e, i in TEXT_CUSTOM_EMOJI.items()}
-_TEXT_EMOJI_RE = re.compile(
-    "(" + "|".join(re.escape(e) for e in
-                   sorted(_EMOJI_IDS, key=len, reverse=True)) + ")️?"
-) if _EMOJI_IDS else re.compile(r"(?!)")   # bo'sh ro'yxatda hech narsa
 _MD_DEAD_ZONE_RE = re.compile(
     r"(<table\b.*?</table>|<aside\b.*?</aside>)", re.S)
 _CUSTOM_EMOJI_MD_RE = re.compile(r"!\[ ?\]\(tg://emoji\?id=(\d+)\)")
-_ID_TO_EMOJI = {i: e for e, i in TEXT_CUSTOM_EMOJI.items()}
+
+_EMOJI_IDS: dict = {}
+_ID_TO_EMOJI: dict = {}
+_TEXT_EMOJI_RE = re.compile(r"(?!)")
+
+
+def apply_emoji_pack(moslik: dict) -> int:
+    """Emoji → custom_emoji_id moslikni kuchga kiritadi.
+
+    Ish boshlanishida `load_text_emoji_pack()` chaqiradi. Uchta global
+    BIRGA yangilanadi: qidiruv jadvali, teskari jadval (zaxira yo'lida
+    oddiy emojiga qaytarish uchun) va regex. Bittasi eskirib qolsa
+    xabar rad etilgandan keyin ekranda xom `![ ](tg://emoji?id=...)`
+    matni qolardi.
+
+    ⚠️ VS16 (U+FE0F) tanlagichi kalitdan olib tashlanadi va regexda
+    ixtiyoriy qilinadi: model "✍️" deb ham, "✍" deb ham yozishi mumkin,
+    paket esa ikkalasidan birini saqlagan bo'ladi.
+    """
+    global _EMOJI_IDS, _ID_TO_EMOJI, _TEXT_EMOJI_RE
+    _EMOJI_IDS = {e.rstrip("️"): i for e, i in (moslik or {}).items() if e and i}
+    _ID_TO_EMOJI = {i: e for e, i in _EMOJI_IDS.items()}
+    _TEXT_EMOJI_RE = re.compile(
+        "(" + "|".join(re.escape(e) for e in
+                       sorted(_EMOJI_IDS, key=len, reverse=True)) + ")️?"
+    ) if _EMOJI_IDS else re.compile(r"(?!)")   # bo'sh ro'yxatda hech narsa
+    return len(_EMOJI_IDS)
+
+
+# Boshlang'ich holat — config'dagi qo'lda yozilgan ro'yxat. Paket
+# sozlangan bo'lsa, ish boshlanishida u BUTUNLAY almashtiriladi.
+apply_emoji_pack(TEXT_CUSTOM_EMOJI)
+
+
+async def load_text_emoji_pack() -> int:
+    """Premium emoji paketini Telegram'dan o'qib, moslikni quradi.
+
+    ⚠️ NEGA PAKET NOMI BILAN, QO'LDA RO'YXAT BILAN EMAS: paketdagi har
+    bir stiker O'ZI qaysi oddiy emojiga tegishli ekanini aytadi, ya'ni
+    moslikni Telegram tuzadi. Qo'lda yozilganda xato oson bo'ladi —
+    jonli botda 🤖 uchun boshqa paketdagi 🌟 ning ID'si turgan edi va
+    model "🤖" yozganda o'quvchi yulduzcha ko'rardi.
+
+    Xato bo'lsa hech narsa o'zgarmaydi: eski (config'dagi) ro'yxat
+    o'z holicha qoladi va bot ishlashda davom etadi. Ish boshlanishini
+    emoji tufayli to'xtatib bo'lmaydi.
+    """
+    if not TEXT_EMOJI_PACK:
+        return 0
+    try:
+        from core.loader import bot
+        ss = await bot.get_sticker_set(TEXT_EMOJI_PACK)
+    except Exception as e:
+        logger.warning(f"[Emoji] «{TEXT_EMOJI_PACK}» paketi o'qilmadi: {e} "
+                       f"— eski ro'yxat qoldi")
+        return 0
+
+    moslik: dict = {}
+    for st in getattr(ss, "stickers", None) or []:
+        eid = getattr(st, "custom_emoji_id", None)
+        emo = getattr(st, "emoji", None)
+        # setdefault: paketda bitta emoji ikki marta bo'lsa birinchisi
+        # qoladi, ya'ni natija har ishga tushirishda bir xil.
+        if eid and emo:
+            moslik.setdefault(emo, eid)
+    if not moslik:
+        logger.warning(f"[Emoji] «{TEXT_EMOJI_PACK}» bo'sh yoki custom "
+                       f"emoji emas — eski ro'yxat qoldi")
+        return 0
+    soni = apply_emoji_pack(moslik)
+    logger.info(f"[Emoji] «{TEXT_EMOJI_PACK}» paketi yuklandi: {soni} ta emoji")
+    return soni
 
 
 def _outside_dead_zones(text: str, fn) -> str:

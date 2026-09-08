@@ -1071,6 +1071,23 @@ TEXT_CUSTOM_EMOJI: dict[str, str] = {
 # bo'lib qoladi (uzunlik va vizual shovqin chegarasi).
 TEXT_CUSTOM_EMOJI_MAX: int = 12
 
+# AI javobidagi emojilarni animatsiyali nusxasiga almashtiradigan paket
+# (t.me/addemoji/<nom> dagi nom). Ish boshlanishida BIR MARTA o'qiladi.
+#
+# ⚠️ YUQORIDAGI QO'LDA YOZILGAN ID'LARGA TEGMAYDI: CUSTOM_EMOJI aniq
+# joylarda (tugma, tizim xabari) ishlatiladi va o'z holicha qoladi.
+# Paket faqat model erkin yozgan emojilar uchun.
+#
+# NEGA PAKET NOMI, QO'LDA RO'YXAT EMAS: paketdagi har bir stiker o'zi
+# qaysi oddiy emojiga tegishli ekanini aytadi, ya'ni moslikni Telegram
+# tuzadi. Qo'lda yozilganda xato bo'lgan — 🤖 uchun boshqa paketdagi
+# 🌟 ning ID'si turgan va model "🤖" yozganda o'quvchi yulduzcha
+# ko'rgan.
+#
+# Bo'sh qoldirilsa yoki paket o'qilmasa — yuqoridagi ro'yxat ishlaydi,
+# ya'ni xatti-harakat o'zgarmaydi.
+TEXT_EMOJI_PACK: str = os.getenv("TEXT_EMOJI_PACK", "RestrictedEmoji")
+
 # Xabar effektlari (faqat SHAXSIY chatda ishlaydi — guruhda xato beradi,
 # shuning uchun yuborishda progressiv fallback bor).
 MESSAGE_EFFECTS: dict[str, str] = {
