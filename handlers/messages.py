@@ -712,6 +712,22 @@ STATUS_TEXTS_BY_TYPE: dict[str, list[str]] = {
         "Eng so'nggi ma'lumotlar tekshirilmoqda",
         "Natijalar tahlil qilinmoqda",
     ],
+    # /research — botdagi ENG UZUN amal (2-5 daqiqa). Ilgari u oddiy
+    # "search" ro'yxatidan foydalanardi: to'rtta ibora ~10 soniyada bir
+    # aylanib, uch daqiqa davomida o'ttiz marta takrorlanardi va ekran
+    # qotib qolgandek ko'rinardi. Bu yerda bosqichlar ko'p va ular
+    # haqiqiy quvurga mos: reja -> manbalar -> o'qish -> taqqoslash ->
+    # xulosa -> hisobot.
+    "research": [
+        "Tadqiqot rejasi tuzilmoqda",
+        "Manbalar qidirilmoqda",
+        "Topilgan manbalar o'qilmoqda",
+        "Ma'lumotlar solishtirilmoqda",
+        "Qarama-qarshi da'volar tekshirilmoqda",
+        "Raqamlar va sanalar aniqlanmoqda",
+        "Xulosalar shakllantirilmoqda",
+        "Hisobot yozilmoqda",
+    ],
     "file_task": [
         "Vazifa tahlil qilinmoqda",
         "Kod tayyorlanmoqda",
@@ -752,6 +768,7 @@ EMOJI_ID_BY_TYPE: dict[str, str] = {
     # emoji ID kerak bo'lsa, uni CUSTOM_EMOJI ga qo'shib shu yerga ulang.
     "file_task": CUSTOM_EMOJI["document"],
     "image": CUSTOM_EMOJI["photo"],
+    "research": CUSTOM_EMOJI["search"],
 }
 
 
@@ -1140,7 +1157,12 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                 elif "memory" in chunk:
                     active_type = "memory"
                 elif "search" in chunk:
-                    active_type = "search"
+                    # ⚠️ /research O'Z holatini saqlaydi. Uning ichida
+                    # o'nlab qidiruv ketadi va har biri statusni umumiy
+                    # "qidiruv"ga tushirsa, 2-5 daqiqalik tadqiqot
+                    # oddiy savoldan farq qilmay qolardi.
+                    if content_type != "research":
+                        active_type = "search"
                 # ⚠️ ANIMATSIYANI QAYTA YOQAMIZ. Model tool chaqirishdan
                 # OLDIN matn yozgan bo'lsa (odatiy hol: "hozir
                 # qidiraman..."), animatsiya allaqachon to'xtagan va
@@ -2117,7 +2139,7 @@ async def handle_research(message: Message, state: FSMContext,
             research=True,
         )
         full_reply = await process_stream_draft(message, stream_gen,
-                                                content_type="search", images=images)
+                                                content_type="research", images=images)
 
         if output_files:
             await _send_output_files(chat_id, output_files)

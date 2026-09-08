@@ -114,4 +114,18 @@ fm = FloodMessage()
 check(8, "429 dan keyin tahrirlash qayta uriniladi",
       asyncio.run(m._edit_message_fallback(fm, "matn")) == "OK")
 
-print("\nHammasi o'tdi: 8/8")
+# ── 5. Har jarayonning O'Z status matni bor ─────────────────────
+# /research botdagi eng uzun amal (2-5 daqiqa). Ilgari u "search"
+# ro'yxatini ishlatardi: to'rtta ibora ~10 soniyada aylanib, uch daqiqa
+# davomida o'ttiz marta takrorlanardi va ekran qotgandek ko'rinardi.
+check(9, "har bir jarayon turi uchun status matni bor",
+      m.STATUS_TEXTS_BY_TYPE.keys() >= {
+          "text", "photo", "document", "voice", "search",
+          "file_task", "image", "reminder", "memory", "research"})
+check(10, "tadqiqot bosqichlari qidiruvnikidan ko'p",
+      len(m.STATUS_TEXTS_BY_TYPE["research"])
+      > len(m.STATUS_TEXTS_BY_TYPE["search"]))
+check(11, "har bir status turida emoji bor",
+      all(t in m.EMOJI_ID_BY_TYPE for t in m.STATUS_TEXTS_BY_TYPE))
+
+print("\nHammasi o'tdi: 11/11")
