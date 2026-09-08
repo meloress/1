@@ -50,6 +50,21 @@ REASONING_EFFORT_DEFAULT: str = "low"
 REASONING_EFFORT_SIMPLE: str = "none"      # salom, "rahmat", bir og'iz savol
 REASONING_EFFORT_COMPLEX: str = "medium"   # matematika, fizika, kod, tahlil
 REASONING_EFFORT_MAX: str = "high"         # foydalanuvchi /think buyrug'ini bersa
+# ── PROMPT CACHING ──────────────────────────────────────────────────
+# Kesh kaliti prefiksi. To'liq kalit: "<prefiks>-free" / "<prefiks>-pro".
+PROMPT_CACHE_KEY_PREFIX: str = "tramplin"
+# Keshning saqlanish muddati: None = standart (bir necha daqiqa),
+# "24h" = prefiks bir kun saqlanadi.
+#
+# ⚠️ NEGA STANDART O'CHIQ: "24h" bizning trafigimizga juda mos —
+# instructions kun aniqligida yozilgan, ya'ni sutkasiga bir marta
+# keshlansa yetardi va tunги tanaffusdan keyin ham "sovumas" edi.
+# LEKIN keshga YOZISH narxi qimmatroq, va bepul kunlik grant buni
+# qanday hisoblashi OpenAI hujjatida yozilmagan (support ham
+# "telemetriyangiz bilan tekshiring" dedi). Yoqishdan oldin
+# `[TOKEN]` logidagi kesh foizini o'lchang: standart sozlamada
+# 70%+ chiqsa, "24h" ning qo'shimcha narxiga arzimaydi.
+PROMPT_CACHE_RETENTION: Optional[str] = None
 REASONING_MODE: str = "standard"
 REASONING_SUMMARY: Optional[str] = None
 REASONING_CONTEXT: str = "auto"
@@ -654,6 +669,23 @@ def build_request_params(
             "reasoning_effort": effort,
             "max_completion_tokens": MAX_OUTPUT_TOKENS,  # max_tokens EMAS!
         }
+
+    if USE_RESPONSES_API:
+        # Kesh kaliti — bir xil PREFIKSli so'rovlarni bitta joyga
+        # yo'naltiradi va OpenAI hujjatiga ko'ra keshdan foydalanishning
+        # ko'zlangan usuli.
+        #
+        # ⚠️ FOYDALANUVCHI BO'YICHA EMAS, TARIF BO'YICHA. Keshlanadigan
+        # prefiks = instructions + tool sxemalari. Instructions kun
+        # aniqligida yozilgan, ya'ni hamma foydalanuvchida bir xil;
+        # farq faqat tool ro'yxatida (Pro'da fayl/rasm/eslatma ham bor).
+        # Har userga alohida kalit berilsa kesh ulashilmay, butun foyda
+        # yo'qolardi — 10 ta faol foydalanuvchining har biri o'ziga
+        # alohida kesh "isitib" yurardi.
+        params["prompt_cache_key"] = (
+            f"{PROMPT_CACHE_KEY_PREFIX}-{'pro' if is_pro else 'free'}")
+        if PROMPT_CACHE_RETENTION:
+            params["prompt_cache_retention"] = PROMPT_CACHE_RETENTION
 
     # Sampling parametrlari faqat qo'llab-quvvatlanadigan modelda qo'shiladi.
     if SUPPORTS_SAMPLING_PARAMS:
