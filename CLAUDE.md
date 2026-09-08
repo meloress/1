@@ -24,13 +24,17 @@ Two of them are structural guards rather than feature tests, and both are worth 
 
 ## Deploy
 
-⚠️ **Both the Railway account and the git remote moved (2026-09-08). Ask the user for the current project / environment / service IDs and which repo the service points at before deploying — do not reuse the old ones.** What follows is the *mechanism*, which has not changed.
+**`git push meloress main` deploys.** The Railway service is connected to GitHub, so a push to `git@github.com:meloress/1.git` (remote `meloress`) triggers the build by itself — no API call, no token. `origin` still points at `afiffamily/1`, where this account has **no write access** (403), so never push there.
 
-- Pushes now go to `git@github.com:meloress/1.git` (remote `meloress`). `origin` still points at `afiffamily/1`, where this account has **no write access** (403).
-- **This Railway account has no GitHub connection**, which has two consequences: `git push` does *not* trigger a deploy, and a plain deploy call rebuilds the snapshot taken when the service was created, i.e. old code.
-- Deploys must name the commit explicitly via the Railway GraphQL API:
+Both the account and the remote moved on 2026-09-08; the GraphQL path below is history, kept only in case the GitHub connection is removed again.
+
+- Without a GitHub connection, `git push` does *not* deploy and a plain deploy call rebuilds the snapshot taken when the service was created, i.e. old code. Deploys then have to name the commit explicitly:
   `serviceInstanceDeployV2(serviceId, environmentId, commitSha)` against `https://backboard.railway.com/graphql/v2` with a team token (`Authorization: Bearer`, and a real `User-Agent` — Cloudflare answers `403 error code: 1010` to the default urllib one). Railway fetches the commit from the repo, so **the service must point at the repo that actually has that commit, and it must be public**. The `up` endpoint (local tarball upload) fails on this account.
 - Never ask for a token in chat. Have the user put it in `RAILWAY_TOKEN` and read it from the environment without echoing it.
+
+### Token budget
+
+The bot runs on a free daily grant (2.5M tokens/day for `gpt-5.6-luna`), and measured live traffic uses roughly half of it on an average day and **over 100% on a busy one** — the model then silently falls through `MODEL_FALLBACKS`. Nearly all of that is fixed overhead, not user text: the system prompt is ~5 300 tokens, tool schemas ~1 200, history ~4 000, while the median user message is **31 characters**. So the lever is prompt caching, not shorter answers, and `_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round so the cached share is visible in the Railway log. A drop in that percentage means something made the request prefix vary — check whether anything per-user reached `instructions`, or whether the tool array changed between rounds.
 
 ## Architecture
 

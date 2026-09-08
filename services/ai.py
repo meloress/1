@@ -1554,6 +1554,36 @@ async def _open_response_stream(stack: AsyncExitStack, candidate_models: List[st
     raise last_err
 
 
+def _log_token_usage(resp, model: str, raund) -> None:
+    """Bitta chaqiruvning token sarfini logga yozadi — keshi bilan birga.
+
+    ⚠️ NEGA KERAK: kunlik bepul grant qancha yeyilayotganini boshqa
+    hech qayerdan bilib bo'lmaydi. Eng muhimi — KESHLANGAN ulush:
+    tizim prompti (~5 300 token) kun aniqligida yozilgan, ya'ni kun
+    bo'yi bir xil bo'lib keshdan kelishi KERAK. Kelmayotgan bo'lsa,
+    demak so'rov boshi har safar o'zgarib turibdi va biz o'sha 5 300
+    tokenni har xabarda to'liq to'layapmiz. Bu farqni faqat shu raqam
+    ko'rsatadi.
+
+    Hech qachon xato tashlamaydi: hisobot javobni buzmasligi kerak.
+    """
+    try:
+        u = getattr(resp, "usage", None)
+        if u is None:
+            return
+        kirish = getattr(u, "input_tokens", 0) or 0
+        chiqish = getattr(u, "output_tokens", 0) or 0
+        tafsilot = getattr(u, "input_tokens_details", None)
+        keshdan = getattr(tafsilot, "cached_tokens", 0) or 0
+        ulush = f"{keshdan * 100 // kirish}%" if kirish else "—"
+        logger.info(
+            f"[TOKEN] {model} raund={raund} kirish={kirish} "
+            f"(keshdan {keshdan} = {ulush}) chiqish={chiqish} "
+            f"jami={kirish + chiqish}")
+    except Exception:
+        pass
+
+
 async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *,
                            model: Optional[str] = None, is_pro: bool = False,
                            user_id: Optional[int] = None,
@@ -1625,7 +1655,8 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
                       and getattr(event.item, "type", None) == "function_call"
                       and getattr(event.item, "name", None) == "update_memory"):
                     memory_calls.append(event.item)
-            await stream.get_final_response()
+            _log_token_usage(await stream.get_final_response(),
+                             _resolved_model, "vision")
     except Exception as e:
         logger.error(f"Vision API xatosi: {e}")
         raise
@@ -3123,6 +3154,8 @@ async def get_openai_reply(
                             pending_calls.append(event.item)
 
                     final_response = await stream.get_final_response()
+                    _log_token_usage(final_response, resolved_model,
+                                     total_rounds + 1)
                 break
             except RateLimitError as e:
                 if _urinish or _matn_ketdi:

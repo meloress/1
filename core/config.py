@@ -627,8 +627,10 @@ def build_request_params(
     effort = pick_reasoning_effort(user_text, force_deep=force_deep)
     if is_pro:
         effort = upgrade_effort_for_pro(effort)
-    # Pro kuchliroq modelni oladi (250k bepul chelak), bepul tarif esa
-    # kattaroq 2.5M chelakdagi mini modelni. Ikkalasi ham bepul ro'yxatda.
+    # ⚠️ HOZIR IKKALASI HAM `gpt-5.6-luna` — ya'ni tarif model tanlashga
+    # ta'sir qilmaydi, farq faqat reasoning darajasida (yuqoridagi
+    # upgrade_effort_for_pro). Ajratish mexanizmi shu yerda tayyor turibdi:
+    # GPT_MODEL_PRO ni o'zgartirish yetarli, boshqa joyga tegish shart emas.
     chosen_model = model or (GPT_MODEL_PRO if is_pro else GPT_MODEL)
 
     if USE_RESPONSES_API:
