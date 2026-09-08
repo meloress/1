@@ -24,7 +24,17 @@ handlers/                    Telegram voqealariga javob beruvchi qatlam
   messages.py                matn, rasm, hujjat, ovoz
   callbacks.py               tugma bosishlari (qayta urinish)
   guest.py                   guest mode (bot a'zo bo'lmagan chatlarda)
-  admin.py                   admin panel
+  admin/                     admin panel (paket)
+    __init__.py              FAQAT handlerlarni ro'yxatdan o'tkazish
+    common.py                qo'riqchilar va umumiy yordamchilar
+    broadcast.py             ommaviy xabar
+    promo.py                 promokod, referal, "Bepul Pro"
+    users.py                 ro'yxat, kartochka, ban/premium, to'lov
+    stats.py                 statistika va faol foydalanuvchilar
+    system.py                texnik ta'til, kuzatish, adminlar, report
+    journal.py               audit, xatolar, daromad, limitlar
+    menu.py                  klaviatura ostidagi inline menyular
+    daily.py                 kunlik hisobot, rejali tarqatma (fonda)
   profile.py                 /profile
   helpers.py                 handlerlar uchun yordamchilar
                              (xatolik xabari, kuzatuv, kunlik pin)
@@ -70,7 +80,7 @@ python services/sandbox_helpers/xledit.py     # Excel tahriri
 ## Faollik turlari
 
 Admin statistikasi `user_activity` jadvaliga tayanadi. Kod yozadigan
-har bir tur `handlers/admin.py` dagi SQL filtri va `type_labels` da
+har bir tur `handlers/admin/stats.py` dagi SQL filtri va `type_labels` da
 bo'lishi shart — aks holda u statistikada ko'rinmay qoladi.
 `tests/test_activity_tracking.py` shuni qo'riqlaydi.
 

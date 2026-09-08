@@ -12,6 +12,9 @@ tests/test_admin_registry.py bu tartibni qo'riqlaydi.
 
 from aiogram import F
 
+from handlers.admin.menu import (
+    menu_callback, show_settings_menu, show_users_menu,
+)
 from handlers.admin.journal import (
     LimitStates, journal_callback, process_limit_value,
     show_journal_menu,
@@ -67,6 +70,11 @@ def register_admin_handlers(dp, bot=None):
     Parametr `main.py` ni o'zgartirmaslik uchun qoldirilgan.
     """
     dp.message.register(start_broadcast, F.text == '📢 Xabar yuborish')
+    dp.message.register(show_users_menu, F.text == '👥 Foydalanuvchilar')
+    dp.message.register(show_settings_menu, F.text == "⚙️ Sozlamalar")
+    # ⚠️ Quyidagi oltita matnli tugma klaviaturadan olib tashlandi, lekin
+    # handleri ATAYLAB qoldirildi: adminning telefonida ochiq turgan eski
+    # klaviatura /start bosilgunicha ishlashda davom etsin.
     dp.message.register(handle_top, F.text == '🏆 Faol foydalanuvchilar')
     dp.message.register(handle_users_command, F.text == '📊 Statistika')
     dp.message.register(handle_users_list, F.text == "📄 Userlar ro'yxati")
@@ -127,3 +135,4 @@ def register_admin_handlers(dp, bot=None):
     dp.callback_query.register(giveaway_callback, lambda q: q.data and q.data.startswith("gv:"))
     dp.callback_query.register(broadcast_later_callback, lambda q: q.data == "bcast:later")
     dp.callback_query.register(journal_callback, lambda q: q.data and q.data.startswith("jr:"))
+    dp.callback_query.register(menu_callback, lambda q: q.data and q.data.startswith("am:"))

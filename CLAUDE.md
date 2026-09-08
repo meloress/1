@@ -20,15 +20,17 @@ No test framework, no linter, no build step. Each `tests/test_*.py` is a standal
 
 Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is the slow one.
 
+Two of them are structural guards rather than feature tests, and both are worth running after any move or rename: `test_admin_registry.py` (every admin handler still registered, in order) and `test_activity_tracking.py` (which reads handler source **by file path**).
+
 ## Deploy
 
-Railway, project `amused-endurance`, service `bot`. **This Railway account has no GitHub connection**, which has two consequences:
+⚠️ **Both the Railway account and the git remote moved (2026-09-08). Ask the user for the current project / environment / service IDs and which repo the service points at before deploying — do not reuse the old ones.** What follows is the *mechanism*, which has not changed.
 
-- `git push` does *not* trigger a deploy.
-- A plain deploy call rebuilds the snapshot taken when the service was created, i.e. old code.
-
-Deploys must name the commit explicitly via the Railway GraphQL API:
-`serviceInstanceDeployV2(serviceId, environmentId, commitSha)` against `https://backboard.railway.com/graphql/v2` with a team token. The repo `afiffamily/1` is public, so Railway fetches it without GitHub auth. The `up` endpoint (local tarball upload) fails on this account. Connecting GitHub in Railway settings would remove all of this.
+- Pushes now go to `git@github.com:meloress/1.git` (remote `meloress`). `origin` still points at `afiffamily/1`, where this account has **no write access** (403).
+- **This Railway account has no GitHub connection**, which has two consequences: `git push` does *not* trigger a deploy, and a plain deploy call rebuilds the snapshot taken when the service was created, i.e. old code.
+- Deploys must name the commit explicitly via the Railway GraphQL API:
+  `serviceInstanceDeployV2(serviceId, environmentId, commitSha)` against `https://backboard.railway.com/graphql/v2` with a team token (`Authorization: Bearer`, and a real `User-Agent` — Cloudflare answers `403 error code: 1010` to the default urllib one). Railway fetches the commit from the repo, so **the service must point at the repo that actually has that commit, and it must be public**. The `up` endpoint (local tarball upload) fails on this account.
+- Never ask for a token in chat. Have the user put it in `RAILWAY_TOKEN` and read it from the environment without echoing it.
 
 ## Architecture
 
@@ -108,6 +110,34 @@ A collapsible section is the one construct the model does not write itself: it w
 
 A part cut to the rich size cannot be handed to the plain fallback as-is: when a rich message is rejected, the part is re-split with `MAX_PLAIN_CHARS` before `_answer_plain()`. Skipping that loses the whole answer — worse than the small limit it replaced. `push_update()` likewise trims the draft (rich) and the plain waiting message to different limits, since the draft can degrade to the latter mid-stream.
 
+### A code fence in the `markdown` field breaks Telegram Web
+
+Telegram turns ` ``` ` in a rich message's `markdown` field into the new **copyable code block** content type, which Web-K reports as `messageMediaUnsupported` — the reader sees "This message is not supported on Telegram Web" *instead of the whole answer*. Mobile and desktop render it fine, so this only shows up on the web client. `code_fences_to_html()` (`services/ai.py`) rewrites every fence to `<pre><code class="language-…">`, which is plain text plus `MessageEntityPre` and renders everywhere. It is called from `_protect_spans()` (so the later table/date/emoji passes never see the code), from the streaming draft, and from the two guest rich payloads — but **not** on the plain `text` fallback, which goes out with `parse_mode="Markdown"` and needs the fence intact.
+
+Code longer than `LONG_CODE_LINES` (30) leaves the message entirely: `_extract_long_code()` pulls it out, `_send_output_files()` sends it as `kod_1.py`, and the text keeps a one-line note. The **original** text with the code still goes to history (`history_text`), otherwise "now change that code" would have nothing to work with.
+
+### One request per user, and messages queue instead of vanishing
+
+Telegram splits a message over 4096 chars into several updates, so every incoming text goes through the debounce buffer in `core/memory.py` (`text_merge_buffers`, per-chat `asyncio.Lock`) and is merged after `TEXT_MERGE_WAIT` (1.5s) — joined with `"\n"`, since the parts may equally be separate messages. The old "short first message goes through instantly" shortcut was removed: it turned three quick messages into three independent requests, the first of which then locked out the other two.
+
+While a reply is generating, `busy_handler` (`GeneratingState.generating`) **appends to that same buffer** and `_process_merged_text`'s `finally` block starts it once the state is cleared — order matters, or the queued message re-enters the busy state and loops. Commands and media keep the old "please wait" behaviour: a queued `/pro` would be sent to GPT as a question. `TEXT_MERGE_BUFFER_TTL` is 600s because the buffer now has to survive a whole generation, not just a 1.5s timer.
+
+`_next_or_stop()` enforces `STREAM_IDLE_TIMEOUT` (180s) — an **idle** limit, not a total one. A file task or a deep research legitimately goes minutes without emitting a chunk, and a total budget would kill exactly the work that needs it. On timeout a partial answer is still delivered (with a note); with nothing at all it raises, and the caller's existing `except` gives the user a clean error plus the retry button and refunds the points.
+
+### Live streaming: what a rejected draft means
+
+`push_update()` writes the accumulating answer to a `sendRichMessageDraft`, throttled to `PUSH_INTERVAL` (1.0s) **and** `PUSH_MIN_CHARS` (100) — with the first chunk forced through, because the wait is felt at the start. Editing per chunk earns a 429 and freezes the stream.
+
+A failed draft ping is **not** proof the draft is unusable. `rich_draft_ok` records whether any draft (animation frame or content push) ever succeeded: if one has, a rejection is treated as a temporary flood-wait and retried (`RICH_DRAFT_FAILURE_LIMIT`); if none ever has, the path is abandoned immediately so the user gets the plain waiting message without delay. `_edit_message_fallback()` handles `TelegramRetryAfter` itself instead of swallowing it with every other exception.
+
+The status animation is **restarted** when a `[STATUS]` chunk arrives after text has already streamed — the model often writes "let me search…" first, which stops the animator, and the screen then sat frozen on stale text for the 20-60s the tool ran. `/research` has its own eight-stage status list; `[STATUS]search` from inside it must not overwrite it.
+
+### The model must not name its own tools
+
+The system prompt has a `CONFIDENTIAL` section, but a prompt rule is not a guarantee — in a live test the bot correctly refused to print the system prompt and then listed `internet_search`, `run_python_sandbox`, … anyway. `strip_internal_names()` (`services/ai.py`) is the second layer: it replaces the real names from `INTERNAL_TOOL_NAMES` (`core/config.py`, the single list) with neutral Uzbek descriptions, on the final text, on the streaming draft, and in the guest path. It deliberately scrubs code blocks too — "list your tools as a python list" is exactly the way around it. `tests/test_no_tool_leak.py` asserts the list matches the actual tool schemas, so a new tool fails the test until it is added.
+
+The prompt also carries a phishing/social-engineering section that fixes the *shape* of the answer (fake placeholders, a visible simulation label, red flags instead of a ready-to-send message) while explicitly forbidding over-refusal of ordinary security questions. `tests/test_safety_prompt.py` only guards that the section still exists — the wording is not asserted.
+
 ### Prompt caching constrains where text goes
 
 `build_system_prompt()` is written to day precision so the prefix is identical all day and prompt caching works. Anything per-user (long-term memory, the user's name) goes into `messages` as a `developer` message, **never** into `instructions`. Putting user-specific text in the system prompt silently destroys the cache for everyone.
@@ -126,6 +156,8 @@ A part cut to the rich size cannot be handed to the plain fallback as-is: when a
 `unlimited=True` means "nothing was deducted, do not refund" (admin/premium). Returning it for Pro would break every refund guard — `tests/test_plan_limits.py` asserts this.
 
 Adding a new counter = one row in `DAILY_COUNTERS` + two DB columns. Nothing else.
+
+`daily_limit()` in `core/config.py` is the **single read point** for every limit — quota code, the file/image/research counters and the admin screen all go through it. That is why the admin-editable limits sit there as an in-memory `_LIMIT_OVERRIDES` dict rather than a DB read: `daily_limit()` runs on every message. `bot_settings.limit_overrides` (JSONB) is loaded once at startup via `apply_limit_overrides()` and refreshed when an admin changes a value; `NULL`/missing means "use `PLAN_LIMITS`", so an unconfigured bot behaves exactly as before and needs no migration. Anything that reads `PLAN_LIMITS` directly bypasses the override and will silently disagree with the panel.
 
 ### Model output is an untrusted boundary
 
@@ -146,9 +178,27 @@ History used to live in SQLite; Railway wipes the container filesystem on every 
 
 `handlers/guest.py` handles chats outside DMs via `guest_message`. It passes `caller_user_id` as **both** `chat_id` and `user_id`, so a person has one identity and one memory whether they write in a group or in the DM. Quota is charged to that user. Reminders are delivered to the DM regardless of where they were created.
 
-### Activity types must be registered twice
+### The admin panel is a package, and its registration order is the contract
 
-Anything written to `user_activity` must also appear in the SQL filter and `type_labels` in `handlers/admin.py`, or it silently vanishes from admin statistics. `tests/test_activity_tracking.py` guards this.
+`handlers/admin/` — `common.py` (guards + helpers used by more than one screen), `broadcast.py`, `promo.py`, `users.py`, `stats.py`, `system.py`, `journal.py` (audit / errors / revenue / limits / scheduled broadcasts / inactive users), `menu.py` (the inline menus behind the reply keyboard), `daily.py` (the two background watchers), and `__init__.py`, which does **nothing but register handlers**. It was one 2671-line file with a 2200-line function inside it.
+
+The reply keyboard is four buttons; the other ten screens live in inline menus under `👥 Foydalanuvchilar` and `⚙️ Sozlamalar`. Their **text handlers are still registered** — an admin's phone keeps the old keyboard until the next `/start`. A screen takes `Message` and reads the admin's id from `message.from_user`, but in a callback `query.message` is the *bot's* message, so `menu.py` dispatches through `query.message.model_copy(update={"from_user": query.from_user})`; without that swap every button answers "faqat admin uchun". Whether a screen also gets `state` is read from its signature, not a hand-kept list.
+
+Three things survived the split and must keep surviving:
+
+1. **Registration order in `__init__.py` is functional.** FSM states go *after* the button handlers (otherwise an admin stuck in the promo state cannot press anything else), and `waiting_for_button` / `waiting_for_recipients` / `waiting_for_schedule` go *before* `waiting_for_content` (otherwise the button label an admin types is swallowed as "new broadcast content").
+2. **The admin check lives inside each handler, not in a filter** — because `report_callback` and `process_report_message` are deliberately open to ordinary users.
+3. **`bot` comes from `core.loader`**, not from a closure; no handler touches `dp`.
+
+`tests/test_admin_registry.py` pins the full list — name, kind and order — of every registered handler. It is the safety net for any further reshuffling: it caught all five new registrations the moment they were added. Update the expected list deliberately, never to "make it pass".
+
+Anything written to `user_activity` must also appear in the SQL filter and `type_labels` in `handlers/admin/stats.py`, or it silently vanishes from admin statistics. `tests/test_activity_tracking.py` guards this — and note it reads that file **by path**, so moving the code means updating the test.
+
+The panel spends **zero AI tokens**: no module under `handlers/admin/` calls `services.ai`, and `non_admin_predicate` in `main.py` keeps admins out of the AI handlers entirely.
+
+### Errors reach the admin through one funnel
+
+`send_error_with_retry()` (`handlers/helpers.py`) is the only path a user-visible failure takes, so that is where `db.log_error()` writes to the `error_log` table — the "⚠️ Xatolar" screen reads it. Adding a second logging site elsewhere splits the picture; pass a `kind` instead (`"timeout"`, `"matn"`, …). The table trims itself on write (`ERROR_LOG_KEEP`).
 
 ### Premium emoji in the answer text
 

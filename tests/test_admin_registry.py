@@ -37,6 +37,10 @@ dp = _FakeDp()
 admin_module.register_admin_handlers(dp, object())
 KUTILGAN = [
     ("message", "start_broadcast", 1),
+    ("message", "show_users_menu", 1),
+    ("message", "show_settings_menu", 1),
+    # Klaviaturadan olib tashlangan, lekin eski klaviatura uchun
+    # qoldirilgan matnli tugmalar — quyidagi oltitasi.
     ("message", "handle_top", 1),
     ("message", "handle_users_command", 1),
     ("message", "handle_users_list", 1),
@@ -86,6 +90,7 @@ KUTILGAN = [
     ("callback", "giveaway_callback", 1),
     ("callback", "broadcast_later_callback", 1),
     ("callback", "journal_callback", 1),
+    ("callback", "menu_callback", 1),
 ]
 
 if dp.calls != KUTILGAN:

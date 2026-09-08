@@ -1,5 +1,10 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
+# To'rt tugma — ilgari 12 ta edi. Qolganlari yo'qolmadi: ular shu
+# to'rttaning ostidagi inline menyularda (handlers/admin/menu.py va
+# journal.py). Reply-klaviatura ekranning yarmini egallardi va yangi
+# admin o'xshash to'rtta tugmadan qaysi biri nima qilishini
+# topolmasdi.
 admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
@@ -10,39 +15,20 @@ admin_keyboard = ReplyKeyboardMarkup(
             KeyboardButton(text='📢 Xabar yuborish'),
         ],
         [
-            KeyboardButton(text='🏆 Faol foydalanuvchilar'),
-            KeyboardButton(text='📊 Statistika')
+            # Statistika, faol foydalanuvchilar, ro'yxat va bitta
+            # foydalanuvchini boshqarish — hammasi "kim botdan
+            # foydalanmoqda" savoli.
+            KeyboardButton(text='👥 Foydalanuvchilar'),
         ],
         [
-            KeyboardButton(text="➖ Admin o'chirish"),
-            KeyboardButton(text="➕ Admin qo'shish")
-        ],
-        [
-            KeyboardButton(text="📄 Userlar ro'yxati"),
-            KeyboardButton(text="🔍 Foydalanuvchini boshqarish")
-        ],
-        [
-            KeyboardButton(text="🛠 Texnik ta'til"),
-            KeyboardButton(text="👁 Kuzatish")
-        ],
-        [
-            KeyboardButton(text="🎁 Bepul Pro"),
-            KeyboardButton(text="👥 Referal sharti"),
-        ],
-        [
-            # Audit, xatolar, daromad, limitlar va rejalashtirilgan
-            # tarqatmalar — hammasi shu tugma ostidagi inline menyuda.
-            # Alohida tugma qilinmadi: reply-klaviatura allaqachon
-            # to'lgan va yangi admin qaysi tugma nima qilishini
-            # topolmay qolardi.
+            # Audit, xatolar, daromad, limitlar, rejalashtirilgan
+            # tarqatmalar va faol emas foydalanuvchilar.
             KeyboardButton(text="📋 Jurnal va sozlamalar"),
+        ],
+        [
+            # Bepul Pro, referal sharti, texnik ta'til, kuzatish va
+            # adminlar ro'yxati — botning o'zini sozlash.
+            KeyboardButton(text="⚙️ Sozlamalar"),
         ],
     ], resize_keyboard=True, one_time_keyboard=False
 )
-
-
-
-
-
-
-
