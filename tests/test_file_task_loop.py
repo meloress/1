@@ -253,6 +253,7 @@ async def main():
     )
     tool_names = [t["name"] for t in (captured_tools[0] or [])]
     assert "run_python_sandbox" not in tool_names, tool_names
+    assert "start_file_task" not in tool_names, tool_names
     assert "internet_search" in tool_names, tool_names
     assert db.charges == [], "guest rejimda kvota yechilmasligi kerak"
     print("[5] guest rejim -> fayl tool'i biriktirilmadi OK")
@@ -270,8 +271,11 @@ async def main():
         input_bytes=b"xom-baytlar",
         input_name="maktab.xls",
     )
+    # Fayl imkoniyati ikki bosqichli: avval arzon `start_file_task`
+    # biriktiriladi, to'liq `run_python_sandbox` esa model uni
+    # chaqirgandan keyin. Bu yerda MUHIMI — imkoniyat borligi.
     tool_names = [t["name"] for t in (captured_tools[0] or [])]
-    assert "run_python_sandbox" in tool_names, tool_names
+    assert "start_file_task" in tool_names, tool_names
     assert sbx.calls[0][1] == b"xom-baytlar", sbx.calls[0]
     assert sbx.calls[0][2] == "maktab.xls", sbx.calls[0]
     print("[6] kirish fayli sandbox'ga uzatildi OK")
@@ -327,7 +331,8 @@ async def main():
     assert out_files == [("d.pdf", b"%PDF")], f"fayl yaratilmadi: {out_files}"
     # 4-chaqiriqda qidiruv byudjeti tugagan, lekin fayl tool'i hali biriktirilgan
     names_4 = [t["name"] for t in (captured_tools[3] or [])]
-    assert "run_python_sandbox" in names_4, names_4
+    assert ("run_python_sandbox" in names_4
+            or "start_file_task" in names_4), names_4
     assert "internet_search" not in names_4, f"qidiruv byudjeti tugashi kerak edi: {names_4}"
     print("[8] qidiruv fayl byudjetini yemaydi OK")
 

@@ -268,7 +268,8 @@ async def main():
     )
     assert "generate_image" not in _tool_names(0), (
         f"KRITIK: bepul foydalanuvchiga rasm tool'i berildi: {_tool_names(0)}")
-    assert "run_python_sandbox" in _tool_names(0), "fayl tool'i qolishi kerak"
+    # Fayl imkoniyati ikki bosqichli — birinchi raundda arzon "eshik".
+    assert "start_file_task" in _tool_names(0), "fayl tool'i qolishi kerak"
     assert db.charges == [], "bepulda hech qanday sanoq yechilmasligi kerak"
     print("[8] bepul tarifda rasm tool'i biriktirilmadi OK")
 

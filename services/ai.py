@@ -2235,6 +2235,40 @@ _DOC_DESIGN_GUIDE = (
 # berilganda) biriktiriladi. Guest rejimda, masalan, biriktirilmaydi —
 # u yerda hujjat yuborib bo'lmaydi, shuning uchun tool'ni ko'rsatish faqat
 # behuda kod bajarilishiga olib kelardi.
+# ⚠️ `run_python_sandbox` TAVSIFI ~4 000 TOKEN — u butun maket qo'llanmasi
+# (deck qoidalari, sahifa geometriyasi, rasm qoidalari). Model kodni
+# CHAQIRUV ICHIDA yozadi, ya'ni qo'llanma unga chaqiruvdan OLDIN kerak.
+# Shuning uchun uni tavsifdan chiqarib bo'lmaydi.
+#
+# Lekin uni HAR SO'ROVGA biriktirish shart emas: bazadagi o'lchov bo'yicha
+# fayl vazifasi 1 210 so'rovdan 17 tasida (1.4%) chaqirilgan, qo'llanma esa
+# 100% ida yuborilardi — kuniga ~850 ming token, kunlik grantning uchdan
+# biri. Endi avval SHU kichkina tool biriktiriladi (~150 token) va model
+# o'zi "fayl kerak" desa, keyingi raundda to'liq tool keladi.
+#
+# Narxi: fayl so'ralganda BITTA qo'shimcha raund. Kuniga 1-2 marta
+# ~12 ming token — tejalgan 850 mingga nisbatan hech narsa.
+_FILE_INTENT_TOOL = {
+    "type": "function",
+    "name": "start_file_task",
+    "description": (
+        "Foydalanuvchiga HAQIQIY FAYL kerak bo'lganda shuni chaqiring: "
+        "taqdimot (PPTX), hujjat (DOCX/PDF), jadval (XLSX), diagramma "
+        "rasmi, yoki yuborilgan faylni tahrirlash. Bu fayl yasovchi "
+        "asbobni va uning maket qo'llanmasini biriktiradi — kodni "
+        "KEYINGI qadamda yozasiz.\n"
+        "Argumentsiz chaqiring va oldidan hech narsa yozmang.\n"
+        "⛔️ Chatda RASM ko'rsatish uchun EMAS — u `internet_search` "
+        "(want_images=true).\n"
+        "⛔️ Kodni shunchaki matn sifatida ko'rsatish uchun EMAS."
+    ),
+    "parameters": {
+        "type": "object", "properties": {},
+        "required": [], "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 _FILE_TASK_TOOL = {
     "type": "function",
     "name": "run_python_sandbox",
@@ -2362,7 +2396,11 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
     bor = [_TOOLS[0]["name"]]                     # internet_search — doim
     yoq: list[str] = []
     for shart, tool, sabab in (
-        (file_task_enabled, _FILE_TASK_TOOL, "not available in this chat type"),
+        # ⚠️ Biriktirilgan asbob `start_file_task` (arzon "eshik"), fayl
+        # qurish esa uning ortida. Manifest CHAQIRILADIGAN nomni aytishi
+        # kerak — `run_python_sandbox` deb yozilsa model mavjud bo'lmagan
+        # asbobni chaqirib, chaqiruv veb qidiruvga tushib ketardi.
+        (file_task_enabled, _FILE_INTENT_TOOL, "not available in this chat type"),
         (image_enabled, _IMAGE_TOOL, "Pro only"),
         (memory_enabled, _MEMORY_TOOL, "needs a known user"),
         (reminder_enabled, _REMINDER_TOOL, "Pro only"),
@@ -3215,6 +3253,10 @@ async def get_openai_reply(
 
     search_rounds = 0
     file_rounds = 0
+    # Model `start_file_task` ni chaqirgach True bo'ladi va shundan keyin
+    # to'liq (qimmat) fayl tooli biriktiriladi. So'rov oxirigacha saqlanadi:
+    # fayl qurish 4 martagacha qayta uriniladi, har safar qo'llanma kerak.
+    file_mode = False
     total_rounds = 0
     search_performed = False
     synthesis_injected = False
@@ -3298,7 +3340,9 @@ async def get_openai_reply(
         if search_rounds < MAX_SEARCH_ROUNDS:
             active_tools.extend(_TOOLS)
         if file_task_enabled and file_rounds < MAX_FILE_ROUNDS:
-            active_tools.append(_FILE_TASK_TOOL)
+            # To'liq (qimmat) tavsif faqat model fayl so'raganidan keyin.
+            active_tools.append(_FILE_TASK_TOOL if file_mode
+                                else _FILE_INTENT_TOOL)
         if image_enabled and image_rounds < MAX_IMAGE_ROUNDS:
             active_tools.append(_IMAGE_TOOL)
         if user_id is not None and memory_rounds < MAX_MEMORY_ROUNDS:
@@ -3345,7 +3389,12 @@ async def get_openai_reply(
                             # qidiruv yoki fayl vazifasi (sekundlab davom etadi)
                             # boshlanmoqda.
                             _call_name = getattr(event.item, "name", None)
-                            if _call_name == "run_python_sandbox":
+                            # `start_file_task` — fayl yo'lining birinchi
+                            # qadami. Animatsiyani SHU YERDA boshlaymiz:
+                            # aks holda foydalanuvchi qo'shimcha raund
+                            # davomida bo'sh ekranga qarab turardi.
+                            if _call_name in ("run_python_sandbox",
+                                              "start_file_task"):
                                 if not file_task_started:
                                     yield "[STATUS]file_task"
                                     file_task_started = True
@@ -3420,7 +3469,19 @@ async def get_openai_reply(
             except Exception:
                 args = {}
 
-            if call_item.name == "run_python_sandbox":
+            # ⚠️ Bu ham `else` dan OLDIN turishi SHART: pastdagi bare
+            # `else` har qanday tanilmagan tool nomini veb qidiruvga
+            # yo'naltiradi, ya'ni "taqdimot yasab ber" jimgina DuckDuckGo
+            # so'roviga aylanib ketardi.
+            if call_item.name == "start_file_task":
+                file_mode = True
+                tool_output = (
+                    "Fayl rejimi yoqildi. Endi `run_python_sandbox` asbobi "
+                    "va uning maket qo'llanmasi mavjud — kodni SHU ZAHOTI "
+                    "yozing. Foydalanuvchiga hech narsa yozmang, "
+                    "qo'shimcha savol bermang."
+                )
+            elif call_item.name == "run_python_sandbox":
                 file_task_ran = True
                 tool_output = await _run_file_task(
                     args.get("code", ""),
