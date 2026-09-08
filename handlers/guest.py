@@ -900,7 +900,7 @@ else:
         # tanlanadi — xuddi handlers/messages.py dagi handle_photo/
         # handle_document/handle_voice bilan bir xil mantiq.
         # --------------------------------------------------
-        # CONCISE_INSTRUCTION/STRICT_MATH_RULES bu yerga qo'shilmaydi —
+        # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
         # get_gpt_reply()/get_vision_reply() ularni SYSTEM promptga o'zi
         # qo'shadi (services/ai.py). Ularni user matniga yana qo'shish faqat
         # asosiy savolni "ko'mib" tashlaydi va token isrof qiladi.

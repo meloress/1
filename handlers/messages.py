@@ -1973,7 +1973,7 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         # OLDIN saqlanardi. Natijada get_openai_reply() (services/ai.py)
         # tarixni DB'dan o'qiganda o'sha SO'NGGI xabarni (masalan "Hop")
         # allaqachon tarix ichida topib olardi va keyin uni YANA bir
-        # marta — bu safar CONCISE_INSTRUCTION + STRICT_MATH_RULES kabi
+        # marta — bu safar CONCISE_INSTRUCTION kabi
         # katta formatlash instruksiyasi bilan o'ralgan holda — messages
         # ro'yxatiga qo'shardi. Bu ikkita oqibatga olib kelardi:
         #   1) Ketma-ket ikkita "user" turi (orasida "assistant" yo'q) —
@@ -1983,7 +1983,7 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         #      oldingi mavzuning davomi emas, mustaqil yangi so'rov deb
         #      qabul qilardi.
         #
-        # Tuzatish: (a) CONCISE_INSTRUCTION/STRICT_MATH_RULES bu yerda
+        # Tuzatish: (a) CONCISE_INSTRUCTION bu yerda
         # umuman qo'shilmaydi — ular services/ai.py'da SYSTEM promptga
         # allaqachon qo'shiladi, shuning uchun takrorlash shart emas;
         # (b) foydalanuvchi xabari tarixga FAQAT AI javobi muvaffaqiyatli
@@ -2205,7 +2205,7 @@ async def handle_photo(message: Message, state: FSMContext):
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         caption = message.caption if message.caption else "Bu rasmda nimalar borligini to'liq tushuntirib ber."
 
-        # CONCISE_INSTRUCTION/STRICT_MATH_RULES bu yerga qo'shilmaydi —
+        # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
         # get_vision_reply() ularni SYSTEM promptga o'zi qo'shadi (services/ai.py).
         # Tarix esa javob muvaffaqiyatli olingandan keyin, birgalikda saqlanadi.
         stream_gen = get_vision_reply(chat_id, base64_image, caption,
@@ -2338,7 +2338,7 @@ async def handle_document(message: Message, state: FSMContext):
         else:
             body = f"{file_note}\n\nFayl mazmunidan namuna:\n{extracted_text}"
 
-        # CONCISE_INSTRUCTION/STRICT_MATH_RULES bu yerga qo'shilmaydi —
+        # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
         # get_openai_reply() ularni SYSTEM promptga o'zi qo'shadi (services/ai.py).
         prompt = f"{body}\n\nFoydalanuvchi so'rovi: {caption}"
         output_files: list = []
@@ -2442,7 +2442,7 @@ async def handle_voice(message: Message, state: FSMContext):
 
         await message.reply(f"🗣 <b>Siz:</b> \"{user_text}\"", parse_mode="HTML")
 
-        # CONCISE_INSTRUCTION/STRICT_MATH_RULES bu yerga qo'shilmaydi —
+        # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
         # get_openai_reply() ularni SYSTEM promptga o'zi qo'shadi (services/ai.py).
         output_files: list = []
         file_quota_box: list = []

@@ -30,7 +30,7 @@ try:
     from core.config import (
         GPT_MODEL, MODEL_FALLBACKS, CONTEXT_WINDOW, CONTEXT_WINDOW_PRO,
         OPENAI_API_KEY, GEMINI_API_KEY, GEMINI_TTS_MODEL, GEMINI_TTS_VOICE,
-        REQUEST_TIMEOUT, CONCISE_INSTRUCTION, STRICT_MATH_RULES,
+        REQUEST_TIMEOUT, CONCISE_INSTRUCTION,
         IMAGE_CAPABILITY_NOTE,
         build_system_prompt, build_request_params, pick_reasoning_effort,
         SEARCH_IMAGE_MAX, SEARCH_IMAGE_CANDIDATES, SEARCH_IMAGE_HEAD_TIMEOUT,
@@ -49,7 +49,6 @@ except ImportError:
     GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview"
     GEMINI_TTS_VOICE = "Kore"
     CONCISE_INSTRUCTION = ""
-    STRICT_MATH_RULES = ""
     IMAGE_CAPABILITY_NOTE = ""
     INTERNAL_TOOL_NAMES = {}
     GPT_MODEL = "gpt-4o-mini"
@@ -1805,7 +1804,7 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     # model=None → build_request_params tarifga qarab o'zi tanlaydi. Ilgari
     # bu yerda default GPT_MODEL edi va Pro foydalanuvchi rasm yuborsa ham
     # bepul modelga tushib qolardi.
-    system_prompt = f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}\n\n{STRICT_MATH_RULES}"
+    system_prompt = f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}"
 
     messages: list = []
 
@@ -3183,7 +3182,7 @@ async def get_openai_reply(
     # bir raundli va unda qidiruv tooli YO'Q — u yerda "rasm yubora olaman"
     # deyish bajarilmaydigan va'da bo'lardi.
     system_prompt = (f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}\n\n"
-                     f"{IMAGE_CAPABILITY_NOTE}\n\n{STRICT_MATH_RULES}")
+                     f"{IMAGE_CAPABILITY_NOTE}")
 
     messages: list = []
 

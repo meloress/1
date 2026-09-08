@@ -319,11 +319,11 @@ is not filler; generic praise of their QUESTION is.
 MATH, PHYSICS & CHEMISTRY — LATEX IS MANDATORY
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 - EVERY formula, equation, and non-trivial numeric expression MUST be LaTeX.
-  Plain-text math (e.g. "E = m * c^2") is not acceptable.
+  Plain-text math (e.g. "E = m * c^2") is not acceptable. This is a hard requirement.
 - Inline → single dollars: $E = mc^2$
 - Block/display → double dollars: $$a^{{2}} + b^{{2}} = c^{{2}}$$
 - ONLY $ and $$ are valid delimiters. \\[ \\] and \\( \\) are STRICTLY FORBIDDEN —
-  they crash Telegram's renderer.
+  they crash Telegram's renderer. There are no other acceptable delimiters.
 - Use real LaTeX commands, not ASCII: \\frac{{a}}{{b}}, x^{{2}}, x_{{i}}, \\sqrt{{x}},
   \\sum, \\int, \\cdot, \\times, \\pi, \\Delta, \\Rightarrow, \\leq, \\geq.
 - Structure: Given → Formula ($$...$$) → Calculation ($$...$$) → Final answer ($...$),
@@ -486,10 +486,15 @@ RESPONSE ADAPTATION:
   list). PLUS-ONE optional, DOOR only if a truly useful next step exists.
 - Complex / technical question → full structured answer with **bold** labels and
   steps. PLUS-ONE almost always; DOOR when you can do concrete follow-up work.
-Match the answer's size to the question's size. Never pad. Never drop something
-important. A shorter answer must still be fully correct — brevity never comes at
-the cost of accuracy.
+A shorter answer must still be fully correct — brevity never comes at the cost
+of accuracy.
 """
+# ⚠️ Yuqoridagi blokning oxirgi uch gapi olib tashlandi ("Match the answer's
+# size to the question's size. Never pad. Never drop something important.") —
+# ular OUTPUT CONTRACT ning 4-bandini so'zma-so'z takrorlardi:
+# "Match length to the question... Never pad, never truncate something
+# important." Faqat u yerda YO'Q bo'lgan gap qoldirildi: qisqalik aniqlik
+# hisobiga bo'lmasligi.
 
 # 3.2b — Rasm imkoniyati.
 #
@@ -533,22 +538,18 @@ with no picture at all.
 """
 
 # 3.3 — Matematika / fizika / kimyo uchun qat'iy qoidalar
-STRICT_MATH_RULES: str = """
-MATH / PHYSICS / CHEMISTRY — LATEX MANDATORY:
-1. ALL formulas, equations, and non-trivial numeric expressions MUST be in LaTeX.
-   Plain-text math ("E = m * c^2") is not acceptable. This is a hard requirement.
-2. Inline math → single dollars only: $E = mc^2$
-3. Block/display math → double dollars only: $$F = ma$$
-4. ONLY $ and $$ are valid. \\[ \\] and \\( \\) are STRICTLY FORBIDDEN — they crash
-   Telegram's renderer. There are no other acceptable delimiters.
-5. Real LaTeX commands, not ASCII: \\frac{}{}, ^{}, _{}, \\sqrt{}, \\sum, \\int,
-   \\cdot, \\times, \\pi, \\Delta.
-6. Structure every solution: Given → Formula ($$...$$) → Steps ($$...$$) → Answer ($...$).
-7. Explain the reasoning in prose between the steps — never chain bare equations.
-8. Never use code or Python to solve math unless the user explicitly asks for code.
-9. If currency appears alongside math, write "100 dollars" / "100 USD" — a bare "$100"
-   is parsed as an opening math delimiter and breaks the whole message.
-"""
+# ⚠️ STRICT_MATH_RULES O'CHIRILDI (274 token har bir so'rovda).
+#
+# U SYSTEM_PROMPT_TEMPLATE ichidagi "MATH, PHYSICS & CHEMISTRY" bo'limining
+# deyarli so'zma-so'z nusxasi edi — ikkalasi bitta `instructions` satri
+# ichida yonma-yon ketardi. To'qqiz qoidaning HAMMASI o'sha bo'limda bor,
+# hatto ko'proq (\\Rightarrow, \\leq, \\geq misollari). Faqat ikkita
+# ta'kid iborasi undan olinib yuqoridagi bo'limga qo'shildi:
+#   "This is a hard requirement."
+#   "There are no other acceptable delimiters."
+#
+# tests/test_prompt_rules.py to'qqizala qoidani ALOHIDA tekshiradi —
+# biri yo'qolsa test yiqiladi.
 
 
 # ═══════════════════════════════════════════════════════════════
