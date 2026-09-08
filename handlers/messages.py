@@ -2042,6 +2042,7 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
                 user_id=user_id, prompt=merged_text,
                 reason=("⏳ Javob juda uzoq cho'zildi."
                         if isinstance(e, TimeoutError) else None),
+                kind="timeout" if isinstance(e, TimeoutError) else "matn",
             )
         except Exception:
             pass

@@ -12,11 +12,16 @@ tests/test_admin_registry.py bu tartibni qo'riqlaydi.
 
 from aiogram import F
 
+from handlers.admin.journal import (
+    LimitStates, journal_callback, process_limit_value,
+    show_journal_menu,
+)
 from handlers.admin.broadcast import (
     BroadcastStates, broadcast_abort_callback,
     broadcast_button_add_callback, broadcast_button_del_callback,
     broadcast_cancel_send_callback, broadcast_color_callback,
-    broadcast_confirm_send_callback, broadcast_next_callback,
+    broadcast_confirm_send_callback, broadcast_later_callback,
+    broadcast_next_callback, process_broadcast_schedule,
     broadcast_preview_callback, broadcast_segment_callback,
     capture_broadcast_content, process_broadcast_button,
     process_broadcast_recipients, start_broadcast,
@@ -72,6 +77,7 @@ def register_admin_handlers(dp, bot=None):
     dp.message.register(show_watch_menu, F.text == "👁 Kuzatish")
     dp.message.register(show_giveaway_menu, F.text == "🎁 Bepul Pro")
     dp.message.register(show_referral_settings, F.text == "👥 Referal sharti")
+    dp.message.register(show_journal_menu, F.text == "📋 Jurnal va sozlamalar")
     dp.message.register(process_referral_count, ReferralStates.waiting_for_count)
     dp.message.register(process_referral_days, ReferralStates.waiting_for_days)
     dp.message.register(process_referral_user, ReferralStates.waiting_for_user)
@@ -80,6 +86,8 @@ def register_admin_handlers(dp, bot=None):
     # ⚠️ TARTIB: tugma va oluvchi holatlari waiting_for_content dan OLDIN.
     # Konstruktor ochiq turganda admin yozgan matn "yangi kontent" bo'lib
     # ketmasligi kerak — u tugma nomi yoki oluvchilar ro'yxati.
+    dp.message.register(process_broadcast_schedule, BroadcastStates.waiting_for_schedule)
+    dp.message.register(process_limit_value, LimitStates.waiting_for_value)
     dp.message.register(process_broadcast_button, BroadcastStates.waiting_for_button)
     dp.message.register(process_broadcast_recipients, BroadcastStates.waiting_for_recipients)
     dp.message.register(capture_broadcast_content, BroadcastStates.waiting_for_content)
@@ -117,3 +125,5 @@ def register_admin_handlers(dp, bot=None):
     dp.callback_query.register(watch_menu_callback, lambda q: q.data and q.data.startswith("watch:"))
     dp.callback_query.register(promo_admin_callback, lambda q: q.data and q.data.startswith("promo:"))
     dp.callback_query.register(giveaway_callback, lambda q: q.data and q.data.startswith("gv:"))
+    dp.callback_query.register(broadcast_later_callback, lambda q: q.data == "bcast:later")
+    dp.callback_query.register(journal_callback, lambda q: q.data and q.data.startswith("jr:"))

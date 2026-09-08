@@ -34,13 +34,27 @@ def make_retry_keyboard(chat_id: int, attempts: int = 0):
         [InlineKeyboardButton(text="📨 Adminga xabar", callback_data=f"report:{chat_id}")]
     ])
 
-async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, prompt: str, original_text: str = "", reason: str = None):
+async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, prompt: str,
+                                original_text: str = "", reason: str = None,
+                                kind: str = "javob"):
     """
-    Xatolik yuz berganda ekrandagi kutish xabarini tahrirlaydi, 
+    Xatolik yuz berganda ekrandagi kutish xabarini tahrirlaydi,
     'Qayta urinish' tugmasini qo'shib xotiraga saqlaydi.
+
+    ⚠️ Bu — FOYDALANUVCHI KO'RADIGAN xatoning yagona yo'li, shuning
+    uchun jurnalga yozish ham aynan shu yerda: admin panelidagi
+    "Xatolar" ekrani shundan to'ladi. Ilgari xato faqat Railway logida
+    qolardi, ya'ni admin bot buzilganini foydalanuvchi aytgandan keyin
+    bilardi.
     """
     text = (reason + "\n\n") if reason else ""
     text += "❌ Xatolik yuz berdi. Qayta urinib ko'ring."
+
+    try:
+        await database.log_error(
+            kind, (reason or "").strip() or (prompt or "")[:200], user_id)
+    except Exception:
+        logger.exception("xato jurnalga yozilmadi")
         
     kb = make_retry_keyboard(chat_id, attempts=0)
     

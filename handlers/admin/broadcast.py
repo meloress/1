@@ -44,6 +44,7 @@ class BroadcastStates(StatesGroup):
     waiting_for_button = State()
     waiting_for_recipients = State()
     waiting_for_segment = State()
+    waiting_for_schedule = State()
     waiting_for_confirmation = State()
 
 
@@ -355,10 +356,16 @@ async def _confirm_screen(query: CallbackQuery, state: FSMContext,
         except Exception:
             logger.exception("Confirm preview copy error")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Yuborish", callback_data="bcast:send")],
-        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="bcast:abort")],
-    ])
+    rows = [[InlineKeyboardButton(text="✅ Yuborish", callback_data="bcast:send")]]
+    # "Keyinroq" FAQAT segment bo'yicha tarqatmada: bazada oluvchilar
+    # ro'yxati emas, segment saqlanadi, ya'ni qo'lda tanlangan
+    # odamlarni rejalashtirib bo'lmaydi.
+    if data.get("segment") in ("all", "free", "premium"):
+        rows.append([InlineKeyboardButton(text="🕒 Keyinroq yuborish",
+                                          callback_data="bcast:later")])
+    rows.append([InlineKeyboardButton(text="❌ Bekor qilish",
+                                      callback_data="bcast:abort")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await query.message.answer(
         f"👆 Yuqorida — foydalanuvchi ko'radigan ko'rinish.\n\n"
         f"{label}: <b>{len(target_ids)}</b> ta oluvchi. Tasdiqlaysizmi?",
@@ -399,6 +406,10 @@ async def broadcast_segment_callback(query: CallbackQuery, state: FSMContext):
     target_ids = [u["user_id"] for u in _filter_users_by_segment(users, segment)]
     label = {"all": "Hammaga", "free": "Faqat Free",
              "premium": "Faqat Pro"}.get(segment, segment)
+    # Segment SAQLANADI: rejalashtirilgan tarqatmada oluvchilar
+    # ro'yxati emas, aynan segment kerak (yuborish paytida qaytadan
+    # hisoblanadi), audit yozuvida ham shu ko'rsatiladi.
+    await state.update_data(segment=segment)
     await _confirm_screen(query, state, target_ids, label)
 
 async def process_broadcast_recipients(message: Message, state: FSMContext):
@@ -472,29 +483,20 @@ async def broadcast_cancel_send_callback(query: CallbackQuery):
     _broadcast_cancel_flags.add(query.from_user.id)
     await query.answer("🛑 Bekor qilinmoqda...")
 
-async def broadcast_confirm_send_callback(query: CallbackQuery, state: FSMContext):
-    if not await require_admin_or_deny_query(query):
-        return
+async def _send_to_many(src_chat_id: int, src_message_id: int, buttons: list,
+                        target_ids: list, *, admin_id=None, progress=None):
+    """Tarqatmaning YAGONA yuborish yadrosi.
 
-    data = await state.get_data()
-    src_chat_id = data.get("src_chat_id")
-    src_message_id = data.get("src_message_id")
-    target_ids = data.get("target_ids") or []
-    buttons = data.get("buttons") or []
-    await state.clear()
+    Interaktiv yo'l ham, rejalashtirilgan yo'l ham shu yerdan o'tadi:
+    flood-control, klaviaturaning rangsiz zaxirasi va bloklagan
+    foydalanuvchini o'chirish mantiqi ikki nusxada bo'lmasligi kerak.
 
-    if not src_chat_id or not src_message_id or not target_ids:
-        await query.answer("⚠️ Ma'lumot topilmadi, boshidan boshlang.", show_alert=True)
-        return
+    `admin_id` — bekor qilish belgisini shu admin bo'yicha tekshiradi
+    (rejali tarqatmada bekor qilish yo'q, shuning uchun None).
+    `progress(i, total)` — ixtiyoriy, ekranni yangilash uchun.
 
-    await query.answer()
-    admin_id = query.from_user.id
-    _broadcast_cancel_flags.discard(admin_id)
-
-    # Rangli klaviatura va uning rangsiz zaxirasi. Agar BIRINCHI
-    # yuborishda rang rad etilsa, butun tarqatma uchun rangsizga
-    # o'tamiz — har bir foydalanuvchida ikki marta urinib, tarqatmani
-    # ikki barobar sekinlashtirish ma'nosiz.
+    Qaytaradi: (yuborildi, yuborilmadi, bekor_qilindimi, rang_tushdimi).
+    """
     kb_rich = build_bcast_keyboard(buttons)
     kb_plain = build_bcast_keyboard(buttons, plain=True)
     kb = kb_rich
@@ -515,19 +517,10 @@ async def broadcast_confirm_send_callback(query: CallbackQuery, state: FSMContex
             else:
                 raise
 
-    stop_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛑 Bekor qilish", callback_data="bcast:cancel")],
-    ])
-    progress_message = query.message
-    try:
-        await progress_message.edit_text("📤 Xabar yuborilmoqda: 0%", reply_markup=stop_kb)
-    except Exception:
-        pass
-
     success, fail, cancelled = 0, 0, False
     total = len(target_ids)
     for i, user_id in enumerate(target_ids, 1):
-        if admin_id in _broadcast_cancel_flags:
+        if admin_id is not None and admin_id in _broadcast_cancel_flags:
             cancelled = True
             break
         try:
@@ -557,14 +550,91 @@ async def broadcast_confirm_send_callback(query: CallbackQuery, state: FSMContex
             logger.warning(f"⚠️ Xatolik: {user_id} - {e}")
             fail += 1
 
-        percent = int(i / total * 100) if total else 100
-        try:
-            await progress_message.edit_text(f"📤 Xabar yuborilmoqda: {percent}%", reply_markup=stop_kb)
-        except Exception:
-            pass
+        if progress is not None:
+            await progress(i, total)
         await asyncio.sleep(0.05)
 
+    return success, fail, cancelled, style_downgraded
+
+
+async def run_broadcast(*, src_chat_id: int, src_message_id: int,
+                        buttons: list, segment: str):
+    """Rejalashtirilgan tarqatma uchun: oluvchini O'ZI hisoblab yuboradi.
+
+    ⚠️ Oluvchilar ro'yxati bazada saqlanmaydi va aynan SHU YERDA
+    hisoblanadi: tarqatma bir kun oldin rejalashtirilgan bo'lsa,
+    o'shandagi ro'yxatga keyin qo'shilganlar kirmay qolardi.
+    """
+    try:
+        users = await database_module.get_all_users()
+    except Exception:
+        logger.exception("get_all_users error (rejali tarqatma)")
+        return 0, 0
+    target_ids = [u["user_id"] for u in _filter_users_by_segment(users, segment)]
+    success, fail, _, _ = await _send_to_many(
+        src_chat_id, src_message_id, buttons, target_ids)
+    return success, fail
+
+
+async def broadcast_confirm_send_callback(query: CallbackQuery, state: FSMContext):
+    if not await require_admin_or_deny_query(query):
+        return
+
+    data = await state.get_data()
+    src_chat_id = data.get("src_chat_id")
+    src_message_id = data.get("src_message_id")
+    target_ids = data.get("target_ids") or []
+    buttons = data.get("buttons") or []
+    await state.clear()
+
+    if not src_chat_id or not src_message_id or not target_ids:
+        await query.answer("⚠️ Ma'lumot topilmadi, boshidan boshlang.", show_alert=True)
+        return
+
+    await query.answer()
+    admin_id = query.from_user.id
     _broadcast_cancel_flags.discard(admin_id)
+
+    stop_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛑 Bekor qilish", callback_data="bcast:cancel")],
+    ])
+    progress_message = query.message
+    try:
+        await progress_message.edit_text("📤 Xabar yuborilmoqda: 0%", reply_markup=stop_kb)
+    except Exception:
+        pass
+
+    # ⚠️ Ekran FOIZ O'ZGARGANDAGINA yangilanadi. Ilgari har bir
+    # oluvchidan keyin edit_text ketardi: 1000 ta oluvchi = 1000 ta
+    # ortiqcha so'rov, aksariyati "message is not modified" xatosi bilan
+    # jimgina yutilardi — va ular aynan tarqatmaning o'ziga kerak
+    # bo'lgan Telegram limitini yeb qo'yardi.
+    oxirgi_foiz = -1
+
+    async def _progress(i, total):
+        nonlocal oxirgi_foiz
+        foiz = int(i / total * 100) if total else 100
+        if foiz == oxirgi_foiz:
+            return
+        oxirgi_foiz = foiz
+        try:
+            await progress_message.edit_text(
+                f"📤 Xabar yuborilmoqda: {foiz}%", reply_markup=stop_kb)
+        except Exception:
+            pass
+
+    success, fail, cancelled, style_downgraded = await _send_to_many(
+        src_chat_id, src_message_id, buttons, target_ids,
+        admin_id=admin_id, progress=_progress)
+
+    _broadcast_cancel_flags.discard(admin_id)
+
+    try:
+        await database_module.log_admin_action(
+            admin_id, "broadcast", None,
+            f"segment={data.get('segment') or '?'} yuborildi={success} xato={fail}")
+    except Exception:
+        logger.exception("broadcast auditga yozilmadi")
 
     status = "🛑 Bekor qilindi." if cancelled else "✅ Yakunlandi."
     try:
@@ -577,3 +647,81 @@ async def broadcast_confirm_send_callback(query: CallbackQuery, state: FSMContex
         )
     except Exception:
         pass
+
+
+async def broadcast_later_callback(query: CallbackQuery, state: FSMContext):
+    """«Keyinroq yuborish» — vaqtni so'raydi."""
+    if not await require_admin_or_deny_query(query):
+        return
+    data = await state.get_data()
+    if data.get("segment") not in ("all", "free", "premium"):
+        await query.answer("Faqat segment bo'yicha tarqatmani rejalashtirish mumkin.",
+                           show_alert=True)
+        return
+    await query.answer()
+    await state.set_state(BroadcastStates.waiting_for_schedule)
+    await query.message.answer(
+        "🕒 <b>Qachon yuborilsin?</b>\n\n"
+        "<blockquote>Masalan: <code>ertaga 09:00</code>, "
+        "<code>2 soatdan keyin</code>, <code>2026-09-10 18:30</code>.</blockquote>\n\n"
+        "«bekor» — bekor qilish.",
+        parse_mode=ParseMode.HTML)
+
+
+async def process_broadcast_schedule(message: Message, state: FSMContext):
+    if not await require_admin_or_deny(message):
+        await state.clear()
+        return
+
+    raw = (message.text or "").strip()
+    if raw.lower() in ("bekor", "/cancel"):
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.")
+        return
+
+    # Vaqtni ESLATMA bilan bir xil parser o'qiydi (db.parse_run_at):
+    # u o'tgan vaqtni va juda uzoq kelajakni allaqachon rad etadi,
+    # ikkinchi parser yozishning ma'nosi yo'q.
+    run_at = database_module.parse_run_at(raw)
+    if run_at is None:
+        await message.answer(
+            "⚠️ Vaqtni tushunmadim. Masalan: <code>ertaga 09:00</code> "
+            "yoki <code>2026-09-10 18:30</code>.",
+            parse_mode=ParseMode.HTML)
+        return
+
+    data = await state.get_data()
+    src_chat_id = data.get("src_chat_id")
+    src_message_id = data.get("src_message_id")
+    segment = data.get("segment") or "all"
+    buttons = data.get("buttons") or []
+    await state.clear()
+
+    if not src_chat_id or not src_message_id:
+        await message.answer("⚠️ Xabar topilmadi, boshidan boshlang.")
+        return
+
+    try:
+        bid = await database_module.create_scheduled_broadcast(
+            message.from_user.id, src_chat_id, src_message_id,
+            buttons, segment, run_at)
+    except Exception:
+        logger.exception("rejalashtirilgan tarqatma saqlanmadi")
+        await message.answer("❌ Saqlab bo'lmadi. Qaytadan urinib ko'ring.")
+        return
+
+    try:
+        await database_module.log_admin_action(
+            message.from_user.id, "broadcast", None,
+            f"rejalashtirildi #{bid} segment={segment}")
+    except Exception:
+        logger.exception("rejali tarqatma auditga yozilmadi")
+
+    nom = {"all": "hammaga", "free": "Free", "premium": "Pro"}.get(segment, segment)
+    await message.answer(
+        f"🕒 Rejalashtirildi: <b>#{bid}</b>\n"
+        f"Vaqt: <b>{database_module.format_dt_for_tashkent(run_at)}</b>\n"
+        f"Kimga: {nom}\n\n"
+        "<i>«📋 Jurnal va sozlamalar» → «Rejalashtirilgan tarqatmalar» "
+        "bo'limidan bekor qilsa bo'ladi.</i>",
+        parse_mode=ParseMode.HTML)

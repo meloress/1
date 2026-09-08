@@ -29,6 +29,14 @@ admin_keyboard = ReplyKeyboardMarkup(
             KeyboardButton(text="🎁 Bepul Pro"),
             KeyboardButton(text="👥 Referal sharti"),
         ],
+        [
+            # Audit, xatolar, daromad, limitlar va rejalashtirilgan
+            # tarqatmalar — hammasi shu tugma ostidagi inline menyuda.
+            # Alohida tugma qilinmadi: reply-klaviatura allaqachon
+            # to'lgan va yangi admin qaysi tugma nima qilishini
+            # topolmay qolardi.
+            KeyboardButton(text="📋 Jurnal va sozlamalar"),
+        ],
     ], resize_keyboard=True, one_time_keyboard=False
 )
 

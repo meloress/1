@@ -6,7 +6,9 @@ from aiogram.types import BotCommandScopeAllPrivateChats, MessageGenerationStopp
 from core.loader import dp, bot, logger
 from db.database import create_db_pool, create_users_table, create_history_table
 from db import database
+from core import config
 from handlers import admin as admin_module
+from handlers.admin import daily as admin_daily
 from handlers.helpers import ensure_pin_column, notify_inactive_users
 from handlers import messages as messages_module
 from handlers.messages import (
@@ -39,6 +41,13 @@ async def main():
     await ensure_profile_columns()
     await ensure_pin_column()
     await database.load_watch_cache()
+    # Admin panelida sozlangan kunlik limitlar. Bazadan BIR MARTA
+    # o'qiladi va xotiraga qo'yiladi — `daily_limit()` har xabarda
+    # chaqiriladi, u yerdan DB so'rovi qilib bo'lmaydi.
+    try:
+        config.apply_limit_overrides(await database.get_limit_overrides())
+    except Exception:
+        logger.exception("limit sozlamalari yuklanmadi — config'dagi qiymat ishlatiladi")
     await init_db()
     asyncio.create_task(start_cleanup_task())
 
@@ -187,6 +196,9 @@ async def main():
     asyncio.create_task(premium_expiry_watcher())
     asyncio.create_task(reminder_watcher())
     asyncio.create_task(digest_module.daily_digest_watcher())
+    # Admin paneli: kunlik hisobot va rejalashtirilgan tarqatma.
+    asyncio.create_task(admin_daily.daily_report_watcher())
+    asyncio.create_task(admin_daily.scheduled_broadcast_watcher())
 
     # Referal va sovg'a havolalari (t.me/<username>?start=ref_...) uchun
     # bot username'i kerak — Telegram'dan bir marta so'raymiz.

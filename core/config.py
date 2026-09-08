@@ -816,6 +816,29 @@ DAILY_COUNTERS: dict[str, tuple[str, str, str]] = {
 }
 
 
+# Admin panelidan sozlangan limitlar: {"free": {"points": 500}, ...}.
+# Bo'sh = PLAN_LIMITS dagi qiymat ishlatiladi.
+#
+# NEGA SHU YERDA: `daily_limit()` — limitning YAGONA o'qish nuqtasi
+# (db.check_and_consume_daily ham, kvota ham, admin ekrani ham shundan
+# oladi). Bazadan har safar o'qish har bir xabarga qo'shimcha so'rov
+# qo'shardi; bu yerda esa ish boshlanishida bir marta yuklanadi va
+# admin o'zgartirganda yangilanadi.
+_LIMIT_OVERRIDES: dict[str, dict[str, int]] = {}
+
+
+def apply_limit_overrides(overrides: dict | None) -> None:
+    """Bazadan o'qilgan limitlarni xotiraga qo'yadi (ish boshida va
+    admin o'zgartirganda chaqiriladi)."""
+    _LIMIT_OVERRIDES.clear()
+    for plan, values in (overrides or {}).items():
+        if isinstance(values, dict):
+            _LIMIT_OVERRIDES[plan] = {
+                k: int(v) for k, v in values.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            }
+
+
 def daily_limit(plan_type: str | None, key: str) -> int | None:
     """Bitta kunlik limit. None = cheksiz, 0 = bu tarifda imkoniyat yo'q.
 
@@ -823,7 +846,12 @@ def daily_limit(plan_type: str | None, key: str) -> int | None:
     og'ish: bazada kutilmagan qiymat paydo bo'lsa, foydalanuvchi cheksiz
     kirish emas, bepul limit oladi.
     """
-    p = PLAN_LIMITS.get(plan_type or "free", PLAN_LIMITS["free"])
+    plan = plan_type or "free"
+    if plan in PLAN_LIMITS:
+        override = _LIMIT_OVERRIDES.get(plan, {})
+        if key in override:
+            return override[key]
+    p = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
     return p.get(key, 0)
 
 

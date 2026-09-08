@@ -47,10 +47,13 @@ KUTILGAN = [
     ("message", "show_watch_menu", 1),
     ("message", "show_giveaway_menu", 1),
     ("message", "show_referral_settings", 1),
+    ("message", "show_journal_menu", 1),
     ("message", "process_referral_count", 1),
     ("message", "process_referral_days", 1),
     ("message", "process_referral_user", 1),
     ("callback", "referral_scope_callback", 1),
+    ("message", "process_broadcast_schedule", 1),
+    ("message", "process_limit_value", 1),
     ("message", "process_broadcast_button", 1),
     ("message", "process_broadcast_recipients", 1),
     ("message", "capture_broadcast_content", 1),
@@ -81,6 +84,8 @@ KUTILGAN = [
     ("callback", "watch_menu_callback", 1),
     ("callback", "promo_admin_callback", 1),
     ("callback", "giveaway_callback", 1),
+    ("callback", "broadcast_later_callback", 1),
+    ("callback", "journal_callback", 1),
 ]
 
 if dp.calls != KUTILGAN:

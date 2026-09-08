@@ -268,8 +268,37 @@ async def process_manage_user_identifier(message: Message, state: FSMContext):
         return
 
     if not user_id:
-        await message.answer("❌ Foydalanuvchi topilmadi. Qayta urinib ko'ring:")
-        return
+        # ANIQ moslik topilmadi — endi NOM BO'LAGI bo'yicha qidiramiz.
+        # Ilgari shu yerda oqim tugardi: admin username'ni to'liq eslay
+        # olmasa, hech qanday yo'l qolmasdi (ID esa yodda bo'lmaydi).
+        try:
+            topilganlar = await database_module.search_users(identifier)
+        except Exception:
+            logger.exception("search_users error")
+            topilganlar = []
+
+        if not topilganlar:
+            await message.answer(
+                "❌ Foydalanuvchi topilmadi.\n"
+                "<i>ID, @username yoki nomning bir qismini yozing.</i>",
+                parse_mode=ParseMode.HTML)
+            return
+
+        if len(topilganlar) == 1:
+            user_id = topilganlar[0]["user_id"]
+        else:
+            rows = [[InlineKeyboardButton(
+                text=(f"@{u['username']}" if u.get("username") else f"ID:{u['user_id']}")
+                     + (" 🚫" if u.get("is_banned") else "")
+                     + (" 💎" if (u.get("plan_type") or "free") != "free" else ""),
+                callback_data=f"mu:open:{u['user_id']}")]
+                for u in topilganlar]
+            await message.answer(
+                f"🔍 <b>{len(topilganlar)} ta mos foydalanuvchi</b> — birini tanlang:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+            await state.clear()
+            return
 
     await state.clear()
 
@@ -310,6 +339,24 @@ async def manage_user_action_callback(query: CallbackQuery):
             await query.message.delete()
         except Exception:
             pass
+        return
+
+    if action == "open":
+        # Qidiruv natijasidan tanlangan foydalanuvchi kartochkasi.
+        await query.answer()
+        try:
+            profile = await database_module.get_full_user_profile(target_id)
+        except Exception:
+            logger.exception("get_full_user_profile error (qidiruv)")
+            profile = None
+        if not profile:
+            await query.message.answer("❌ Profil topilmadi.")
+            return
+        await query.message.answer(
+            _render_user_card(profile), parse_mode=ParseMode.HTML,
+            reply_markup=_user_management_keyboard(
+                target_id, profile.get('is_banned', False),
+                profile.get('plan_type', 'free')))
         return
 
     if action == "premiummenu":

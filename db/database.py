@@ -175,6 +175,42 @@ async def create_users_table():
                 ADD COLUMN IF NOT EXISTS referral_required INT,
                 ADD COLUMN IF NOT EXISTS referral_reward_days INT
         ''')
+        # Kunlik limitlar admin panelidan sozlanadi. NULL = core/config.py
+        # dagi PLAN_LIMITS ishlatiladi, ya'ni sozlanmagan bot eski
+        # xatti-harakatda qoladi va migratsiya kerak emas.
+        await conn.execute('''
+            ALTER TABLE bot_settings
+                ADD COLUMN IF NOT EXISTS limit_overrides JSONB
+        ''')
+        # Xatolar jurnali. Ilgari xato FAQAT Railway logida qolardi —
+        # ya'ni admin bot buzilganini foydalanuvchi aytgandan keyin
+        # bilardi. Jadval ataylab kichik: eng eskilari `log_error()`
+        # ichida o'chiriladi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS error_log (
+                id BIGSERIAL PRIMARY KEY,
+                kind VARCHAR(50) NOT NULL,
+                message TEXT NOT NULL,
+                user_id BIGINT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        ''')
+        # Rejalashtirilgan tarqatma. Oluvchilar ro'yxati SAQLANMAYDI —
+        # faqat segment: yuborish vaqtida auditoriya yangi bo'lishi
+        # kerak (oradan bir kun o'tsa ro'yxat eskiradi).
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_broadcasts (
+                id BIGSERIAL PRIMARY KEY,
+                admin_id BIGINT NOT NULL,
+                src_chat_id BIGINT NOT NULL,
+                src_message_id BIGINT NOT NULL,
+                buttons JSONB,
+                segment VARCHAR(20) NOT NULL DEFAULT 'all',
+                run_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                sent_at TIMESTAMPTZ
+            );
+        ''')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS watch_settings (
                 id INT PRIMARY KEY DEFAULT 1,
@@ -2428,3 +2464,320 @@ async def expire_premiums() -> List[int]:
                RETURNING user_id'''
         )
         return [r['user_id'] for r in rows]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  ADMIN PANEL: JURNALLAR, LIMITLAR, REJALASHTIRILGAN TARQATMA
+# ═══════════════════════════════════════════════════════════════════
+
+# Xato jurnalida saqlanadigan eng ko'p yozuv. U diagnostika vositasi,
+# arxiv emas — cheksiz o'sishi kerak emas.
+ERROR_LOG_KEEP = 500
+
+
+@with_db_retry()
+async def log_error(kind: str, message: str, user_id: Optional[int] = None) -> None:
+    """Xatoni jurnalga yozadi (admin panelida ko'rish uchun).
+
+    ⚠️ HECH QACHON istisno otmaydi: bu funksiya `except` bloklaridan
+    chaqiriladi, ya'ni bu yerdagi xato ASL xatoni yashirib yuborardi.
+    """
+    global pool
+    try:
+        if pool is None:
+            await create_db_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                'INSERT INTO error_log (kind, message, user_id) VALUES ($1, $2, $3)',
+                (kind or "other")[:50], (message or "")[:2000], user_id)
+            # Eng eskilarini shu yerda yig'ishtiramiz — alohida tozalash
+            # vazifasi kerak bo'lmasligi uchun.
+            await conn.execute(
+                '''DELETE FROM error_log WHERE id < (
+                       SELECT MIN(id) FROM (
+                           SELECT id FROM error_log ORDER BY id DESC LIMIT $1
+                       ) t)''', ERROR_LOG_KEEP)
+    except Exception:
+        logger.exception("log_error yozib bo'lmadi")
+
+
+@with_db_retry()
+async def recent_errors(limit: int = 15, offset: int = 0) -> List[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT id, kind, message, user_id, created_at FROM error_log
+               ORDER BY id DESC LIMIT $1 OFFSET $2''', limit, offset)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def error_summary() -> Dict[str, Any]:
+    """Xatolar bo'yicha qisqacha: sutkalik/haftalik son va turlari."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') AS day,
+                      COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS week,
+                      COUNT(*) AS total,
+                      COUNT(DISTINCT user_id) FILTER (
+                          WHERE created_at >= NOW() - INTERVAL '24 hours') AS users_day
+               FROM error_log''')
+        kinds = await conn.fetch(
+            '''SELECT kind, COUNT(*) AS cnt FROM error_log
+               WHERE created_at >= NOW() - INTERVAL '7 days'
+               GROUP BY kind ORDER BY cnt DESC LIMIT 6''')
+        out = dict(row) if row else {}
+        out['kinds'] = [(r['kind'], r['cnt']) for r in kinds]
+        return out
+
+
+@with_db_retry()
+async def get_admin_audit(limit: int = 10, offset: int = 0,
+                          admin_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Audit jurnali sahifasi. `admin_id` berilsa — faqat o'sha admin."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    shart = "WHERE a.admin_id = $3" if admin_id is not None else ""
+    args = [limit, offset] + ([admin_id] if admin_id is not None else [])
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f'''SELECT a.id, a.admin_id, a.action, a.target_user_id, a.details,
+                       a.action_time, u.username AS admin_username,
+                       t.username AS target_username
+                FROM admin_audit a
+                LEFT JOIN users u ON u.user_id = a.admin_id
+                LEFT JOIN users t ON t.user_id = a.target_user_id
+                {shart}
+                ORDER BY a.id DESC LIMIT $1 OFFSET $2''', *args)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def count_admin_audit(admin_id: Optional[int] = None) -> int:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        if admin_id is None:
+            return await conn.fetchval('SELECT COUNT(*) FROM admin_audit') or 0
+        return await conn.fetchval(
+            'SELECT COUNT(*) FROM admin_audit WHERE admin_id = $1', admin_id) or 0
+
+
+@with_db_retry()
+async def search_users(fragment: str, limit: int = 12) -> List[Dict[str, Any]]:
+    """Foydalanuvchini username BO'LAGI bo'yicha qidiradi.
+
+    Ilgari faqat ANIQ @username yoki ID ishlardi — admin nomni to'liq
+    eslay olmasa hech narsa topolmasdi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    frag = (fragment or "").strip().lstrip("@")
+    if len(frag) < 2:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT user_id, username, plan_type, is_banned, last_seen
+               FROM users
+               WHERE username ILIKE $1
+               ORDER BY last_seen DESC NULLS LAST
+               LIMIT $2''', f"%{frag}%", limit)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def inactive_users(limit: int = 30) -> List[Dict[str, Any]]:
+    """Botni bloklagan yoki o'chirib yuborgan foydalanuvchilar.
+
+    `is_active = FALSE` ni tarqatma paytida `deactivate_user()` qo'yadi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT user_id, username, plan_type, last_seen
+               FROM users WHERE is_active = FALSE
+               ORDER BY last_seen DESC NULLS LAST LIMIT $1''', limit)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def count_inactive_users() -> int:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            'SELECT COUNT(*) FROM users WHERE is_active = FALSE') or 0
+
+
+# ── Kunlik limitlar (admin panelidan sozlanadi) ────────────────────
+
+@with_db_retry()
+async def get_limit_overrides() -> Dict[str, Any]:
+    """Bazadagi limit o'zgartirishlari. Bo'sh dict = config'dagi qiymat."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        raw = await conn.fetchval(
+            'SELECT limit_overrides FROM bot_settings WHERE id = 1')
+    if not raw:
+        return {}
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+    return dict(raw)
+
+
+@with_db_retry()
+async def set_limit_override(plan: str, key: str,
+                             value: Optional[int]) -> Dict[str, Any]:
+    """Bitta limitni o'zgartiradi va YANGI to'plamni qaytaradi.
+
+    `value=None` — o'zgartirishni olib tashlaydi, ya'ni config'dagi
+    qiymatga qaytadi (cheksizlik EMAS: cheksiz uchun premium tarifi bor).
+    """
+    current = await get_limit_overrides()
+    bolim = dict(current.get(plan) or {})
+    if value is None:
+        bolim.pop(key, None)
+    else:
+        bolim[key] = int(value)
+    if bolim:
+        current[plan] = bolim
+    else:
+        current.pop(plan, None)
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE bot_settings SET limit_overrides = $1::jsonb WHERE id = 1',
+            json.dumps(current))
+    return current
+
+
+# ── Rejalashtirilgan tarqatma ──────────────────────────────────────
+
+@with_db_retry()
+async def create_scheduled_broadcast(admin_id: int, src_chat_id: int,
+                                     src_message_id: int, buttons: list,
+                                     segment: str, run_at: datetime) -> int:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            '''INSERT INTO scheduled_broadcasts
+                   (admin_id, src_chat_id, src_message_id, buttons, segment, run_at)
+               VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING id''',
+            admin_id, src_chat_id, src_message_id,
+            json.dumps(buttons or []), segment, run_at)
+
+
+@with_db_retry()
+async def list_scheduled_broadcasts() -> List[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT id, admin_id, segment, run_at FROM scheduled_broadcasts
+               WHERE sent_at IS NULL ORDER BY run_at''')
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def cancel_scheduled_broadcast(broadcast_id: int) -> bool:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        res = await conn.execute(
+            'DELETE FROM scheduled_broadcasts WHERE id = $1 AND sent_at IS NULL',
+            broadcast_id)
+        return res.endswith("1")
+
+
+@with_db_retry()
+async def due_scheduled_broadcasts() -> List[Dict[str, Any]]:
+    """Vaqti kelgan tarqatmalar. Oluvchilar YUBORISH paytida hisoblanadi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT id, admin_id, src_chat_id, src_message_id, buttons, segment
+               FROM scheduled_broadcasts
+               WHERE sent_at IS NULL AND run_at <= NOW()
+               ORDER BY run_at LIMIT 5''')
+        out = []
+        for r in rows:
+            d = dict(r)
+            if isinstance(d.get('buttons'), str):
+                try:
+                    d['buttons'] = json.loads(d['buttons'])
+                except Exception:
+                    d['buttons'] = []
+            out.append(d)
+        return out
+
+
+@with_db_retry()
+async def mark_broadcast_sent(broadcast_id: int) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE scheduled_broadcasts SET sent_at = NOW() WHERE id = $1',
+            broadcast_id)
+
+
+@with_db_retry()
+async def daily_report_stats() -> Dict[str, Any]:
+    """Kunlik avtomatik hisobot uchun hamma raqam — bitta so'rovda."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''
+            SELECT
+              (SELECT COUNT(*) FROM users
+                 WHERE created_at >= NOW() - INTERVAL '24 hours') AS new_users,
+              (SELECT COUNT(*) FROM users WHERE is_active = TRUE) AS total_users,
+              (SELECT COUNT(DISTINCT user_id) FROM user_activity
+                 WHERE activity_time >= NOW() - INTERVAL '24 hours') AS active_users,
+              (SELECT COUNT(*) FROM user_activity
+                 WHERE activity_time >= NOW() - INTERVAL '24 hours') AS actions,
+              (SELECT COUNT(*) FROM star_payments
+                 WHERE refunded_at IS NULL
+                   AND created_at >= NOW() - INTERVAL '24 hours') AS sales,
+              (SELECT COALESCE(SUM(stars), 0) FROM star_payments
+                 WHERE refunded_at IS NULL
+                   AND created_at >= NOW() - INTERVAL '24 hours') AS stars,
+              (SELECT COUNT(*) FROM error_log
+                 WHERE created_at >= NOW() - INTERVAL '24 hours') AS errors,
+              (SELECT COUNT(*) FROM users
+                 WHERE plan_type <> 'free' AND is_active = TRUE) AS pro_users
+            ''')
+        top = await conn.fetch(
+            '''SELECT activity_type, COUNT(*) AS cnt FROM user_activity
+               WHERE activity_time >= NOW() - INTERVAL '24 hours'
+               GROUP BY activity_type ORDER BY cnt DESC LIMIT 5''')
+        out = dict(row) if row else {}
+        out['top_types'] = [(r['activity_type'], r['cnt']) for r in top]
+        return out
