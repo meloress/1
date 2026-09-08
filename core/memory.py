@@ -1,6 +1,6 @@
 import time
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 FAILED_REQUEST_TTL   = 3600
 USER_ACTION_TTL      = 86400
@@ -33,6 +33,43 @@ user_last_action_ts:  Dict[int, float]           = {}
 # }
 text_merge_buffers: Dict[int, Dict[str, Any]] = {}
 text_merge_locks:   Dict[int, asyncio.Lock]    = {}
+
+
+# Shu suhbatda ALLAQACHON yuborilgan rasm havolalari (chat_id -> URL'lar).
+#
+# ⚠️ NEGA KERAK: foydalanuvchi «tuning qilingani-chi?» deb qayta-qayta
+# so'raganda bot har safar O'SHA to'rt rasmni qaytarardi. Sabab qidiruvda
+# edi, lekin ikkinchi qatlam ham shart: qidiruv baribir o'sha natijani
+# bersa, kamida TAKRORLAMASIN — yangi rasm topilmasa rostini aytgani
+# yaxshiroq.
+#
+# RAM'da: bu suhbat davomidagi holat, bazaga yozishga arzimaydi.
+# /new bilan va chegaradan oshganda tozalanadi.
+SENT_IMAGES_KEEP = 24
+sent_image_urls: Dict[int, List[str]] = {}
+
+
+def remember_sent_images(chat_id: int, images: List[dict]) -> None:
+    """Yuborilgan rasm havolalarini eslab qoladi."""
+    if not images:
+        return
+    ro_yxat = sent_image_urls.setdefault(chat_id, [])
+    for img in images:
+        url = (img or {}).get("url")
+        if url and url not in ro_yxat:
+            ro_yxat.append(url)
+    if len(ro_yxat) > SENT_IMAGES_KEEP:
+        del ro_yxat[:-SENT_IMAGES_KEEP]
+
+
+def recent_sent_images(chat_id: int) -> set:
+    """Qidiruvdan chiqarib tashlanadigan havolalar."""
+    return set(sent_image_urls.get(chat_id) or ())
+
+
+def forget_sent_images(chat_id: int) -> None:
+    """/new — suhbat tozalansa rasm tarixi ham tozalanadi."""
+    sent_image_urls.pop(chat_id, None)
 
 
 def get_text_merge_lock(chat_id: int) -> asyncio.Lock:

@@ -930,8 +930,22 @@ SEARCH_COMMONS_UA = "TramplinBot/1.0 (Telegram bot; https://t.me)"
 SEARCH_COMMONS_TIMEOUT = 12
 
 SEARCH_IMAGE_SAFESEARCH = "on"
-SEARCH_IMAGE_MAX = 4          # bitta javobga ko'pi bilan shuncha rasm
-SEARCH_IMAGE_CANDIDATES = 10  # DDG'dan shuncha olinadi, o'liklari filtrlanadi
+# Foydalanuvchi son aytmasa shuncha rasm qo'yiladi.
+SEARCH_IMAGE_DEFAULT = 3
+# Foydalanuvchi «10 ta rasm topib ber» desa — yuqori chegara. Telegram
+# media guruhining amaliy chegarasi ham shu.
+SEARCH_IMAGE_MAX = 10
+# Nomzadlar: modelga KO'RSATISH uchun yig'iladi, keyin u tanlaydi.
+# Ko'p nomzad = yaxshiroq tanlov, lekin har biri ~85 token turadi.
+SEARCH_IMAGE_CANDIDATES = 20
+# Nomzadlarni KO'RIB tanlaydigan model. ⚠️ Bepul ma'lumot-almashish
+# ro'yxatidan bo'lishi SHART (MODEL_FALLBACKS ichida) — aks holda
+# har bir rasm so'rovi to'liq narxda hisoblanadi. Asosiy modelning
+# kunlik grantiga tegmasligi uchun ataylab BOSHQA model.
+SEARCH_IMAGE_PICK_MODEL = "gpt-4.1-mini"
+# Ko'rish bosqichi ishlamay qolsa (model yo'q, kvota tugadi) qidiruv
+# eski tartibda — ko'rmasdan, birinchi topilganlarni — qaytaradi.
+SEARCH_IMAGE_PICK_TIMEOUT = 25
 # 4 soniya YETMAYDI: 10 ta so'rov bir vaqtda ketadi va yangi hostga
 # ulanish + TLS shu chegaraga sig'may qolardi. Commons rasmlari
 # aynan shu tufayli "o'lik" deb tashlanardi (aslida 0.2s da javob

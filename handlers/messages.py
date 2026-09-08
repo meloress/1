@@ -36,7 +36,8 @@ from services import menu as menu_module
 from services.file_task_quota import DailyQuota
 from core.keyboards import admin_keyboard
 from handlers.helpers import process_daily_pin, notify_watchers, send_error_with_retry
-from core.memory import get_text_merge_lock, text_merge_buffers, clear_text_merge_buffer
+from core.memory import (get_text_merge_lock, text_merge_buffers,
+                         clear_text_merge_buffer, forget_sent_images)
 from services.ai import (
     safe_update_history, get_gpt_reply,
     speech_to_text_smart, text_to_speech_smart,
@@ -1364,6 +1365,7 @@ async def check_and_clear_session(chat_id: int):
     last_time = chat_last_interaction.get(chat_id, now)
 
     if now - last_time > SESSION_TIMEOUT:
+        forget_sent_images(chat_id)
         await clear_chat_history(chat_id)
         try:
             msg = await bot.send_message(
@@ -1850,6 +1852,7 @@ async def handle_text(message: Message, state: FSMContext):
     if text_str.lower() in ["/new", "/clear", "yangi suhbat"]:
         clear_text_merge_buffer(chat_id)
         clear_pending_file(chat_id)
+        forget_sent_images(chat_id)
         await clear_chat_history(chat_id)
         chat_last_interaction[chat_id] = time.time()
         await message.answer("🧹 Xotira tozalandi! Mutlaqo yangi mavzuda suhbatlashishimiz mumkin.")
@@ -2030,7 +2033,8 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
             notify_watchers(user_id, last_message.from_user.username, "out", text=full_reply)
             try:
                 await safe_update_history(chat_id, merged_text, role="user")
-                await safe_update_history(chat_id, full_reply, role="assistant")
+                await safe_update_history(chat_id, full_reply, role="assistant",
+                                          images=images)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - matn] chat={chat_id}: {e}")
 
@@ -2150,7 +2154,8 @@ async def handle_research(message: Message, state: FSMContext,
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
                 await safe_update_history(chat_id, f"[Tadqiqot]: {topic}", role="user")
-                await safe_update_history(chat_id, full_reply, role="assistant")
+                await safe_update_history(chat_id, full_reply, role="assistant",
+                                          images=images)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - tadqiqot] chat={chat_id}: {e}")
     except Exception as e:
@@ -2212,6 +2217,8 @@ async def handle_photo(message: Message, state: FSMContext):
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
                 await safe_update_history(chat_id, f"[Rasm yuborildi]: {caption}", role="user")
+                # Vision yo'lida internetdan rasm qidirilmaydi (get_vision_reply
+                # bir raundli va unda qidiruv tooli yo'q) — `images` ham yo'q.
                 await safe_update_history(chat_id, full_reply, role="assistant")
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - rasm] chat={chat_id}: {e}")
@@ -2364,7 +2371,8 @@ async def handle_document(message: Message, state: FSMContext):
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
                 await safe_update_history(chat_id, f"[Fayl yuborildi: {file_name}]: {caption}", role="user")
-                await safe_update_history(chat_id, full_reply, role="assistant")
+                await safe_update_history(chat_id, full_reply, role="assistant",
+                                          images=images)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - hujjat] chat={chat_id}: {e}")
 
@@ -2463,7 +2471,8 @@ async def handle_voice(message: Message, state: FSMContext):
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply_text)
             try:
                 await safe_update_history(chat_id, user_text, role="user")
-                await safe_update_history(chat_id, full_reply_text, role="assistant")
+                await safe_update_history(chat_id, full_reply_text, role="assistant",
+                                          images=images)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - ovoz] chat={chat_id}: {e}")
 

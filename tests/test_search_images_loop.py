@@ -88,7 +88,10 @@ async def run_case(rounds, *, tool_outputs, topiladi=True):
         tool_outputs.setdefault("veb", []).append(kwargs.get("primary_query"))
         return "SOXTA QIDIRUV NATIJASI"
 
-    async def fake_images(query, limit=None):
+    # ⚠️ Imzo haqiqiy `search_images` bilan bir xil bo'lishi SHART:
+    # mos kelmasa tool-loop TypeError'ni yutadi va qidiruv umuman
+    # bo'lmagandek ko'rinadi (aynan shu holat bir marta yuz bergan).
+    async def fake_images(query, limit=None, request="", skip_urls=None):
         tool_outputs.setdefault("qidiruvlar", []).append(query)
         if not topiladi:
             return []

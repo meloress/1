@@ -206,6 +206,11 @@ check("14d", "[rasm:N] tarixga TUSHMAYDI",
 # 14e — Commons SO'ZMA-SO'Z qidiradi. Ilgari faqat 3 so'zga qisqartirilardi,
 #       ya'ni «Hongqi H5 new model» -> «Hongqi H5 new» — bu ham bo'sh
 #       qaytardi va foydalanuvchi rasmsiz qolardi. Endi 2 so'zgacha tushadi.
+#
+#       ⚠️ QISQARTIRISH ENDI OXIRGI CHORA: u faqat IKKALA manba ham
+#       (Commons va ddgs) bo'sh qaytargandagina ishlaydi. Shuning uchun
+#       bu yerda ddgs ham bo'sh qilib qo'yiladi — aks holda test tarmoqqa
+#       chiqib, tasodifiy natijaga bog'liq bo'lib qolardi.
 _sorovlar: list = []
 
 
@@ -216,11 +221,14 @@ def _fake_commons(q, n):
 
 
 _asl_commons = ai_module._commons_images_sync
+_asl_ddg = ai_module._ddg_images_sync
 ai_module._commons_images_sync = _fake_commons
+ai_module._ddg_images_sync = lambda q, n: []
 try:
     _natija = ai_module._images_sync("Hongqi H5 new model", 4)
 finally:
     ai_module._commons_images_sync = _asl_commons
+    ai_module._ddg_images_sync = _asl_ddg
 
 check("14e", "topilmasa so'rov 3, keyin 2 so'zga qisqaradi",
       _sorovlar == ["Hongqi H5 new model", "Hongqi H5 new", "Hongqi H5"]

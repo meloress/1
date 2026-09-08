@@ -34,6 +34,7 @@ try:
         IMAGE_CAPABILITY_NOTE,
         build_system_prompt, build_request_params, pick_reasoning_effort,
         SEARCH_IMAGE_MAX, SEARCH_IMAGE_CANDIDATES, SEARCH_IMAGE_HEAD_TIMEOUT,
+        SEARCH_IMAGE_DEFAULT, SEARCH_IMAGE_PICK_MODEL, SEARCH_IMAGE_PICK_TIMEOUT,
         SEARCH_IMAGE_SAFESEARCH, SEARCH_COMMONS_UA, SEARCH_COMMONS_TIMEOUT,
         SEARCH_IMAGE_MAX_BYTES, SEARCH_IMAGE_GALLERY_MIN,
         SEARCH_IMAGE_COLLAGE_MAX, TEXT_CUSTOM_EMOJI, TEXT_CUSTOM_EMOJI_MAX,
@@ -56,8 +57,11 @@ except ImportError:
     REQUEST_TIMEOUT = 60.0
     CONTEXT_WINDOW = 12
     CONTEXT_WINDOW_PRO = 24
-    SEARCH_IMAGE_MAX = 4
-    SEARCH_IMAGE_CANDIDATES = 10
+    SEARCH_IMAGE_MAX = 10
+    SEARCH_IMAGE_DEFAULT = 3
+    SEARCH_IMAGE_CANDIDATES = 20
+    SEARCH_IMAGE_PICK_MODEL = "gpt-4.1-mini"
+    SEARCH_IMAGE_PICK_TIMEOUT = 25
     SEARCH_IMAGE_HEAD_TIMEOUT = 4
     SEARCH_IMAGE_MAX_BYTES = 10 * 1024 * 1024
     SEARCH_IMAGE_GALLERY_MIN = 2
@@ -85,6 +89,7 @@ except ImportError:
         return "low"
 
 from core.loader import openai_client, logger
+from core.memory import recent_sent_images, remember_sent_images
 from db.history import update_chat_history
 
 # TPM (daqiqadagi token) limitiga urilganda qancha kutiladi. OpenAI xato
@@ -108,7 +113,8 @@ async def clear_chat_history(chat_id: int):
     except Exception as e:
         logger.error(f"Xotirani tozalashda xatolik: {e}")
 
-async def safe_update_history(chat_id: int, content: str, role: str = "user"):
+async def safe_update_history(chat_id: int, content: str, role: str = "user",
+                              images: Optional[List[dict]] = None):
     if not content:
         return
     # ⚠️ [rasm:N] TARIXGA TUSHMASLIGI KERAK. Bu belgi faqat O'SHA javobdagi
@@ -117,7 +123,8 @@ async def safe_update_history(chat_id: int, content: str, role: str = "user"):
     # CHAQIRMAY yana [rasm:1] yozardi; embed_images() esa uni indamay
     # o'chirardi. Natija: foydalanuvchi rasm o'rniga bo'sh javob yoki
     # havola olardi.
-    content = strip_image_tokens(content).strip()
+    content = (image_tokens_to_history(content, images) if images
+               else strip_image_tokens(content)).strip()
     if not content:
         return
     try:
@@ -968,98 +975,262 @@ def _commons_images_sync(query: str, max_results: int) -> List[dict]:
     return out
 
 
-def _images_sync(query: str, max_results: int) -> List[dict]:
-    """Commons birinchi; natija bo'lmasa — ddgs (Bing/DDG) zaxirasi.
+def _title_stem(title: str) -> str:
+    """Sarlavhaning o'zagi — takrorlarni topish uchun.
 
-    ⚠️ Commons SO'ZMA-SO'Z qidiradi: «Hongqi H5 Classic» hech narsa
-    bermaydi, «Hongqi H5» esa o'nlab aniq suratni beradi. Shuning uchun
-    natija bo'lmasa so'rov bosqichma-bosqich qisqaradi — bezak so'zlar
-    ("classic", "new model", "2025", "narxi") oxirida turadi.
-
-    ⚠️ IKKI BOSQICH SHART, bitta emas. Ilgari faqat 3 so'zga qisqartirilardi
-    va «Hongqi H5 new model» -> «Hongqi H5 new» ham bo'sh qaytardi: nom ikki
-    so'zdan iborat bo'lganda uchinchi so'z baribir ortiqcha edi —
-    foydalanuvchi uchun bu "rasm umuman kelmadi" bo'lib ko'rinardi.
+    Commons bitta suratga olishni «BMW 540i (G30) China», «… (2)»,
+    «… (3)» deb saqlaydi. URL'lari boshqa, ya'ni eski takror filtri
+    ularni o'tkazib yuborardi va foydalanuvchi 4 ta rasm o'rniga BITTA
+    rasmning 4 ta kadrini olardi.
     """
+    t = (title or "").lower()
+    t = re.sub(r"\.\w{2,4}$", "", t)             # fayl kengaytmasi
+    t = re.sub(r"\s*\(\s*\d+\s*\)\s*$", "", t)   # oxiridagi (2), (3)
+    t = re.sub(r"[^\w\s]", " ", t)
+    return " ".join(t.split())
+
+
+def _images_sync(query: str, max_results: int) -> List[dict]:
+    """Nomzadlarni IKKALA manbadan yig'adi: Commons va ddgs.
+
+    ⚠️ ILGARI ddgs ZAXIRA EDI — Commons hech narsa bermagandagina
+    ishlardi. Aynan shu jonli nosozlikni tug'dirgan: Commons erkin
+    litsenziyali ensiklopediya arxivi, unda «BMW 540i tuning body kit»
+    yo'q. So'rov esa Commons javob bergunicha QISQARARDI va oxirida
+    asl «BMW 540i» ga tushardi — natijada foydalanuvchi nechchi marta
+    aniqlashtirmasin, HAR SAFAR O'SHA to'rt rasmni olardi.
+
+    Endi ikkalasi ham so'raladi va nomzadlar birga beriladi: qaysi biri
+    mos ekanini quyida MODEL rasmni ko'rib hal qiladi.
+
+    Commons oldinda turadi — ko'rish bosqichi ishlamay qolsa birinchilar
+    olinadi, va ensiklopedik so'rovda uning rasmi aniqroq (hamda erkin
+    litsenziyada, o'quvchi taqdimoti uchun bu muhim).
+    """
+    out: List[dict] = []
+    for nom, olish in (("Commons", _commons_images_sync),
+                       ("ddgs", _ddg_images_sync)):
+        try:
+            found = olish(query, max_results)
+        except Exception as e:
+            logger.warning(f"[IMAGES] {nom} xatosi [{query}]: {e}")
+            continue
+        if found:
+            logger.info(f"[IMAGES] «{query}» [{nom}]: {len(found)} ta")
+            out.extend(found)
+
+    if out:
+        return out
+
+    # ⚠️ QISQARTIRISH ENDI OXIRGI CHORA. Commons so'zma-so'z qidiradi:
+    # «Hongqi H5 Classic» hech narsa bermaydi, «Hongqi H5» esa o'nlab
+    # rasm beradi. Ikki bosqich shart — «Hongqi H5 new model» 3 so'zga
+    # qisqarsa ham («Hongqi H5 new») bo'sh qaytadi.
     words = query.split()
-    korilgan: set = set()
-    for n in (len(words), 3, 2):
+    korilgan = {query}
+    for n in (3, 2):
         q = " ".join(words[:n])
         if not q or q in korilgan:
             continue
         korilgan.add(q)
         found = _commons_images_sync(q, max_results)
         if found:
-            logger.info(f"[IMAGES] «{q}»: Commons {len(found)} ta berdi")
+            logger.info(f"[IMAGES] «{q}» (qisqartirilgan): {len(found)} ta")
             return found
     return []
 
 
-def _image_sources(query: str, max_results: int):
-    """Manbalar USTUVORLIK bo'yicha: Commons, keyin ddgs.
-
-    ⚠️ Ro'yxat qaytarish yetarli emas — har bir manba ALOHIDA sinaladi.
-    Commons topgan havolalarning bir qismi tirik bo'lmasligi mumkin
-    (thumbnail hali yaratilmagan), o'shanda butun so'rov rasmsiz
-    qolmasligi uchun ddgs'ga tushish kerak.
-    """
-    yield ("Commons", lambda: _images_sync(query, max_results))
-    yield ("ddgs", lambda: _ddg_images_sync(query, max_results))
-
-
-def _clean_candidates(raw: List[dict], tokens: List[str]) -> tuple:
-    """Takrorlar, https bo'lmaganlar va MAVZUGA ALOQASIZLAR chiqariladi."""
-    seen: set = set()
+def _clean_candidates(raw: List[dict], tokens: List[str],
+                      skip_urls: set) -> tuple:
+    """Takror, https bo'lmagan, aloqasiz va ALLAQACHON YUBORILGANLAR chiqadi."""
+    seen_url: set = set()
+    seen_stem: set = set()
     candidates: List[dict] = []
     tashlandi = 0
+    takror = 0
     for r in raw:
         url = (r.get("image") or "").strip()
-        if not url.startswith("https://") or url in seen:
+        if not url.startswith("https://") or url in seen_url:
+            continue
+        if url in skip_urls:
+            takror += 1
+            continue
+        title = (r.get("title") or "").strip()
+        stem = _title_stem(title)
+        if stem and stem in seen_stem:
+            takror += 1
             continue
         if not _image_relevant(tokens, r):
             tashlandi += 1
             continue
-        seen.add(url)
+        seen_url.add(url)
+        if stem:
+            seen_stem.add(stem)
         candidates.append({
             "url": url,
-            "title": (r.get("title") or "").strip(),
+            "title": title,
             # Manba sayt — sarlavhada ko'rsatiladi (o'zganing rasmi).
             "source": (r.get("source") or _host_of(r.get("url") or url)),
         })
-    return candidates, tashlandi
+    return candidates, tashlandi, takror
 
 
-async def search_images(query: str, *, limit: int = SEARCH_IMAGE_MAX) -> List[dict]:
-    """Internetdan rasm qidiradi va FAQAT tirik havolalarni qaytaradi.
+_PICK_INSTRUCTION = (
+    "You pick photos for a Telegram chat answer. You are shown numbered "
+    "candidate images and the user's request.\n"
+    "Rules:\n"
+    "1. Pick ONLY images that genuinely match the request. If the request "
+    "asks for a specific variant (tuned, modified, a given year, a colour, "
+    "an angle), an ordinary stock photo of the base subject does NOT match.\n"
+    "2. Never pick two images of the same shot or near-identical frames.\n"
+    "3. Prefer sharp, well-lit, uncluttered photos. Avoid collages, "
+    "watermarked images, screenshots and text-only pictures.\n"
+    "4. Fewer good images beat many mediocre ones. Picking NOTHING is the "
+    "correct answer when nothing matches — never pad the list.\n"
+    "5. For each picked image write a short factual description in UZBEK "
+    "(latin), 3-8 words: what is in it, colour, angle. This description is "
+    "shown later when the user asks about the photo, so it must be true to "
+    "the image, not to the request.\n"
+    'Answer with JSON only: {"chosen":[{"n":3,"desc":"kulrang sedan, yon tomondan"}]}'
+)
 
-    Natija: [{"url": ..., "title": ..., "source": ...}, ...] — ko'pi bilan
-    `limit` ta. Rasm yuklab olinmaydi, faqat havolasi tekshiriladi.
+
+def _parse_pick_json(text: str, jami: int) -> List[tuple]:
+    """Model javobidan (raqam, tavsif) juftlarini ajratadi.
+
+    Model JSON'ni matn ichiga o'rab yuborishi mumkin, shuning uchun
+    birinchi `{` dan oxirgi `}` gacha olinadi. Yaroqsiz raqam
+    JIMGINA tashlanadi — yomon javob butun rasm yo'lini yiqitmasin.
     """
+    if not text:
+        return []
+    try:
+        bosh, oxir = text.index("{"), text.rindex("}")
+        data = json.loads(text[bosh:oxir + 1])
+    except Exception:
+        return []
+    natija: List[tuple] = []
+    korilgan: set = set()
+    for item in (data.get("chosen") or [])[:jami]:
+        try:
+            n = int(item.get("n"))
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= n <= jami) or n in korilgan:
+            continue
+        korilgan.add(n)
+        natija.append((n, str(item.get("desc") or "").strip()[:60]))
+    return natija
+
+
+async def _pick_images_with_vision(cands: List[dict], request: str,
+                                   need: int) -> List[dict]:
+    """Nomzadlarni MODELGA KO'RSATIB tanlatadi.
+
+    ⚠️ BUTUN FARQ SHUNDA. Ilgari tanlov sarlavha matniga qarab
+    qilinardi, ya'ni bot o'zi nima yuborayotganini ko'rmasdi. Undan
+    kelib chiqadigan uchta nosozlik bir vaqtda yopiladi:
+      * aniqlashtirilgan so'rovga («tuning qilingan») mos rasm tanlanadi;
+      * bir xil mashinaning takror kadrlari tashlanadi;
+      * har bir rasmga TAVSIF yoziladi — «birinchi rasmdagi mashina
+        rangi qanaqa?» degan savolga javob shundan keladi.
+
+    Narxi: nomzad boshiga ~85 token (past aniqlik), ya'ni 20 ta uchun
+    ~2 000 token. ATAYLAB boshqa (arzon) modelda — asosiy modelning
+    kunlik grantiga tegmasligi uchun.
+
+    Yiqilsa (model yo'q, kvota tugadi, javob buzuq) — birinchi `need`
+    ta nomzad qaytadi, ya'ni eski xatti-harakat. Rasm yo'qolmaydi.
+    """
+    if len(cands) <= 1:
+        return cands[:need]
+
+    content: List[dict] = [{
+        "type": "input_text",
+        "text": (f"User's request: {request}\n"
+                 f"Pick at most {need} image(s) from the {len(cands)} below."),
+    }]
+    for i, c in enumerate(cands, 1):
+        content.append({"type": "input_text",
+                        "text": f"#{i} — {c['title'][:70] or 'nomsiz'}"})
+        # detail=low: o'lchamidan qat'i nazar 85 token. Rasm mos-mosligini
+        # aniqlash uchun shu yetarli, batafsil ko'rish esa 5-10 barobar
+        # qimmatga tushardi.
+        content.append({"type": "input_image", "image_url": c["url"],
+                        "detail": "low"})
+
+    try:
+        resp = await asyncio.wait_for(
+            openai_client.responses.create(
+                model=SEARCH_IMAGE_PICK_MODEL,
+                instructions=_PICK_INSTRUCTION,
+                input=[{"role": "user", "content": content}],
+                max_output_tokens=400,
+                store=False,
+            ),
+            timeout=SEARCH_IMAGE_PICK_TIMEOUT,
+        )
+    except Exception as e:
+        logger.warning(f"[IMAGES] ko'rish bosqichi ishlamadi: {e}")
+        return cands[:need]
+
+    _log_token_usage(resp, SEARCH_IMAGE_PICK_MODEL, "rasm-tanlov")
+    tanlangan = _parse_pick_json(getattr(resp, "output_text", "") or "",
+                                 len(cands))
+    if not tanlangan:
+        # Model hech narsa tanlamagan bo'lishi ham MUMKIN va bu to'g'ri
+        # javob: mos rasm yo'q. Buni "javob buzuq" dan ajratib
+        # bo'lmaydi, shuning uchun bo'sh qaytaramiz — aloqasiz rasm
+        # yuborgandan ko'ra rasmsiz javob yaxshiroq.
+        logger.info(f"[IMAGES] «{request[:40]}»: model mos rasm topmadi")
+        return []
+
+    natija = []
+    for n, desc in tanlangan[:need]:
+        img = dict(cands[n - 1])
+        img["desc"] = desc
+        natija.append(img)
+    logger.info(f"[IMAGES] {len(cands)} nomzaddan {len(natija)} ta tanlandi")
+    return natija
+
+
+async def search_images(query: str, *, limit: Optional[int] = None,
+                        request: str = "",
+                        skip_urls: Optional[set] = None) -> List[dict]:
+    """Internetdan rasm qidiradi, tirikligini tekshiradi va MODELGA TANLATADI.
+
+    `request` — foydalanuvchining aynan so'rovi (tanlov shunga qarab
+    qilinadi). `skip_urls` — shu suhbatda allaqachon yuborilganlar:
+    «yana rasm topib ber» deganda o'sha rasmning qaytishi aynan
+    foydalanuvchi shikoyat qilgan holat edi.
+
+    Natija: [{"url", "title", "source", "desc"}, ...]
+    """
+    need = max(1, min(int(limit or SEARCH_IMAGE_DEFAULT), SEARCH_IMAGE_MAX))
     tokens = _query_tokens(query)
     timeout = aiohttp.ClientTimeout(total=SEARCH_IMAGE_HEAD_TIMEOUT)
 
-    for nom, olish in _image_sources(query, SEARCH_IMAGE_CANDIDATES):
-        raw = await asyncio.to_thread(olish)
-        if not raw:
-            continue
-        candidates, tashlandi = _clean_candidates(raw, tokens)
-        if not candidates:
-            logger.info(f"[IMAGES] «{query}» [{nom}]: hammasi aloqasiz, tashlandi")
-            continue
+    raw = await asyncio.to_thread(_images_sync, query, SEARCH_IMAGE_CANDIDATES)
+    if not raw:
+        return []
+    candidates, tashlandi, takror = _clean_candidates(
+        raw, tokens, skip_urls or set())
+    if not candidates:
+        logger.info(f"[IMAGES] «{query}»: nomzad qolmadi "
+                    f"(aloqasiz {tashlandi}, takror {takror})")
+        return []
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            checks = await asyncio.gather(
-                *(_image_url_ok(session, c["url"]) for c in candidates),
-                return_exceptions=True,
-            )
-        alive = [c for c, ok in zip(candidates, checks) if ok is True]
-        logger.info(f"[IMAGES] «{query}» [{nom}]: {len(candidates)} nomzod → "
-                    f"{len(alive)} tirik"
-                    f"{f', {tashlandi} aloqasiz' if tashlandi else ''}")
-        if alive:
-            return alive[:limit]
-    return []
-
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        checks = await asyncio.gather(
+            *(_image_url_ok(session, c["url"]) for c in candidates),
+            return_exceptions=True,
+        )
+    alive = [c for c, ok in zip(candidates, checks) if ok is True]
+    logger.info(f"[IMAGES] «{query}»: {len(candidates)} nomzad → "
+                f"{len(alive)} tirik (aloqasiz {tashlandi}, takror {takror})")
+    if not alive:
+        return []
+    return await _pick_images_with_vision(alive, request or query, need)
 
 def _host_of(url: str) -> str:
     try:
@@ -1069,11 +1240,20 @@ def _host_of(url: str) -> str:
 
 
 def format_image_catalog(images: List[dict]) -> str:
-    """Modelga ko'rsatiladigan rasm ro'yxati — URL'siz, atigi ~25 token."""
+    """Modelga ko'rsatiladigan rasm ro'yxati — URL'siz, rasm boshiga ~20 token.
+
+    Tavsif (`desc`) — ko'rish bosqichi yozgan, RASMNING O'ZIDAN olingan
+    qator. U modelga rasmni tasvirlab bera olish imkonini beradi:
+    ilgari bot faqat sarlavhani bilardi, ya'ni «birinchi rasmdagi
+    mashina rangi qanaqa?» degan savolga javob berolmasdi.
+    """
     if not images:
         return ""
-    lines = [f"[rasm:{i}] {img['title'][:70] or 'rasm'}"
-             for i, img in enumerate(images, 1)]
+    lines = []
+    for i, img in enumerate(images, 1):
+        nom = img.get("title", "")[:70] or "rasm"
+        desc = (img.get("desc") or "").strip()
+        lines.append(f"[rasm:{i}] {nom}" + (f" — {desc}" if desc else ""))
     return (
         "\n\n📷 RASMLAR TOPILDI — javobga QO'YING:\n"
         + "\n".join(lines)
@@ -1100,6 +1280,40 @@ _IMAGE_ANY_TOKEN_RE = re.compile(r"\[rasm:\d{1,2}\]|\[rasmlar\]", re.IGNORECASE)
 def strip_image_tokens(text: str) -> str:
     """Oraliq (streaming) ko'rinish uchun rasm belgilarini olib tashlaydi."""
     return _IMAGE_ANY_TOKEN_RE.sub("", text)
+
+
+def image_tokens_to_history(text: str, images: List[dict]) -> str:
+    """`[rasm:N]` ni TAVSIF bilan almashtiradi — tarixga shu ko'rinishda tushadi.
+
+    ⚠️ Belgining o'zi tarixda QOLMASLIGI kerak: u faqat o'sha javobdagi
+    katalogga tegishli, keyingi so'rovda katalog boshqa bo'ladi va model
+    uni tirik deb o'ylab qidiruvni chaqirmay qo'yardi.
+
+    Lekin butunlay o'chirish ham noto'g'ri edi: model o'zi nima
+    yuborganini BILMAY qolardi va «birinchi rasmda nima bor edi?» degan
+    savolga javob berolmasdi. Endi o'rnida odam o'qiydigan qator
+    qoladi — rasm boshiga ~15 token.
+    """
+    if not text:
+        return text
+    if not images:
+        return strip_image_tokens(text)
+
+    def bitta(match):
+        idx = int(match.group(1))
+        if 1 <= idx <= len(images):
+            img = images[idx - 1]
+            belgi = (img.get("desc") or img.get("title") or "rasm")[:70]
+            return f"[yuborilgan rasm: {belgi}]"
+        return ""
+
+    def galereya(_m):
+        nomlar = ", ".join((i.get("desc") or i.get("title") or "rasm")[:40]
+                           for i in images[:4])
+        return f"[yuborilgan rasmlar: {nomlar}]"
+
+    out = _IMAGE_GALLERY_RE.sub(galereya, text)
+    return _IMAGE_TOKEN_RE.sub(bitta, out)
 
 
 def _image_block(img: dict, *, caption: bool = True) -> str:
@@ -1768,6 +1982,17 @@ _TOOLS = [
                         "qidiruv ham, rasm ham bitta chaqiruvda keladi.\n"
                         "⚠️ want_images ni ham true qiling. primary_query baribir "
                         "shart — rasm so'rovi undan olinadi."
+                    ),
+                },
+                "image_count": {
+                    "type": "integer",
+                    "description": (
+                        "FAQAT want_images=true bo'lganda. Nechta rasm kerak. "
+                        "Foydalanuvchi son aytsa — AYNAN shuni yozing: «10 ta "
+                        "rasm topib ber» -> 10. Aytmasa — bo'sh qoldiring "
+                        "(standart 3 ta). "
+                        "Chegara 10. Ko'p rasm so'ralganda javobda [rasmlar] "
+                        "deb yozing — hammasi bitta galereyaga yig'iladi."
                     ),
                 },
                 "image_query": {
@@ -3284,14 +3509,36 @@ async def get_openai_reply(
                             # raqamli so'rov yozadi, rasm indeksida esa bu
                             # mutlaqo aloqasiz natija beradi.
                             _iq = (args.get("image_query") or "").strip()
+                            try:
+                                _n = int(args.get("image_count") or 0)
+                            except (TypeError, ValueError):
+                                _n = 0
+                            # ⚠️ Tanlov foydalanuvchining AYNAN so'roviga
+                            # qarab qilinadi, qidiruv so'roviga emas:
+                            # «tuning qilingani» degan aniqlashtirish
+                            # image_query ga tushmasligi mumkin, ammo
+                            # rasmni ko'rib tanlashda u hal qiluvchi.
                             found = await search_images(
-                                image_query(_iq or primary_query))
+                                image_query(_iq or primary_query),
+                                limit=_n or None,
+                                request=message_text,
+                                skip_urls=recent_sent_images(chat_id))
                         except Exception as e:
                             logger.warning(f"[IMAGES] qidiruv xatosi: {e}")
                             found = []
                         if found:
                             images_out.extend(found)
+                            remember_sent_images(chat_id, found)
                             tool_output += format_image_catalog(found)
+                        else:
+                            # ⚠️ JIM QAYTMAYMIZ. Foydalanuvchi «yana rasm
+                            # topib ber» deb qayta so'raganda eskisini
+                            # qaytarish emas, ROSTINI aytish kerak —
+                            # aks holda model o'zi bir narsa to'qiydi.
+                            tool_output += (
+                                "\n⚠️ Mos YANGI rasm topilmadi (avval "
+                                "yuborilganlari hisobga olinmadi). Javobda "
+                                "buni ochiq ayting, rasm belgisi YOZMANG.\n")
 
                     # ⚠️ JIM QAYTGAN TOOL — kontekst portlashining sababi.
                     # images_only da veb natijasi yo'q, ya'ni rasm ham
