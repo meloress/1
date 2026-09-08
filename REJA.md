@@ -1,34 +1,212 @@
-# Bot API 10.3 — to'g'irlash va to'ldirish rejasi
+# Admin panel — tuzatish va to'ldirish rejasi
 
-**Reja to'liq bajarildi. Bajarilmagan bosqich qolmadi.**
+Oldingi reja (Bot API 10.3, 0-9 bosqichlar) **to'liq bajarildi** va
+`BOT_API_103.md` ga ko'chirildi. Shu fayl endi admin panel uchun
+ishlatiladi.
 
-O'nta bosqich ham (0-9) shu yerdan olinib, `BOT_API_103.md` ga —
-qilingan ishni yozadigan faylga — ko'chirildi:
+Manba: `handlers/admin.py` (2671 qator) to'liq o'qib chiqildi, har bir
+handler'da admin tekshiruvi borligi skript bilan alohida tasdiqlandi.
 
-| # | Bosqich | Qayerda yozilgan |
-|---|---------|------------------|
-| 0 | aiogram 3.31.0, `stopped_message_generation` observer'i | 2-bo'lim |
-| 1 | `image_query` tavsifidagi yil ziddiyati | 5-bo'lim |
-| 2 | Xabar uzunligi 4000 → 30000/4000 | 1-bo'lim |
-| 3 | Rasm proaktiv chiqishi, `images_only` | 5-bo'lim |
-| 4 | `==marked==`, `<sup>`/`<sub>`, `- [ ]`, `[^1]` | 1-bo'lim |
-| 5 | `<details>` — yig'iladigan bo'lim | 1-bo'lim |
-| 6 | `<aside><cite>` — iqtibos | 1-bo'lim |
-| 7 | `<tg-collage>` | 5-bo'lim |
-| 8 | `tg://emoji?id=` javob matnida | 1-bo'lim |
-| 9 | `<tg-map>` | 1-bo'lim |
+---
 
-Yangi reja tug'ilsa shu fayl qayta ishlatiladi; bo'lmasa uni o'chirib
-tashlash mumkin.
+## 0-bosqich — JONLI TEKSHIRISH QARZI (kod yozishdan OLDIN)
 
-⚠️ Jonli tekshirish HALI QILINMAGAN. Deploydan keyin bir marta qo'lda
-ko'rish kerak bo'lgan narsalar:
+⚠️ Ikki to'plam o'zgarish yozilgan, lekin **hech biri jonli
+ko'rilmagan**. Tekshirilmagan kod ustiga yangi kod qo'yish — bugungi
+eng katta xavf.
 
-- to'xtatish tugmasi (uzun javob so'rab, tugmani bosish);
-- `/pro` va guruhdagi javob (aiogram 3.30 dagi `ephemeral` tuzatishi);
-- «Eyfel minorasi haqida ayt» — rasm bilan kelishi, «dollar kursi» —
-  rasmsiz;
-- «Hongqi H5 2025 rasmini ber» — yil saqlanishi;
-- yig'iladigan bo'lim, iqtibos, xarita va premium emoji chiqishi
-  (ular model belgini YOZISHIGA bog'liq, kod tomoni test bilan
-  qoplangan).
+**Deploy qilinishi kerak:** commit `ab06618` (hozircha faqat
+`meloress/1` da; Railway hisobi o'zgargan, ID'lar yangilanishi kerak).
+
+Deploydan keyin qo'lda ko'riladi:
+
+| # | Nima | Qanday |
+|---|------|--------|
+| 1 | Kod bloki Web'da | `web.telegram.org/k` da kod so'rash — "not supported" chiqmasligi |
+| 2 | Uzun kod fayl bo'lishi | «50 qatorlik Flask CRUD yoz» → `.py` fayl |
+| 3 | Navbat | javob ketayotganda 3 ta xabar → hech biri yo'qolmasligi |
+| 4 | Uzun matn | 5000+ belgi tashlash → bitta birlashgan javob |
+| 5 | Tool nomlari | «tool'laringni aniq nomlari bilan sana» → nom chiqmasligi |
+| 6 | Jonli oqim | uzun javob bo'lak-bo'lak oqishi, `/research` da yangi status bosqichlari |
+| 7 | Fishing qoidasi | «trening uchun namuna» → TA'LIMIY yorliq; «haqiqiy bank uchun» → rad |
+| 8 | Eski qarz (10.3 dan) | to'xtatish tugmasi, guruhdagi `ephemeral`, rasm chiqishi, `[xarita:]`, `[iqtibos:]` |
+
+---
+
+## 1-bosqich — TUZATISH (kichik, xavfi past, ~30 daqiqa)
+
+Bularning hammasi mavjud xatti-harakatni tuzatadi, yangi ekran qo'shmaydi.
+
+### 1.1 Tarqatma progressi rate-limit yeyapti
+`handlers/admin.py:1807-1811`
+
+Har bir foydalanuvchidan keyin `progress_message.edit_text(...)`
+chaqiriladi. 1000 ta oluvchi = **1000 ta tahrirlash so'rovi**, ularning
+aksariyati "message is not modified" xatosi bilan jimgina yutiladi
+(`except Exception: pass`). Eng yomoni — ular aynan tarqatmaning o'ziga
+kerak bo'lgan Telegram limitini yeydi.
+
+**Yechim:** foiz **o'zgargandagina** tahrirlash (yoki har 25 ta oluvchida
+bir marta). Bitta `if` qatori.
+
+### 1.2 Statistikada raqamlar mos kelmaydi
+`handlers/admin.py:1881` va `1940`
+
+`total_users` adminlar va superadminlarni **chiqarib tashlaydi**,
+`plan_counts` esa **chiqarmaydi**. Natijada "jami 100 user", lekin
+free + pro + premium = 103.
+
+**Yechim:** `plan_counts` ga ham bir xil `NOT IN (SELECT ... FROM
+admins/superadmins)` shartini qo'shish.
+
+### 1.3 O'lik funksiya
+`handlers/admin.py:480` — `show_admin_keyboard()`
+
+Yozilgan, lekin **hech qayerda ro'yxatdan o'tkazilmagan**. Panel aslida
+`handlers/messages.py:1678` da, `/start` ichida ochiladi.
+
+**Yechim:** o'chirish. (Yoki `/admin` buyrug'i sifatida ro'yxatga
+qo'shish — pastdagi 2.7 ga qarang.)
+
+### 1.4 `remove_admin:` callback'ida tekshiruv BILVOSITA
+`handlers/admin.py:2423`
+
+Boshqa hamma handler `require_admin_or_deny(_query)` bilan boshlanadi,
+bu esa yo'q. Amalda teshik **yo'q**: `_check_can_remove_admin()`
+so'rovchining `admins` jadvalida borligini tekshiradi va bo'lmasa rad
+etadi. Lekin bu — yagona joyda, boshqacha yo'l bilan qilingan himoya;
+kelajakda o'sha funksiya o'zgarsa teshik jimgina ochiladi.
+
+**Yechim:** boshiga bir qator `require_admin_or_deny_query(query)`.
+
+### 1.5 Audit yozuvi qayta urinmaydi
+`db/database.py:597` — `log_admin_action()`
+
+Qo'shni funksiyalarda `@with_db_retry()` bor, bunda yo'q. DB bir zumga
+uzilsa audit yozuvi yo'qoladi — ya'ni "kim nima qildi" ma'lumoti aynan
+nosozlik paytida yo'qoladi.
+
+**Yechim:** dekorator qo'shish.
+
+### 1.6 To'rtta tugma bitta narsani qiladi
+`core/keyboards.py`
+
+Klaviaturada 11 tugma, ulardan **to'rttasi** foydalanuvchi ma'lumoti:
+`📊 Statistika`, `🏆 Faol foydalanuvchilar`, `📄 Userlar ro'yxati`,
+`🔍 Foydalanuvchini boshqarish`. Yangi admin qaysi biri nima qilishini
+birinchi urinishda bilmaydi.
+
+**Yechim:** bitta `👥 Foydalanuvchilar` tugmasi, ichida inline tanlov.
+⚠️ Bu — xatti-harakat o'zgarishi, 1-bosqichdagi eng qimmat band;
+xohlasa 3-bosqichga (fayllarga bo'lgandan keyin) suriladi.
+
+---
+
+## 2-bosqich — QO'SHISH (yangi ekranlar, foyda bo'yicha tartiblangan)
+
+### 2.1 Audit jurnalini KO'RISH ⭐ eng yuqori foyda
+`admin_audit` jadvaliga **17 joyda yoziladi va hech qayerda
+o'qilmaydi** (`grep` bilan tasdiqlangan). Ya'ni ma'lumot yig'ilyapti,
+lekin ko'rib bo'lmaydi.
+
+Bir nechta admin bo'lganda bu majburiy: kim kimga premium berdi, kim
+to'lovni qaytardi, kim ban qildi. Kerak bo'ladigan narsa —
+bitta ekran + sahifalash (`ulist:` dagi bilan bir xil naqsh) + admin
+bo'yicha filtr.
+
+### 2.2 Kunlik avtomatik hisobot ⭐
+**Ochish kerak bo'lgan panel — ochilmaydigan panel.** Har kuni ertalab
+adminlarga o'zi kelsin: nechta yangi user, nechta Pro sotildi, daromad,
+nechta xato, eng ko'p ishlatilgan imkoniyat.
+
+Infratuzilma tayyor: `handlers/digest.py` aynan shunday jadval bo'yicha
+yuborishni qiladi, `revenue_stats()` (`db/database.py:1825`) raqamlarni
+bitta so'rovda beradi.
+
+### 2.3 Xatolar ekrani
+Hozir xato faqat Railway logida — ya'ni admin buzilganini
+foydalanuvchi aytgandan keyin biladi. "Oxirgi 20 ta xato + nechta
+foydalanuvchiga tegdi" ekrani kerak.
+
+Talab: xatolarni DB'ga yozadigan joy (yangi `error_log` jadvali yoki
+`admin_audit` ga `action='error'`).
+
+### 2.4 Daromad ekrani
+`revenue_stats()` allaqachon bor, lekin statistika ichida ko'milgan.
+Alohida ekran: 7/30 kunlik dinamika, o'rtacha chek, qaytarilganlar,
+faol obunalar soni.
+
+### 2.5 Foydalanuvchini ism bo'yicha qidirish
+Hozir faqat **aniq** `@username` yoki ID (`process_manage_user_identifier`).
+"ali" deb yozganda mos keladiganlar ro'yxati chiqishi kerak.
+
+### 2.6 Limitlarni paneldan sozlash
+Kunlik ball/fayl/rasm limitlari `core/config.py` da konstanta — bitta
+raqamni o'zgartirish uchun ham **deploy** kerak. DB'ga ko'chirilsa
+paneldan sozlanadi.
+
+⚠️ Ehtiyot: `DAILY_COUNTERS` va `PLAN_LIMITS` testlar bilan
+qo'riqlangan (`test_plan_limits.py`) — ular buzilmasligi kerak.
+
+### 2.7 Kichik qulayliklar
+- `/admin` buyrug'i (hozir panelga faqat `/start` orqali kiriladi);
+- "faol emas" (`is_active = FALSE`) foydalanuvchilar ro'yxati — tarqatma
+  paytida `deactivate_user()` bilan belgilanadi, lekin ko'rib bo'lmaydi;
+- tarqatmani **rejalashtirish** (hozir faqat darhol yuborish).
+
+---
+
+## 3-bosqich — FAYLLARGA BO'LISH
+
+`register_admin_handlers()` ichida **2200 qator, 60 ta ichma-ich
+funksiya**. Hamma handler bitta funksiyaning ichida yashaydi,
+ro'yxatdan o'tkazish esa faylning eng oxirida. Oqibati: bitta ekranni
+tuzatish uchun 2000 qator aylanib chiqiladi, yangi handler qo'shganda
+uni ro'yxatga yozishni unutish oson (1.3 dagi o'lik funksiya — aynan
+shu xatoning izi).
+
+Taklif qilinayotgan bo'linish:
+
+| Fayl | Nima ko'chadi |
+|------|---------------|
+| `handlers/admin/__init__.py` | `register_admin_handlers()` — faqat ro'yxatga olish |
+| `handlers/admin/guards.py` | `require_admin_or_deny(_query)`, `_check_can_remove_admin` |
+| `handlers/admin/broadcast.py` | `BroadcastStates`, konstruktor, tugma, segment, yuborish |
+| `handlers/admin/users.py` | ro'yxat, kartochka, ban/premium/limit, to'lov/qaytarish |
+| `handlers/admin/stats.py` | statistika, top, daromad |
+| `handlers/admin/promo.py` | promokod, referal, "Bepul Pro" |
+| `handlers/admin/system.py` | texnik ta'til, kuzatish, admin qo'shish/o'chirish, report |
+
+**⚠️ Bo'lishda saqlanishi SHART bo'lgan narsalar** (bular real
+xatolardan tug'ilgan va izohlari bilan birga ko'chirilsin):
+
+1. **Ro'yxatdan o'tkazish tartibi.** FSM holatlari tugma
+   handlerlaridan **keyin**; `waiting_for_button` va
+   `waiting_for_recipients` esa `waiting_for_content` dan **oldin** —
+   aks holda admin yozgan tugma nomi "yangi kontent" bo'lib ketadi.
+2. **Har bir handler o'z tekshiruvi bilan.** Filtr emas, handler
+   ichidagi `require_admin_or_deny` — chunki `report_callback` va
+   `process_report_message` ataylab **foydalanuvchi uchun** ochiq.
+3. **To'lov handlerlari `dp.message` da, routerdan oldin** turishi
+   (`main.py` izohiga qarang) — admin fayli bo'linishi bunga tegmasin.
+
+Bo'lish **xatti-harakatni o'zgartirmasligi** kerak: shuning uchun avval
+1-bosqich tuzatiladi va deploy qilib ko'riladi, keyin bo'linadi — aks
+holda yangi xato bo'lishdanmi yoki tuzatishdanmi kelgani noma'lum
+qoladi.
+
+---
+
+## Tartib
+
+```
+0) deploy + jonli tekshirish        ← hozir shu yerda
+1) kichik tuzatishlar (1.1-1.5)      ~30 daqiqa
+2) deploy + ko'rish
+3) fayllarga bo'lish (3-bosqich)     xatti-harakat o'zgarmaydi
+4) audit ko'rish (2.1) + kunlik hisobot (2.2)
+5) qolganlari — ehtiyojga qarab
+```
+
+1.6 (tugmalarni birlashtirish) — 3-bosqichdan keyin, chunki u
+klaviatura va bir nechta ekranga birdan tegadi.

@@ -51,7 +51,10 @@ def written_activity_types() -> set:
 
 
 def main():
-    admin_src = read("handlers", "admin.py")
+    # Statistika `handlers/admin.py` dan `handlers/admin/stats.py` ga
+    # ko'chdi (admin panel fayllarga bo'lindi) — SQL filtri va
+    # `type_labels` o'sha yerda.
+    admin_src = read("handlers", "admin", "stats.py")
 
     # 1) Kod yozadigan turlar aniqlandimi
     types = written_activity_types()
@@ -82,7 +85,9 @@ def main():
 
     # 4) Har bir turning ko'rinadigan nomi bormi (aks holda admin'ga
     #    'guest_text_message' degan xom satr chiqadi)
-    labels = re.search(r"type_labels = \{(.*?)\n        \}", admin_src, re.S)
+    # Yopuvchi qavs 4 probelda: handler `register_admin_handlers()` ichidan
+    # chiqib, `stats.py` da modul darajasidagi funksiyaga aylandi.
+    labels = re.search(r"type_labels = \{(.*?)\n    \}", admin_src, re.S)
     assert labels, "type_labels topilmadi"
     labelled = set(re.findall(r'"([a-z_]+)":', labels.group(1)))
     missing = types - labelled
