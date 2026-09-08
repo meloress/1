@@ -69,8 +69,14 @@ def test_url_dagi_dollar_belgisi():
 def test_kod_bloki_himoyada_qoldi():
     kod = "```python\nsana = '2026-08-21'\n```"
     out = build_rich_markdown(kod)
-    assert out == kod, f"kod bloki o'zgardi:\n{out}"
-    print("[6] kod bloki avvalgidek himoyalangan OK")
+    # Blokning O'ZI endi <pre><code> ga o'giriladi: ``` fence Telegram
+    # Web-K da "not supported" xabariga aylanardi (services/ai.py:
+    # code_fences_to_html). Ichidagi matn esa himoyada — hech bir
+    # bosqich (sana, jadval, emoji) unga tegmaydi.
+    assert out == ('<pre><code class="language-python">'
+                   "sana = '2026-08-21'</code></pre>"), out
+    assert "<tg-time" not in out, out
+    print("[6] kod bloki himoyada, <pre> ga o'girildi OK")
 
 
 def test_yangi_belgilar_tegilmaydi():
@@ -93,7 +99,9 @@ def test_kod_ichidagi_tenglik():
     """`x == y` kod bloki ichida marker bo'lib qolmasligi kerak."""
     kod = "```python\nif x == y == z:\n    pass\n```"
     out = build_rich_markdown(kod)
-    assert out == kod, f"kod bloki o'zgardi:\n{out}"
+    assert out == ('<pre><code class="language-python">'
+                   "if x == y == z:\n    pass</code></pre>"), out
+    assert "<mark" not in out, out
     print("[8] kod bloki ichidagi `==` saqlanib qoldi OK")
 
 
@@ -122,7 +130,10 @@ def test_batafsil_ichma_ich_va_yarim():
 
 def test_batafsil_kod_ichida():
     kod = '```python\ns = "[batafsil: x]"\n```'
-    assert build_rich_markdown(kod) == kod
+    out = build_rich_markdown(kod)
+    assert out == ('<pre><code class="language-python">'
+                   's = "[batafsil: x]"</code></pre>'), out
+    assert "<details" not in out, out
     print("[11] kod bloki ichidagi belgi tegilmadi OK")
 
 
@@ -152,7 +163,9 @@ def test_iqtibos_muallifsiz():
 
 def test_iqtibos_kod_va_oddiy_yol():
     kod = '```\nx = "[iqtibos: kod ichida]"\n```'
-    assert build_rich_markdown(kod) == kod
+    out = build_rich_markdown(kod)
+    assert out == '<pre><code>x = "[iqtibos: kod ichida]"</code></pre>', out
+    assert "<aside" not in out, out
 
     oddiy = strip_rich_tokens("a [iqtibos: Bilim kuch | Bekon] b")
     assert "«Bilim kuch» — Bekon" in oddiy and "[iqtibos" not in oddiy, oddiy
@@ -173,7 +186,8 @@ def test_premium_emoji_matnda():
 def test_premium_emoji_tegilmaydigan_joylar():
     """Kod, jadval katagi va `<aside>` — markdown parslanmaydi."""
     kod = '```python\nx = "🤖"\n```'
-    assert build_rich_markdown(kod) == kod, "kod bloki tegildi"
+    kod_out = build_rich_markdown(kod)
+    assert "tg://emoji" not in kod_out and "🤖" in kod_out, kod_out
 
     jadval = build_rich_markdown("| a | 🤖 |\n|---|---|\n| 1 | 📄 |")
     assert "tg://emoji" not in jadval and "🤖" in jadval, jadval
@@ -216,7 +230,9 @@ def test_tugma_buzuq_va_kod():
     assert "va" in yomon, yomon
 
     kod = '```\nx = "[tugma: K | https://a.b]"\n```'
-    assert build_rich_markdown(kod) == kod
+    kod_out = build_rich_markdown(kod)
+    assert kod_out == ('<pre><code>x = "[tugma: K | https://a.b]"'
+                       "</code></pre>"), kod_out
 
     oddiy = strip_rich_tokens("Manba [tugma: Sayt | https://cbu.uz] oxiri")
     assert "Sayt: https://cbu.uz" in oddiy and "[tugma" not in oddiy, oddiy

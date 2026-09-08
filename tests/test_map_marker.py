@@ -57,7 +57,12 @@ check(5, "javob matni saqlanib qoladi", "Xato:" in yomon and "oxiri." in yomon)
 
 # ── 6. KOD BLOKI ──────────────────────────────────────────────────
 kod = '```python\nq = "[xarita:41.3,69.2,14]"\n```'
-check(6, "kod bloki ichidagi belgi tegilmadi", build_rich_markdown(kod) == kod)
+_kod_out = build_rich_markdown(kod)
+check(6, "kod bloki ichidagi belgi tegilmadi",
+      # Blokning O'ZI <pre><code> ga o'giriladi (Telegram Web'da ```
+      # fence "not supported" bo'lardi) — ichidagi belgiga tegilmaydi.
+      _kod_out == ('<pre><code class="language-python">'
+                   'q = "[xarita:41.3,69.2,14]"</code></pre>'))
 
 # ── 7. MARKDOWN PARSLANMAYDIGAN JOYLAR ────────────────────────────
 # Jadval katagi (<td>) va <aside> ichida media blok chizilmaydi —

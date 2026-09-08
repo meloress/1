@@ -18,8 +18,8 @@ from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 
 from core.config import (
     BOT_TOKEN, CONTEXT_WINDOW,
-    TEXT_MERGE_INSTANT_THRESHOLD, TEXT_MERGE_WAIT, TEXT_MERGE_MAX_PARTS,
-    TEXT_MERGE_MAX_CHARS, MAX_TEXT_LENGTH,
+    TEXT_MERGE_WAIT, TEXT_MERGE_MAX_PARTS,
+    TEXT_MERGE_MAX_CHARS, MAX_TEXT_LENGTH, STREAM_IDLE_TIMEOUT,
     DAILY_FREE_LIMIT, MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO,
     MESSAGE_COST_DOCUMENT, MESSAGE_COST_VOICE, PLAN_LIMITS, CUSTOM_EMOJI,
     message_cost, pick_reasoning_effort,
@@ -43,7 +43,7 @@ from services.ai import (
     get_vision_reply, extract_text_from_document,
     clear_chat_history, safe_get_chat_history,
     build_rich_markdown, embed_images, strip_image_tokens, strip_rich_tokens,
-    strip_custom_emoji,
+    strip_custom_emoji, code_fences_to_html, strip_internal_names,
 )
 
 router = Router()
@@ -93,6 +93,44 @@ class GeneratingState(StatesGroup):
 
 @router.message(GeneratingState.generating)
 async def busy_handler(message: Message):
+    """Javob ketayotganda kelgan xabar — NAVBATGA, tashlanmaydi.
+
+    ⚠️ Ilgari bu yerda faqat "Iltimos kuting" javobi bor edi va xabarning
+    O'ZI YO'QOLARDI — foydalanuvchi uni qo'lda qayta yozishga majbur
+    bo'lardi. Endi matn o'sha text-merge buferiga qo'yiladi;
+    `_process_merged_text()` tugaganda buferda qolganini o'zi ishga
+    tushiradi (finally blokiga qarang).
+
+    Navbatga FAQAT oddiy matn tushadi:
+      * buyruq (`/pro`, `/new`) — AI so'rovi emas, uni GPT'ga yuborish
+        xato bo'lardi;
+      * rasm/hujjat/ovoz — o'z quvuri bor, buferga sig'maydi.
+    Ikkalasi ham eski xatti-harakatda qoladi: kutishni so'raymiz.
+    """
+    matn = (message.text or "").strip()
+    if matn and not matn.startswith("/"):
+        chat_id = message.chat.id
+        async with get_text_merge_lock(chat_id):
+            buf = text_merge_buffers.get(chat_id)
+            if buf is None:
+                buf = {"parts": [], "last_message": message,
+                       "timer_task": None, "created_at": time.time()}
+                text_merge_buffers[chat_id] = buf
+            if len(buf["parts"]) >= TEXT_MERGE_MAX_PARTS:
+                javob = ("⚠️ Navbat to'ldi — avvalgi savollarga javob "
+                         "berib bo'lgach qayta yozing.")
+            else:
+                buf["parts"].append(matn)
+                buf["last_message"] = message
+                buf["created_at"] = time.time()
+                javob = ("⏳ Navbatga oldim — avvalgi javob tugagach "
+                         "javob beraman.")
+        try:
+            await message.answer(javob, **ephemeral_params(message))
+        except Exception:
+            pass
+        return
+
     # Guruhda bu xabar FAQAT so'rov egasiga ko'rinadi (Bot API 10.3) —
     # qolganlar uchun bu shovqin, bot esa "spam qilyapti" bo'lib ko'rinadi.
     try:
@@ -466,14 +504,39 @@ async def _send_rich_message(
                                        outcome=outcome, timeout=timeout)
 
 
+# Flood cheklovi kelganda kutiladigan eng uzun vaqt. Undan uzunini
+# kutish javobni sekinlashtiradi — bunday holatda oraliq yangilanish
+# shunchaki tashlab yuboriladi, YAKUNIY javob baribir alohida ketadi.
+EDIT_FLOOD_MAX_WAIT = 5.0
+
+
 async def _edit_message_fallback(message: Message, text: str):
-    try:
-        return await message.edit_text(text, parse_mode="Markdown")
-    except Exception:
+    """Xabarni tahrirlaydi: Markdown → bezaksiz → (429 bo'lsa) kutib qayta.
+
+    ⚠️ 429 ALOHIDA ushlanadi. Oqim paytida tahrirlash tez-tez ketadi va
+    Telegram "flood wait" beradi; ilgari u boshqa xatolar bilan bir xil
+    yutilardi, ya'ni o'sha yangilanish JIMGINA yo'qolardi va matn
+    ekranda muzlab qolardi.
+    """
+    for urinish in range(2):
+        try:
+            return await message.edit_text(text, parse_mode="Markdown")
+        except TelegramRetryAfter as e:
+            if urinish or e.retry_after > EDIT_FLOOD_MAX_WAIT:
+                return None
+            await asyncio.sleep(e.retry_after + 0.1)
+            continue
+        except Exception:
+            pass
         try:
             return await message.edit_text(text)
+        except TelegramRetryAfter as e:
+            if urinish or e.retry_after > EDIT_FLOOD_MAX_WAIT:
+                return None
+            await asyncio.sleep(e.retry_after + 0.1)
         except Exception:
             return None
+    return None
 
 
 # Telegram bot API'ning hujjat yuborishdagi qattiq chegarasi.
@@ -724,16 +787,28 @@ async def _next_or_stop(iterator, stop_event: asyncio.Event):
     "o'lik" bo'lib turardi — ya'ni eng kerakli paytda ishlamasdi.
 
     Qaytaradi: (chunk, stopped, finished).
+
+    Oqim STREAM_IDLE_TIMEOUT davomida jim qolsa — `TimeoutError`.
+    ⚠️ Bu UMUMIY emas, BO'SH TURISH chegarasi: fayl vazifasi yoki chuqur
+    qidiruv paytida bo'lak kelmasdan bir necha daqiqa o'tishi normal,
+    umumiy chegara esa aynan o'sha ishlayotgan vazifani o'ldirardi.
     """
     next_task = asyncio.ensure_future(iterator.__anext__())
     stop_task = asyncio.ensure_future(stop_event.wait())
     try:
         done, _ = await asyncio.wait(
-            {next_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+            {next_task, stop_task}, return_when=asyncio.FIRST_COMPLETED,
+            timeout=STREAM_IDLE_TIMEOUT)
     except asyncio.CancelledError:
         next_task.cancel()
         stop_task.cancel()
         raise
+
+    if not done:
+        next_task.cancel()
+        stop_task.cancel()
+        raise TimeoutError(
+            f"oqim {STREAM_IDLE_TIMEOUT:.0f}s davomida jim qoldi")
 
     if stop_task in done:
         next_task.cancel()
@@ -755,7 +830,7 @@ async def _next_or_stop(iterator, stop_event: asyncio.Event):
 # Javobda BITTA qisqa kod bloki bo'lsa — "nusxalash" tugmasi qo'yiladi.
 # copy_text tugmasi Telegram'da 256 belgi bilan cheklangan, undan uzunini
 # yuborish butun xabarni rad ettiradi.
-_CODE_BLOCK_RE = re.compile(r"```[a-zA-Z0-9_+-]*\n(.*?)\n```", re.S)
+_CODE_FENCE_RE = re.compile(r"```([a-zA-Z0-9_+-]*)\n(.*?)\n```", re.S)
 _COPY_TEXT_LIMIT = 256
 
 
@@ -765,10 +840,10 @@ def _copy_button_html(text: str) -> str:
     ⚠️ Bir nechta kod bloki bo'lsa tugma QO'YILMAYDI: qaysi birini
     nusxalashi noaniq bo'lib qoladi, noaniq tugma esa tugmasizdan yomon.
     """
-    blocks = _CODE_BLOCK_RE.findall(text)
+    blocks = _CODE_FENCE_RE.findall(text)
     if len(blocks) != 1:
         return ""
-    snippet = blocks[0].strip()
+    snippet = blocks[0][1].strip()
     if not snippet or len(snippet) > _COPY_TEXT_LIMIT:
         return ""
     # Faqat ikonka, yozuvsiz: tugma kod blokining yonida turadi va nima
@@ -778,6 +853,39 @@ def _copy_button_html(text: str) -> str:
     return pro_module.rich_button_row([
         pro_module.rich_button("📋", type="copy_text", text=snippet),
     ], align="right")
+
+
+# Uzun kod chatda o'qib bo'lmaydi va _split_for_telegram() uni bo'lak
+# chegarasida ikkiga kesadi — shuning uchun matndan olinib, FAYL qilib
+# yuboriladi. Chegara ~bir ekran.
+LONG_CODE_LINES = 30
+_CODE_EXT = {
+    "python": ".py", "py": ".py", "javascript": ".js", "js": ".js",
+    "typescript": ".ts", "ts": ".ts", "html": ".html", "css": ".css",
+    "sql": ".sql", "json": ".json", "bash": ".sh", "sh": ".sh",
+    "c": ".c", "cpp": ".cpp", "java": ".java", "go": ".go", "php": ".php",
+}
+
+
+def _extract_long_code(text: str) -> tuple[str, list]:
+    """Uzun kod bloklarini matndan ajratib oladi.
+
+    Qaytaradi: (kod o'rniga izoh qo'yilgan matn, [(fayl_nomi, baytlar)]).
+    Model tarixiga esa ASL matn saqlanadi — aks holda keyingi "shu kodni
+    o'zgartir" so'rovida modelda kodning o'zi bo'lmasdi.
+    """
+    fayllar: list[tuple[str, bytes]] = []
+
+    def one(match):
+        lang, kod = match.group(1), match.group(2)
+        qator = kod.count("\n") + 1
+        if qator <= LONG_CODE_LINES:
+            return match.group(0)
+        nom = f"kod_{len(fayllar) + 1}{_CODE_EXT.get(lang.lower(), '.txt')}"
+        fayllar.append((nom, kod.encode("utf-8")))
+        return f"📎 Kod uzun ({qator} qator) — «{nom}» fayli sifatida biriktirdim."
+
+    return _CODE_FENCE_RE.sub(one, text), fayllar
 
 
 async def process_stream_draft(message: Message, stream_generator, content_type: str = "text",
@@ -802,6 +910,11 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     # bezaksiz ketardi — ya'ni jadval, yig'iladigan manbalar va
     # internetdan olingan rasmlar guruhda umuman ko'rinmasdi.
     using_rich_draft = message.chat.type == "private"
+    # Draft yo'li HECH BO'LMASA BIR MARTA ishladimi. Bu ikki xil
+    # nosozlikni ajratadi: (a) draft umuman qo'llab-quvvatlanmaydi —
+    # darhol oddiy xabarga tushish kerak; (b) ishlab turgan draft
+    # vaqtincha rad etildi (429 flood wait) — kutib qayta urinish kerak.
+    rich_draft_ok = False
     can_send_rich = True
     fallback_message = None
     fallback_used = False      # zaxira xabar yakuniy javob uchun ishlatildimi
@@ -817,6 +930,15 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     RICH_DRAFT_PING_INTERVAL = 0.6
     FALLBACK_PING_INTERVAL = 1.0
     RICH_DRAFT_FAILURE_LIMIT = 2
+
+    # Jonli oqim tezligi. ⚠️ Telegram tahrirlashni qattiq cheklaydi:
+    # har bo'lakda yangilash 429 "flood wait" beradi va oqim MUZLAB
+    # qoladi. Shuning uchun ikki shart birga: kamida PUSH_MIN_CHARS
+    # yangi belgi VA oxirgi yangilanishdan PUSH_INTERVAL soniya.
+    # Istisno — BIRINCHI bo'lak: kutish hissi aynan boshida sezilarli,
+    # shuning uchun u darhol ekranga chiqadi.
+    PUSH_INTERVAL = 1.0
+    PUSH_MIN_CHARS = 100
 
     stop_animation = asyncio.Event()
 
@@ -841,7 +963,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         )
 
     async def emoji_animator():
-        nonlocal fallback_message, using_rich_draft
+        nonlocal fallback_message, using_rich_draft, rich_draft_ok
         start_ts = time.monotonic()
         rich_draft_failures = 0
         last_fallback_text = None
@@ -864,6 +986,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                             using_rich_draft = False
                     else:
                         rich_draft_failures = 0
+                        rich_draft_ok = True
                 except Exception:
                     rich_draft_failures += 1
                     if rich_draft_failures >= RICH_DRAFT_FAILURE_LIMIT:
@@ -895,10 +1018,12 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
     anim_task = asyncio.create_task(emoji_animator())
 
-    async def push_update(current_text: str, final: bool = False):
+    async def push_update(current_text: str, final: bool = False,
+                          force: bool = False):
         nonlocal fallback_message, using_rich_draft, last_push
+        nonlocal push_failures, rich_draft_ok
         now = time.monotonic()
-        if not final and now - last_push < 0.6:
+        if not (final or force) and now - last_push < PUSH_INTERVAL:
             return
         last_push = now
 
@@ -909,7 +1034,10 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         # belgilar, foydalanuvchi ularni ko'rmasligi kerak. Yakuniy
         # xabarda ular media blok / <details> / <aside> ga aylanadi,
         # oqim paytida esa xom holda ekranda turib qolardi.
-        display_text = strip_rich_tokens(strip_image_tokens(current_text))
+        # strip_internal_names — ichki tool nomlari oqim paytida ham
+        # ekranga chiqmasin (core/config.py: INTERNAL_TOOL_NAMES).
+        display_text = strip_internal_names(
+            strip_rich_tokens(strip_image_tokens(current_text)))
         if not final:
             display_text += " ✍️"
 
@@ -925,17 +1053,42 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         if using_rich_draft:
             result = await _send_rich_draft(
                 message.chat.id, draft_id,
-                markdown=_fit(MAX_RICH_CHARS),
+                # Draft ham rich xabar — fence bu yerda ham Web'da
+                # "not supported" bo'ladi (code_fences_to_html izohiga q.).
+                # ⚠️ _fit() ichida _balance_markdown_fences bor: oqim
+                # o'rtasida ochiq qolgan ``` avval yopiladi, keyin
+                # <pre> ga o'giriladi — yarim fence buzuq HTML bermaydi.
+                markdown=code_fences_to_html(_fit(MAX_RICH_CHARS)),
                 message_thread_id=message_thread_id,
                 can_stop=True,
             )
             if result is not None:
+                push_failures = 0
+                rich_draft_ok = True
                 return
+            # ⚠️ ISHLAB TURGAN draft BITTA rad javobidan keyin
+            # tashlanmaydi: eng ko'p uchraydigan sabab — 429 flood wait,
+            # ya'ni vaqtinchalik holat. Oldin shu yerda darhol
+            # `using_rich_draft = False` turardi va bitta cheklov butun
+            # javobni oddiy xabarga tushirib yuborardi.
+            # Hech qachon ishlamagan draft esa (rich_draft_ok=False)
+            # darhol tashlanadi — kutib turishning ma'nosi yo'q,
+            # foydalanuvchi tezroq oddiy kutish xabarini ko'rgani afzal.
+            push_failures += 1
+            if rich_draft_ok and push_failures < RICH_DRAFT_FAILURE_LIMIT:
+                return                      # keyingi bo'lakda qayta urinamiz
             using_rich_draft = False
 
         safe_markdown = _fit(MAX_PLAIN_CHARS)
 
         if fallback_message is None:
+            if force:
+                # ⚠️ MAJBURIY birinchi push uchun YANGI kutish xabari
+                # yaratilmaydi. Draft o'lik bo'lsa qisqa javob bitta
+                # bo'lakda kelib tugaydi va o'sha xabar darhol
+                # o'chiriladi — ekranda ma'nosiz ko'z qisish bo'lardi.
+                # Uzun javobda esa animator uni ~1s ichida o'zi yasaydi.
+                return
             try:
                 fallback_message = await message.answer("⏳ Javob tayyorlanmoqda...")
             except Exception:
@@ -948,11 +1101,22 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     stop_requested = asyncio.Event()
     _stop_events[draft_id] = stop_requested
     stopped = False
+    timed_out = False
+    push_failures = 0
+    first_push = True
     stream_iter = stream_generator.__aiter__()
 
     try:
         while True:
-            chunk, was_stopped, finished = await _next_or_stop(stream_iter, stop_requested)
+            try:
+                chunk, was_stopped, finished = await _next_or_stop(
+                    stream_iter, stop_requested)
+            except TimeoutError as e:
+                # Oqim o'lgan. Yozilib ulgurgan qism baribir yuboriladi,
+                # hech narsa bo'lmasa — chaqiruvchi xatoni ko'radi.
+                timed_out = True
+                logger.warning(f"[Timeout] {e} (chat={message.chat.id})")
+                break
             if was_stopped:
                 stopped = True
                 logger.info(f"[Stop] foydalanuvchi generatsiyani to'xtatdi "
@@ -977,6 +1141,17 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                     active_type = "memory"
                 elif "search" in chunk:
                     active_type = "search"
+                # ⚠️ ANIMATSIYANI QAYTA YOQAMIZ. Model tool chaqirishdan
+                # OLDIN matn yozgan bo'lsa (odatiy hol: "hozir
+                # qidiraman..."), animatsiya allaqachon to'xtagan va
+                # animator task tugagan bo'ladi. Vazifa esa 20-60
+                # soniya davom etadi — ekranda o'sha eskirgan matn
+                # (uni [CLEAR_TEXT] baribir tashlaydi) qimirlamay
+                # turardi. Qayta yoqilgan animator draftni holat
+                # kadri bilan qoplaydi.
+                if stop_animation.is_set() and anim_task.done():
+                    stop_animation.clear()
+                    anim_task = asyncio.create_task(emoji_animator())
                 continue
 
             # [CLEAR_TEXT] — kontent EMAS, boshqaruv signali: shu paytgacha
@@ -988,6 +1163,9 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
             if "[CLEAR_TEXT]" in chunk:
                 full_text = ""
                 chunk_buffer = ""
+                # Tooldan keyingi javob noldan boshlanadi — birinchi
+                # bo'lagi yana darhol ekranga chiqsin.
+                first_push = True
                 chunk = chunk.replace("[CLEAR_TEXT]", "")
                 if not chunk:
                     continue
@@ -999,8 +1177,9 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
             chunk_buffer += chunk
             clean_text = full_text.replace("[NO_BUTTON]", "").strip()
 
-            if len(chunk_buffer) >= 35:
-                await push_update(clean_text, final=False)
+            if len(chunk_buffer) >= PUSH_MIN_CHARS or first_push:
+                await push_update(clean_text, force=first_push)
+                first_push = False
                 chunk_buffer = ""
 
     finally:
@@ -1025,7 +1204,22 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         except (asyncio.CancelledError, Exception):
             pass
 
-    clean_text = full_text.replace("[NO_BUTTON]", "").strip()
+    # ⚠️ Ichki nomlar shu yerda kesiladi — YAKUNIY matndan, ya'ni
+    # yuborish, tarix va admin oynasi uchun bir joyda.
+    clean_text = strip_internal_names(
+        full_text.replace("[NO_BUTTON]", "").strip())
+    if timed_out:
+        # Bir harf ham kelmagan bo'lsa — chaqiruvchining except bloki
+        # toza xato + "Qayta so'rash" tugmasini beradi va ballni
+        # qaytaradi. Yarim javob esa yo'qotilmaydi, izoh bilan ketadi.
+        if not clean_text:
+            raise TimeoutError("javob oqimi jim qoldi")
+        clean_text += "\n\n⚠️ _Javob to'liq tugamadi — qayta so'rang._"
+    # Tarixga ASL matn (kodi bilan) ketadi, chatga esa fayl + izoh.
+    history_text = clean_text
+    kod_fayllar: list = []
+    if clean_text:
+        clean_text, kod_fayllar = _extract_long_code(clean_text)
     if clean_text:
         # Rich xabarga 32768 belgi sig'adi, oddiysiga 4096. Bo'lish
         # qaysi yo'l bilan ketishiga qarab tanlanadi — guruhda ham rich
@@ -1120,6 +1314,13 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
                 await _answer_plain(message, kichik)
 
+    # Uzun kod — matndan keyin alohida fayl(lar) bo'lib boradi.
+    if kod_fayllar:
+        try:
+            await _send_output_files(message.chat.id, kod_fayllar)
+        except Exception as e:
+            logger.warning(f"[Kod fayl] yuborilmadi (chat={message.chat.id}): {e}")
+
     # "⏳ Javob tayyorlanmoqda..." xabari — bu faqat draft yiqilgandagi
     # ZAXIRA ko'rsatkich. Yakuniy javob boshqa yo'l bilan yetkazilgan
     # bo'lsa (yoki umuman matn bo'lmasa — faqat fayl), u chatda yarim
@@ -1130,7 +1331,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         except Exception:
             pass
 
-    return clean_text
+    return history_text
 
 
 # --------------------------------------------------
@@ -1656,16 +1857,12 @@ async def handle_text(message: Message, state: FSMContext):
         buf["parts"].append(message.text)
         buf["last_message"] = message
 
-        is_first_part = len(buf["parts"]) == 1
         total_len = sum(len(p) for p in buf["parts"])
         safety_limit_hit = len(buf["parts"]) >= TEXT_MERGE_MAX_PARTS or total_len >= TEXT_MERGE_MAX_CHARS
 
-        if safety_limit_hit:
-            delay = 0.0
-        elif is_first_part and len(message.text) < TEXT_MERGE_INSTANT_THRESHOLD:
-            delay = 0.0
-        else:
-            delay = TEXT_MERGE_WAIT
+        # Chegaraga urilgan bufer darhol ketadi, qolgan hamma holatda
+        # taymer QAYTA BOSHLANADI (core/config.py: TEXT_MERGE_WAIT izohi).
+        delay = 0.0 if safety_limit_hit else TEXT_MERGE_WAIT
 
         buf["timer_task"] = asyncio.create_task(_schedule_merged_processing(chat_id, delay, state))
 
@@ -1695,7 +1892,12 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
     if not parts or last_message is None:
         return
 
-    merged_text = parts[0] if len(parts) == 1 else "".join(parts)
+    # ⚠️ Qator ajratuvchi bilan: bo'laklar IKKI xil sababdan kelishi
+    # mumkin — Telegram 4096 belgida bo'lib yuborgan BITTA matn, yoki
+    # foydalanuvchi ketma-ket yozgan ALOHIDA xabarlar. Ikkinchisida
+    # bo'sh satr bilan yopishtirish so'zlarni bir-biriga qo'shib
+    # yuborardi ("...tugadimi" + "yo'q" → "tugadimiyo'q").
+    merged_text = parts[0] if len(parts) == 1 else "\n".join(parts)
     notify_watchers(last_message.from_user.id, last_message.from_user.username, "in", text=merged_text)
 
     if len(parts) > 1:
@@ -1706,7 +1908,12 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
 
     if len(merged_text) > MAX_TEXT_LENGTH:
         try:
-            await bot.send_message(chat_id, "📏 Matn juda uzun.")
+            await bot.send_message(
+                chat_id,
+                f"📏 Matn juda uzun: {len(merged_text)} belgi "
+                f"(chegara — {MAX_TEXT_LENGTH}).\n\n"
+                "Iltimos, savolni qisqartiring yoki matnni <b>fayl</b> "
+                "qilib yuboring — faylni to'liq o'qiy olaman.")
         except Exception:
             pass
         return
@@ -1811,12 +2018,25 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
             await send_error_with_retry(
                 chat_id=chat_id, message_id=last_message.message_id,
                 user_id=user_id, prompt=merged_text,
+                reason=("⏳ Javob juda uzoq cho'zildi."
+                        if isinstance(e, TimeoutError) else None),
             )
         except Exception:
             pass
         await _refund_quota(user_id, text_cost, quota)
     finally:
+        # ⚠️ TARTIB MUHIM: avval holat tozalanadi, keyin navbat ishga
+        # tushadi. Aks holda navbatdagi xabar o'zi qo'ygan
+        # GeneratingState ichida qolib, busy_handler uni yana navbatga
+        # qo'yardi — cheksiz aylanish.
         await state.clear()
+        # busy_handler javob ketayotganda kelgan xabarlarni shu buferga
+        # yig'adi. Taymeri yo'q, ya'ni uni shu yerda uyg'otish kerak.
+        if (text_merge_buffers.get(chat_id) or {}).get("parts"):
+            logger.info(f"[Navbat] chat={chat_id}: kutib turgan xabar(lar) "
+                        f"qayta ishlanmoqda")
+            asyncio.create_task(
+                _schedule_merged_processing(chat_id, 0.0, state))
 
 
 # --------------------------------------------------

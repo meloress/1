@@ -6,7 +6,11 @@ FAILED_REQUEST_TTL   = 3600
 USER_ACTION_TTL      = 86400
 ONGOING_TTL          = 120
 CLEANUP_INTERVAL     = 300
-TEXT_MERGE_BUFFER_TTL = 30     # xavfsizlik: taymer biror sababdan ishlamay qolsa
+# Xavfsizlik to'ri: taymer biror sababdan ishlamay qolsa. ⚠️ 30s dan
+# oshirildi: bufer endi NAVBAT sifatida ham ishlatiladi (busy_handler),
+# ya'ni javob generatsiyasi tugaguncha — bir necha daqiqagacha — taymersiz
+# turishi mumkin. 30s da tozalash aynan navbatdagi xabarni yo'qotardi.
+TEXT_MERGE_BUFFER_TTL = 600
 
 failed_requests:      Dict[int, Dict[str, Any]] = {}
 ongoing_requests:     Dict[int, float]           = {}

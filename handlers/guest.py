@@ -32,6 +32,8 @@ from services.ai import (
     speech_to_text,
     text_to_speech,
     safe_update_history,
+    code_fences_to_html,
+    strip_internal_names,
 )
 
 router = Router()
@@ -428,7 +430,7 @@ else:
                 "title": "AI javobi",
                 "input_message_content": {
                     "rich_message": {
-                        "markdown": answer_text,
+                        "markdown": code_fences_to_html(answer_text),
                         "skip_entity_detection": True,
                     }
                 },
@@ -562,7 +564,12 @@ else:
         payloads = (
             {
                 "inline_message_id": inline_message_id,
-                "rich_message": {"markdown": markdown_text, "skip_entity_detection": True},
+                # ``` fence `markdown` maydonida Telegram Web'da "not
+                # supported" bo'ladi — services/ai.py: code_fences_to_html.
+                # Pastdagi zaxira `text` yo'lida esa fence O'Z holida
+                # qoladi: u Markdown parse_mode bilan ketadi.
+                "rich_message": {"markdown": code_fences_to_html(markdown_text),
+                                 "skip_entity_detection": True},
             },
             {
                 "inline_message_id": inline_message_id,
@@ -999,7 +1006,10 @@ else:
             status_anim_stop.set()
             await status_anim_task
 
-        raw_answer = full_text.replace("[NO_BUTTON]", "").strip()
+        # Ichki tool nomlari guruh javobida ham chiqmasin
+        # (core/config.py: INTERNAL_TOOL_NAMES).
+        raw_answer = strip_internal_names(
+            full_text.replace("[NO_BUTTON]", "").strip())
         if not raw_answer:
             raw_answer = "❌ Kechirasiz, javob tayyorlashda xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring."
             ai_attempted = False

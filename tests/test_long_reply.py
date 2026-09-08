@@ -68,6 +68,13 @@ class FakeMessage:
 
 async def _gen(chunks):
     for c in chunks:
+        # Son berilsa — shuncha soniya "o'ylanadi". Animatorga ish
+        # berish uchun kerak: u draft yiqilganini FAQAT bir necha
+        # ping'dan keyin aniqlaydi va zaxira kutish xabarini o'sha
+        # yerda yasaydi (haqiqiy hayotdagidek).
+        if isinstance(c, (int, float)):
+            await asyncio.sleep(c)
+            continue
         yield c
 
 
@@ -211,8 +218,9 @@ async def _checks(LIMIT):
     # ═══════════════════════════════════════════════════════════════
     m.bot.deleted.clear()
     msg = FakeMessage()
-    text, rich_calls = await run_stream(msg, ["D" * 200], rich_ok=True)
-    kutish = [t for _, t, _ in msg.sent if "tayyorlanmoqda" in t]
+    text, rich_calls = await run_stream(msg, [1.6, "D" * 200], rich_ok=True)
+    kutish = [t for _, t, _ in msg.sent
+              if "tayyorlanmoqda" in t or "tahlil" in t or "kuting" in t]
     assert kutish, "zaxira kutish xabari yaratilmagan — test sharti buzilgan"
     assert m.bot.deleted == [999], (
         f"yarim qolgan kutish xabari o'chirilmadi: {m.bot.deleted}")
