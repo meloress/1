@@ -1068,8 +1068,20 @@ TEXT_CUSTOM_EMOJI: dict[str, str] = {
     "✍️": CUSTOM_EMOJI["write"],
 }
 # Bitta javobda shuncha almashtirishdan keyin qolganlari oddiy emoji
-# bo'lib qoladi (uzunlik va vizual shovqin chegarasi).
-TEXT_CUSTOM_EMOJI_MAX: int = 12
+# bo'lib qoladi.
+#
+# ⚠️ 12 EDI VA BU KO'ZGA TASHLANARDI: emoji ko'p javobda (masalan
+# "ahtapot haqida qiziqarli faktlar" — 30 dan ortiq emoji) boshidagi
+# 12 tasi animatsiyali, qolgani oddiy chiqardi. Bir xil emoji bitta
+# xabarning yuqorisida qimirlab, pastida qotib turardi — bu nosozlikka
+# o'xshab ko'rinadi.
+#
+# 50 — bazadagi butun javoblar tarixidagi ENG KO'P sondan (49) bittaga
+# ko'p, ya'ni amalda chegaraga umuman tegilmaydi. Narxi kichik: har
+# almashtirish ~36 belgi, 50 tasi ~1 800 belgi, rich xabar chegarasi
+# esa 30 000. Telegram baribir rad etsa — emojisiz qayta yuborish
+# pog'onasi bor va javob yo'qolmaydi.
+TEXT_CUSTOM_EMOJI_MAX: int = 50
 
 # AI javobidagi emojilarni animatsiyali nusxasiga almashtiradigan paket
 # (t.me/addemoji/<nom> dagi nom). Ish boshlanishida BIR MARTA o'qiladi.

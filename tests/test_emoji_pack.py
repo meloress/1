@@ -56,9 +56,15 @@ check(9, "notanish emoji oddiy holicha qoladi",
 
 # ── 5. Chegara: bitta javobda cheklangan son ────────────────────
 ai.apply_emoji_pack({"🔥": "111"})
-kop = ai.build_rich_markdown("🔥 " * 30)
+# Chegaradan ANIQ ko'p emoji bilan sinaladi — aks holda test chegara
+# ko'tarilganda jimgina "o'tib ketardi" va uni qo'riqlamay qo'yardi.
+kop = ai.build_rich_markdown("🔥 " * (config.TEXT_CUSTOM_EMOJI_MAX + 10))
 check(10, f"chegara ishlaydi ({config.TEXT_CUSTOM_EMOJI_MAX} ta)",
       kop.count("tg://emoji") == config.TEXT_CUSTOM_EMOJI_MAX)
+# ⚠️ Chegara 12 edi va emoji ko'p javobda (30+ emoji) ko'zga tashlanardi:
+# yuqoridagi emoji qimirlab, xuddi o'shanisi pastda qotib turardi.
+check("10b", "chegara real javoblarni qamraydi",
+      config.TEXT_CUSTOM_EMOJI_MAX >= 50)
 
 # ── 6. Markdown parslanmaydigan joylar ──────────────────────────
 # Jadval katagi va <aside> ichida markdown parslanmaydi — u yerda
@@ -82,4 +88,4 @@ check(15, "CUSTOM_EMOJI ro'yxati joyida",
       isinstance(config.CUSTOM_EMOJI, dict) and len(config.CUSTOM_EMOJI) > 0)
 
 ai.apply_emoji_pack(asl)
-print("\nHammasi o'tdi: 15/15")
+print("\nHammasi o'tdi: 16/16")
