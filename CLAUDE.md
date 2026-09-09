@@ -20,7 +20,14 @@ No test framework, no linter, no build step. Each `tests/test_*.py` is a standal
 
 Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is the slow one.
 
-Two of them are structural guards rather than feature tests, and both are worth running after any move or rename: `test_admin_registry.py` (every admin handler still registered, in order) and `test_activity_tracking.py` (which reads handler source **by file path**).
+Some are structural guards rather than feature tests, and they earn their keep on refactors:
+
+- `test_admin_registry.py` — every admin handler still registered, in order.
+- `test_activity_tracking.py` — reads handler source **by file path**, so moving code breaks it.
+- `test_prompt_rules.py` — 54 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
+- `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back).
+
+Exact token counts need `tiktoken` (`pip install tiktoken`, encoding `o200k_base`). It is **not** in `requirements.txt` — the bot never counts tokens itself, it is a local measuring tool. Do not estimate from character counts; that was 11% off on this prompt.
 
 ## Deploy
 
@@ -34,7 +41,26 @@ Both the account and the remote moved on 2026-09-08; the GraphQL path below is h
 
 ### Token budget
 
-The bot runs on a free daily grant (2.5M tokens/day for `gpt-5.6-luna`), and measured live traffic uses roughly half of it on an average day and **over 100% on a busy one** — the model then silently falls through `MODEL_FALLBACKS`. Nearly all of that is fixed overhead, not user text: the system prompt is ~5 300 tokens, tool schemas ~1 200, history ~4 000, while the median user message is **31 characters**. Output is not where the money goes either: the median reply is 276 characters (~70 tokens), so the input:output ratio is about 100:1 and `max_tokens` / stop sequences save nothing. The lever is prompt caching. `_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round so the cached share is visible in the Railway log.
+The bot runs on a free daily grant (2.5M tokens/day for `gpt-5.6-luna`). Before the September 2026 work the OpenAI usage dashboard showed **20.307M input tokens over 8 days — 2.54M/day, i.e. 101% of the grant on an average day and 248% on the busiest one**, so the model was silently falling through `MODEL_FALLBACKS` and the excess was billable.
+
+⚠️ **Caching does not reduce that count.** OpenAI support confirmed (2026-09-09) the complimentary allowance is a *token quota*, not a discounted rate: cached and uncached input count the same. Caching only changes money, which matters once you exceed the grant. So the only lever is fewer tokens per round.
+
+Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o200k_base`) — never estimate from character counts, that was 11% off:
+
+| | tokens |
+|---|---|
+| `instructions` (prompt + concise + image note) | 5 335 |
+| tool schemas (Pro, after the file-tool split) | 3 330 |
+| capability manifest | 293 |
+| history (median, 30 or 80 messages) | ~1 400-1 900 |
+| median user message | ~10 |
+| median reply | ~70 |
+
+The input:output ratio is about 100:1, so `max_tokens` and stop sequences save nothing — output is already tiny. And a searched request runs **~1.7 rounds**, each re-sending the whole prefix, so every token removed from the prefix is saved that many times over.
+
+`_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round; the cached share is visible in the Railway log even though it does not reduce the quota.
+
+Measure before optimising. The bot's own Postgres answers most questions — how many requests a day, how long replies are, how often a tool actually fires. Two guesses were wrong that way: model routing looked like a big win until `pick_reasoning_effort` turned out to classify only 3-4% of real messages as trivial (and length is a terrible proxy: "Manga Toshkent … kontrakt narxlarini ber" is 66 characters and needs a full web search), and trimming fetched page text looked worth 10% until a live search measured 1 877 tokens, not 4 000.
 
 The cached prefix is **instructions + the tool schemas**, and OpenAI documents *changing the tools available mid-conversation* as a cache-miss cause. Two consequences. `prompt_cache_key` is set in `build_request_params()` per **plan**, never per user — the prefix is identical for everyone on a plan, and a per-user key would have ten active users each warming a private cache. And the tool loop rebuilds `active_tools` every round, dropping tools whose budget is spent, so rounds 2 and 3 of a searched request send a different prefix and start cold. Making the array stable would fix that, but the drop is also what forces the model to stop calling a spent tool, and one wasted round re-sends the whole context (~12k tokens) while the cache would only save part of it — so measure the `keshdan` percentage on multi-round requests before touching it.
 
@@ -71,7 +97,7 @@ Drafts are private-chat-only (API limit); `sendRichMessage` is not. `process_str
 
 Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `update_memory`, `manage_reminder`.
 
-**The file tool is attached in two steps, and that is a token decision.** `run_python_sandbox`'s description is the whole layout manual — ~4 000 tokens — and the model writes the code *inside* the call, so the manual cannot move out of the schema. But `file_task_enabled` is `output_files is not None`, i.e. every DM request, while the tool is actually called in 1.4% of them (17 of 1 210 measured). So a ~176-token `start_file_task` door is attached instead; when the model calls it, `file_mode` turns on and the full tool arrives on the next round. That saves ~4 150 tokens per round — and a round is re-sent in full each loop iteration, so the real saving is that times the round count. The cost is one extra round on the 1.4%. `file_mode` stays on for the rest of the request because the file loop retries up to four times. Two things must hold: `start_file_task` needs its own `elif` above the bare `else` (otherwise "make me a presentation" becomes a DuckDuckGo query), and `_capability_manifest()` must name the tool that is *actually attached* — naming `run_python_sandbox` there would have the model call a tool it does not have.
+**The file tool is attached in two steps, and that is a token decision.** `run_python_sandbox`'s description is the whole layout manual — **5 578 tokens** measured with `tiktoken` — and the model writes the code *inside* the call, so the manual cannot move out of the schema. But `file_task_enabled` is `output_files is not None`, i.e. every DM request, while the tool is actually called in 1.4% of them (17 of 1 210 measured). So a **212-token** `start_file_task` door is attached instead; when the model calls it, `file_mode` turns on and the full tool arrives on the next round. That saves **5 366 tokens per round** — and a round is re-sent in full each loop iteration, so the real saving is that times the round count. The cost is one extra round on the 1.4%. `file_mode` stays on for the rest of the request because the file loop retries up to four times. Two things must hold: `start_file_task` needs its own `elif` above the bare `else` (otherwise "make me a presentation" becomes a DuckDuckGo query), and `_capability_manifest()` must name the tool that is *actually attached* — naming `run_python_sandbox` there would have the model call a tool it does not have.
 
 **Dispatch order matters**: the `else` branch routes any unknown tool name to web search, so every named tool must be an `elif` *above* it — otherwise "menga rasm chiz" silently becomes a DuckDuckGo query.
 
@@ -191,7 +217,7 @@ Whatever the model writes into a tool call reaches the database. Validation live
 
 ### Two kinds of memory
 
-- **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 50, Pro 150), so switching plans needs no migration. `/new` clears this.
+- **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.
 - **Long-term memory** (`user_memories`) — facts the model chose to keep, category-prefixed (`ism:`, `kasb:`, …). Survives `/new`. Available on every tariff.
 
 History used to live in SQLite; Railway wipes the container filesystem on every deploy, so each deploy reset every user's context. It is Postgres now — do not move it back to a file.
