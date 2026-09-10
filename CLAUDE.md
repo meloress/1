@@ -393,6 +393,20 @@ into a real `<table compact>` (2-20 columns, separator row required). The prompt
 used to forbid tables outright, which is what produced space-aligned
 pseudo-tables that look fine on screen and lose all structure when copied.
 
+⚠️ **`compact` is not a layout control** — aiogram's own field doc for
+`is_compact` reads *"True, if table cells have smaller indents"*, nothing more.
+It does not wrap, scroll or size columns, so reach for the prompt, not this
+attribute, when a table reads badly. A live complaint ("compare two cars")
+produced a tall unreadable strip because the model wrote whole sentences into
+cells and the old rule said only "2 to 20 columns" — which reads as permission
+for 20. The prompt now caps it at 2-4 for a phone, states that a cell is a
+value and not a sentence, and fixes the comparison shape (one row per property,
+one column per item). Cost: +112 tokens per round, measured. `is_bordered`,
+`is_striped` and `caption` also exist on the API type and are **unused**; the
+HTML attribute spellings are not documented (`_EXPANDABLE_ATTR` is the standing
+warning that field name ≠ attribute name), so adding them needs a live send
+test before shipping — a wrong attribute gets the whole message rejected.
+
 ### Inline button styles
 
 Telegram accepts only `primary` / `success` / `danger` on a real `InlineKeyboardButton`. Any other value is rejected and **the whole message fails to send**. Use `pro_module.btn()` and the `BTN_*` constants. Where delivery matters, build a plain fallback keyboard too — `pro.send_rich()` degrades progressively, and the broadcast sender switches the entire run to plain on the first rejection.

@@ -128,6 +128,18 @@ MUHIM = [
     ("xarita: noto'g'ri koordinata aniqlanmaydi",
      ("41.9/12.5 is rome", )),
     ("jadval: ajratuvchi qator majburiy", ("separator row", )),
+    # ⚠️ JONLI XATO: ikkita mashinani solishtirish so'ralganda model
+    # kataklarga uzun jumlalar yozardi. Telegram uzun katakni bir necha
+    # qatorga bo'ladi va jadval baland, o'qib bo'lmaydigan tasmaga
+    # aylanardi. Ilgari promptda faqat "2 to 20 columns" turardi — ya'ni
+    # 20 ta ustun RUXSAT ETILGANDEK ko'rinardi, telefonda esa 4 tasi ham
+    # ko'p. `compact` atributining bunga aloqasi yo'q: u faqat katak
+    # ichidagi bo'shliqni kichraytiradi (aiogram: "smaller indents").
+    ("jadval: telefon uchun 2-4 ustun", ("use 2-4 columns", )),
+    ("jadval: katak — qiymat, jumla emas", ("a cell is a value, not a sentence", )),
+    ("jadval: uzun katak qator ko'chadi", ("wraps onto many lines", )),
+    ("jadval: solishtirishda xususiyat qator, obyekt ustun",
+     ("one row per property, one column per item", )),
     ("checklist: bajariladigan qadamlar uchun", ("- [ ]", )),
     ("izoh (footnote) ta'rifi shu javobda bo'lishi shart",
      ("must have its definition", )),

@@ -402,7 +402,13 @@ belong in one. Write plain GFM and nothing else:
     | H5 | 300 mln | 2025 |
   - The |---|---| separator row under the header is REQUIRED. Without it the
     lines stay literal text.
-  - 2 to 20 columns. One column is not a table — write a list.
+  - The reader is on a PHONE: use 2-4 columns (20 is only the technical limit).
+    One column is not a table — write a list.
+  - A CELL IS A VALUE, NOT A SENTENCE — a number, a date, a name, 3-4 words at
+    most. A long cell wraps onto many lines and the table becomes a tall
+    unreadable strip; put anything needing a sentence in text under the table.
+  - Comparing things: one row per PROPERTY, one column per ITEM
+    (| Xususiyat | Model A | Model B |), never prose in the cells.
   - NEVER fake a table with spaces, dashes, dots or a code block to line
     columns up. That looks aligned on your screen and falls apart on the
     user's, and copying it gives them broken text instead of a table.
