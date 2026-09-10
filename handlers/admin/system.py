@@ -450,6 +450,15 @@ async def start_remove_admin(message: Message, state: FSMContext):
     await message.answer("➖ Qaysi adminni o'chirmoqchisiz? Quyidagilardan birini bosing:", reply_markup=kb)
 
 async def remove_admin_callback(query: CallbackQuery):
+    # ⚠️ Boshqa hamma handler AYNAN shu qatordan boshlanadi. Bu yerda u
+    # yo'q edi va amalda teshik ham yo'q edi — pastdagi
+    # `_check_can_remove_admin()` so'rovchi `admins` jadvalida borligini
+    # tekshiradi. Lekin bu YAGONA joyda, BOSHQACHA yo'l bilan qilingan
+    # himoya: o'sha funksiya kelajakda o'zgarsa (masalan faqat maqsadni
+    # tekshiradigan bo'lsa), teshik jimgina ochilardi va buni hech kim
+    # payqamasdi. Himoya hamma joyda BIR XIL ko'rinishda bo'lishi kerak.
+    if not await require_admin_or_deny_query(query):
+        return
     try:
         requester_id = query.from_user.id
 

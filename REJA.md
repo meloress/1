@@ -58,7 +58,7 @@ kerak bo'lgan Telegram limitini yeydi.
 **Yechim:** foiz **o'zgargandagina** tahrirlash (yoki har 25 ta oluvchida
 bir marta). Bitta `if` qatori.
 
-### 1.2 Statistikada raqamlar mos kelmaydi ⬜
+### 1.2 Statistikada raqamlar mos kelmaydi ✅ BAJARILDI
 `handlers/admin/stats.py:82` va `141`
 
 `total_users` adminlar va superadminlarni **chiqarib tashlaydi**,
@@ -77,7 +77,7 @@ Yozilgan, lekin **hech qayerda ro'yxatdan o'tkazilmagan**. Panel aslida
 **Yechim:** o'chirish. (Yoki `/admin` buyrug'i sifatida ro'yxatga
 qo'shish — pastdagi 2.7 ga qarang.)
 
-### 1.4 `remove_admin:` callback'ida tekshiruv BILVOSITA ⬜
+### 1.4 `remove_admin:` callback'ida tekshiruv BILVOSITA ✅ BAJARILDI
 `handlers/admin/system.py:452`
 
 Boshqa hamma handler `require_admin_or_deny(_query)` bilan boshlanadi,
@@ -88,7 +88,7 @@ kelajakda o'sha funksiya o'zgarsa teshik jimgina ochiladi.
 
 **Yechim:** boshiga bir qator `require_admin_or_deny_query(query)`.
 
-### 1.5 Audit yozuvi qayta urinmaydi ⬜
+### 1.5 Audit yozuvi qayta urinmaydi ✅ ALLAQACHON TUZATILGAN
 `db/database.py:633` — `log_admin_action()`
 
 Qo'shni funksiyalarda `@with_db_retry()` bor, bunda yo'q. DB bir zumga
@@ -96,6 +96,10 @@ uzilsa audit yozuvi yo'qoladi — ya'ni "kim nima qildi" ma'lumoti aynan
 nosozlik paytida yo'qoladi.
 
 **Yechim:** dekorator qo'shish.
+
+⚠️ 2026-09-10 da tekshirilganda `@with_db_retry()` `db/database.py:632`
+da ALLAQACHON turgan ekan — reja shu bandda eskirgan edi, kod
+o'zgartirilmadi.
 
 ### 1.6 Klaviatura 12 tugmadan 4 taga yig'ildi ✅
 `core/keyboards.py`, `handlers/admin/menu.py` (yangi)

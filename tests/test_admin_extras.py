@@ -119,4 +119,48 @@ def _q(value):
 
 asyncio.run(_sinov_ekranlar())
 
-print("\nHammasi o'tdi: 18/18")
+
+# ── 4. HIMOYA HAMMA JOYDA BIR XIL KO'RINISHDA ────────────────────
+# ⚠️ `remove_admin_callback` da qo'riqchi qatori YO'Q edi. Amalda teshik
+# ham yo'q edi — himoya `_check_can_remove_admin()` ichida, BOSHQACHA
+# yo'l bilan qilingan edi. Lekin yagona joyda boshqacha qilingan himoya
+# xavfli: o'sha funksiya kelajakda o'zgarsa, teshik JIMGINA ochilardi va
+# buni hech kim payqamasdi.
+import pathlib  # noqa: E402
+import re  # noqa: E402
+
+ADMIN_DIR = pathlib.Path(__file__).resolve().parent.parent / "handlers" / "admin"
+# ⚠️ Bular ATAYLAB ochiq — oddiy foydalanuvchi ham ishlatadi
+# (CLAUDE.md: admin tekshiruvi filtrda emas, har bir handler ichida).
+OCHIQ = {"report_callback", "process_report_message",
+         "require_admin_or_deny_query"}
+
+# `_` bilan boshlanadigan nom — ichki yordamchi, u ro'yxatdan O'TMAYDI va
+# qo'riqlangan handler ichidan chaqiriladi (`_confirm_screen`,
+# `_show_user_payments`, `_do_refund` — uchalasi tekshirildi). Ro'yxatga
+# tushishi mumkin bo'lgan KIRISH nuqtalari `_` siz nomlanadi; agar
+# kimdir `_` li funksiyani register qilsa, buni test_admin_registry
+# ushlaydi.
+qo_riqsiz = []
+for fayl in sorted(ADMIN_DIR.glob("*.py")):
+    src = fayl.read_text(encoding="utf-8")
+    for m in re.finditer(r"^async def (\w+)\(query: CallbackQuery", src, re.M):
+        nom = m.group(1)
+        if nom in OCHIQ or nom.startswith("_"):
+            continue
+        if "require_admin_or_deny_query" not in src[m.end():m.end() + 700]:
+            qo_riqsiz.append(f"{fayl.name}::{nom}")
+
+check(19, f"har bir admin callback qo'riqlangan ({len(OCHIQ)} tasi ataylab ochiq)",
+      not qo_riqsiz)
+
+# ── 5. IKKI SO'ROV BIR XIL TO'PLAMNI SANAYDI ─────────────────────
+# Ekranda "jami 100 user" turib, free + pro + premium = 103 chiqardi:
+# biri adminlarni chiqarardi, ikkinchisi yo'q. Admin raqamlarga
+# ishonmay qo'ysa, butun statistika ekranining ma'nosi qolmaydi.
+_stats = (ADMIN_DIR / "stats.py").read_text(encoding="utf-8")
+_tana = _stats.split("async def handle_users_command")[1].split("async def ")[0]
+check(20, "jami va tarif bo'yicha sanoq bir xil to'plamni sanaydi",
+      _tana.count("NOT IN (SELECT user_id FROM admins)") >= 4)
+
+print("\nHammasi o'tdi: 20/20")

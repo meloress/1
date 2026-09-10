@@ -139,12 +139,21 @@ async def handle_users_command(message: Message):
                 GROUP BY activity_type ORDER BY cnt DESC
             ''')
 
+            # ⚠️ ADMINLAR SHU YERDA HAM CHIQARIB TASHLANADI. Yuqoridagi
+            # `total_users` ularni chiqarardi, bu so'rov esa yo'q — natijada
+            # ekranda "jami 100" turib, free + pro + premium = 103 chiqardi
+            # va admin raqamlarga ishonmay qolardi. Bu ikki so'rov BIR XIL
+            # to'plamni sanashi shart; birini o'zgartirsangiz ikkinchisini
+            # ham o'zgartiring.
             plan_counts = await conn.fetchrow('''
                 SELECT
                     COUNT(*) FILTER (WHERE plan_type = 'free' OR plan_type IS NULL) AS free_count,
                     COUNT(*) FILTER (WHERE plan_type = 'pro') AS pro_count,
                     COUNT(*) FILTER (WHERE plan_type IS NOT NULL AND plan_type NOT IN ('free', 'pro')) AS premium_count
-                FROM users WHERE is_active = TRUE
+                FROM users
+                WHERE is_active = TRUE
+                  AND user_id NOT IN (SELECT user_id FROM admins)
+                  AND user_id NOT IN (SELECT user_id FROM superadmins)
             ''')
 
         revenue = await database_module.revenue_stats()
