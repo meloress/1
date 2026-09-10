@@ -138,8 +138,16 @@ MUHIM = [
     ("jadval: telefon uchun 2-4 ustun", ("use 2-4 columns", )),
     ("jadval: katak — qiymat, jumla emas", ("a cell is a value, not a sentence", )),
     ("jadval: uzun katak qator ko'chadi", ("wraps onto many lines", )),
-    ("jadval: solishtirishda xususiyat qator, obyekt ustun",
-     ("one row per property, one column per item", )),
+    # ⚠️ IKKINCHI JONLI SINOV: "BMW ning 5 ta modelini jadval qil" so'rovida
+    # katak "3.0 L, 6 silindrli Twin-Turbo, 510 ot kuchi" bo'lib chiqdi,
+    # "290 km/soat" uch qatorga bo'lindi, "Maksimal tezlik" sarlavhasi esa
+    # SO'Z O'RTASIDAN uzildi ("Maksi/mal/tezlik").
+    ("jadval: kamrog'i ustunga chiqadi",
+     ("whichever side has fewer members goes on the columns", )),
+    ("jadval: sarlavha qisqa va o'lchov birligi unda",
+     ("headers are 1-2 short words and carry the unit", )),
+    ("jadval: katakda o'lchov birligi takrorlanmaydi",
+     ('"290", not', )),
     ("checklist: bajariladigan qadamlar uchun", ("- [ ]", )),
     ("izoh (footnote) ta'rifi shu javobda bo'lishi shart",
      ("must have its definition", )),

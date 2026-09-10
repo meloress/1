@@ -402,13 +402,16 @@ belong in one. Write plain GFM and nothing else:
     | H5 | 300 mln | 2025 |
   - The |---|---| separator row under the header is REQUIRED. Without it the
     lines stay literal text.
-  - The reader is on a PHONE: use 2-4 columns (20 is only the technical limit).
+  - The reader is on a PHONE: use 2-4 columns. Whichever side has FEWER members
+    goes on the columns — 5 cars x 3 specs is 5 rows and 4 columns, not 6.
     One column is not a table — write a list.
-  - A CELL IS A VALUE, NOT A SENTENCE — a number, a date, a name, 3-4 words at
-    most. A long cell wraps onto many lines and the table becomes a tall
-    unreadable strip; put anything needing a sentence in text under the table.
-  - Comparing things: one row per PROPERTY, one column per ITEM
-    (| Xususiyat | Model A | Model B |), never prose in the cells.
+  - HEADERS ARE 1-2 SHORT WORDS AND CARRY THE UNIT: "Tezlik (km/h)", never
+    "Maksimal tezlik". A long header is broken mid-word on a narrow screen.
+  - A CELL IS A VALUE, NOT A SENTENCE — the bare number or name, ~20 characters
+    max, unit already in the header: "290", not "290 km/soat"; "3.0L R6, 510
+    o.k.", not a full engine description. A long cell wraps onto many lines and
+    the table becomes a tall unreadable strip. Anything needing a sentence goes
+    in text under the table.
   - NEVER fake a table with spaces, dashes, dots or a code block to line
     columns up. That looks aligned on your screen and falls apart on the
     user's, and copying it gives them broken text instead of a table.

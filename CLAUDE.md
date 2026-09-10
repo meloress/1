@@ -399,9 +399,19 @@ It does not wrap, scroll or size columns, so reach for the prompt, not this
 attribute, when a table reads badly. A live complaint ("compare two cars")
 produced a tall unreadable strip because the model wrote whole sentences into
 cells and the old rule said only "2 to 20 columns" — which reads as permission
-for 20. The prompt now caps it at 2-4 for a phone, states that a cell is a
-value and not a sentence, and fixes the comparison shape (one row per property,
-one column per item). Cost: +112 tokens per round, measured. `is_bordered`,
+for 20. The prompt now caps it at 2-4 for a phone and states that a cell is a
+value, not a sentence.
+
+A second live test ("tabulate 5 BMW models") exposed three more things the first
+pass got wrong or missed. **Orientation is not fixed**: "one row per property,
+one column per item" was shipped and is wrong whenever there are many items —
+5 cars x 3 specs is 5 rows and 4 columns, and the rule as written asked for 6.
+The rule is now "whichever side has FEWER members goes on the columns".
+**Units belong in the header**, not repeated in every cell: "290 km/soat" wrapped
+onto three lines where "290" under a "Tezlik (km/h)" header would not.
+**Headers must be 1-2 short words** — "Maksimal tezlik" was broken *mid-word* into
+"Maksi/mal/tezlik" on a phone. Total cost of the table rules: +186 tokens per
+round, measured, against the ~1M/day the door tools saved the same day. `is_bordered`,
 `is_striped` and `caption` also exist on the API type and are **unused**; the
 HTML attribute spellings are not documented (`_EXPANDABLE_ATTR` is the standing
 warning that field name ≠ attribute name), so adding them needs a live send
