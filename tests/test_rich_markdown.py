@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services.ai import (build_rich_markdown, strip_rich_tokens,
-                        strip_custom_emoji)
+                        strip_custom_emoji, strip_image_tokens)
 
 
 def test_url_sanasi_tegilmaydi():
@@ -239,6 +239,32 @@ def test_tugma_buzuq_va_kod():
     print("[20] buzuq belgi tashlandi, kod va oddiy yo'l joyida OK")
 
 
+
+def test_belgi_ichidagi_bosh_joy():
+    """`[ xarita:... ]` — qavsdan KEYIN bo'sh joy bilan yozilgani ham ishlaydi.
+
+    JONLI XATO: bot "Surxondaryo qayerda" savoliga to'g'ri javob berib,
+    oxirida `[ xarita:37.2242,67.2783,7 ]` deb YOZDI — va foydalanuvchi
+    xarita o'rniga xuddi shu xom qavsni ko'rdi. Regex `\[xarita:` deb
+    boshlanardi, model esa promptdagi misolni aynan ko'chirmaydi.
+    `[ batafsil: ...]` da yanada yomon edi: ochilish belgisi xom qolib,
+    `[/batafsil]` o'chirilardi — javob chala ko'rinardi.
+
+    Promptga "bo'sh joy qo'yma" deb yozish yechim emas: misol allaqachon
+    promptda turgan edi. Shuning uchun tekshiruv KODda.
+    """
+    assert '<tg-map lat="37.2242"' in build_rich_markdown(
+        "[ xarita:37.2242,67.2783,7 ]")
+    batafsil = build_rich_markdown("[ batafsil: Tarixi ] ichi [ /batafsil ]")
+    assert "<details><summary>Tarixi</summary>" in batafsil, batafsil
+    assert "</details>" in batafsil and "batafsil]" not in batafsil, batafsil
+    assert "<tg-button" in build_rich_markdown("[ tugma: Sayt | https://a.uz ]")
+    assert "<aside>" in build_rich_markdown("[ iqtibos: Bilim kuch | Bekon ]")
+    # Oddiy yo'l (draft/zaxira xabar) ham xuddi shu belgilarni tozalashi shart
+    oddiy = strip_rich_tokens("Joy [ xarita:41.3,69.2,14 ] shu yerda")
+    assert "xarita" not in oddiy and "shu yerda" in oddiy, oddiy
+    assert strip_image_tokens("a [ rasm:1 ] b [ rasmlar ] c").split() == list("abc")
+
 def test_havola_himoyasi_buzilmadi():
     """`]` istisnosi havola himoyasini BUZMASLIGI kerak (regressiya)."""
     url = "https://uz.kursiv.media/uz/2026-08-20/dollar/"
@@ -284,6 +310,7 @@ if __name__ == "__main__":
     test_premium_emoji_chegarasi_va_qaytishi()
     test_tugma_belgisi()
     test_tugma_buzuq_va_kod()
+    test_belgi_ichidagi_bosh_joy()
     test_havola_himoyasi_buzilmadi()
     test_jadval_haqiqiy()
-    print("\nrich_markdown: barcha tekshiruvlar o'tdi (22/22).")
+    print("\nrich_markdown: barcha tekshiruvlar o'tdi (23/23).")

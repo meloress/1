@@ -42,10 +42,17 @@ def manifest(**kw) -> str:
 
 
 # ── 1-2. TO'LIQ HUQUQLI (Pro, shaxsiy chat) ───────────────────────
+# ⚠️ Kutilayotgan nom `start_file_task`, `run_python_sandbox` EMAS.
+# Fayl tooli ikki bosqichli: doim biriktiriladigan asbob — arzon
+# "eshik" (`start_file_task`), to'liq tavsif esa model o'shani
+# chaqirgandan keyin keladi. Manifest CHAQIRILADIGAN nomni aytishi
+# shart, aks holda model mavjud bo'lmagan asbobni chaqiradi va
+# chaqiruv veb qidiruvga tushib ketadi. Bu testni eski nomga
+# qaytarmang — u kodni emas, kutilmani eskirtiradi.
 pro = manifest()
 check(1, "Pro'da barcha tool nomlari 'qila olaman' ro'yxatida",
       all(t in pro.split("NOT available")[0]
-          for t in ("internet_search", "run_python_sandbox",
+          for t in ("internet_search", "start_file_task",
                     "generate_image", "update_memory", "manage_reminder")))
 check(2, "Pro'da 'mavjud emas' qatori umuman yo'q",
       "NOT available in this request" not in pro)
@@ -57,14 +64,14 @@ check(3, "bepulda rasm chizish va eslatma MAVJUD EMAS deb belgilanadi",
       and "manage_reminder (Pro only)" in bepul)
 check(4, "bepulda ular 'qila olaman' ro'yxatiga TUSHMAYDI",
       "generate_image" not in bepul.split("NOT available")[0]
-      and "run_python_sandbox" in bepul.split("NOT available")[0])
+      and "start_file_task" in bepul.split("NOT available")[0])
 
 # ── 5. GUEST REJIMI ───────────────────────────────────────────────
 guest = manifest(file_task_enabled=False, image_enabled=False,
                  reminder_enabled=False, memory_enabled=False)
 check(5, "guest rejimda faqat qidiruv qoladi, fayl tool'i sababi bilan chiqadi",
       guest.split("NOT available")[0].strip().endswith("internet_search.")
-      and "run_python_sandbox (not available in this chat type)" in guest)
+      and "start_file_task (not available in this chat type)" in guest)
 
 # ── 6. RO'YXAT SXEMADAN OLINADI (qo'lda yozilmagan) ───────────────
 # Tool nomi o'zgarsa manifest ham o'zgarishi SHART — aks holda matn

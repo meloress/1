@@ -443,11 +443,21 @@ def _compact_tables(text: str) -> str:
 # noto'g'ri yozilgan belgi shunchaki TASHLANADI, noto'g'ri yozilgan HTML
 # esa butun xabarni rad ettiradi. `[rasm:N]` bilan bir xil tamoyil —
 # u ishlayotgani allaqachon isbotlangan.
+#
+# ⚠️ HAMMA BELGI REGEXI `\[\s*` BILAN BOSHLANADI — quyidagilar ham,
+# `_QUOTE_RE`, `_MAP_RE`, `_BUTTON_RE`, `_IMAGE_TOKEN_RE` ham. Sabab:
+# model promptdagi misolni AYNAN ko'chirmaydi va `[ xarita:37.2,67.2,7 ]`
+# deb bo'sh joy bilan yozib qo'yadi. Ilgari `\[xarita:` deb yozilgani
+# uchun bunday belgi topilmasdi va foydalanuvchi xarita o'rniga XOM
+# qavsni ko'rardi. `[ batafsil: ...]` da yanada yomon edi: ochilish xom
+# qolib, `[/batafsil]` esa o'chirilardi, ya'ni javob chala ko'rinardi.
+# Promptga "bo'sh joy qo'yma" deb yozish yechim emas — misol allaqachon
+# turgan edi. Regexni toraytirmang.
 # ─────────────────────────────────────────────────────────────
-_DETAILS_OPEN_RE = re.compile(r"\[batafsil:\s*([^\]\n]{0,80})\]", re.I)
-_DETAILS_CLOSE_RE = re.compile(r"\[/batafsil\]", re.I)
+_DETAILS_OPEN_RE = re.compile(r"\[\s*batafsil:\s*([^\]\n]{0,80})\]", re.I)
+_DETAILS_CLOSE_RE = re.compile(r"\[\s*/\s*batafsil\s*\]", re.I)
 _DETAILS_BLOCK_RE = re.compile(
-    r"\[batafsil:\s*([^\]\n]{0,80})\]\s*(.*?)\s*\[/batafsil\]", re.S | re.I)
+    r"\[\s*batafsil:\s*([^\]\n]{0,80})\]\s*(.*?)\s*\[\s*/\s*batafsil\s*\]", re.S | re.I)
 
 
 def _strip_details_markers(text: str) -> str:
@@ -474,7 +484,7 @@ def _replace_details(match) -> str:
 # <details>, <tg-collage>, <tg-slideshow> ichida), shuning uchun matn ham,
 # muallif ham html_escape qilinadi.
 # ─────────────────────────────────────────────────────────────
-_QUOTE_RE = re.compile(r"\[iqtibos:\s*([^\]]{1,600})\]", re.S | re.I)
+_QUOTE_RE = re.compile(r"\[\s*iqtibos:\s*([^\]]{1,600})\]", re.S | re.I)
 
 
 def _replace_quote(match) -> str:
@@ -683,7 +693,7 @@ def _replace_text_emoji(text: str) -> str:
 # xabar rad etiladi.
 # ─────────────────────────────────────────────────────────────
 _MAP_RE = re.compile(
-    r"\[xarita:\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)"
+    r"\[\s*xarita:\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)"
     r"(?:\s*,\s*(\d{1,2}))?\s*\]", re.I)
 _MAP_ZOOM_DEFAULT = 13
 
@@ -723,9 +733,9 @@ def _replace_map(match) -> str:
 # sana/matematika naqshlaridan yashirilgan. Shuning uchun naqsh ikkala
 # shaklni ham qabul qiladi, haqiqiy manzil esa himoya ro'yxatidan olinadi.
 _BUTTON_RE = re.compile(
-    r"\[tugma:\s*([^\]|\n]{1,64}?)\s*\|\s*"
+    r"\[\s*tugma:\s*([^\]|\n]{1,64}?)\s*\|\s*"
     r"(https?://[^\]\s]{1,512}|@@RICH_PROTECT_\d+@@)\s*\]", re.I)
-_BUTTON_ANY_RE = re.compile(r"\[tugma:[^\]\n]{0,600}\]", re.I)
+_BUTTON_ANY_RE = re.compile(r"\[\s*tugma:[^\]\n]{0,600}\]", re.I)
 
 
 def _replace_buttons(text: str, placeholders) -> str:
@@ -1338,10 +1348,10 @@ def format_image_catalog(images: List[dict]) -> str:
 
 
 # Modelning javobidagi rasm belgilari. Ikkinchisi — butun galereya.
-_IMAGE_TOKEN_RE = re.compile(r"\[rasm:(\d{1,2})\]")
-_IMAGE_GALLERY_RE = re.compile(r"\[rasmlar\]", re.IGNORECASE)
+_IMAGE_TOKEN_RE = re.compile(r"\[\s*rasm:\s*(\d{1,2})\s*\]")
+_IMAGE_GALLERY_RE = re.compile(r"\[\s*rasmlar\s*\]", re.IGNORECASE)
 # Draft (streaming) paytida foydalanuvchi xom belgini ko'rmasligi uchun.
-_IMAGE_ANY_TOKEN_RE = re.compile(r"\[rasm:\d{1,2}\]|\[rasmlar\]", re.IGNORECASE)
+_IMAGE_ANY_TOKEN_RE = re.compile(r"\[\s*rasm:\s*\d{1,2}\s*\]|\[\s*rasmlar\s*\]", re.IGNORECASE)
 
 
 def strip_image_tokens(text: str) -> str:
