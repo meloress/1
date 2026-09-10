@@ -24,9 +24,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
 
 - `test_admin_registry.py` — every admin handler still registered, in order.
 - `test_activity_tracking.py` — reads handler source **by file path**, so moving code breaks it.
-- `test_prompt_rules.py` — 54 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
+- `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
-- `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back).
+- `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
+- `test_admin_extras.py` checks 19-20 — every admin callback handler still starts with `require_admin_or_deny_query`, and the two user counts in `handle_users_command` still filter the same set. Both were written after the corresponding bug, and check 19 was verified by deleting the guard and watching it fail.
 
 Exact token counts need `tiktoken` (`pip install tiktoken`, encoding `o200k_base`). It is **not** in `requirements.txt` — the bot never counts tokens itself, it is a local measuring tool. Do not estimate from character counts; that was 11% off on this prompt.
 
@@ -40,6 +41,42 @@ Both the account and the remote moved on 2026-09-08; the GraphQL path below is h
   `serviceInstanceDeployV2(serviceId, environmentId, commitSha)` against `https://backboard.railway.com/graphql/v2` with a team token (`Authorization: Bearer`, and a real `User-Agent` — Cloudflare answers `403 error code: 1010` to the default urllib one). Railway fetches the commit from the repo, so **the service must point at the repo that actually has that commit, and it must be public**. The `up` endpoint (local tarball upload) fails on this account.
 - Never ask for a token in chat. Have the user put it in `RAILWAY_TOKEN` and read it from the environment without echoing it.
 
+### Reading production logs
+
+The user is logged into the Railway CLI on this machine (`~/.railway/config.json`), so
+logs are readable directly — no token, no copy-paste:
+
+```bash
+railway status
+timeout 45 railway logs      # streams, never exits on its own — the timeout is required
+timeout 60 railway logs -b   # build logs
+```
+
+⚠️ **`railway link` and `railway list` are broken on this account (CLI 4.6.3).** `list`
+prints an empty list and `link -p <id>` answers *"not found in Melores's Projects team"*
+for a project that is demonstrably there. The CLI asks for the deprecated `me { projects }`
+field, which always returns empty — the same wrong query cost an hour here. The working
+query is `me { workspaces { projects { edges { node { … } } } } }`, and the link has to be
+written into `~/.railway/config.json` by hand, keyed by directory path. That file holds
+`user.token`; never print it.
+
+- workspace `Melores's Projects` `e4ee0499-8975-4fdb-a58d-3070e58dd692`
+- project `truthful-prosperity` `ca061dfe-9a94-41a1-a135-9312e8fbfbc5`
+- environment `production` `598aeb0b-1ff2-4a49-b055-44b39b9d764a`
+- service **`1`** (this bot, `@uzchatgptaibot`) `d644a705-d075-440b-a68d-9fd21dcbd44b`
+- the same project also runs `Melores-Bot`, `Hisobotchi-bot`, `Trello-bot`, `Web-panel`
+  and several Postgres instances — ours is the one named `1`
+
+**Which commit is live** comes from `deployments(input: {projectId, environmentId,
+serviceId})` → `node.meta.commitHash` / `commitMessage` / `createdAt` (UTC; Tashkent is
+UTC+5). Use it before concluding anything from a screenshot — a table complaint was
+nearly misdiagnosed because it was unclear whether the fix had deployed yet.
+
+The logs are the best source of work. Both of the largest problems found on 2026-09-10
+came from reading them, not from guessing: the image picker burning 47 843 tokens on one
+request, and a silent `asyncio.TimeoutError` (whose `str()` is empty) making the picker
+fall back to unseen candidates.
+
 ### Token budget
 
 The bot runs on a free daily grant (2.5M tokens/day for `gpt-5.6-luna`). Before the September 2026 work the OpenAI usage dashboard showed **20.307M input tokens over 8 days — 2.54M/day, i.e. 101% of the grant on an average day and 248% on the busiest one**, so the model was silently falling through `MODEL_FALLBACKS` and the excess was billable.
@@ -50,12 +87,21 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 
 | | tokens |
 |---|---|
-| `instructions` (prompt + concise + image note) | 5 335 |
-| tool schemas (Pro, after the file-tool split) | 3 330 |
-| capability manifest | 293 |
-| history (median, 30 or 80 messages) | ~1 400-1 900 |
+| `instructions` (prompt + concise + image note) | 5 521 |
+| tool schemas (Pro, all three doors closed) | 2 253 |
+| capability manifest | 319 |
+| **fixed total per round** | **8 093** |
+| history | 0 → ~8 200 |
 | median user message | ~10 |
 | median reply | ~70 |
+
+Those first three are what a round costs before the user has said anything. The Railway
+log confirms it: sampled `[TOKEN]` lines run 7 697 (a free user, no `generate_image` or
+`open_reminder`) to 16 304, and the whole spread is history — 3 of 10 sampled requests
+carried ~8 000 tokens of it. **There is no hidden waste left.** History is the full reply
+text, i.e. real context; trimming it is a quality decision, not a cleanup. Round 1
+usually shows `keshdan 0 = 0%` and round 2 shows 90%+, which changes latency and money
+but not the quota.
 
 The input:output ratio is about 100:1, so `max_tokens` and stop sequences save nothing — output is already tiny. And a searched request runs **~1.7 rounds**, each re-sending the whole prefix, so every token removed from the prefix is saved that many times over.
 
@@ -94,9 +140,9 @@ Drafts are private-chat-only (API limit); `sendRichMessage` is not. `process_str
 
 ### The tool loop (`services/ai.py`)
 
-`get_openai_reply()` streams from the Responses API and runs a tool loop with **per-tool round budgets** (`MAX_SEARCH_ROUNDS`, `MAX_FILE_ROUNDS`, `MAX_IMAGE_ROUNDS`, `MAX_MEMORY_ROUNDS`, `MAX_REMINDER_ROUNDS`, plus `MAX_TOTAL_ROUNDS`). When a budget is spent the tool is dropped from `active_tools`, forcing the model to answer.
+`get_openai_reply()` streams from the Responses API and runs a tool loop with **per-tool round budgets** (`MAX_SEARCH_ROUNDS`, `MAX_FILE_ROUNDS`, `MAX_IMAGE_ROUNDS`, `MAX_MEMORY_ROUNDS`, `MAX_REMINDER_ROUNDS`, `MAX_NEARBY_ROUNDS`, plus `MAX_TOTAL_ROUNDS`). When a budget is spent the tool is dropped from `active_tools`, forcing the model to answer.
 
-Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `update_memory`, `manage_reminder`.
+Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `update_memory`, `manage_reminder`, `find_nearby`. Three of them are reached through a cheap door (`start_file_task`, `open_memory`, `open_reminder`) — see below.
 
 **Three tools are attached in two steps, and that is a token decision.** A cheap
 "door" is always attached; the expensive real schema arrives only on the round after the
@@ -213,11 +259,11 @@ The prompt also carries a phishing/social-engineering section that fixes the *sh
 
 ### The prompt is sent whole on every round, so duplication is expensive
 
-The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 335 tokens, tool schemas 3 330, capability manifest 293.
+The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 521 tokens, tool schemas 2 253, capability manifest 319.
 
 `STRICT_MATH_RULES` used to be appended after the whole prompt and was a near-verbatim copy of the template's own `MATH, PHYSICS & CHEMISTRY` section — nine rules stated twice, side by side in one string, 274 tokens per round. It is gone; the two phrases that were unique to it ("This is a hard requirement", "There are no other acceptable delimiters") were folded into the section that remains. `CONCISE_INSTRUCTION` likewise lost the three sentences that repeated `OUTPUT CONTRACT` rule 4.
 
-`tests/test_prompt_rules.py` is the guard: it asserts 54 individual rules are still present in the assembled `instructions`, whichever section they live in. Run it before and after any prompt edit — it was written *before* the deduplication and passed identically after, which is what made the change safe to ship. A mechanical cross-block similarity scan found no other duplication above 60%, so there is no more fat of this kind; further shrinking means rewriting prose, which is a quality decision, not a cleanup.
+`tests/test_prompt_rules.py` is the guard: it asserts 60 individual rules are still present in the assembled `instructions`, whichever section they live in. Run it before and after any prompt edit — it was written *before* the deduplication and passed identically after, which is what made the change safe to ship. A mechanical cross-block similarity scan found no other duplication above 60%, so there is no more fat of this kind; further shrinking means rewriting prose, which is a quality decision, not a cleanup.
 
 ⚠️ The scan cannot see across languages: the tool descriptions are Uzbek and the prompt is English, so `IMAGE_CAPABILITY_NOTE` overlaps `internet_search`'s `want_images` / `images_only` descriptions without any lexical match. That overlap is deliberate and bug-paid (the model used to answer "I can't send pictures" without calling anything) — do not "deduplicate" it.
 
