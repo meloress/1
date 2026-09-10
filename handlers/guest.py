@@ -23,6 +23,7 @@ from core.config import (
 from db.database import has_started, check_and_consume_quota, refund_quota
 from handlers.messages import (
     STATUS_TEXTS_BY_TYPE, EMOJI_ID_BY_TYPE, _format_elapsed, track_user_activity,
+    RICH_MEDIA_TIMEOUT,
 )
 from handlers.helpers import notify_watchers
 from services.ai import (
@@ -36,6 +37,8 @@ from services.ai import (
     strip_internal_names,
     build_rich_markdown,
     strip_rich_tokens,
+    embed_images,
+    strip_image_tokens,
     speech_to_text_smart,
     text_to_speech_smart,
 )
@@ -405,7 +408,8 @@ else:
             logger.warning(f"Guest rich-draft xatosi (oddiy matnga o'tamiz): {e}")
             return False
 
-    async def _answer_guest_query_rich(guest_query_id: str, answer_text: str) -> bool:
+    async def _answer_guest_query_rich(guest_query_id: str, answer_text: str,
+                                       images: list | None = None) -> bool:
         """
         Rich Markdown bilan javob yuborishga urinadi.
         Muvaffaqiyatli bo'lsa True, aks holda False qaytaradi.
@@ -434,7 +438,8 @@ else:
                 "title": "AI javobi",
                 "input_message_content": {
                     "rich_message": {
-                        "markdown": build_rich_markdown(answer_text),
+                        "markdown": embed_images(
+                            build_rich_markdown(answer_text), images or []),
                         "skip_entity_detection": True,
                     }
                 },
@@ -524,7 +529,8 @@ else:
 
     async def _edit_guest_inline_message(
         inline_message_id: str, markdown_text: str, *,
-        wait_on_flood: bool = False, rich: bool = False
+        wait_on_flood: bool = False, rich: bool = False,
+        images: list | None = None
     ) -> tuple[bool, float]:
         """Placeholder sifatida yuborilgan guest inline xabarni tahrirlaydi.
         Avval rich markdown bilan, muvaffaqiyatsiz bo'lsa oddiy `text` maydoni
@@ -548,33 +554,57 @@ else:
 
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
 
-        async def _attempt(payload: dict) -> tuple[bool, float]:
+        async def _attempt(payload: dict, timeout=None) -> tuple[bool, float, bool]:
+            """(yuborildimi, flood_retry_after, NOANIQmi).
+
+            ⚠️ UCHINCHI QIYMAT MUHIM. Timeout yoki uzilishda xabar
+            Telegram'ga YETIB BORGAN bo'lishi mumkin — bunday holatda
+            ikkinchi formatni yuborish foydalanuvchiga BIR XIL javobni
+            ikki marta ko'rsatardi. Bu xato shaxsiy chatda allaqachon
+            bo'lgan (handlers/messages.py: OUTCOME_UNKNOWN) va aynan
+            rasmli xabarda chiqqan edi.
+            """
             try:
                 session = await _get_http_session()
-                async with session.post(url, json=payload) as resp:
+                kw = {"json": payload}
+                if timeout is not None:
+                    kw["timeout"] = timeout
+                async with session.post(url, **kw) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and data.get("ok"):
-                        return True, 0.0
+                        return True, 0.0, False
                     retry_after = float((data.get("parameters") or {}).get("retry_after") or 0)
                     if not retry_after:
                         # Flood emas, haqiqiy rad etish — sababi kerak.
                         # (429 alohida, bir marta yuqorida logga yoziladi:
                         # ilgari bu yer o'nlab bir xil qatorni to'kib tashlardi.)
                         logger.warning(f"Guest inline-edit rad etildi: {data}")
-                    return False, retry_after
+                    return False, retry_after, False
             except Exception as e:
-                logger.warning(f"Guest inline-edit xatosi: {e}")
-                return False, 0.0
+                logger.warning(f"Guest inline-edit xatosi (NOANIQ): {e}")
+                return False, 0.0, True
 
         # ⚠️ `rich=True` FAQAT yakuniy javobda. Status animatsiyasi ham shu
         # funksiyadan o'tadi va unga jadval/emoji almashtirish kerak emas —
         # u har 4 soniyada qayta yuboriladi, ya'ni har bir qo'shimcha bezak
         # rad etilish ehtimolini bekorga oshiradi.
-        boy_matn = build_rich_markdown(markdown_text) if rich             else code_fences_to_html(markdown_text)
+        boy_matn = (build_rich_markdown(markdown_text) if rich
+                    else code_fences_to_html(markdown_text))
+        if rich and images:
+            boy_matn = embed_images(boy_matn, images)
         # Zaxira yo'l oddiy xabar: <details>/<aside>/xarita u yerda
-        # chizilmaydi, lekin foydalanuvchi `[batafsil: ...]` degan ICHKI
-        # belgini ham ko'rmasligi kerak — belgi yo'qoladi, MA'LUMOT qoladi.
-        oddiy_matn = strip_rich_tokens(markdown_text) if rich else markdown_text
+        # chizilmaydi, lekin foydalanuvchi `[batafsil: ...]` yoki
+        # `[rasm:1]` degan ICHKI belgini ham ko'rmasligi kerak — belgi
+        # yo'qoladi, MA'LUMOT qoladi.
+        oddiy_matn = (strip_rich_tokens(strip_image_tokens(markdown_text))
+                      if rich else markdown_text)
+        # ⚠️ RASMLI XABARGA ALOHIDA VAQT CHEGARASI. Umumiy sessiya 10
+        # soniyaga sozlangan (u 0.6s'lik draft ping'lari uchun to'g'ri),
+        # Telegram esa rasmli xabarni YARATISHDAN OLDIN har bir havolani
+        # manba saytdan o'zi yuklab oladi. 10s bunga yetmaydi va natija
+        # timeout — ya'ni yuqoridagi NOANIQ holat.
+        media_timeout = (aiohttp.ClientTimeout(total=RICH_MEDIA_TIMEOUT, connect=5)
+                         if (rich and images) else None)
         payloads = (
             {
                 "inline_message_id": inline_message_id,
@@ -595,10 +625,18 @@ else:
 
         for _ in range(2):
             flood = 0.0
-            for payload in payloads:
-                ok, retry_after = await _attempt(payload)
+            for idx, payload in enumerate(payloads):
+                # Vaqt chegarasi faqat BIRINCHI (rasmli) urinishga kerak;
+                # zaxira oddiy matn hech narsa yuklamaydi.
+                ok, retry_after, noaniq = await _attempt(
+                    payload, media_timeout if idx == 0 else None)
                 if ok:
                     return True, 0.0
+                if noaniq:
+                    # ⚠️ Xabar YETIB BORGAN bo'lishi mumkin. Ikkinchi
+                    # formatni yubormaymiz — aks holda foydalanuvchi bitta
+                    # javobni ikki marta ko'radi (biri rasmli, biri rasmsiz).
+                    return False, 0.0
                 if retry_after:
                     # Cheklov formatga bog'liq emas — ikkinchi formatni
                     # sinash faqat yana bitta 429 qo'shadi.
@@ -922,6 +960,15 @@ else:
         full_text = ""
         recognized_text: str | None = None
         ai_attempted = False
+        # Internetdan topilgan rasmlar shu ro'yxatga tushadi. `None` bo'lsa
+        # rasm UMUMAN qidirilmaydi — guruhda ilgari shunday edi va bu
+        # jimgina xato berardi: prompt "rasm yubora olaman" deb va'da
+        # qilardi, model `want_images` bilan chaqirardi, javobiga esa
+        # JIMLIK olardi va uni "rasm topilmadi" deb tushunib qayta-qayta
+        # qidirardi (services/ai.py dagi kontekst portlashi izohi).
+        # ⚠️ get_vision_reply() ga BERILMAYDI: u bir raundli va unda
+        # qidiruv tooli yo'q.
+        images: list = []
 
         if skip_ai:
             full_text = forced_text or ""
@@ -967,8 +1014,10 @@ else:
                             f"Hujjat matni ({file_name}):\n{extracted_text}\n\n"
                             f"Foydalanuvchi so'rovi: {clean_query}"
                         )
-                        stream_gen = get_gpt_reply(caller_user_id, prompt, is_pro=guest_is_pro,
+                        stream_gen = get_gpt_reply(caller_user_id, prompt,
+                                                   is_pro=guest_is_pro,
                                                    user_id=caller_user_id,
+                                                   images_out=images,
                                                    tg_name=_guest_name(message))
 
                 elif content_type == "voice":
@@ -993,13 +1042,17 @@ else:
                                 f'Ovozli xabar matni:\n"""{recognized_text}"""\n\n'
                                 f"Foydalanuvchi so'rovi: {clean_query}"
                             )
-                        stream_gen = get_gpt_reply(caller_user_id, voice_prompt, is_pro=guest_is_pro,
+                        stream_gen = get_gpt_reply(caller_user_id, voice_prompt,
+                                                   is_pro=guest_is_pro,
                                                    user_id=caller_user_id,
+                                                   images_out=images,
                                                    tg_name=_guest_name(message))
 
                 else:  # text
-                    stream_gen = get_gpt_reply(caller_user_id, clean_query, is_pro=guest_is_pro,
+                    stream_gen = get_gpt_reply(caller_user_id, clean_query,
+                                               is_pro=guest_is_pro,
                                                user_id=caller_user_id,
+                                               images_out=images,
                                                tg_name=_guest_name(message))
 
                 if stream_gen is not None:
@@ -1058,7 +1111,13 @@ else:
                     await safe_update_history(caller_user_id, recognized_text or "", role="user")
                 else:
                     await safe_update_history(caller_user_id, clean_query, role="user")
-                await safe_update_history(caller_user_id, raw_answer, role="assistant")
+                # ⚠️ `images=` SHART: usiz xom `[rasm:1]` tarixga tushardi
+                # va model uni TIRIK deb o'ylab, keyingi "rasm yubor"
+                # so'rovida qidiruvni CHAQIRMAY yana `[rasm:1]` yozardi —
+                # foydalanuvchi bo'sh javob olardi (services/ai.py:
+                # image_tokens_to_history izohi).
+                await safe_update_history(caller_user_id, raw_answer,
+                                          role="assistant", images=images)
             except Exception as e:
                 logger.warning(f"[Guest Tarix saqlash xatosi] user={caller_user_id}: {e}")
 
@@ -1110,8 +1169,9 @@ else:
         # --------------------------------------------------
         if chat_fallback_msg is not None:
             try:
-                await chat_fallback_msg.edit_text(strip_rich_tokens(final_text),
-                                                  parse_mode="Markdown")
+                await chat_fallback_msg.edit_text(
+                    strip_rich_tokens(strip_image_tokens(final_text)),
+                    parse_mode="Markdown")
                 await _send_voice_bonus()
                 return
             except Exception as e:
@@ -1158,7 +1218,7 @@ else:
             # Telegram so'ragan retry_after'ni kutgan afzal.
             edited, _flood = await _edit_guest_inline_message(
                 guest_inline_message_id, final_text,
-                wait_on_flood=True, rich=True
+                wait_on_flood=True, rich=True, images=images
             )
             if not edited:
                 logger.warning(
@@ -1169,7 +1229,7 @@ else:
         # --------------------------------------------------
         # 4. Fallback: answerGuestQuery (eski usul)
         # --------------------------------------------------
-        rich_sent = await _answer_guest_query_rich(guest_query_id, final_text)
+        rich_sent = await _answer_guest_query_rich(guest_query_id, final_text, images)
 
         if rich_sent:
             return
@@ -1178,7 +1238,7 @@ else:
             id=str(guest_query_id),
             title="AI javobi",
             input_message_content=InputTextMessageContent(
-                message_text=strip_rich_tokens(final_text),
+                message_text=strip_rich_tokens(strip_image_tokens(final_text)),
                 parse_mode="Markdown",
             ),
         )
@@ -1201,7 +1261,8 @@ else:
                             id=str(guest_query_id),
                             title="AI javobi",
                             input_message_content=InputTextMessageContent(
-                                message_text=strip_rich_tokens(final_text),
+                                message_text=strip_rich_tokens(
+                                    strip_image_tokens(final_text)),
                             ),
                         ),
                     )

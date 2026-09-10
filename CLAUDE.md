@@ -278,8 +278,29 @@ animation.
 Guest also uses `speech_to_text_smart` / `text_to_speech_smart`, so a Pro user gets the
 natural voice in a group instead of the free edge-tts one.
 
-Still missing in guest, deliberately: photos (`images_out=None`) and files
-(`output_files=None`) — see the capability manifest for how the model is told.
+**Photos work in guest too.** `images_out` used to be `None` there, and that was not a
+missing feature but a silent bug: `IMAGE_CAPABILITY_NOTE` is added unconditionally in
+`get_openai_reply`, so the prompt promised pictures, the model called
+`internet_search(want_images=true)`, and the tool answered with **silence** — which the
+model reads as "no images found" and retries, the exact context-explosion path described
+above. `handle_guest_message` now owns one `images: list` and passes it to all three
+`get_gpt_reply` calls (not to `get_vision_reply` — single round, no search tool).
+
+⚠️ **A media send needs its own timeout, and a timeout is not a rejection.** The shared
+guest session is capped at 10s, tuned for 0.6s draft pings, while Telegram fetches every
+image URL from the source site *before* it creates the message. `_edit_guest_inline_message`
+therefore passes `RICH_MEDIA_TIMEOUT` on the image-bearing payload only, and `_attempt`
+now returns a third value, `noaniq` — on a timeout or connection reset the ladder stops
+instead of falling through to the plain payload, because the message may already have
+arrived. Without that, the user sees the same answer twice, once with photos and once
+without: the identical bug the DM path already paid for (`OUTCOME_UNKNOWN`).
+
+`safe_update_history(..., images=images)` matters here as much as in the DM path — a raw
+`[rasm:1]` left in history makes the model re-emit the token instead of searching, and
+the user gets an empty answer.
+
+Still missing in guest, deliberately: files (`output_files=None`) — the group has nowhere
+to put one, and the caller's DM is only reachable if they have started the bot.
 
 `handlers/guest.py` handles chats outside DMs via `guest_message`. It passes `caller_user_id` as **both** `chat_id` and `user_id`, so a person has one identity and one memory whether they write in a group or in the DM. Quota is charged to that user. Reminders are delivered to the DM regardless of where they were created.
 

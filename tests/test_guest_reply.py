@@ -163,10 +163,14 @@ class FakeSession:
     def __init__(self, replies):
         self.replies = list(replies)
         self.calls = []
+        self.timeouts = []
 
-    def post(self, url, json=None):
+    def post(self, url, json=None, timeout=None):
         self.calls.append(json)
+        self.timeouts.append(timeout)
         payload = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        if isinstance(payload, Exception):
+            raise payload
         return FakeResponse(payload)
 
 
@@ -246,6 +250,50 @@ async def flood_tests():
         await _edit_guest_inline_message("iid", "**Qidiryapman** 🔍")
         assert "tg://emoji" not in session.calls[0]["rich_message"]["markdown"]
         print("[14c] status animatsiyasi bezaksiz qoldi OK")
+
+        # ── 14d) RASM guruh javobiga ham tushadi ────────────────
+        # Ilgari guest yo'lida `images_out=None` edi: prompt "rasm
+        # yubora olaman" deb va'da qilardi, model chaqirardi, javobiga
+        # JIMLIK olardi va uni "topilmadi" deb tushunib qayta-qayta
+        # qidirardi — kontekst portlashi.
+        rasm = [{"url": "https://x.uz/a.jpg", "title": "A", "source": "x.uz"}]
+        session = FakeSession([OK])
+        guest._get_http_session = lambda: _ready(session)
+        await _edit_guest_inline_message("iid", "Mana rasm [rasm:1]",
+                                         rich=True, images=rasm)
+        boy = session.calls[0]["rich_message"]["markdown"]
+        assert "https://x.uz/a.jpg" in boy and "[rasm:1]" not in boy, boy
+        print("[14d] rasm belgisi haqiqiy media blokka aylandi OK")
+
+        # ⚠️ Telegram rasmli xabarni YARATISHDAN OLDIN har bir havolani
+        # manba saytdan o'zi yuklab oladi — umumiy 10s sessiya bunga
+        # yetmaydi. Shaxsiy chatda aynan shu xato bo'lgan.
+        assert session.timeouts[0] is not None, "rasmli xabar 10s bilan ketdi"
+        assert session.timeouts[0].total >= 60, session.timeouts[0].total
+        print("[14e] rasmli xabarga alohida vaqt chegarasi berildi OK")
+
+        # ── 14f) TIMEOUT'da IKKINCHI FORMAT YUBORILMAYDI ────────
+        # Timeout — bu "rad etildi" EMAS: xabar yetib borgan bo'lishi
+        # mumkin. Ikkinchi formatni yuborsak, foydalanuvchi bitta
+        # javobni ikki marta ko'radi (biri rasmli, biri rasmsiz).
+        session = FakeSession([asyncio.TimeoutError()])
+        guest._get_http_session = lambda: _ready(session)
+        ok, _ = await _edit_guest_inline_message("iid", "Rasm [rasm:1]",
+                                                 rich=True, images=rasm)
+        assert not ok, "timeout muvaffaqiyat deb hisoblandi"
+        assert len(session.calls) == 1, (
+            f"timeout'dan keyin {len(session.calls)} ta so'rov — "
+            f"javob IKKI MARTA yetib borishi mumkin")
+        print("[14f] timeout'da ikkinchi format yuborilmadi OK")
+
+        # ── 14g) Zaxira oddiy matnda [rasm:N] XOM qolmaydi ──────
+        session = FakeSession([{"ok": False, "description": "can't parse"}, OK])
+        guest._get_http_session = lambda: _ready(session)
+        await _edit_guest_inline_message("iid", "Mana [rasm:1] rasm",
+                                         rich=True, images=rasm)
+        oddiy = session.calls[1]["text"]
+        assert "[rasm" not in oddiy and "rasm" in oddiy, oddiy
+        print("[14g] zaxira matnda rasm belgisi xom qolmadi OK")
     finally:
         asyncio.sleep = real_sleep
 
@@ -285,7 +333,7 @@ async def flood_tests():
     assert len(calls2) >= 3, calls2
     print("[16] oddiy holatda animatsiya ishlashda davom etdi OK")
 
-    print("\nflood himoyasi: barcha tekshiruvlar o'tdi (8/8).")
+    print("\nflood himoyasi: barcha tekshiruvlar o'tdi (12/12).")
 
 
 async def _ready(value):
