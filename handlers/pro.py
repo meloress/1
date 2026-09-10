@@ -1043,16 +1043,25 @@ def _share_button(user_id: int) -> InlineKeyboardButton:
 async def handle_inline_share(query: InlineQuery) -> None:
     """Inline rejim: "@bot" yozib chat tanlaganda chiqadigan yagona natija.
 
-    ⚠️ GUEST MODE bilan yonma-yon yashaydi. Ikkalasi ham `@bot ...` dan
-    boshlanadi, lekin bular BOSHQA-BOSHQA update turlari:
-      * inline_query  — foydalanuvchi YOZAYOTGANDA, hali yubormasdan;
-      * guest_message — xabar YUBORILGANDAN keyin (guest_query_id bilan).
-    Shuning uchun biri ikkinchisini almashtirmaydi.
+    ⛔️ INLINE REJIM HOZIR O'CHIQ VA SHUNDAY QOLISHI KERAK — bu handler
+    faqat kelajak uchun turibdi.
 
-    Lekin ekranda xalaqit bermasin: "@bot 2+2" deb yozilgan bo'lsa, bu
-    Guest Mode savoli — biz BO'SH ro'yxat qaytaramiz va panel umuman
-    ko'rinmaydi. Referal kartochkasi faqat so'rov BO'SH bo'lganda, ya'ni
-    "Do'stlarga ulashish" tugmasi orqali kelinganda chiqadi.
+    ⚠️ BU YERDA YOZILGAN ESKI FARAZ NOTO'G'RI EDI. Ilgari shu izohda
+    "ikkalasi yonma-yon yashaydi, biri ikkinchisini almashtirmaydi"
+    deb yozilgandi. Jonli sinov (2026-09-10) buni rad etdi: /setinline
+    yoqilganda Telegram "@bot savol" ni INLINE SO'ROV deb oladi,
+    yuborish tugmasi yo'qoladi va xabar `guest_message` bo'lib UMUMAN
+    yuborilmaydi — ekran aylanib turib "x" bilan tugaydi. Pastdagi
+    "bo'sh ro'yxat qaytaramiz" hiylasi ham yordam bermaydi: natija
+    bo'lmagani xabarni oddiy xabar sifatida yuborishga imkon bermaydi.
+
+    Ya'ni tanlov: CHIROYLI ULASHISH TUGMASI yoki GUEST MODE. Guest Mode
+    ancha qimmatliroq, shuning uchun inline o'chiq. Ulashish tugmasi
+    zaxira yo'lda (t.me/share/url) baribir ishlaydi — faqat xabar
+    tugmasiz, tekis matn bo'ladi.
+
+    Quyidagi mantiq o'zgarishsiz qoldi: agar kimdir inline'ni yoqib
+    qo'ysa, kamida referal kartochkasi faqat BO'SH so'rovda chiqadi.
     """
     if (query.query or "").strip():
         try:

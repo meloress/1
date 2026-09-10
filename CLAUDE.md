@@ -243,6 +243,26 @@ Whatever the model writes into a tool call reaches the database. Validation live
 
 History used to live in SQLite; Railway wipes the container filesystem on every deploy, so each deploy reset every user's context. It is Postgres now — do not move it back to a file.
 
+### Inline mode must stay OFF — it breaks guest mode
+
+⛔️ Do not enable `/setinline` in @BotFather, and do not "helpfully" suggest it.
+A live test (2026-09-10) settled this: with inline on, Telegram treats
+`@bot savol` in a chat as an **inline query**, the send button disappears, the
+client spins and ends with an "x", and the message never arrives as
+`guest_message` at all. Guest mode simply stops working.
+
+`handle_inline_share` used to carry the opposite claim — that the two update
+types "live side by side and neither replaces the other" — and its trick of
+answering a non-empty query with an empty result list does **not** rescue it:
+no results means the text cannot be sent as an ordinary message either. The
+handler stays registered, but only for a future in which this changes.
+
+So the choice is a prettier share button *or* guest mode, and guest mode wins by
+a wide margin. With inline off, `_share_button()` falls back to a
+`t.me/share/url` link — the message goes as flat text without a button, which is
+a cosmetic loss, not a broken feature. The startup check is now inverted: it
+warns when inline is **enabled**, since that is the broken state.
+
 ### Guest mode
 
 ⚠️ **The final answer goes through `build_rich_markdown()`, the status animation does

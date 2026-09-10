@@ -219,13 +219,21 @@ async def main():
     try:
         me = await bot.get_me()
         pro_module.BOT_USERNAME = me.username or ""
-        # Inline rejim @BotFather'da /setinline bilan yoqiladi. Yoqilmagan
-        # bo'lsa ulashish tugmasi eski matnli usulga tushadi — kod uni
-        # o'zi yoqa olmaydi, shuning uchun so'rab olamiz.
+        # ⛔️ INLINE REJIM ATAYLAB O'CHIQ — YOQMANG.
+        # Jonli sinov (2026-09-10): /setinline yoqilganda GUEST MODE
+        # ISHLAMAY QOLADI. Telegram "@bot savol" ni inline so'rov deb
+        # oladi, yuborish tugmasi yo'qoladi, ekran aylanib turib oxirida
+        # "x" beradi va xabar botga UMUMAN yetib bormaydi.
+        # Ilgari bu yerda "yoqing" degan ogohlantirish turardi va u
+        # noto'g'ri edi — endi teskarisi: YOQILGAN bo'lsa ogohlantiramiz.
+        # Ulashish tugmasi inline'siz ham ishlaydi (t.me/share/url
+        # zaxirasi) — faqat xabar tugmasiz, tekis matn bo'ladi.
         pro_module.INLINE_ENABLED = bool(me.supports_inline_queries)
-        if not pro_module.INLINE_ENABLED:
-            logger.warning("Inline rejim o'chiq — @BotFather /setinline bilan "
-                           "yoqilsa ulashish xabari tugmali bo'ladi.")
+        if pro_module.INLINE_ENABLED:
+            logger.warning(
+                "⚠️ Inline rejim YOQILGAN — bu Guest Mode'ni buzadi: "
+                "guruhda @bot bilan yozilgan savol botga yetib bormaydi. "
+                "@BotFather → /setinline o'chiring.")
     except Exception as e:
         logger.warning(f"get_me() muvaffaqiyatsiz — referal havolalari ishlamaydi: {e}")
 
