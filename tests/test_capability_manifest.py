@@ -43,18 +43,20 @@ def manifest(**kw) -> str:
 
 
 # ── 1-2. TO'LIQ HUQUQLI (Pro, shaxsiy chat) ───────────────────────
-# ⚠️ Kutilayotgan nom `start_file_task`, `run_python_sandbox` EMAS.
-# Fayl tooli ikki bosqichli: doim biriktiriladigan asbob — arzon
-# "eshik" (`start_file_task`), to'liq tavsif esa model o'shani
-# chaqirgandan keyin keladi. Manifest CHAQIRILADIGAN nomni aytishi
-# shart, aks holda model mavjud bo'lmagan asbobni chaqiradi va
-# chaqiruv veb qidiruvga tushib ketadi. Bu testni eski nomga
-# qaytarmang — u kodni emas, kutilmani eskirtiradi.
+# ⚠️ Kutilayotgan nomlar — EShIK nomlari, to'liq tool nomlari EMAS.
+# Uchta asbob ikki bosqichli: doim biriktiriladigani arzon "eshik"
+# (start_file_task 212, open_memory 248, open_reminder 212 token),
+# to'liq tavsif (run_python_sandbox 5578, update_memory 764,
+# manage_reminder 772) esa model eshikni ochgandan keyin keladi.
+# Manifest CHAQIRILADIGAN nomni aytishi shart, aks holda model
+# mavjud bo'lmagan asbobni chaqiradi va chaqiruv veb qidiruvga
+# tushib ketadi. Bu testni to'liq nomlarga qaytarmang — u kodni
+# emas, kutilmani eskirtiradi.
 pro = manifest()
 check(1, "Pro'da barcha tool nomlari 'qila olaman' ro'yxatida",
       all(t in pro.split("NOT available")[0]
           for t in ("internet_search", "start_file_task", "find_nearby",
-                    "generate_image", "update_memory", "manage_reminder")))
+                    "generate_image", "open_memory", "open_reminder")))
 check(2, "Pro'da 'mavjud emas' qatori umuman yo'q",
       "NOT available in this request" not in pro)
 
@@ -62,7 +64,7 @@ check(2, "Pro'da 'mavjud emas' qatori umuman yo'q",
 bepul = manifest(image_enabled=False, reminder_enabled=False)
 check(3, "bepulda rasm chizish va eslatma MAVJUD EMAS deb belgilanadi",
       "generate_image (Pro only)" in bepul
-      and "manage_reminder (Pro only)" in bepul)
+      and "open_reminder (Pro only)" in bepul)
 check(4, "bepulda ular 'qila olaman' ro'yxatiga TUSHMAYDI",
       "generate_image" not in bepul.split("NOT available")[0]
       and "start_file_task" in bepul.split("NOT available")[0])

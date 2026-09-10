@@ -17,9 +17,16 @@ def check(n, nom, shart):
 
 
 # ── 1. Ro'yxat HAQIQIY sxemalarga mos ────────────────────────────
+# ⚠️ Sxemalar QO'LDA sanalmaydi. Ilgari shu yerda qattiq ro'yxat turardi
+# va u jimgina eskirdi: `start_file_task`, `find_nearby`, `open_memory`
+# va `open_reminder` ro'yxatga tushmay qolgan edi, ya'ni bot ularning
+# nomini javobda aytib yuborsa filtr tozalamasdi. Endi modul o'zi
+# ko'rib chiqiladi — yangi tool qo'shilishi bilan test yiqiladi.
 sxema_nomlari = {t["name"] for t in ai._TOOLS}
-for tool in (ai._FILE_TASK_TOOL, ai._IMAGE_TOOL, ai._MEMORY_TOOL, ai._REMINDER_TOOL):
-    sxema_nomlari.add(tool["name"])
+for nom in dir(ai):
+    obj = getattr(ai, nom)
+    if isinstance(obj, dict) and obj.get("type") == "function" and obj.get("name"):
+        sxema_nomlari.add(obj["name"])
 
 check(1, "har bir tool sxemasi ro'yxatda bor",
       sxema_nomlari <= set(INTERNAL_TOOL_NAMES),

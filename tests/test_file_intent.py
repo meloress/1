@@ -63,6 +63,7 @@ class FakeStream:
 
 
 captured = []
+yon_chaqiruvlar = []
 
 
 def make_opener(rounds):
@@ -89,6 +90,7 @@ async def run_case(rounds):
     captured.clear()
     fayl_chaqiruvlari = []
     qidiruvlar = []
+    yon_chaqiruvlar.clear()
 
     async def fake_file_task(code, **kwargs):
         fayl_chaqiruvlari.append(code)
@@ -98,14 +100,26 @@ async def run_case(rounds):
         qidiruvlar.append(kwargs)
         return "SOXTA QIDIRUV"
 
+    async def fake_memory(*a, **k):
+        yon_chaqiruvlar.append("memory")
+        return "Saqlandi."
+
+    async def fake_reminder(*a, **k):
+        yon_chaqiruvlar.append("reminder")
+        return "Eslatma qo'yildi."
+
     asl = {"open": services._open_response_stream,
            "hist": services.safe_get_chat_history,
            "file": services._run_file_task,
-           "search": services.multi_source_deep_search}
+           "search": services.multi_source_deep_search,
+           "mem": services._run_memory_task,
+           "rem": services._run_reminder_task}
     services._open_response_stream = make_opener(rounds)
     services.safe_get_chat_history = _empty_history
     services._run_file_task = fake_file_task
     services.multi_source_deep_search = fake_search
+    services._run_memory_task = fake_memory
+    services._run_reminder_task = fake_reminder
     try:
         matn = await collect(services.get_openai_reply(
             1, "menga taqdimot qilib ber", user_id=7, is_pro=True,
@@ -115,6 +129,8 @@ async def run_case(rounds):
         services.safe_get_chat_history = asl["hist"]
         services._run_file_task = asl["file"]
         services.multi_source_deep_search = asl["search"]
+        services._run_memory_task = asl["mem"]
+        services._run_reminder_task = asl["rem"]
     return matn, fayl_chaqiruvlari, qidiruvlar
 
 
@@ -156,6 +172,39 @@ async def sinov():
     check(6, "fayl rejimi so'rov oxirigacha saqlanadi",
           "run_python_sandbox" in captured[2])
 
+    # ── 2b. XOTIRA va ESLATMA ham xuddi shunday ─────────────────
+    # ⚠️ update_memory HAR BIR shaxsiy chat so'roviga biriktirilardi
+    # (764 token), manage_reminder esa har bir Pro so'roviga (772).
+    # Bazadagi o'lchov: xotira 1 210 so'rovdan 13 tasida ishlatilgan,
+    # eslatma esa UMUMAN ishlatilmagan.
+    _, _, _ = await run_case([[TEXT]])
+    check("6a", "birinchi raundda faqat arzon eshiklar",
+          {"open_memory", "open_reminder"} <= set(captured[0])
+          and "update_memory" not in captured[0]
+          and "manage_reminder" not in captured[0])
+
+    _, _, qidiruvlar = await run_case([
+        call_round("open_memory"),
+        call_round("update_memory", json.dumps({"action": "add", "content": "ism: Aziz"})),
+        [TEXT],
+    ])
+    check("6b", "xotira eshigidan keyin to'liq tool keladi",
+          "update_memory" in captured[1])
+    check("6c", "xotira vazifasi haqiqatan bajarildi", yon_chaqiruvlar == ["memory"])
+    # Eshik bare `else` ga tushsa, "ismim Aziz" jimgina DuckDuckGo
+    # so'roviga aylanib ketardi.
+    check("6d", "xotira eshigi veb qidiruvga TUSHMAYDI", qidiruvlar == [])
+
+    _, _, qidiruvlar = await run_case([
+        call_round("open_reminder"),
+        call_round("manage_reminder", json.dumps({"action": "list"})),
+        [TEXT],
+    ])
+    check("6e", "eslatma eshigidan keyin to'liq tool keladi",
+          "manage_reminder" in captured[1])
+    check("6f", "eslatma vazifasi bajarildi va qidiruvga tushmadi",
+          yon_chaqiruvlar == ["reminder"] and qidiruvlar == [])
+
 
 asyncio.run(sinov())
 
@@ -172,13 +221,23 @@ check(8, "to'liq tavsif haqiqatan qimmat (3000+)", toliq > 3000)
 check(9, f"tejash sezilarli ({toliq - eshik} token/raund)",
       toliq - eshik > 3500)
 
+# ⚠️ Eshik byudjetni YEMAYDI: memory_rounds faqat haqiqiy update_memory
+# chaqiruvida oshadi. Aks holda eshik ochishning o'ziyoq byudjetni yeb,
+# yozishga navbat qolmasdi.
+for nom, e_tool, t_tool in [("xotira", services._MEMORY_INTENT_TOOL, services._MEMORY_TOOL),
+                            ("eslatma", services._REMINDER_INTENT_TOOL, services._REMINDER_TOOL)]:
+    check(f"9:{nom}", f"{nom} eshigi to'liq tavsifdan arzon "
+                      f"({tok(e_tool)} < {tok(t_tool)})",
+          tok(e_tool) < tok(t_tool) / 2)
+
 # ── 4. Manifest CHAQIRILADIGAN nomni aytishi kerak ───────────────
 man = services._capability_manifest(
     file_task_enabled=True, image_enabled=False,
     reminder_enabled=False, memory_enabled=True)["content"]
-check(10, "manifest eshik nomini aytadi", "start_file_task" in man)
+check(10, "manifest eshik nomini aytadi",
+      "start_file_task" in man and "open_memory" in man)
 check(11, "manifest mavjud bo'lmagan nomni va'da qilmaydi",
-      "run_python_sandbox" not in man)
+      "run_python_sandbox" not in man and "update_memory" not in man)
 
 man2 = services._capability_manifest(
     file_task_enabled=False, image_enabled=False,
@@ -186,4 +245,4 @@ man2 = services._capability_manifest(
 check(12, "guruhda fayl imkoniyati yo'q deb aytiladi",
       "start_file_task" in man2 and "NOT available" in man2)
 
-print("\nHammasi o'tdi: 12/12")
+print("\nHammasi o'tdi: 20/20")

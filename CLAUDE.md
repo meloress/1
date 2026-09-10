@@ -98,7 +98,20 @@ Drafts are private-chat-only (API limit); `sendRichMessage` is not. `process_str
 
 Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `update_memory`, `manage_reminder`.
 
-**The file tool is attached in two steps, and that is a token decision.** `run_python_sandbox`'s description is the whole layout manual — **5 578 tokens** measured with `tiktoken` — and the model writes the code *inside* the call, so the manual cannot move out of the schema. But `file_task_enabled` is `output_files is not None`, i.e. every DM request, while the tool is actually called in 1.4% of them (17 of 1 210 measured). So a **212-token** `start_file_task` door is attached instead; when the model calls it, `file_mode` turns on and the full tool arrives on the next round. That saves **5 366 tokens per round** — and a round is re-sent in full each loop iteration, so the real saving is that times the round count. The cost is one extra round on the 1.4%. `file_mode` stays on for the rest of the request because the file loop retries up to four times. Two things must hold: `start_file_task` needs its own `elif` above the bare `else` (otherwise "make me a presentation" becomes a DuckDuckGo query), and `_capability_manifest()` must name the tool that is *actually attached* — naming `run_python_sandbox` there would have the model call a tool it does not have.
+**Three tools are attached in two steps, and that is a token decision.** A cheap
+"door" is always attached; the expensive real schema arrives only on the round after the
+model opens it. `start_file_task` 212 → `run_python_sandbox` 5 578; `open_memory` 248 →
+`update_memory` 764; `open_reminder` 212 → `manage_reminder` 772. Measured with
+`tiktoken`. The door costs one extra round on the small fraction of requests that use the
+tool, and saves the difference on every round of every other request — memory was used in
+13 of 1 210 measured requests and the reminder tool in **none**, while `update_memory`
+was attached to every DM request and `manage_reminder` to every Pro one. Opening a door
+does **not** consume that tool's round budget (`memory_rounds` increments only on the
+real call), or opening it would eat the budget the actual write needs. Each door needs
+its own `elif` above the bare `else`, and `_capability_manifest()` must name the *door*,
+never the tool behind it.
+
+**The file tool's own numbers.** `run_python_sandbox`'s description is the whole layout manual — **5 578 tokens** measured with `tiktoken` — and the model writes the code *inside* the call, so the manual cannot move out of the schema. But `file_task_enabled` is `output_files is not None`, i.e. every DM request, while the tool is actually called in 1.4% of them (17 of 1 210 measured). So a **212-token** `start_file_task` door is attached instead; when the model calls it, `file_mode` turns on and the full tool arrives on the next round. That saves **5 366 tokens per round** — and a round is re-sent in full each loop iteration, so the real saving is that times the round count. The cost is one extra round on the 1.4%. `file_mode` stays on for the rest of the request because the file loop retries up to four times. Two things must hold: `start_file_task` needs its own `elif` above the bare `else` (otherwise "make me a presentation" becomes a DuckDuckGo query), and `_capability_manifest()` must name the tool that is *actually attached* — naming `run_python_sandbox` there would have the model call a tool it does not have.
 
 **Dispatch order matters**: the `else` branch routes any unknown tool name to web search, so every named tool must be an `elif` *above* it — otherwise "menga rasm chiz" silently becomes a DuckDuckGo query.
 
@@ -192,6 +205,13 @@ The free daily grant counts tokens, not requests, and caching does not reduce th
 `build_system_prompt()` is written to day precision so the prefix is identical all day and prompt caching works. Anything per-user (long-term memory, the user's name) goes into `messages` as a `developer` message, **never** into `instructions`. Putting user-specific text in the system prompt silently destroys the cache for everyone.
 
 ### Model list is a billing guard
+
+`INTERNAL_TOOL_NAMES` (`core/config.py`) must list **every** tool name, doors included —
+`strip_internal_names()` scrubs exactly those strings, so a name missing from it leaks.
+`tests/test_no_tool_leak.py` used to compare against a hand-written tuple of schemas and
+silently rotted: `start_file_task`, `find_nearby`, `open_memory` and `open_reminder` were
+all missing from the list and the test still passed. It now walks the `services.ai`
+module for every `{"type": "function"}` dict, so a new tool fails it until it is added.
 
 `GPT_MODEL` and `MODEL_FALLBACKS` must stay inside OpenAI's free data-sharing list. A model outside it bills at full price and nothing warns you — the bill arrives at month end. `tests/test_free_models.py` guards this.
 

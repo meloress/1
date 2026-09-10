@@ -473,6 +473,12 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "generate_image": "rasm chizish",
     "update_memory": "xotirani yangilash",
     "manage_reminder": "eslatma qo'yish",
+    "find_nearby": "yaqin atrofdagi joylarni topish",
+    # Ikki bosqichli asboblarning "eshik" nomlari — ular ham model
+    # ko'radigan haqiqiy nomlar, ya'ni ular ham sirqib chiqishi mumkin.
+    "start_file_task": "fayl yaratishni boshlash",
+    "open_memory": "xotirani ochish",
+    "open_reminder": "eslatmani ochish",
 }
 
 

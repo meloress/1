@@ -2482,8 +2482,10 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
         # asbobni chaqirib, chaqiruv veb qidiruvga tushib ketardi.
         (file_task_enabled, _FILE_INTENT_TOOL, "not available in this chat type"),
         (image_enabled, _IMAGE_TOOL, "Pro only"),
-        (memory_enabled, _MEMORY_TOOL, "needs a known user"),
-        (reminder_enabled, _REMINDER_TOOL, "Pro only"),
+        # ⚠️ Eshik nomi, to'liq tool nomi EMAS: model AYNAN chaqira
+        # oladigan asbobni bilishi kerak (start_file_task bilan bir xil).
+        (memory_enabled, _MEMORY_INTENT_TOOL, "needs a known user"),
+        (reminder_enabled, _REMINDER_INTENT_TOOL, "Pro only"),
         # ⚠️ Sabab matni MUHIM. Bu asbobsiz model "lokatsiyangizni
         # yuborsangiz eng yaqin zapravkani topaman" deb va'da berardi,
         # foydalanuvchi lokatsiya yuborardi va bot uni umuman ko'rmasdi.
@@ -2897,6 +2899,49 @@ _NEARBY_TOOL = {
 # Foydalanuvchi uchun BUTUNLAY ko'rinmas: buyruq ham, tugma ham, "eslab
 # qoldim" xabari ham yo'q — shuning uchun description'da buni tilga
 # olmaslik ALOHIDA ta'kidlangan.
+_MEMORY_INTENT_TOOL = {
+    "type": "function",
+    "name": "open_memory",
+    "description": (
+        "Foydalanuvchi O'ZI HAQIDA doimiy fakt aytganda chaqiring: ism, "
+        "kasb, shahar, o'qish joyi, barqaror qiziqish, oila holati, yoki "
+        "javob uslubi bo'yicha afzallik ('qisqa yozing', 'ruscha javob "
+        "bering'). Xotira asbobini biriktiradi, yozishni KEYINGI qadamda "
+        "bajarasiz.\n"
+        "Argumentsiz chaqiring va oldidan hech narsa yozmang.\n"
+        "⛔️ Vaqtinchalik holat ('bugun charchadim', 'hozir "
+        "yo'ldaman') va bir martalik so'rov ('PDF qilib ber') uchun EMAS.\n"
+        "⛔️ Sog'liq, din, siyosat, millat yoki karta/pasport "
+        "raqami uchun EMAS — foydalanuvchi aniq so'rasa ham."
+    ),
+    "parameters": {
+        "type": "object", "properties": {},
+        "required": [], "additionalProperties": False,
+    },
+    "strict": True,
+}
+
+_REMINDER_INTENT_TOOL = {
+    "type": "function",
+    "name": "open_reminder",
+    "description": (
+        "Foydalanuvchi KELAJAKDAGI vaqtga bog'liq ish so'raganda "
+        "chaqiring: 'ertaga soat 9 da eslat', 'har dushanba hisobot', "
+        "'3 kundan keyin qo'ng'iroq qilishni eslat', shuningdek "
+        "eslatmalar ro'yxati yoki bekor qilish so'ralganda. Eslatma "
+        "asbobini biriktiradi, qo'yishni KEYINGI qadamda bajarasiz.\n"
+        "Argumentsiz chaqiring va oldidan hech narsa yozmang.\n"
+        "⛔️ Foydalanuvchi shunchaki kelajak haqida gapirsa "
+        "('kelasi hafta imtihonim bor') EMAS — faqat u ANIQ "
+        "eslatishni so'raganda."
+    ),
+    "parameters": {
+        "type": "object", "properties": {},
+        "required": [], "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 _MEMORY_TOOL = {
     "type": "function",
     "name": "update_memory",
@@ -3461,6 +3506,13 @@ async def get_openai_reply(
     # to'liq (qimmat) fayl tooli biriktiriladi. So'rov oxirigacha saqlanadi:
     # fayl qurish 4 martagacha qayta uriniladi, har safar qo'llanma kerak.
     file_mode = False
+    # Xotira va eslatma ham fayl tooli kabi IKKI BOSQICHLI. To'liq
+    # tavsiflar 764 va 772 token va ular HAR RAUNDDA qayta yuboriladi,
+    # holbuki o'lchovda xotira 1 210 so'rovdan 13 tasida, eslatma esa
+    # UMUMAN ishlatilmagan. Arzon eshik (248 va 212) doim biriktiriladi,
+    # to'liq tavsif esa faqat model eshikni ochgandan keyin keladi.
+    memory_mode = False
+    reminder_mode = False
     total_rounds = 0
     search_performed = False
     synthesis_injected = False
@@ -3561,9 +3613,11 @@ async def get_openai_reply(
         if image_enabled and image_rounds < MAX_IMAGE_ROUNDS:
             active_tools.append(_IMAGE_TOOL)
         if user_id is not None and memory_rounds < MAX_MEMORY_ROUNDS:
-            active_tools.append(_MEMORY_TOOL)
+            active_tools.append(_MEMORY_TOOL if memory_mode
+                                else _MEMORY_INTENT_TOOL)
         if reminder_enabled and reminder_rounds < MAX_REMINDER_ROUNDS:
-            active_tools.append(_REMINDER_TOOL)
+            active_tools.append(_REMINDER_TOOL if reminder_mode
+                                else _REMINDER_INTENT_TOOL)
         if nearby_enabled and nearby_rounds < MAX_NEARBY_ROUNDS:
             active_tools.append(_NEARBY_TOOL)
         # Ichki chaqiruvlar (eslatma matni) uchun HECH QANDAY asbob:
@@ -3733,6 +3787,25 @@ async def get_openai_reply(
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 reminder_ran = True
                 tool_output = await _run_reminder_task(user_id, args)
+            elif call_item.name == "open_memory":
+                # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
+                # Raund byudjeti bu yerda YEYILMAYDI: `memory_rounds`
+                # faqat haqiqiy `update_memory` chaqiruvida oshadi,
+                # aks holda eshik ochishning o'ziyoq byudjetni yeb,
+                # yozishga navbat qolmasdi.
+                memory_mode = True
+                tool_output = (
+                    "Xotira rejimi yoqildi. Endi `update_memory` asbobi "
+                    "mavjud — faktni SHU ZAHOTI yozing. Foydalanuvchiga "
+                    "hech narsa yozmang va buni tilga olmang."
+                )
+            elif call_item.name == "open_reminder":
+                # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
+                reminder_mode = True
+                tool_output = (
+                    "Eslatma rejimi yoqildi. Endi `manage_reminder` asbobi "
+                    "mavjud — so'ralgan amalni SHU ZAHOTI bajaring."
+                )
             elif call_item.name == "find_nearby":
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 nearby_ran = True
