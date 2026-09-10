@@ -133,6 +133,7 @@ async def handle_users_command(message: Message):
                       'text_message','photo_message','document_message','voice_message',
                       'guest_text_message','guest_photo_message',
                       'guest_document_message','guest_voice_message',
+                      'location_message',
                       'file_task','research'
                   )
                 GROUP BY activity_type ORDER BY cnt DESC
@@ -177,6 +178,9 @@ async def handle_users_command(message: Message):
         "photo_message": ("🖼 Rasm", MESSAGE_COST_PHOTO),
         "document_message": ("📄 Hujjat", MESSAGE_COST_DOCUMENT),
         "voice_message": ("🎤 Ovoz", MESSAGE_COST_VOICE),
+        # Joylashuv o'zi ball yechmaydi — u savol emas, keyingi matnli
+        # so'rov uchun kontekst. Ball o'sha matndan yechiladi.
+        "location_message": ("📍 Joylashuv", 0),
         "guest_text_message": ("✉️ Matn · guest", MESSAGE_COST_TEXT),
         "guest_photo_message": ("🖼 Rasm · guest", MESSAGE_COST_PHOTO),
         "guest_document_message": ("📄 Hujjat · guest", MESSAGE_COST_DOCUMENT),

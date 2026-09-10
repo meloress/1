@@ -13,6 +13,7 @@ from handlers.helpers import ensure_pin_column, notify_inactive_users
 from handlers import messages as messages_module
 from handlers.messages import (
     handle_start, handle_text, handle_photo, handle_document, handle_voice,
+    handle_location,
     handle_research,
     router as generating_state_router,
 )
@@ -173,6 +174,10 @@ async def main():
     general_router.message.register(handle_photo, F.photo, non_admin_predicate)
     general_router.message.register(handle_document, F.document, non_admin_predicate)
     general_router.message.register(handle_voice, F.voice, non_admin_predicate)
+    # ⚠️ handle_unsupported (pastda) F.location ni ham ushlaydi, shuning
+    # uchun bu QATOR UNDAN YUQORIDA turishi SHART — aks holda lokatsiya
+    # yana «Joylashuv bilan ishlay olmayman» kartochkasiga tushib ketadi.
+    general_router.message.register(handle_location, F.location, non_admin_predicate)
     # ⚠️ ENG OXIRIDA: bu handler qo'llab-quvvatlanmagan turlarni (video,
     # stiker, audio...) ushlaydi va u YUQORIDAGILARDAN KEYIN turishi shart —
     # aks holda o'zi ushlaydigan turlar ro'yxati kengayib ketsa, oddiy
@@ -180,7 +185,7 @@ async def main():
     general_router.message.register(
         capabilities.handle_unsupported,
         F.video | F.video_note | F.animation | F.audio | F.sticker
-        | F.location | F.contact | F.poll,
+        | F.contact | F.poll,
         non_admin_predicate,
     )
     dp.include_router(guest_router)

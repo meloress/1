@@ -37,7 +37,8 @@ from services.file_task_quota import DailyQuota
 from core.keyboards import admin_keyboard
 from handlers.helpers import process_daily_pin, notify_watchers, send_error_with_retry
 from core.memory import (get_text_merge_lock, text_merge_buffers,
-                         clear_text_merge_buffer, forget_sent_images)
+                         clear_text_merge_buffer, forget_sent_images,
+                         remember_location, forget_location)
 from services.ai import (
     safe_update_history, get_gpt_reply,
     speech_to_text_smart, text_to_speech_smart,
@@ -1366,6 +1367,7 @@ async def check_and_clear_session(chat_id: int):
 
     if now - last_time > SESSION_TIMEOUT:
         forget_sent_images(chat_id)
+        forget_location(chat_id)
         await clear_chat_history(chat_id)
         try:
             msg = await bot.send_message(
@@ -1853,6 +1855,7 @@ async def handle_text(message: Message, state: FSMContext):
         clear_text_merge_buffer(chat_id)
         clear_pending_file(chat_id)
         forget_sent_images(chat_id)
+        forget_location(chat_id)
         await clear_chat_history(chat_id)
         chat_last_interaction[chat_id] = time.time()
         await message.answer("🧹 Xotira tozalandi! Mutlaqo yangi mavzuda suhbatlashishimiz mumkin.")
@@ -2399,6 +2402,38 @@ async def handle_document(message: Message, state: FSMContext):
 # --------------------------------------------------
 # 5. VOICE HANDLER
 # --------------------------------------------------
+# --------------------------------------------------
+# JOYLASHUV
+# --------------------------------------------------
+# Ilgari lokatsiya "qo'llab-quvvatlanmagan tur" edi va bot unga
+# «Joylashuv bilan ishlay olmayman» kartochkasi bilan javob berardi —
+# model esa xuddi shu suhbatda «lokatsiyangizni yuborsangiz eng yaqin
+# zapravkani topaman» deb VA'DA bergan bo'lardi. Ikkalasi ham tuzatildi:
+# bu handler koordinatani eslab qoladi, `_capability_manifest()` esa
+# joylashuv YO'Q paytda modelga uni so'rashni aytadi.
+#
+# ⚠️ BU YERDA AI CHAQIRILMAYDI. Lokatsiyaning o'zi savol emas — odam
+# uni yuborib, keyin nima kerakligini yozadi. Shu bosqichda modelga
+# so'rov yuborish bir raundni bekorga sarflardi.
+async def handle_location(message: Message, state: FSMContext):
+    chat_id = message.chat.id
+    loc = message.location
+    if loc is None:
+        return
+    track_user_activity(message.from_user.id,
+                        message.from_user.username, "location_message")
+    await check_and_clear_session(chat_id)
+    remember_location(chat_id, loc.latitude, loc.longitude)
+    chat_last_interaction[chat_id] = time.time()
+    await message.answer(
+        "📍 Joylashuv qabul qilindi.\n\n"
+        "Endi yozing — yaqin atrofdan nimani topib beray?\n"
+        "Masalan: <b>eng yaqin zapravka</b>, <b>dorixona</b>, "
+        "<b>bankomat</b>, <b>qayerda ovqatlansam bo'ladi</b>.\n\n"
+        "<i>Joylashuv 30 daqiqa saqlanadi.</i>",
+        parse_mode="HTML")
+
+
 async def handle_voice(message: Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id

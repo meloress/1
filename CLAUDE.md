@@ -25,6 +25,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_admin_registry.py` — every admin handler still registered, in order.
 - `test_activity_tracking.py` — reads handler source **by file path**, so moving code breaks it.
 - `test_prompt_rules.py` — 54 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
+- `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back).
 
 Exact token counts need `tiktoken` (`pip install tiktoken`, encoding `o200k_base`). It is **not** in `requirements.txt` — the bot never counts tokens itself, it is a local measuring tool. Do not estimate from character counts; that was 11% off on this prompt.
@@ -257,6 +258,49 @@ Custom emoji in text requires the bot owner to hold Telegram Premium, and a laps
 ### A map is drawn from a marker the model writes
 
 `[xarita:41.3111,69.2797,13]` becomes `<tg-map lat=… long=… zoom=…/>`. Coordinates come from the model — no geocoding, which would add a network call, a rate limit and a failure point. The code validates only the *ranges* (lat −90…90, long −180…180, zoom 1…20) and drops the marker when they fail; it cannot validate the *place*, since 41.9/12.5 is Rome and 41.3/69.3 is Tashkent and both look fine, so accuracy is the prompt's job. `<tg-map/>` is self-closing — written as `<tg-map></tg-map>` it gets the whole message rejected, which is exactly why the tag is emitted by code and not by the model. Like premium emoji, it is skipped inside table cells and `<aside>` via `_outside_dead_zones()`.
+
+### Finding real places near the user
+
+A location message is stored (`core/memory.py::remember_location`, 30 min TTL) and the
+`find_nearby` tool is attached **only while that record exists**. Same discipline as the
+file tool: the schema is 548 tokens, and outside this flow it is never sent, so the
+feature costs nothing on ordinary traffic. The short TTL is deliberate — someone driving
+is somewhere else half an hour later, and answering "nearest fuel" from a stale
+coordinate is a confident wrong answer.
+
+**The model supplies the OSM tag, the code builds the query.** `categories` arrives as
+`amenity=fuel`, `shop=supermarket` and is validated by `_TURKUM_RE` before it goes
+anywhere near Overpass — model output is an untrusted boundary, and a category pasted
+straight into the query string could restructure it. That split is also why there is no
+hardcoded category list: the model knows OSM tagging, so "shinamontaj" and "bolalar
+maydonchasi" work with no extra code. The coordinate is *never* a tool parameter — it
+comes from the chat. A model-written coordinate would be invented, exactly like the map
+marker problem.
+
+**Mirror order is measured, not guessed** (`services/places.py`, 2026-09-10). The three
+well-known Overpass instances answered in 22-40s or failed outright — 4 of 11 test
+queries succeeded. `maps.mail.ru` answered the same queries in 1.6-4.9s, and holds full
+planet data: verified in Tashkent, Samarkand (14 fuel stations), Namangan (nearest
+pharmacy 247 m) and Nukus. It is first, the others are backup, and all are raced in
+parallel.
+
+⚠️ **An empty answer does not win that race.** `overpass.osm.ch` replies in 0.8s with
+zero results because it only holds a Switzerland extract — first-success-wins would have
+let it beat the slow-but-correct mirrors and the bot would say "nothing nearby" in a city
+full of pharmacies. It is deliberately not in the list, and an empty result is now only
+accepted once every mirror has answered. Test any new mirror on an *Uzbek* coordinate.
+
+**"Nothing found" and "the source did not answer" are different answers.** `find_nearby`
+raises `PlacesUnavailable` rather than returning `[]`, and `_run_nearby_task` turns that
+into an explicit instruction to tell the user it is a technical fault — because
+"there is nothing near you" would be an unverified claim presented as fact.
+
+`handle_location` must stay registered **before** `capabilities.handle_unsupported`,
+which still matches the other unhandled types; `F.location` was removed from that list.
+The handler deliberately does **not** call the AI — a location is not a question, so
+spending a round on it is waste. And `location_message` had to be added to the SQL filter
+and `type_labels` in `handlers/admin/stats.py`; `tests/test_activity_tracking.py` caught
+that omission immediately.
 
 ### What the model may claim it can do
 

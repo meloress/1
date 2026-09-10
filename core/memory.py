@@ -72,6 +72,46 @@ def forget_sent_images(chat_id: int) -> None:
     sent_image_urls.pop(chat_id, None)
 
 
+# --------------------------------------------------
+# OXIRGI JOYLASHUV (chat_id -> (lat, lon, vaqt))
+# --------------------------------------------------
+# Foydalanuvchi yuborgan lokatsiya. `find_nearby` tooli AYNAN shu
+# yozuv borligiga qarab biriktiriladi — ya'ni oddiy suhbatda tool
+# sxemasi umuman yuborilmaydi va bironta token sarflanmaydi.
+#
+# ⚠️ TTL QISQA (30 daqiqa) va bu ATAYLAB: odam mashinada ketyapti,
+# yarim soatdan keyin u allaqachon boshqa joyda bo'ladi. Eskirgan
+# koordinata bo'yicha «eng yaqin zapravka» aytish — noto'g'ri javobni
+# ishonch bilan aytish, ya'ni umuman javob bermaslikdan yomonroq.
+#
+# RAM'da: rasm tarixi bilan bir xil sabab — bu suhbat holati, bazaga
+# yozishga arzimaydi va qayta ishga tushganda eskirgani ham yaxshi.
+LOCATION_TTL = 1800
+last_locations: Dict[int, tuple] = {}
+
+
+def remember_location(chat_id: int, lat: float, lon: float) -> None:
+    """Foydalanuvchi yuborgan joylashuvni eslab qoladi."""
+    last_locations[chat_id] = (float(lat), float(lon), time.time())
+
+
+def recent_location(chat_id: int):
+    """(lat, lon) yoki None — TTL o'tgan bo'lsa None."""
+    yozuv = last_locations.get(chat_id)
+    if not yozuv:
+        return None
+    lat, lon, ts = yozuv
+    if time.time() - ts > LOCATION_TTL:
+        last_locations.pop(chat_id, None)
+        return None
+    return lat, lon
+
+
+def forget_location(chat_id: int) -> None:
+    """/new — suhbat tozalansa joylashuv ham unutiladi."""
+    last_locations.pop(chat_id, None)
+
+
 def get_text_merge_lock(chat_id: int) -> asyncio.Lock:
     """Har bir chat uchun alohida asyncio.Lock qaytaradi.
 

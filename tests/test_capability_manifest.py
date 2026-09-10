@@ -36,7 +36,8 @@ def check(n, label, cond):
 
 def manifest(**kw) -> str:
     baza = dict(file_task_enabled=True, image_enabled=True,
-                reminder_enabled=True, memory_enabled=True)
+                reminder_enabled=True, memory_enabled=True,
+                nearby_enabled=True)
     baza.update(kw)
     return ai._capability_manifest(**baza)["content"]
 
@@ -52,7 +53,7 @@ def manifest(**kw) -> str:
 pro = manifest()
 check(1, "Pro'da barcha tool nomlari 'qila olaman' ro'yxatida",
       all(t in pro.split("NOT available")[0]
-          for t in ("internet_search", "start_file_task",
+          for t in ("internet_search", "start_file_task", "find_nearby",
                     "generate_image", "update_memory", "manage_reminder")))
 check(2, "Pro'da 'mavjud emas' qatori umuman yo'q",
       "NOT available in this request" not in pro)
@@ -68,7 +69,8 @@ check(4, "bepulda ular 'qila olaman' ro'yxatiga TUSHMAYDI",
 
 # ── 5. GUEST REJIMI ───────────────────────────────────────────────
 guest = manifest(file_task_enabled=False, image_enabled=False,
-                 reminder_enabled=False, memory_enabled=False)
+                 reminder_enabled=False, memory_enabled=False,
+                 nearby_enabled=False)
 check(5, "guest rejimda faqat qidiruv qoladi, fayl tool'i sababi bilan chiqadi",
       guest.split("NOT available")[0].strip().endswith("internet_search.")
       and "start_file_task (not available in this chat type)" in guest)

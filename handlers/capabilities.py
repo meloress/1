@@ -266,7 +266,6 @@ _UNSUPPORTED_HINTS = {
     "animation": "GIF ichidagi harakatni ko'ra olmayman",
     "audio": "Musiqa va audio fayllarni tinglay olmayman",
     "sticker": "Stikerni tushunmadim",
-    "location": "Joylashuv bilan ishlay olmayman",
     "contact": "Kontakt bilan ishlay olmayman",
     "poll": "So'rovnoma bilan ishlay olmayman",
 }

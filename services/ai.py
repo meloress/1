@@ -90,7 +90,9 @@ except ImportError:
         return "low"
 
 from core.loader import openai_client, logger
-from core.memory import recent_sent_images, remember_sent_images
+from core.memory import recent_sent_images, remember_sent_images, recent_location
+from services.places import (find_nearby, format_places, clean_categories,
+                             PlacesUnavailable, NEARBY_RADIUS_DEFAULT)
 from db.history import update_chat_history
 
 # TPM (daqiqadagi token) limitiga urilganda qancha kutiladi. OpenAI xato
@@ -2469,7 +2471,8 @@ _FILE_TASK_TOOL = {
 # tool nomi yoki tarif sharti o'zgarganda jimgina eskirardi.
 # ─────────────────────────────────────────────────────────────
 def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
-                         reminder_enabled: bool, memory_enabled: bool) -> dict:
+                         reminder_enabled: bool, memory_enabled: bool,
+                         nearby_enabled: bool = False) -> dict:
     bor = [_TOOLS[0]["name"]]                     # internet_search — doim
     yoq: list[str] = []
     for shart, tool, sabab in (
@@ -2481,6 +2484,12 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
         (image_enabled, _IMAGE_TOOL, "Pro only"),
         (memory_enabled, _MEMORY_TOOL, "needs a known user"),
         (reminder_enabled, _REMINDER_TOOL, "Pro only"),
+        # ⚠️ Sabab matni MUHIM. Bu asbobsiz model "lokatsiyangizni
+        # yuborsangiz eng yaqin zapravkani topaman" deb va'da berardi,
+        # foydalanuvchi lokatsiya yuborardi va bot uni umuman ko'rmasdi.
+        # Endi model nima yetishmayotganini AYNAN biladi.
+        (nearby_enabled, _NEARBY_TOOL,
+         "the user has not sent a location yet — ask them to send one"),
     ):
         (bor if shart else yoq).append(
             tool["name"] if shart else f"{tool['name']} ({sabab})")
@@ -2800,6 +2809,77 @@ _IMAGE_TOOL = {
 
 
 # ─────────────────────────────────────────────────────────────
+# 📍 YAQIN ATROF — foydalanuvchi yuborgan joylashuv bo'yicha
+#
+# Bu asbob FAQAT chatda yangi joylashuv turganda biriktiriladi
+# (core/memory.py::recent_location, 30 daqiqa). Oddiy suhbatda sxema
+# umuman yuborilmaydi — ya'ni bu imkoniyat kundalik so'rovlarga bironta
+# token qo'shmaydi. Fayl tooli bilan bir xil tamoyil.
+#
+# ⚠️ TURKUMLAR RO'YXATI QO'LDA YOZILMAGAN va yozilmasligi ham kerak:
+# model OSM teglarini biladi, shuning uchun "zapravka" ham, "shinamontaj"
+# ham, "bolalar maydonchasi" ham qo'shimcha kodsiz ishlaydi. Qo'lda
+# yozilgan ro'yxat esa har yangi so'rovda kamchilik chiqarardi.
+#
+# ⚠️ Koordinata modelga BERILMAYDI — u chatdan olinadi. Model o'zi
+# koordinata yozsa, u O'YLAB TOPILGAN joy bo'lardi (xarita belgisidagi
+# muammoning aynan o'zi), foydalanuvchi esa buni tekshira olmaydi.
+# ─────────────────────────────────────────────────────────────
+_NEARBY_TOOL = {
+    "type": "function",
+    "name": "find_nearby",
+    "description": (
+        "Foydalanuvchi YUBORGAN joylashuv atrofidagi haqiqiy joylarni "
+        "topadi: zapravka, dorixona, bankomat, kafe, supermarket, "
+        "shifoxona, bank, mehmonxona, avtoyuvish va hokazo.\n\n"
+        "QACHON: 'eng yaqin zapravka', 'atrofda dorixona bormi', "
+        "'yaqin orada qayerda ovqatlansam bo'ladi', 'shu yerga eng yaqin "
+        "bankomat'.\n\n"
+        "Koordinatani YOZMANG va so'ramang — u foydalanuvchi yuborgan "
+        "joylashuvdan avtomatik olinadi.\n\n"
+        "Natijada har bir joyning nomi, MASOFASI va koordinatasi keladi. "
+        "Javobda eng yaqin 3-5 tasini masofasi bilan sanang va eng "
+        "mosining koordinatasini [xarita:lat,lon,16] belgisi bilan "
+        "ko'rsating.\n\n"
+        "⛔️ Bu asbob internetdan MA'LUMOT qidirmaydi — u faqat xaritadagi "
+        "joylarni topadi. Narx, yangilik yoki tavsif kerak bo'lsa "
+        "internet_search ishlating."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "categories": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "OpenStreetMap teglari, 'kalit=qiymat' ko'rinishida: "
+                    "zapravka → amenity=fuel; dorixona → amenity=pharmacy; "
+                    "bankomat → amenity=atm; bank → amenity=bank; "
+                    "kafe → amenity=cafe; restoran → amenity=restaurant; "
+                    "supermarket → shop=supermarket; do'kon → shop=convenience; "
+                    "shifoxona → amenity=hospital; poliklinika → amenity=clinic; "
+                    "mehmonxona → tourism=hotel; avtoturargoh → amenity=parking. "
+                    "Bir ma'noni bir nechta teg beradigan bo'lsa hammasini "
+                    "yozing (ovqatlanish → amenity=cafe va amenity=restaurant). "
+                    "Eng ko'pi 6 ta."
+                ),
+            },
+            "radius": {
+                "type": "integer",
+                "description": (
+                    "Metrda, 100 dan 15000 gacha. Shahar ichida 3000 "
+                    "yetarli. Hech narsa topilmasa kengaytirib qayta "
+                    "chaqirish mumkin."
+                ),
+            },
+        },
+        "required": ["categories"],
+    },
+    "strict": False,
+}
+
+
+# ─────────────────────────────────────────────────────────────
 # 🧠 UZOQ MUDDATLI XOTIRA
 # ─────────────────────────────────────────────────────────────
 # Suhbat tarixi (db/history.py) 60 xabardan keyin JISMONAN o'chadi — u
@@ -2932,6 +3012,46 @@ _REMINDER_TOOL = {
     },
     "strict": False,
 }
+
+
+async def _run_nearby_task(coords, args: dict) -> str:
+    """`find_nearby` chaqiruvi — natija modelga MATN bo'lib qaytadi.
+
+    ⚠️ UCHTA HOLAT UCHTA XIL JAVOB BERADI va ularni aralashtirish
+    foydalanuvchini aldashga olib keladi:
+      1. joy topildi          → ro'yxat;
+      2. manba javob bermadi  → "texnik sabab" deb AYTILADI, chunki
+         "yaqin atrofda hech narsa yo'q" degan xulosa YOLG'ON bo'lardi;
+      3. rostdan hech narsa yo'q → radiusni kengaytirishni taklif qilamiz.
+    """
+    if not coords:
+        return ("Joylashuv yo'q. Foydalanuvchidan uni yuborishni so'rang "
+                "(📎 → Location).")
+    turkumlar = clean_categories(args.get("categories"))
+    if not turkumlar:
+        return ("Turkum tushunarsiz. `kalit=qiymat` ko'rinishida bering, "
+                "masalan amenity=fuel.")
+    try:
+        radius = int(args.get("radius") or NEARBY_RADIUS_DEFAULT)
+    except (TypeError, ValueError):
+        radius = NEARBY_RADIUS_DEFAULT
+    lat, lon = coords
+    try:
+        joylar = await find_nearby(lat, lon, turkumlar, radius=radius)
+    except PlacesUnavailable:
+        return ("Xarita xizmati hozir javob bermadi (texnik nosozlik). "
+                "Foydalanuvchiga shuni AYTING va birozdan keyin qayta "
+                "urinishni taklif qiling. «Yaqin atrofda hech narsa yo'q» "
+                "DEMANG — bu tekshirilmagan xulosa bo'ladi.")
+    except Exception as e:
+        logger.warning(f"[NEARBY] kutilmagan xato: {e}")
+        return "Xarita xizmatida xatolik. Foydalanuvchiga shuni ayting."
+    if not joylar:
+        return (f"{radius} m radiusda mos joy topilmadi. Radiusni "
+                f"kengaytirib (masalan {min(radius * 3, 15000)} m) qayta "
+                f"chaqirishingiz mumkin.")
+    return (f"Foydalanuvchi joylashuvidan {radius} m radiusda topildi "
+            f"(eng yaqinidan boshlab):\n" + format_places(joylar))
 
 
 async def _run_reminder_task(user_id: Optional[int], args: dict) -> str:
@@ -3368,6 +3488,16 @@ async def get_openai_reply(
     image_rounds = 0
     image_started = False
 
+    # Yaqin atrof: asbob FAQAT chatda yangi (30 daqiqalik) joylashuv
+    # turganda biriktiriladi. Oddiy suhbatda sxema umuman yuborilmaydi,
+    # ya'ni bu imkoniyat kundalik so'rovlarga 0 token qo'shadi.
+    nearby_coords = recent_location(chat_id)
+    nearby_enabled = nearby_coords is not None
+    # 2: birinchi urinish bo'sh chiqsa model radiusni kengaytirib bir
+    # marta qayta chaqira oladi ("3 km da yo'q ekan, 10 km ga qaraymiz").
+    MAX_NEARBY_ROUNDS = 2
+    nearby_rounds = 0
+
     # Xotira: guest rejimda user_id=None → asbob o'zi biriktirilmaydi,
     # qo'shimcha shart kerak emas (rasm tool'i bilan bir xil naqsh).
     # 3: bir nechta yangi fakt + tuzatish bitta xabarga sig'adi.
@@ -3404,6 +3534,7 @@ async def get_openai_reply(
             image_enabled=image_enabled,
             reminder_enabled=reminder_enabled,
             memory_enabled=user_id is not None,
+            nearby_enabled=nearby_enabled,
         ))
 
     while True:
@@ -3426,6 +3557,8 @@ async def get_openai_reply(
             active_tools.append(_MEMORY_TOOL)
         if reminder_enabled and reminder_rounds < MAX_REMINDER_ROUNDS:
             active_tools.append(_REMINDER_TOOL)
+        if nearby_enabled and nearby_rounds < MAX_NEARBY_ROUNDS:
+            active_tools.append(_NEARBY_TOOL)
         # Ichki chaqiruvlar (eslatma matni) uchun HECH QANDAY asbob:
         # model qidiruvga chiqib ketmasin, javob bir bosqichda va arzon
         # bo'lsin. Eng oxirida — yuqoridagi shartlarni takrorlamaslik uchun.
@@ -3539,6 +3672,7 @@ async def get_openai_reply(
         web_search_ran = False
         memory_ran = False
         reminder_ran = False
+        nearby_ran = False
 
         for call_item in pending_calls:
             try:
@@ -3592,6 +3726,10 @@ async def get_openai_reply(
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 reminder_ran = True
                 tool_output = await _run_reminder_task(user_id, args)
+            elif call_item.name == "find_nearby":
+                # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
+                nearby_ran = True
+                tool_output = await _run_nearby_task(nearby_coords, args)
             else:
                 search_ran = True
                 primary_query = args.get("primary_query", "")
@@ -3710,6 +3848,8 @@ async def get_openai_reply(
             memory_rounds += 1
         if reminder_ran:
             reminder_rounds += 1
+        if nearby_ran:
+            nearby_rounds += 1
         total_rounds += 1
 
         # Tool'dan OLDIN yozilgan oraliq matn ("Hozir tayyorlab beraman...")
