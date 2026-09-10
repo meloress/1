@@ -228,11 +228,33 @@ async def find_nearby(lat: float, lon: float, categories: List[str], *,
     return parse_elements(elements, lat, lon, limit)
 
 
+# Yo'nalish havolasi. `rtext=~lat,lon` — boshlanish nuqtasi bo'sh, ya'ni
+# Yandex foydalanuvchining O'Z joylashuvidan yo'l quradi; `rtt=auto` —
+# avtomobilda. Yandex Navigator mintaqada eng ko'p ishlatiladigan ilova,
+# havola telefonda o'sha ilovada ochiladi.
+ROUTE_URL = "https://yandex.uz/maps/?rtext=~{lat:.5f},{lon:.5f}&rtt=auto"
+
+# Yo'nalish havolasi nechta joy uchun beriladi. ⚠️ Havola ~25 token, 8 ta
+# joyning hammasiga bersak modelning ishlatmaydigan narsasiga token
+# ketardi — u baribir eng yaqin bittasiga tugma qo'yadi.
+ROUTE_LINKS_FOR = 3
+
+
+def route_url(place: dict) -> str:
+    """Joyga yo'nalish havolasi."""
+    return ROUTE_URL.format(lat=place["lat"], lon=place["lon"])
+
+
 def format_places(places: List[dict]) -> str:
     """Model o'qiydigan ixcham ro'yxat.
 
     Koordinata ATAYLAB beriladi: model javobiga `[xarita:lat,lon,17]`
     yozib, foydalanuvchiga haqiqiy xarita ko'rsatishi uchun.
+
+    ⚠️ YO'NALISH HAVOLASINI KOD QURADI, model emas. Rasm havolalarida
+    o'rganilgan dars: modelga URL berilsa, u uni qayta yozib O'LIK
+    havolaga aylantiradi. Bu yerda havola tayyor keladi — modelning ishi
+    uni [tugma: ...] ichiga AYNAN ko'chirish.
     """
     if not places:
         return "Bu radiusda mos joy topilmadi."
@@ -246,5 +268,7 @@ def format_places(places: List[dict]) -> str:
             qism.append(f"ish vaqti: {p['hours']}")
         if p.get("phone"):
             qism.append(f"tel: {p['phone']}")
+        if i <= ROUTE_LINKS_FOR:
+            qism.append(f"yo'nalish: {route_url(p)}")
         satrlar.append(" | ".join(qism))
     return "\n".join(satrlar)

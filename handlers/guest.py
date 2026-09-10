@@ -34,6 +34,10 @@ from services.ai import (
     safe_update_history,
     code_fences_to_html,
     strip_internal_names,
+    build_rich_markdown,
+    strip_rich_tokens,
+    speech_to_text_smart,
+    text_to_speech_smart,
 )
 
 router = Router()
@@ -430,7 +434,7 @@ else:
                 "title": "AI javobi",
                 "input_message_content": {
                     "rich_message": {
-                        "markdown": code_fences_to_html(answer_text),
+                        "markdown": build_rich_markdown(answer_text),
                         "skip_entity_detection": True,
                     }
                 },
@@ -519,7 +523,8 @@ else:
             return None
 
     async def _edit_guest_inline_message(
-        inline_message_id: str, markdown_text: str, *, wait_on_flood: bool = False
+        inline_message_id: str, markdown_text: str, *,
+        wait_on_flood: bool = False, rich: bool = False
     ) -> tuple[bool, float]:
         """Placeholder sifatida yuborilgan guest inline xabarni tahrirlaydi.
         Avval rich markdown bilan, muvaffaqiyatsiz bo'lsa oddiy `text` maydoni
@@ -561,19 +566,29 @@ else:
                 logger.warning(f"Guest inline-edit xatosi: {e}")
                 return False, 0.0
 
+        # ⚠️ `rich=True` FAQAT yakuniy javobda. Status animatsiyasi ham shu
+        # funksiyadan o'tadi va unga jadval/emoji almashtirish kerak emas —
+        # u har 4 soniyada qayta yuboriladi, ya'ni har bir qo'shimcha bezak
+        # rad etilish ehtimolini bekorga oshiradi.
+        boy_matn = build_rich_markdown(markdown_text) if rich             else code_fences_to_html(markdown_text)
+        # Zaxira yo'l oddiy xabar: <details>/<aside>/xarita u yerda
+        # chizilmaydi, lekin foydalanuvchi `[batafsil: ...]` degan ICHKI
+        # belgini ham ko'rmasligi kerak — belgi yo'qoladi, MA'LUMOT qoladi.
+        oddiy_matn = strip_rich_tokens(markdown_text) if rich else markdown_text
         payloads = (
             {
                 "inline_message_id": inline_message_id,
                 # ``` fence `markdown` maydonida Telegram Web'da "not
                 # supported" bo'ladi — services/ai.py: code_fences_to_html.
-                # Pastdagi zaxira `text` yo'lida esa fence O'Z holida
-                # qoladi: u Markdown parse_mode bilan ketadi.
-                "rich_message": {"markdown": code_fences_to_html(markdown_text),
+                # (build_rich_markdown uni o'z ichida chaqiradi.) Pastdagi
+                # zaxira `text` yo'lida esa fence O'Z holida qoladi:
+                # u Markdown parse_mode bilan ketadi.
+                "rich_message": {"markdown": boy_matn,
                                  "skip_entity_detection": True},
             },
             {
                 "inline_message_id": inline_message_id,
-                "text": markdown_text,
+                "text": oddiy_matn,
                 "parse_mode": "Markdown",
             },
         )
@@ -962,7 +977,8 @@ else:
                     voice_path = f"guest_voice_{voice.file_id}.ogg"
                     await bot.download_file(file.file_path, voice_path)
                     # speech_to_text() voice_path/wav faylni o'zi tozalaydi (finally ichida)
-                    recognized_text = await speech_to_text(voice_path)
+                    recognized_text = await speech_to_text_smart(
+                        voice_path, is_pro=guest_is_pro)
 
                     if not recognized_text:
                         full_text = "🤷‍♂️ Ovozni tushunib bo'lmadi."
@@ -1074,7 +1090,8 @@ else:
                 pass
             try:
                 audio_filename = f"guest_reply_{caller_chat_id}_{int(time.time())}.mp3"
-                generated_audio = await text_to_speech(raw_answer, audio_filename)
+                generated_audio = await text_to_speech_smart(
+                    raw_answer, audio_filename, is_pro=guest_is_pro)
                 if generated_audio and os.path.exists(generated_audio):
                     await bot.send_voice(caller_chat_id, FSInputFile(generated_audio))
             except Exception as e:
@@ -1093,7 +1110,8 @@ else:
         # --------------------------------------------------
         if chat_fallback_msg is not None:
             try:
-                await chat_fallback_msg.edit_text(final_text, parse_mode="Markdown")
+                await chat_fallback_msg.edit_text(strip_rich_tokens(final_text),
+                                                  parse_mode="Markdown")
                 await _send_voice_bonus()
                 return
             except Exception as e:
@@ -1139,7 +1157,8 @@ else:
             # wait_on_flood=True — javob tayyor, uni yo'qotishdan ko'ra
             # Telegram so'ragan retry_after'ni kutgan afzal.
             edited, _flood = await _edit_guest_inline_message(
-                guest_inline_message_id, final_text, wait_on_flood=True
+                guest_inline_message_id, final_text,
+                wait_on_flood=True, rich=True
             )
             if not edited:
                 logger.warning(
@@ -1159,7 +1178,7 @@ else:
             id=str(guest_query_id),
             title="AI javobi",
             input_message_content=InputTextMessageContent(
-                message_text=final_text,
+                message_text=strip_rich_tokens(final_text),
                 parse_mode="Markdown",
             ),
         )
@@ -1182,7 +1201,7 @@ else:
                             id=str(guest_query_id),
                             title="AI javobi",
                             input_message_content=InputTextMessageContent(
-                                message_text=final_text,
+                                message_text=strip_rich_tokens(final_text),
                             ),
                         ),
                     )

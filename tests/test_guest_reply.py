@@ -214,6 +214,38 @@ async def flood_tests():
         assert ok and len(session.calls) == 2, (ok, len(session.calls))
         assert "text" in session.calls[1], "zaxira oddiy matn formati bo'lishi kerak"
         print("[14] rich rad etilsa oddiy matnga tushdi OK")
+
+        # ── 14a) YAKUNIY JAVOB rich=True bilan to'liq bezakdan o'tadi
+        # ⚠️ Ilgari guruhda build_rich_markdown() UMUMAN chaqirilmasdi:
+        # jadval, xarita, premium emoji ishlamasdi, `[batafsil: ...]`
+        # kabi ICHKI belgilar esa xom matn bo'lib ekranga chiqardi —
+        # model ularni prompt bo'yicha baribir yozadi.
+        session = FakeSession([OK])
+        guest._get_http_session = lambda: _ready(session)
+        await _edit_guest_inline_message(
+            "iid", "[batafsil: Tarixi] ichi [/batafsil]", rich=True)
+        boy = session.calls[0]["rich_message"]["markdown"]
+        assert "<details><summary>Tarixi</summary>" in boy, boy
+        assert "batafsil" not in boy.replace("<details>", ""), boy
+        print("[14a] guruhda ham to'liq bezak ishlaydi OK")
+
+        # ── 14b) Zaxira oddiy yo'lda belgi YO'QOLADI, ma'lumot QOLADI
+        session = FakeSession([{"ok": False, "description": "can't parse"}, OK])
+        guest._get_http_session = lambda: _ready(session)
+        await _edit_guest_inline_message(
+            "iid", "Joy [xarita:41.3,69.2,14] shu yerda", rich=True)
+        oddiy = session.calls[1]["text"]
+        assert "xarita" not in oddiy and "shu yerda" in oddiy, oddiy
+        print("[14b] zaxira yo'lda ichki belgi xom qolmadi OK")
+
+        # ── 14c) STATUS animatsiyasi bezakdan o'TMAYDI
+        # U har 4 soniyada qayta yuboriladi — har bir qo'shimcha bezak
+        # rad etilish ehtimolini bekorga oshirardi.
+        session = FakeSession([OK])
+        guest._get_http_session = lambda: _ready(session)
+        await _edit_guest_inline_message("iid", "**Qidiryapman** 🔍")
+        assert "tg://emoji" not in session.calls[0]["rich_message"]["markdown"]
+        print("[14c] status animatsiyasi bezaksiz qoldi OK")
     finally:
         asyncio.sleep = real_sleep
 
@@ -253,7 +285,7 @@ async def flood_tests():
     assert len(calls2) >= 3, calls2
     print("[16] oddiy holatda animatsiya ishlashda davom etdi OK")
 
-    print("\nflood himoyasi: barcha tekshiruvlar o'tdi (5/5).")
+    print("\nflood himoyasi: barcha tekshiruvlar o'tdi (8/8).")
 
 
 async def _ready(value):

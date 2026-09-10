@@ -168,6 +168,23 @@ check(30, "find_nearby dispatchi bare else dan YUQORIDA",
       src.index('elif call_item.name == "find_nearby"')
       < src.index('            else:\n                search_ran = True'))
 
+# ── 8b. YO'NALISH HAVOLASINI KOD QURADI ─────────────────────────
+# ⚠️ Rasm havolalarida o'rganilgan dars: modelga URL yozdirilsa, u uni
+# qayta yozib O'LIK havolaga aylantiradi. Shuning uchun havola tayyor
+# holda beriladi, modelning ishi — uni AYNAN ko'chirish.
+check("8b:1", "eng yaqinlarida yo'nalish havolasi bor",
+      matn.count("yandex.uz/maps") == min(len(p), places.ROUTE_LINKS_FOR))
+check("8b:2", "havolada aynan o'sha koordinata",
+      f"~{p[0]['lat']:.5f},{p[0]['lon']:.5f}" in places.route_url(p[0]))
+# Havola [tugma: ...] ichida haqiqiy tugmaga aylanishi SHART — aks holda
+# butun zanjir ekranda oddiy matn bo'lib qolardi.
+tugma = ai.build_rich_markdown(f"[tugma: Yo'nalish | {places.route_url(p[0])}]")
+check("8b:3", "havola haqiqiy tugmaga aylanadi",
+      "<tg-button type=\"url\"" in tugma and "rtext=" in tugma)
+# ⚠️ URL'dagi `&` HTML atributida `&amp;` bo'lishi SHART — xom `&`
+# xabarni rad ettirishi mumkin.
+check("8b:4", "URL'dagi & to'g'ri ekranlangan", "&amp;rtt=auto" in tugma)
+
 # ── 9. JOYLASHUV SUHBATGA XABAR BO'LIB KIRADI ────────────────────
 # ⚠️ JONLI XATO: avval joylashuvga tayyor kartochka bilan javob
 # berilardi. Kartochka TARIXGA TUSHMAYDI, ya'ni model uchun ko'rinmas —
@@ -195,4 +212,4 @@ if xatolar:
     for x in xatolar:
         print(f"   • {x}")
     sys.exit(1)
-print("✅ nearby: barcha tekshiruvlar o'tdi (35/35).")
+print("✅ nearby: barcha tekshiruvlar o'tdi (39/39).")

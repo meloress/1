@@ -225,6 +225,22 @@ History used to live in SQLite; Railway wipes the container filesystem on every 
 
 ### Guest mode
 
+⚠️ **The final answer goes through `build_rich_markdown()`, the status animation does
+not.** `_edit_guest_inline_message(..., rich=True)` is the switch. It used to call only
+`code_fences_to_html()`, so a group answer lost tables, `<details>`, pull quotes, maps,
+buttons, collapsed sources and premium emoji — and, worse, the markers the model writes
+anyway (`[batafsil: …]`, `[xarita:…]`) reached the reader as raw text. The plain-`text`
+fallback rung takes `strip_rich_tokens()` for the same reason: the marker disappears, the
+information stays. Status frames stay on the cheap path — they are re-sent every 4s and
+every extra decoration only raises the chance of a rejection that would cost the
+animation.
+
+Guest also uses `speech_to_text_smart` / `text_to_speech_smart`, so a Pro user gets the
+natural voice in a group instead of the free edge-tts one.
+
+Still missing in guest, deliberately: photos (`images_out=None`) and files
+(`output_files=None`) — see the capability manifest for how the model is told.
+
 `handlers/guest.py` handles chats outside DMs via `guest_message`. It passes `caller_user_id` as **both** `chat_id` and `user_id`, so a person has one identity and one memory whether they write in a group or in the DM. Quota is charged to that user. Reminders are delivered to the DM regardless of where they were created.
 
 ### The admin panel is a package, and its registration order is the contract
@@ -289,6 +305,13 @@ zero results because it only holds a Switzerland extract — first-success-wins 
 let it beat the slow-but-correct mirrors and the bot would say "nothing nearby" in a city
 full of pharmacies. It is deliberately not in the list, and an empty result is now only
 accepted once every mirror has answered. Test any new mirror on an *Uzbek* coordinate.
+
+**The route link is built in code, never by the model.** `format_places()` appends a
+ready `https://yandex.uz/maps/?rtext=~lat,lon&rtt=auto` to the nearest `ROUTE_LINKS_FOR`
+(3) places and the tool description tells the model to copy it verbatim into
+`[tugma: Yo'nalish | …]`. Same lesson as image URLs: a URL handed to the model comes back
+rewritten and dead. Only the top three get one — a link is ~25 tokens and the model only
+ever buttons the nearest.
 
 **"Nothing found" and "the source did not answer" are different answers.** `find_nearby`
 raises `PlacesUnavailable` rather than returning `[]`, and `_run_nearby_task` turns that
