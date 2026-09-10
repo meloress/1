@@ -168,10 +168,31 @@ check(30, "find_nearby dispatchi bare else dan YUQORIDA",
       src.index('elif call_item.name == "find_nearby"')
       < src.index('            else:\n                search_ran = True'))
 
+# ── 9. JOYLASHUV SUHBATGA XABAR BO'LIB KIRADI ────────────────────
+# ⚠️ JONLI XATO: avval joylashuvga tayyor kartochka bilan javob
+# berilardi. Kartochka TARIXGA TUSHMAYDI, ya'ni model uchun ko'rinmas —
+# u ekranda o'zining «lokatsiyangizni yuboring» degan gapini, keyin
+# «Zapravka» degan javobni ko'rardi va yana «lokatsiyangizni yuboring»
+# derdi. Endi joylashuv oddiy matn yo'lidan o'tadi.
+msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "handlers", "messages.py"), encoding="utf-8").read()
+loc_fn = msrc.split("async def handle_location")[1].split("async def ")[0]
+check(31, "joylashuv AI navbatiga qo'shiladi", "_queue_for_ai" in loc_fn)
+check(32, "tayyor kartochka bilan javob berilmaydi", "message.answer" not in loc_fn)
+check(33, "koordinata eslab qolinadi", "remember_location" in loc_fn)
+# Koordinata tarixga YOZILMAYDI: u yerda qolib, ertaga «eng yaqin»
+# savoliga eskirgan joy bo'yicha javob berilardi.
+check(34, "tarixdagi izohda koordinata yo'q",
+      "lat" not in msrc.split("_LOCATION_NOTE = ")[1].splitlines()[0])
+# handle_text ham AYNAN shu yordamchidan o'tadi — ikkita alohida yo'l
+# bo'lsa, biri kvota yoki navbatsiz qolardi.
+check(35, "handle_text ham shu yordamchidan o'tadi",
+      msrc.split("async def handle_text")[1].split("async def ")[0].count("_queue_for_ai") == 1)
+
 print("─" * 55)
 if xatolar:
     print(f"❌ {len(xatolar)} ta tekshiruv yiqildi:")
     for x in xatolar:
         print(f"   • {x}")
     sys.exit(1)
-print("✅ nearby: barcha tekshiruvlar o'tdi (30/30).")
+print("✅ nearby: barcha tekshiruvlar o'tdi (35/35).")

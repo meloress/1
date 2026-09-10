@@ -1871,6 +1871,17 @@ async def handle_text(message: Message, state: FSMContext):
         logger.info(f"[Hujjat] ko'rsatma alohida xabardan olindi: chat={chat_id}")
         return
 
+    await _queue_for_ai(chat_id, message, message.text, state)
+
+
+async def _queue_for_ai(chat_id: int, message: Message, text: str,
+                        state: FSMContext) -> None:
+    """Matnni debounce buferiga qo'shadi va taymerni qayta boshlaydi.
+
+    handle_text VA handle_location ikkalasi ham shu yerdan o'tadi.
+    Joylashuv uchun bu ATAYLAB: aks holda u alohida yo'l bo'lib,
+    kvota, navbat, oqim va TARIX undan chetlab o'tardi.
+    """
     lock = get_text_merge_lock(chat_id)
     async with lock:
         buf = text_merge_buffers.get(chat_id)
@@ -1882,7 +1893,7 @@ async def handle_text(message: Message, state: FSMContext):
         if old_timer and not old_timer.done():
             old_timer.cancel()
 
-        buf["parts"].append(message.text)
+        buf["parts"].append(text)
         buf["last_message"] = message
 
         total_len = sum(len(p) for p in buf["parts"])
@@ -2405,6 +2416,12 @@ async def handle_document(message: Message, state: FSMContext):
 # --------------------------------------------------
 # JOYLASHUV
 # --------------------------------------------------
+# Model tarixda AYNAN shuni ko'radi. Koordinata ATAYLAB yozilmaydi:
+# u tarixda qolib, keyingi kunlarda «eng yaqin» savoliga ESKIRGAN joy
+# bo'yicha javob berilishiga olib kelardi. Haqiqiy koordinata faqat
+# RAM'dagi 30 daqiqalik yozuvdan olinadi (core/memory.py).
+_LOCATION_NOTE = "📍 Joriy joylashuvimni yubordim."
+
 # Ilgari lokatsiya "qo'llab-quvvatlanmagan tur" edi va bot unga
 # «Joylashuv bilan ishlay olmayman» kartochkasi bilan javob berardi —
 # model esa xuddi shu suhbatda «lokatsiyangizni yuborsangiz eng yaqin
@@ -2425,13 +2442,18 @@ async def handle_location(message: Message, state: FSMContext):
     await check_and_clear_session(chat_id)
     remember_location(chat_id, loc.latitude, loc.longitude)
     chat_last_interaction[chat_id] = time.time()
-    await message.answer(
-        "📍 Joylashuv qabul qilindi.\n\n"
-        "Endi yozing — yaqin atrofdan nimani topib beray?\n"
-        "Masalan: <b>eng yaqin zapravka</b>, <b>dorixona</b>, "
-        "<b>bankomat</b>, <b>qayerda ovqatlansam bo'ladi</b>.\n\n"
-        "<i>Joylashuv 30 daqiqa saqlanadi.</i>",
-        parse_mode="HTML")
+    # ⚠️ JOYLASHUV SUHBATGA XABAR BO'LIB KIRADI, tayyor kartochka bilan
+    # javob berilmaydi. Avval shunday edi va u JONLI XATO berdi: kartochka
+    # tarixga tushmaydi, ya'ni model uchun ko'rinmas. Model ekranda
+    # «lokatsiyangizni yuboring» degan o'z gapini, keyin «Zapravka» degan
+    # javobni ko'rardi — joylashuv KELGANI haqida hech qanday belgi yo'q —
+    # va yana «lokatsiyangizni yuboring» derdi. Cheksiz aylanma.
+    #
+    # Endi u oddiy matn yo'lidan o'tadi: kvota, navbat, oqim va tarix —
+    # hammasi bir xil. Foyda ikkitomonlama: 1.5 soniyalik birlashtirish
+    # oynasi tufayli «joylashuv + darhol yozilgan 'zapravka'» BITTA
+    # so'rovga qo'shiladi, ya'ni javob ham bitta raundda keladi.
+    await _queue_for_ai(chat_id, message, _LOCATION_NOTE, state)
 
 
 async def handle_voice(message: Message, state: FSMContext):

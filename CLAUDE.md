@@ -295,12 +295,24 @@ raises `PlacesUnavailable` rather than returning `[]`, and `_run_nearby_task` tu
 into an explicit instruction to tell the user it is a technical fault — because
 "there is nothing near you" would be an unverified claim presented as fact.
 
+**A location enters the conversation as a message, not as a canned card.** The first
+version answered a location with a fixed "what should I find nearby?" card and no AI
+call — cheap, and broken. That card never reaches `chat_messages`, so the model could not
+see it: on screen the user sent a location and typed "Zapravka", while the model saw only
+its own earlier "send me your location" followed by "Zapravka", and asked for the
+location again. A loop the user cannot escape. `handle_location` now stores the
+coordinate and pushes `_LOCATION_NOTE` through `_queue_for_ai()` — the same debounce
+buffer `handle_text` uses, so quota, the busy queue, streaming and history all behave
+identically. The 1.5s merge window is a bonus: a location followed immediately by
+"zapravka" becomes one request and one round. The note carries **no coordinate** — a
+coordinate written into history would still be there tomorrow, and "nearest" would be
+answered from a stale position; the real one lives only in the 30-minute RAM record.
+
 `handle_location` must stay registered **before** `capabilities.handle_unsupported`,
 which still matches the other unhandled types; `F.location` was removed from that list.
-The handler deliberately does **not** call the AI — a location is not a question, so
-spending a round on it is waste. And `location_message` had to be added to the SQL filter
-and `type_labels` in `handlers/admin/stats.py`; `tests/test_activity_tracking.py` caught
-that omission immediately.
+And `location_message` had to be added to the SQL filter and `type_labels` in
+`handlers/admin/stats.py`; `tests/test_activity_tracking.py` caught that omission
+immediately.
 
 ### What the model may claim it can do
 
