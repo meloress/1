@@ -1214,9 +1214,15 @@ async def _pick_images_with_vision(cands: List[dict], request: str,
       * har bir rasmga TAVSIF yoziladi — «birinchi rasmdagi mashina
         rangi qanaqa?» degan savolga javob shundan keladi.
 
-    Narxi: nomzad boshiga ~85 token (past aniqlik), ya'ni 20 ta uchun
-    ~2 000 token. ATAYLAB boshqa (arzon) modelda — asosiy modelning
-    kunlik grantiga tegmasligi uchun.
+    Narxi: nomzad boshiga ~82 token (past aniqlik), ya'ni 20 ta uchun
+    ~1 650 token. ATAYLAB asosiy modeldan BOSHQA modelda.
+
+    ⚠️ Bu narx MODELGA BOG'LIQ va farq 23 barobar. `detail: "low"`
+    faqat TILE asosidagi modellarda ishlaydi; patch asosidagilarda
+    (gpt-4.1-mini, -nano, o4-mini) u E'TIBORGA OLINMAYDI va rasm
+    ~1 900-2 800 tokenga tushadi. Jonli logda aynan shu bo'lgan:
+    bitta so'rov 47 843 token. Batafsil o'lchov core/config.py dagi
+    SEARCH_IMAGE_PICK_MODEL izohida.
 
     Yiqilsa (model yo'q, kvota tugadi, javob buzuq) — birinchi `need`
     ta nomzad qaytadi, ya'ni eski xatti-harakat. Rasm yo'qolmaydi.
@@ -1250,7 +1256,13 @@ async def _pick_images_with_vision(cands: List[dict], request: str,
             timeout=SEARCH_IMAGE_PICK_TIMEOUT,
         )
     except Exception as e:
-        logger.warning(f"[IMAGES] ko'rish bosqichi ishlamadi: {e}")
+        # ⚠️ `asyncio.TimeoutError` ning str() i BO'SH. Ilgari log
+        # "ko'rish bosqichi ishlamadi: " deb tugab qolardi va sababni
+        # aniqlab bo'lmasdi — timeout ekanini faqat nomzadlar sonidan
+        # taxmin qilish mumkin edi.
+        sabab = str(e) or type(e).__name__
+        logger.warning(f"[IMAGES] ko'rish bosqichi ishlamadi "
+                       f"({len(cands)} nomzad): {sabab}")
         return cands[:need]
 
     _log_token_usage(resp, SEARCH_IMAGE_PICK_MODEL, "rasm-tanlov")

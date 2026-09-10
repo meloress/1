@@ -23,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from core import config  # noqa: E402
 from core import memory  # noqa: E402
 from core.config import SEARCH_IMAGE_MAX, SEARCH_IMAGE_DEFAULT  # noqa: E402
 from services import ai  # noqa: E402
@@ -168,4 +169,32 @@ check(29, "yuborilgan havolalar eslab qolinadi",
 memory.forget_sent_images(77)
 check(30, "/new bilan tozalanadi", memory.recent_sent_images(77) == set())
 
-print("\nHammasi o'tdi: 30/30")
+
+# ── 7. TANLOVCHI MODEL TILE ASOSIDA BO'LISHI SHART ───────────────
+# ⚠️ JONLI XATO (2026-09-10): model `gpt-4.1-mini` edi va bitta rasm
+# so'rovi 47 843 token yegan — 22 nomzad, rasm boshiga ~2 175. Sabab:
+# `detail: "low"` FAQAT tile asosidagi modellarda ishlaydi. Patch
+# asosidagilar uni butunlay e'tiborsiz qoldiradi. Ustiga 34 nomzadli
+# so'rov 25 soniyalik chegaradan oshib timeout bo'lgan.
+#
+# Bitta tirik havola bilan o'lchangan (detail=low, token/rasm):
+#   gpt-4.1 82 | gpt-5-mini 1390 | gpt-5.4-mini 1390
+#   gpt-4.1-mini 1878 | gpt-4o-mini 2830
+PATCH_ASOSIDA = {"gpt-4.1-mini", "gpt-4.1-nano", "o4-mini", "gpt-4o-mini",
+                 "gpt-5-mini", "gpt-5-nano", "gpt-5.4-mini", "gpt-5.4-nano"}
+check(31, f"tanlovchi model patch asosida EMAS ({config.SEARCH_IMAGE_PICK_MODEL})",
+      config.SEARCH_IMAGE_PICK_MODEL not in PATCH_ASOSIDA)
+
+# Bepul ro'yxatdan chiqib ketmasin — aks holda har rasm so'rovi
+# to'liq narxda hisoblanadi va buni hech narsa bildirmaydi.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_free_models import FREE_ALL  # noqa: E402
+
+check(32, "tanlovchi model bepul ro'yxatda",
+      config.SEARCH_IMAGE_PICK_MODEL in FREE_ALL)
+
+# Nomzadlar soni × token/rasm — chegaradan oshmasin.
+check(33, f"tanlov narxi nazoratda ({config.SEARCH_IMAGE_CANDIDATES} × ~82 token)",
+      config.SEARCH_IMAGE_CANDIDATES * 82 < 3000)
+
+print("\nHammasi o'tdi: 33/33")

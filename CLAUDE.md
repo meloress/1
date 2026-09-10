@@ -136,7 +136,28 @@ A photo in a **chat reply** and a photo **inside a document** share nothing but 
 
 The routing between them is prompt-level and fragile: adding the word "rasm" to the file tool's description was enough to make *every* request ("olma haqida ma'lumot ber") turn into a file task. Both tool descriptions now carry an explicit ⛔️ pointing at the other one, and `IMAGE_CAPABILITY_NOTE` in the system prompt exists because the model would otherwise answer "I can't send pictures" without calling any tool at all. That note is added **only** in `get_openai_reply` — `get_vision_reply` has no search tool, so promising it there would be a lie.
 
-**The model picks the photos by looking at them.** `search_images()` gathers ~20 candidates, checks they are live, and then hands the thumbnails to `SEARCH_IMAGE_PICK_MODEL` (`gpt-4.1-mini`, `detail: "low"` = 85 tokens each) in **one** call together with the user's actual request; the picker returns the indices it wants plus a short Uzbek description of each. That description is what makes "what colour is the car in the first photo" answerable, and it is deliberately written from the image, not from the request. The picker runs on a **different model from the main answer** so it draws on a separate free-tier grant; if it fails for any reason the first N candidates are used, i.e. the old behaviour, so a picture is never lost. An empty pick is a valid answer — an unrelated photo is worse than none.
+**The model picks the photos by looking at them.** `search_images()` gathers ~20 candidates, checks they are live, and then hands the thumbnails to `SEARCH_IMAGE_PICK_MODEL` (`gpt-4.1`, `detail: "low"` = 82 tokens each) in **one** call together with the user's actual request; the picker returns the indices it wants plus a short Uzbek description of each. That description is what makes "what colour is the car in the first photo" answerable, and it is deliberately written from the image, not from the request. The picker runs on a **different model from the main answer**; if it fails for any reason the first N candidates are used, i.e. the old behaviour, so a picture is never lost. An empty pick is a valid answer — an unrelated photo is worse than none.
+
+⛔️ **The picker model must be tile-based, and that is a 23x decision.** `detail: "low"`
+is honoured only by tile-based models (gpt-4o, gpt-4.1, gpt-5, gpt-5.1), where it means
+~85 tokens regardless of image size. Patch-based models (gpt-4.1-mini, -nano, o4-mini)
+**ignore `detail` entirely** and bill 32×32 patches times a multiplier. This was live:
+with `gpt-4.1-mini` a single image request logged **47 843 input tokens** (22 candidates,
+~2 175 each) and a 34-candidate request blew through `SEARCH_IMAGE_PICK_TIMEOUT` and fell
+back to the unseen first-N. Measured on one live URL at `detail: "low"` (2026-09-10):
+
+| model | tokens/image |
+|---|---|
+| gpt-4.1 | **82** |
+| gpt-5-mini / gpt-5.4-mini | 1 390 |
+| gpt-4.1-mini | 1 878 |
+| gpt-4o-mini | 2 830 |
+
+`tests/test_image_pick.py` checks 31-33 guard the model choice, its presence in the free
+list, and the candidate count times the per-image cost. Note also that
+`asyncio.TimeoutError` has an **empty** `str()`, so the failure log used to end in a
+colon and say nothing; it now falls back to the exception class name and prints the
+candidate count.
 
 **Commons and `ddgs` are both queried and merged**, Commons first. It used to be Commons with `ddgs` as a fallback, and that is what produced the worst live bug: Commons is a free-licence encyclopedia archive with no tuning photos, so "BMW 540i tuning body kit" returned nothing, `_images_sync()` shortened the query until Commons *did* answer, and the user got the plain "BMW 540i" shots back — the same four, every time, however they refined the request. The fallback never ran because Commons always answered something. On the server DuckDuckGo's image endpoint answers `403` (datacenter IP) and `ddgs` silently switches to Bing, whose results can be unrelated ("Hongqi H5 Classic" once returned Roblox avatars) — that is now the picker's job to reject, not a filter's.
 

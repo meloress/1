@@ -984,13 +984,32 @@ SEARCH_IMAGE_DEFAULT = 3
 # media guruhining amaliy chegarasi ham shu.
 SEARCH_IMAGE_MAX = 10
 # Nomzadlar: modelga KO'RSATISH uchun yig'iladi, keyin u tanlaydi.
-# Ko'p nomzad = yaxshiroq tanlov, lekin har biri ~85 token turadi.
+# Ko'p nomzad = yaxshiroq tanlov, lekin har biri ~82 token turadi.
 SEARCH_IMAGE_CANDIDATES = 20
 # Nomzadlarni KO'RIB tanlaydigan model. ⚠️ Bepul ma'lumot-almashish
-# ro'yxatidan bo'lishi SHART (MODEL_FALLBACKS ichida) — aks holda
-# har bir rasm so'rovi to'liq narxda hisoblanadi. Asosiy modelning
-# kunlik grantiga tegmasligi uchun ataylab BOSHQA model.
-SEARCH_IMAGE_PICK_MODEL = "gpt-4.1-mini"
+# ro'yxatidan bo'lishi SHART — aks holda har bir rasm so'rovi to'liq
+# narxda hisoblanadi.
+#
+# ⛔️ TILE ASOSIDAGI MODEL BO'LISHI SHART. OpenAI'da ikki xil rasm
+# hisobi bor va bu 23 BAROBAR farq qiladi:
+#   * tile asosidagilar (gpt-4o, gpt-4.1, gpt-5, gpt-5.1) — `detail:
+#     "low"` da rasm o'lchamidan qat'i nazar ~85 token;
+#   * patch asosidagilar (gpt-4.1-mini, -nano, o4-mini) — `detail`
+#     E'TIBORGA OLINMAYDI, 32x32 patch sanaladi va koeffitsientga
+#     ko'paytiriladi.
+#
+# Ilgari bu yerda `gpt-4.1-mini` turardi va jonli logda bitta rasm
+# so'rovi 47 843 token yegan (22 nomzad = rasm boshiga ~2 175), ustiga
+# 34 nomzadli so'rov 25 soniyalik chegaradan oshib TIMEOUT bo'lgan.
+# 2026-09-10 da bitta tirik havola bilan o'lchandi (detail=low):
+#     gpt-4.1        82   ← tanlangani
+#     gpt-5-mini     1390
+#     gpt-5.4-mini   1390
+#     gpt-4.1-mini   1878
+#     gpt-4o-mini    2830
+# tests/test_image_pick.py buni qo'riqlaydi — modelni patch asosidagiga
+# qaytarmang.
+SEARCH_IMAGE_PICK_MODEL = "gpt-4.1"
 # Ko'rish bosqichi ishlamay qolsa (model yo'q, kvota tugadi) qidiruv
 # eski tartibda — ko'rmasdan, birinchi topilganlarni — qaytaradi.
 SEARCH_IMAGE_PICK_TIMEOUT = 25
