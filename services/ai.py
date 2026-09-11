@@ -1892,7 +1892,9 @@ def _log_token_usage(resp, model: str, raund) -> None:
 async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *,
                            model: Optional[str] = None, is_pro: bool = False,
                            user_id: Optional[int] = None,
-                           tg_name: Optional[str] = None):
+                           tg_name: Optional[str] = None,
+                           output_files: Optional[list] = None,
+                           file_quota_out: Optional[list] = None):
     # model=None → build_request_params tarifga qarab o'zi tanlaydi. Ilgari
     # bu yerda default GPT_MODEL edi va Pro foydalanuvchi rasm yuborsa ham
     # bepul modelga tushib qolardi.
@@ -1939,9 +1941,27 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     # rasmga berilgan javobni o'zgartirmaydi, to'liq halqa esa har bir
     # rasmga ikkinchi API chaqiruvini qo'shardi. Kerak bo'lsa upgrade yo'li
     # — get_openai_reply'dagi pending_calls halqasini shu yerga ko'chirish.
+    # Rasm izoh bilan kelgan bo'lsa ("fonini o'zgartir") — tahrirlash shu
+    # yerda ham kerak. Busiz foydalanuvchi rasm + so'rovni BITTA xabarda
+    # yuborganda bot rasmni shunchaki TASVIRLAB berardi, va bu aynan eng
+    # tabiiy foydalanish usuli edi.
+    edit_enabled = (is_pro and user_id is not None
+                    and output_files is not None)
+    image_quota: Optional[DailyQuota] = (
+        DailyQuota(user_id, "images") if edit_enabled else None
+    )
+    if image_quota is not None and file_quota_out is not None:
+        file_quota_out.append(image_quota)
+
     memory_calls = []
+    edit_calls = []
+    vision_tools = []
     if user_id is not None:
-        base_params.update(tools=[_MEMORY_TOOL], tool_choice="auto")
+        vision_tools.append(_MEMORY_TOOL)
+    if edit_enabled:
+        vision_tools.append(_EDIT_IMAGE_TOOL)
+    if vision_tools:
+        base_params.update(tools=vision_tools, tool_choice="auto")
 
     try:
         async with AsyncExitStack() as stack:
@@ -1957,9 +1977,12 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
                 if event.type == "response.output_text.delta":
                     yield event.delta
                 elif (event.type == "response.output_item.done"
-                      and getattr(event.item, "type", None) == "function_call"
-                      and getattr(event.item, "name", None) == "update_memory"):
-                    memory_calls.append(event.item)
+                      and getattr(event.item, "type", None) == "function_call"):
+                    nomi = getattr(event.item, "name", None)
+                    if nomi == "update_memory":
+                        memory_calls.append(event.item)
+                    elif nomi == "edit_image":
+                        edit_calls.append(event.item)
             _log_token_usage(await stream.get_final_response(),
                              _resolved_model, "vision")
     except Exception as e:
@@ -1974,6 +1997,28 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
                 user_id, mem_rows, json.loads(call_item.arguments or "{}"))
         except Exception as e:
             logger.warning(f"[Xotira: rasm oqimi] user={user_id}: {e}")
+
+    # Tahrirlash — FAQAT birinchisi: bitta xabar = bitta rasm = bitta
+    # kvota. Natija modelga qaytarilmaydi (bir raundli yo'l), shuning
+    # uchun yiqilganini foydalanuvchiga BIZ aytamiz — aks holda u
+    # "mana, o'zgartirdim" degan matnni rasmsiz ko'rardi.
+    if edit_calls:
+        try:
+            args = json.loads(edit_calls[0].arguments or "{}")
+            natija = await _run_image_task(
+                args.get("prompt", ""), "1024x1024",
+                quota=image_quota, output_files=output_files, round_num=1,
+                source=base64.b64decode(base64_image),
+            )
+        except Exception as e:
+            logger.error(f"[Tahrir: rasm oqimi] user={user_id}: {e}")
+            natija = "XATO"
+        # "TO'XTA" = kunlik limit. Bu yerda jim turamiz: chaqiruvchi
+        # `file_quota_out` orqali chiroyli limit/upsell xabarini o'zi
+        # chiqaradi va ikkita xabar bir-birini takrorlamasligi kerak.
+        if not natija.startswith(("BAJARILDI", "TO'XTA")):
+            yield ("\n\n⚠️ Rasmni tahrirlab bo'lmadi — biroz o'tib "
+                   "qayta urinib ko'ring.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2484,7 +2529,8 @@ _FILE_TASK_TOOL = {
 # ─────────────────────────────────────────────────────────────
 def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
                          reminder_enabled: bool, memory_enabled: bool,
-                         nearby_enabled: bool = False) -> dict:
+                         nearby_enabled: bool = False,
+                         edit_enabled: bool = False) -> dict:
     bor = [_TOOLS[0]["name"]]                     # internet_search — doim
     yoq: list[str] = []
     for shart, tool, sabab in (
@@ -2494,6 +2540,11 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
         # asbobni chaqirib, chaqiruv veb qidiruvga tushib ketardi.
         (file_task_enabled, _FILE_INTENT_TOOL, "not available in this chat type"),
         (image_enabled, _IMAGE_TOOL, "Pro only"),
+        # ⚠️ Sabab matni `find_nearby` dagi bilan bir xil vazifada:
+        # usiz model "rasmingizni tahrirlab beraman" deb va'da berardi,
+        # foydalanuvchi rasm yuborardi va bot uni tahrirlamasdi.
+        (edit_enabled, _EDIT_IMAGE_TOOL,
+         "Pro only, and only right after a photo — ask for one"),
         # ⚠️ Eshik nomi, to'liq tool nomi EMAS: model AYNAN chaqira
         # oladigan asbobni bilishi kerak (start_file_task bilan bir xil).
         (memory_enabled, _MEMORY_INTENT_TOOL, "needs a known user"),
@@ -2813,6 +2864,75 @@ _IMAGE_TOOL = {
                 "description": (
                     "1024x1024 kvadrat, 1536x1024 gorizontal (manzara), "
                     "1024x1536 vertikal (portret). Shubha bo'lsa 1024x1024."
+                ),
+            },
+        },
+        "required": ["prompt"],
+    },
+    "strict": False,
+}
+
+
+# ─────────────────────────────────────────────────────────────
+# ✏️ RASMNI TAHRIRLASH — chatdagi oxirgi rasm ustida
+# ─────────────────────────────────────────────────────────────
+# OpenAI tahrirlash uchun faqat PNG/JPEG/WEBP qabul qiladi.
+EDIT_IMAGE_MAX_SIZE = 20 * 1024 * 1024
+_IMAGE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
+
+
+def _is_image_bytes(data: Optional[bytes]) -> bool:
+    """Shu fayl haqiqatan tahrirlanadigan rasmmi.
+
+    ⚠️ Kengaytma emas, BOSHLANG'ICH BAYTLAR tekshiriladi. Fayl nomi
+    foydalanuvchidan keladi — «hisobot.png» nomli PDF asbobni yoqib
+    yuborardi va OpenAI xatosi foydalanuvchiga tushunarsiz uzr bo'lib
+    qaytardi.
+    """
+    if not data or len(data) > EDIT_IMAGE_MAX_SIZE:
+        return False
+    return (data.startswith(_IMAGE_MAGIC)
+            or (data[:4] == b"RIFF" and data[8:12] == b"WEBP"))
+
+
+# ⚠️ Manba rasm TOOL PARAMETRI EMAS. U chatdan olinadi (oxirgi
+# yuborilgan yoki bot yaratgan rasm). Sabab `find_nearby` dagi bilan
+# bir xil: modelga rasm berilsa, u uni "tasvirlab" qaytaradi va tavsif
+# hech qachon asl rasm bo'lolmaydi. Shuning uchun bayt hech qachon
+# model orqali o'tmaydi.
+#
+# Shu bois asbob FAQAT chatda rasm turganda biriktiriladi — boshqa
+# paytda u umuman yuborilmaydi va oddiy so'rovga token qo'shmaydi.
+_EDIT_IMAGE_TOOL = {
+    "type": "function",
+    "name": "edit_image",
+    "description": (
+        "Foydalanuvchi CHATDAGI MAVJUD rasmni o'zgartirishni so'raganda "
+        "ishlating: 'fonni o'zgartir', 'ko'ylagimni qora qil', 'bu "
+        "yozuvni olib tashla', 'meni kostyumda chiz', 'qishki qil', "
+        "'убери фон', 'make it look like winter'.\n\n"
+        "Manba rasm avtomatik olinadi — uni parametr sifatida "
+        "uzatmang va rasmni tasvirlab bermang.\n\n"
+        "QACHON ISHLATMASLIK KERAK:\n"
+        "- YANGI, noldan rasm so'ralgan (mavjudini o'zgartirish emas) — "
+        "bu generate_image ishi;\n"
+        "- foydalanuvchi rasmda NIMA borligini so'ragan, o'zgartirishni "
+        "emas — hech qanday tool kerak emas, shunchaki javob bering;\n"
+        "- diagramma, grafik yoki hujjat kerak — bu run_python_sandbox.\n\n"
+        "Bitta xabarda BIR MARTA chaqiriladi."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "description": (
+                    "INGLIZ TILIDA, 15-50 so'z. ⚠️ O'zgarishning o'zini "
+                    "emas, KUTILAYOTGAN YAKUNIY rasmni tasvirlang va "
+                    "nima O'ZGARISHSIZ qolishi kerakligini aniq ayting "
+                    "('keep the person's face, pose and lighting "
+                    "unchanged'). Faqat 'make it blue' deb yozsangiz "
+                    "model butun rasmni qaytadan chizib yuboradi."
                 ),
             },
         },
@@ -3366,11 +3486,18 @@ async def _run_memory_task(user_id: Optional[int], mem_rows: list, args: dict) -
 
 
 async def _run_image_task(prompt: str, size: str, *, quota,
-                          output_files: Optional[list], round_num: int) -> str:
-    """generate_image tool chaqiruvi.
+                          output_files: Optional[list], round_num: int,
+                          source: Optional[bytes] = None) -> str:
+    """generate_image / edit_image tool chaqiruvi.
 
     _run_file_task bilan AYNAN bir xil kontrakt: kvotani bir marta yechadi,
     natijani chaqiruvchining ro'yxatiga qo'yadi, modelga MATN qaytaradi.
+
+    `source` berilsa — YANGI rasm chizilmaydi, o'shanisi TAHRIRLANADI.
+    Ikkalasi bitta funksiyada, chunki kvota, xato matni, natijani
+    ro'yxatga qo'yish va modelga qaytariladigan buyruq bir xil; farq
+    faqat qaysi endpoint chaqirilishida. `images` sanog'i ham bitta:
+    tahrirlash foydalanuvchiga chizish bilan bir xilda turadi.
     """
     if quota is not None:
         if not await quota.ensure_charged():
@@ -3385,16 +3512,39 @@ async def _run_image_task(prompt: str, size: str, *, quota,
         return "XATO: tavsif bo'sh. Rasm tavsifini yozib qayta chaqiring."
 
     try:
-        resp = await openai_client.images.generate(
-            model=IMAGE_MODEL,
-            prompt=prompt[:4000],
-            size=size if size in _IMAGE_SIZES else "1024x1024",
-            quality=IMAGE_QUALITY,
-            output_format="png",
-            n=1,
-            moderation="auto",
-            timeout=REQUEST_TIMEOUT,
-        )
+        if source is not None:
+            resp = await openai_client.images.edit(
+                model=IMAGE_MODEL,
+                image=("rasm.png", source, "image/png"),
+                prompt=prompt[:4000],
+                # ⚠️ "auto" — chiqish o'lchamini KIRISH rasmidan oladi.
+                # Qat'iy "1024x1024" qo'yilsa vertikal selfie kvadratga
+                # kesiladi va foydalanuvchi buni "bot rasmimni buzdi"
+                # deb ko'radi. Shu sababli tahrirda `size` model
+                # parametri emas — u yerda tanlashning ma'nosi yo'q.
+                size="auto",
+                # ⚠️ "high" SHART: pastida model yuzni, logotipni va
+                # matnni "shunga o'xshash" qilib qayta chizadi, ya'ni
+                # foydalanuvchining O'ZI rasmda qolmaydi — tahrirlashning
+                # butun ma'nosi shu bilan yo'qoladi. Kirish tokeni
+                # qimmatroq, chiqish narxi esa o'zgarmaydi.
+                input_fidelity="high",
+                quality=IMAGE_QUALITY,
+                output_format="png",
+                n=1,
+                timeout=REQUEST_TIMEOUT,
+            )
+        else:
+            resp = await openai_client.images.generate(
+                model=IMAGE_MODEL,
+                prompt=prompt[:4000],
+                size=size if size in _IMAGE_SIZES else "1024x1024",
+                quality=IMAGE_QUALITY,
+                output_format="png",
+                n=1,
+                moderation="auto",
+                timeout=REQUEST_TIMEOUT,
+            )
         # ⚠️ gpt-image-* HAR DOIM base64 qaytaradi — `.url` doim None,
         # uni o'qishga urinmang (o'lchab tekshirilgan).
         data = base64.b64decode(resp.data[0].b64_json)
@@ -3410,10 +3560,11 @@ async def _run_image_task(prompt: str, size: str, *, quota,
     if output_files is not None:
         output_files.append((f"rasm_{round_num}.png", data))
 
-    logger.info(f"[Image] round={round_num} tayyor: {len(data)} bayt")
+    amal = "tahrirlandi" if source is not None else "yaratildi"
+    logger.info(f"[Image] round={round_num} {amal}: {len(data)} bayt")
     return (
-        "BAJARILDI. Rasm yaratildi va foydalanuvchiga avtomatik yuboriladi. "
-        "Endi BITTA gapda nima chizganingizni ayting. Rasmni batafsil "
+        f"BAJARILDI. Rasm {amal} va foydalanuvchiga avtomatik yuboriladi. "
+        "Endi BITTA gapda nima qilganingizni ayting. Rasmni batafsil "
         "tasvirlab bermang va 'yuklab oling' demang — u allaqachon biriktirilgan."
     )
 
@@ -3559,6 +3710,11 @@ async def get_openai_reply(
     image_rounds = 0
     image_started = False
 
+    # Tahrirlash: chatda rasm turgandagina. `input_file_bytes` allaqachon
+    # oxirgi yuborilgan (yoki bot yaratgan) faylni olib keladi — yangi
+    # parametr kerak emas. Kvota ham AYNAN o'sha `images` sanog'i.
+    edit_enabled = image_enabled and _is_image_bytes(input_file_bytes)
+
     # Yaqin atrof: asbob FAQAT chatda yangi (30 daqiqalik) joylashuv
     # turganda biriktiriladi. Oddiy suhbatda sxema umuman yuborilmaydi,
     # ya'ni bu imkoniyat kundalik so'rovlarga 0 token qo'shadi.
@@ -3606,6 +3762,7 @@ async def get_openai_reply(
             reminder_enabled=reminder_enabled,
             memory_enabled=user_id is not None,
             nearby_enabled=nearby_enabled,
+            edit_enabled=edit_enabled,
         ))
 
     while True:
@@ -3624,6 +3781,12 @@ async def get_openai_reply(
                                 else _FILE_INTENT_TOOL)
         if image_enabled and image_rounds < MAX_IMAGE_ROUNDS:
             active_tools.append(_IMAGE_TOOL)
+            # Byudjet ikkalasiga BITTA: foydalanuvchi uchun chizish ham,
+            # tahrirlash ham "bitta rasm" va ikkalasi `images` sanog'idan
+            # yechiladi. Ayri byudjet model uchun ikkinchi urinish yo'li
+            # ochib qo'yardi.
+            if edit_enabled:
+                active_tools.append(_EDIT_IMAGE_TOOL)
         if user_id is not None and memory_rounds < MAX_MEMORY_ROUNDS:
             active_tools.append(_MEMORY_TOOL if memory_mode
                                 else _MEMORY_INTENT_TOOL)
@@ -3790,6 +3953,18 @@ async def get_openai_reply(
                     quota=image_quota,
                     output_files=output_files,
                     round_num=image_rounds + 1,
+                )
+            elif call_item.name == "edit_image":
+                # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
+                # Manba baytlari MODELDAN emas, chatdan olinadi.
+                image_ran = True
+                tool_output = await _run_image_task(
+                    args.get("prompt", ""),
+                    "1024x1024",
+                    quota=image_quota,
+                    output_files=output_files,
+                    round_num=image_rounds + 1,
+                    source=input_file_bytes,
                 )
             elif call_item.name == "update_memory":
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.

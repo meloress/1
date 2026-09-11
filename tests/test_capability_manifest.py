@@ -37,7 +37,7 @@ def check(n, label, cond):
 def manifest(**kw) -> str:
     baza = dict(file_task_enabled=True, image_enabled=True,
                 reminder_enabled=True, memory_enabled=True,
-                nearby_enabled=True)
+                nearby_enabled=True, edit_enabled=True)
     baza.update(kw)
     return ai._capability_manifest(**baza)["content"]
 
@@ -56,9 +56,19 @@ pro = manifest()
 check(1, "Pro'da barcha tool nomlari 'qila olaman' ro'yxatida",
       all(t in pro.split("NOT available")[0]
           for t in ("internet_search", "start_file_task", "find_nearby",
-                    "generate_image", "open_memory", "open_reminder")))
+                    "generate_image", "edit_image", "open_memory",
+                    "open_reminder")))
 check(2, "Pro'da 'mavjud emas' qatori umuman yo'q",
       "NOT available in this request" not in pro)
+
+# ⚠️ Chatda rasm bo'lmasa tahrirlash SABABI bilan aytilishi kerak.
+# Busiz model "rasmingizni tahrirlab beraman" deb va'da berardi va
+# foydalanuvchi rasm yuborganda hech narsa bo'lmasdi — `find_nearby`
+# da aynan shu xato jonli ko'rilgan.
+rasmsiz = manifest(edit_enabled=False)
+check(11, "rasm yo'q bo'lsa edit_image sababi bilan belgilanadi",
+      "edit_image (Pro only, and only right after a photo" in rasmsiz
+      and "edit_image" not in rasmsiz.split("NOT available")[0])
 
 # ── 3-4. BEPUL TARIF ──────────────────────────────────────────────
 bepul = manifest(image_enabled=False, reminder_enabled=False)
@@ -72,7 +82,7 @@ check(4, "bepulda ular 'qila olaman' ro'yxatiga TUSHMAYDI",
 # ── 5. GUEST REJIMI ───────────────────────────────────────────────
 guest = manifest(file_task_enabled=False, image_enabled=False,
                  reminder_enabled=False, memory_enabled=False,
-                 nearby_enabled=False)
+                 nearby_enabled=False, edit_enabled=False)
 check(5, "guest rejimda faqat qidiruv qoladi, fayl tool'i sababi bilan chiqadi",
       guest.split("NOT available")[0].strip().endswith("internet_search.")
       and "start_file_task (not available in this chat type)" in guest)

@@ -1822,6 +1822,28 @@ def pending_file_note(file_name: str, *, earlier: bool = False,
     qilib, tahrirlashdan bosh tortadi.
     """
     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "bin"
+    # ⚠️ RASM uchun alohida matn. Pastdagi umumiy izoh "tahrirlash uchun
+    # run_python_sandbox ishlating" deydi va rasmga nisbatan bu modelni
+    # NOTO'G'RI quvurga olib ketadi: «fonni o'zgartir» python kodiga
+    # aylanib qolardi. Ikkala yo'l ham haqiqiy, shuning uchun ikkalasi
+    # ham aytiladi — lekin ko'rinishni o'zgartirish uchun edit_image
+    # birinchi turadi.
+    if f".{ext}" in _PHOTO_EXTENSIONS:
+        qachon = "avval " if earlier else ""
+        egasi = ("SEN yaratib bergan" if produced
+                 else f"foydalanuvchi {qachon}yuborgan")
+        return (
+            f"[RASM BIRIKTIRILGAN] Bu — {egasi} «{file_name}» rasmi.\n"
+            f"- Rasm KO'RINISHINI o'zgartirish so'ralsa (fon, rang, kiyim, "
+            f"uslub, biror narsani olib tashlash yoki qo'shish) — "
+            f"edit_image tool'ini ishlating.\n"
+            f"- Formatini o'zgartirish, o'lchamini kichraytirish yoki "
+            f"hujjatga joylash so'ralsa — run_python_sandbox, u yerda "
+            f"rasm `input.{ext}` yo'lida turibdi.\n"
+            f"- Rasmda nima borligi so'ralsa — hech qanday tool kerak "
+            f"emas, shunchaki javob bering.\n"
+            f"Rasmni qayta so'ramang."
+        )
     if produced:
         # ⚠️ Modelga bu faylni O'ZI yaratganini aytish SHART. Aks holda u
         # xuddi yangi xom fayl kelgandek ishlaydi va oldingi tahrirlarni
@@ -2216,16 +2238,35 @@ async def handle_photo(message: Message, state: FSMContext):
         result = BytesIO()
         await bot.download_file(file.file_path, result)
         image_bytes = result.getvalue()
+        # Rasmni eslab qolamiz — busiz keyingi xabar («endi fonini
+        # o'zgartir») uchun manba rasm umuman bo'lmasdi va edit_image
+        # biriktirilmasdi. Hujjat oqimi buni allaqachon qilardi, rasm
+        # oqimi esa yo'q edi: ya'ni bot yuborilgan rasmni javob
+        # yozilgandan keyin darhol unutardi.
+        _remember_file(chat_id, image_bytes, "rasm.jpg")
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         caption = message.caption if message.caption else "Bu rasmda nimalar borligini to'liq tushuntirib ber."
 
         # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
         # get_vision_reply() ularni SYSTEM promptga o'zi qo'shadi (services/ai.py).
         # Tarix esa javob muvaffaqiyatli olingandan keyin, birgalikda saqlanadi.
+        # Rasm izoh bilan kelsa ("fonini o'zgartir") vision oqimi
+        # edit_image ni chaqira oladi va natija shu ro'yxatga tushadi.
+        output_files: list = []
+        file_quota_box: list = []
         stream_gen = get_vision_reply(chat_id, base64_image, caption,
                                       is_pro=_is_pro(quota), user_id=user_id,
-                                      tg_name=message.from_user.full_name)
+                                      tg_name=message.from_user.full_name,
+                                      output_files=output_files,
+                                      file_quota_out=file_quota_box)
         full_reply = await process_stream_draft(message, stream_gen, content_type="photo")
+
+        # Tahrirlangan rasm shu yerda yuboriladi va `produced=True` bilan
+        # eslab qolinadi — «yana biroz yorqinroq qil» zanjiri shu bilan
+        # ishlaydi.
+        if output_files:
+            await _send_output_files(chat_id, output_files)
+        await _after_file_task(message, file_quota_box, bool(output_files))
 
         if full_reply:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)

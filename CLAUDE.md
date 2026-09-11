@@ -26,6 +26,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_activity_tracking.py` — reads handler source **by file path**, so moving code breaks it.
 - `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
+- `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
 - `test_admin_extras.py` checks 19-20 — every admin callback handler still starts with `require_admin_or_deny_query`, and the two user counts in `handle_users_command` still filter the same set. Both were written after the corresponding bug, and check 19 was verified by deleting the guard and watching it fail.
 
@@ -142,7 +143,7 @@ Drafts are private-chat-only (API limit); `sendRichMessage` is not. `process_str
 
 `get_openai_reply()` streams from the Responses API and runs a tool loop with **per-tool round budgets** (`MAX_SEARCH_ROUNDS`, `MAX_FILE_ROUNDS`, `MAX_IMAGE_ROUNDS`, `MAX_MEMORY_ROUNDS`, `MAX_REMINDER_ROUNDS`, `MAX_NEARBY_ROUNDS`, plus `MAX_TOTAL_ROUNDS`). When a budget is spent the tool is dropped from `active_tools`, forcing the model to answer.
 
-Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `update_memory`, `manage_reminder`, `find_nearby`. Three of them are reached through a cheap door (`start_file_task`, `open_memory`, `open_reminder`) — see below.
+Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `edit_image`, `update_memory`, `manage_reminder`, `find_nearby`. Three of them are reached through a cheap door (`start_file_task`, `open_memory`, `open_reminder`) — see below.
 
 **Three tools are attached in two steps, and that is a token decision.** A cheap
 "door" is always attached; the expensive real schema arrives only on the round after the
@@ -402,6 +403,50 @@ Custom emoji in text requires the bot owner to hold Telegram Premium, and a laps
 ### A map is drawn from a marker the model writes
 
 `[xarita:41.3111,69.2797,13]` becomes `<tg-map lat=… long=… zoom=…/>`. Coordinates come from the model — no geocoding, which would add a network call, a rate limit and a failure point. The code validates only the *ranges* (lat −90…90, long −180…180, zoom 1…20) and drops the marker when they fail; it cannot validate the *place*, since 41.9/12.5 is Rome and 41.3/69.3 is Tashkent and both look fine, so accuracy is the prompt's job. `<tg-map/>` is self-closing — written as `<tg-map></tg-map>` it gets the whole message rejected, which is exactly why the tag is emitted by code and not by the model. Like premium emoji, it is skipped inside table cells and `<aside>` via `_outside_dead_zones()`.
+
+### Editing a photo the user already sent
+
+`edit_image` is the same `_run_image_task()` as `generate_image` with a `source`
+argument — one function, because the quota, the error text, the output-list contract and
+the instruction handed back to the model are identical; only the endpoint differs. It
+shares the `images` daily counter and the `MAX_IMAGE_ROUNDS` budget: to the user a drawing
+and an edit are both "one picture", and a separate budget would just hand the model a
+second attempt.
+
+**The source bytes are never a tool parameter**, the same discipline as the map marker and
+the location coordinate. The schema carries `prompt` and nothing else; the bytes come from
+the chat through the existing `input_file_bytes` plumbing, which already carried the last
+file. `handle_photo` now calls `_remember_file()` — before that the bot forgot a photo the
+moment it had described it, so "now change the background" had no source at all.
+`_is_image_bytes()` checks the **magic bytes, not the extension**: a PDF named `rasm.png`
+would otherwise reach OpenAI and come back as an unreadable error. The schema is **386
+tokens** (`tiktoken`, `o200k_base`) and is attached only while a picture is actually in the
+chat, so ordinary traffic pays nothing for it — the same rule as `find_nearby`.
+
+Two API arguments are load-bearing and neither one fails loudly if removed — the picture
+just comes back wrong. `size="auto"` takes the output shape from the input, or a vertical
+selfie is cropped square. `input_fidelity="high"` is what keeps the person's face, a logo
+or text recognisably *the same*; below it the model redraws something similar, which
+defeats the whole feature. `tests/test_image_edit.py` checks 18-19 pin both.
+
+There are **two entry paths and both are needed.** A photo with a caption
+("fonini o'zgartir") lands in `get_vision_reply`, which is single-round; the tool call is
+harvested after the stream exactly as `update_memory` already was, and the result is not
+fed back — so when the edit fails, *the code* appends the apology, because the model has
+already written "here you go" above a message with no picture. A photo followed by a
+separate message goes the ordinary `get_openai_reply` route with the full loop. Skipping
+the vision path would have broken the most natural gesture there is: sending a picture and
+saying what to do with it in one message.
+
+⚠️ `pending_file_note()` needed a picture branch. The generic note says "use
+run_python_sandbox to edit this file", and for a photo that sends "change the background"
+into Python. Both routes are real — the sandbox still converts and resizes — so the note
+names both, with `edit_image` first for anything that changes how the picture *looks*, and
+says outright that a question about the photo's content needs no tool at all.
+
+Still missing: groups. `edit_image` inherits `image_enabled`, which requires
+`output_files is not None`, and `handlers/guest.py` passes `None` — so neither drawing nor
+editing works outside a DM even for a Pro user.
 
 ### Finding real places near the user
 

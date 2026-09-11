@@ -480,6 +480,7 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "internet_search": "internetdan qidirish",
     "run_python_sandbox": "kod ishlatish va fayl yaratish",
     "generate_image": "rasm chizish",
+    "edit_image": "rasmni tahrirlash",
     "update_memory": "xotirani yangilash",
     "manage_reminder": "eslatma qo'yish",
     "find_nearby": "yaqin atrofdagi joylarni topish",
