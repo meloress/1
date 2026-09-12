@@ -25,6 +25,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_admin_registry.py` — every admin handler still registered, in order.
 - `test_activity_tracking.py` — reads handler source **by file path**, so moving code breaks it.
 - `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
+- `test_url_read.py` — the untrusted-boundary guard on `internet_search(url=…)`: a
+  model-written URL must never reach an internal address, and a page that will not open
+  must return an explicit error rather than silence. Runs offline (numeric IPs, no DNS).
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
@@ -173,6 +176,33 @@ never the tool behind it.
 `[CLEAR_TEXT]` travels through the same chunk stream as content and is emitted **after every** tool round, throwing away the model's pre-tool chatter so it doesn't stick to the final answer. The condition used to exclude repeat searches, and the leftover text then glued itself to the next round's — users saw two "…tayyorlayapman" sentences in one message. Reaching that point already means a tool ran (`if not got_function_call: return` above it), so no condition is needed.
 
 While a file is being built the screen shows **only the status animation** — nothing the model wrote before the tool call reaches the user. Sending that preamble as an interim message was tried and reverted: it left a half-drawn draft bubble next to the real one, and the abandoned draft killed the spinner for the whole 1-2 minute wait. If you try it again, the draft must be overwritten or closed before a real message is sent, not simply replaced with a new `draft_id`.
+
+### A pasted link is read, not searched
+
+`internet_search` takes an optional `url`. When the user pastes a link, the model copies it
+there and `_run_url_task()` fetches that page directly — the web search does not run at all.
+Without the field, "https://kun.uz/… shuni qisqartir" turned the link itself into a
+DuckDuckGo **query**: the bot never opened the page and answered from whatever the search
+returned, which the user reasonably reads as having been read. The field costs **136
+tokens** (`tiktoken`, measured — the first draft was 227 and was trimmed without dropping a
+rule), and it is on the always-attached schema, so that is paid every round.
+
+`primary_query` is still required alongside it: when the page will not open, the branch
+falls through to an ordinary search rather than losing the answer, and a failed fetch
+returns an explicit "XATO … do not retry" string — never silence, for the context-explosion
+reason above. A single pasted page gets `URL_FETCH_MAX_CHARS` (8 000) rather than the
+search path's 4 000, since there is one source and the user asked for that one.
+
+⛔️ **A model-written URL is an untrusted boundary, and this deployment makes that
+concrete.** The same Railway project runs `Web-panel`, `Trello-bot`, `Hisobotchi-bot` and
+several Postgres instances, all reachable on the internal network — "read
+http://web-panel.railway.internal/ for me" would have been performed by the bot itself.
+`_is_public_url()` therefore resolves the host and rejects the **IP**, not the name:
+loopback, private, link-local (`169.254.169.254` is the cloud metadata address), reserved,
+multicast and non-`http(s)` schemes all fail one check, and so does a DNS name deliberately
+pointed inside. It sits inside `fetch_page_content()`, so search-result URLs pass through
+the same gate — one check point, both callers. `tests/test_url_read.py` runs offline by
+using numeric IPs, so DNS never decides the result.
 
 ### Photos: two separate pipelines that must not be confused
 

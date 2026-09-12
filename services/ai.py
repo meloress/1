@@ -6,8 +6,10 @@ from pydub import AudioSegment
 import edge_tts
 import asyncio
 import aiohttp
+import ipaddress
 import re
 import json
+import socket
 from contextlib import AsyncExitStack
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
@@ -839,11 +841,57 @@ def build_rich_markdown(text: str) -> str:
 # 🔍 YAXSHILANGAN QIDIRUV BLOKI
 # ─────────────────────────────────────────────────────────────
 
+# Havolani o'qishdan oldingi YAGONA tekshiruv nuqtasi. Ikkala chaqiruvchi
+# ham shu yerdan o'tadi: qidiruv natijasidagi havolalar va foydalanuvchi
+# tashlagan havola (modelning `url` maydoni).
+#
+# ⚠️ NEGA KERAK. Model yozgan URL — ishonchsiz chegara, xuddi `find_nearby`
+# turkumi kabi. Bu bot Railway'da ishlaydi va AYNAN shu loyihada yonma-yon
+# Web-panel, Trello-bot, Hisobotchi-bot va bir nechta Postgres turadi —
+# ular ichki tarmoqda ko'rinadi. Tekshiruvsiz «http://web-panel.railway
+# .internal/ ni o'qib ber» so'rovi botning o'z nomidan bajarilardi, ya'ni
+# tashqaridan ko'rinmaydigan xizmat chatga ko'chirilardi.
+#
+# Tekshiruv host NOMIGA emas, u YECHILADIGAN IP ga qaraydi. Shu tufayli
+# `localhost`, `127.0.0.1`, `10.x`, `169.254.169.254` (bulut metadata) va
+# ataylab ichkariga qaratilgan DNS nomi — hammasi bitta qoidaga tushadi;
+# nomlar ro'yxatini qo'lda yuritish esa doim eskiradi.
+async def _is_public_url(url: str) -> bool:
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return False
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(
+            p.hostname, p.port or (443 if p.scheme == "https" else 80),
+            proto=socket.IPPROTO_TCP)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    # HAR BIR javob tekshiriladi: bitta nom ham tashqi, ham ichki manzil
+    # qaytarishi mumkin va shundan bittasi yetadi.
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
+
+
 async def fetch_page_content(url: str, max_chars: int = 4000) -> str:
     """
     Berilgan URL dan sahifaning to'liq matnini yuklaydi va
     HTML teglarini olib tashlab, toza matn qaytaradi.
     """
+    if not await _is_public_url(url):
+        logger.warning(f"[URL] ichki yoki yaroqsiz manzil rad etildi: {url[:80]}")
+        return ""
     try:
         timeout = aiohttp.ClientTimeout(total=12)
         headers = {
@@ -880,6 +928,37 @@ async def fetch_page_content(url: str, max_chars: int = 4000) -> str:
     except Exception as e:
         logger.debug(f"fetch_page_content xatosi ({url}): {e}")
     return ""
+
+
+# Foydalanuvchi tashlagan bitta sahifa qidiruv natijasidan uzunroq
+# bo'lishi kerak: qidiruvda 3 ta sahifadan 4000 belgidan olinadi, bu yerda
+# esa manba BITTA va odam aynan shuni o'qishni so'ragan. 8000 belgi ≈ 2000
+# token — bir raundlik qidiruv narxidan arzon.
+URL_FETCH_MAX_CHARS = 8000
+
+
+async def _run_url_task(url: str) -> str:
+    """Foydalanuvchi bergan havolani QIDIRMASDAN, to'g'ridan-to'g'ri o'qiydi.
+
+    Busiz «https://kun.uz/... shuni qisqartir» so'rovi havolani DuckDuckGo
+    ga QIDIRUV SO'ZI qilib berardi: bot o'sha sahifani umuman ochmasdan,
+    qidiruv natijasidan taxmin qilib javob yozardi.
+    """
+    matn = await fetch_page_content(url, max_chars=URL_FETCH_MAX_CHARS)
+    if not matn:
+        # ⚠️ JIM QAYTMAYMIZ. Bo'sh javob modelga "sahifada hech narsa
+        # yo'q" bo'lib ko'rinadi va u qidiruvni takrorlab yuradi — har
+        # takror butun kontekstni qayta yuboradi.
+        return (
+            f"XATO — sahifa o'qilmadi ({url}). Sabab: ochilmadi, ruxsat "
+            "bermadi yoki matn emas (PDF, video, kirish talab qiladigan "
+            "sahifa). Shu havolani QAYTA urinmang."
+        )
+    return (
+        f"Foydalanuvchi bergan sahifa o'qildi: {url}\n"
+        f"Quyida uning matni. Javobda shu manbaga tayaning va uni "
+        f"manbalar ro'yxatida ko'rsating.\n\n{matn}"
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2112,6 +2191,21 @@ _TOOLS = [
                         "Qo'shimcha 1-2 ta qidiruv so'rovi. Manbalarni solishtirish yoki "
                         "ma'lumotni kengaytirish uchun ishlatiladi. Masalan birinchi so'rov "
                         "o'zbekcha bo'lsa, ikkinchisi ruscha yoki inglizcha bo'lishi mumkin."
+                    ),
+                },
+                "url": {
+                    "type": "string",
+                    "description": (
+                        "Foydalanuvchi xabarida tayyor havola bo'lsa "
+                        "(«shu maqolani qisqartir»), o'shani AYNAN "
+                        "ko'chiring — sahifa o'qiladi, qidiruv "
+                        "ishlamaydi.\n"
+                        "⛔️ O'YLAB TOPMANG: faqat foydalanuvchi yozgan "
+                        "havola. Havola yo'q bo'lsa bu maydonni "
+                        "yubormang.\n"
+                        "`primary_query` ni baribir to'ldiring — sahifa "
+                        "ochilmasa o'sha so'rov bilan qidiruv o'zi "
+                        "ishga tushadi."
                     ),
                 },
                 "want_images": {
@@ -4031,13 +4125,38 @@ async def get_openai_reply(
                 search_ran = True
                 primary_query = args.get("primary_query", "")
                 extra_queries = args.get("extra_queries", [])
+                havola = (args.get("url") or "").strip()
                 # ⚠️ images_only va want_images BITTA ma'noni bildiradi.
                 # Model ikkinchisini yozishni unutsa, tool jimgina bo'sh
                 # qaytardi — ya'ni "rasm topilmadi" degan yolg'on signal.
                 images_only = bool(args.get("images_only"))
                 want_images = bool(args.get("want_images")) or images_only
 
-                if primary_query:
+                # ⚠️ Havola qidiruvdan OLDIN tekshiriladi. Foydalanuvchi
+                # havola tashlaganda uni qidirish emas, O'QISH kerak —
+                # qidiruv o'sha sahifani deyarli hech qachon qaytarmaydi
+                # va bot o'zi o'qimagan narsa haqida taxmin qilib yozardi.
+                if havola:
+                    logger.info(f"[URL] o'qilmoqda: {havola[:120]} "
+                                f"round={search_rounds + 1}")
+                    tool_output = await _run_url_task(havola)
+                    # Manba bor, ya'ni sintez prompti (manbalar ro'yxati
+                    # talab qiladigan) shu yerda O'RINLI.
+                    web_search_ran = True
+                    # Sahifa ochilmasa so'rov yo'qolmasin: modelga qo'shib
+                    # yozilgan `primary_query` bilan oddiy qidiruvga
+                    # tushamiz. Aks holda o'lik havola butun javobni
+                    # o'ldirardi.
+                    if tool_output.startswith("XATO") and primary_query:
+                        logger.info("[URL] ochilmadi — oddiy qidiruvga o'tildi")
+                        tool_output += "\n\nZaxira qidiruv natijalari:\n"
+                        tool_output += await multi_source_deep_search(
+                            primary_query=primary_query,
+                            extra_queries=extra_queries if extra_queries else None,
+                            fetch_pages=6 if research else 3,
+                            max_queries=4 if research else 3,
+                        )
+                elif primary_query:
                     logger.info(
                         f"[SEARCH] primary='{primary_query}' extra={extra_queries} "
                         f"images={want_images} only={images_only} "
