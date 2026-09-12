@@ -182,7 +182,11 @@ _RICH_PROTECT_RE = re.compile(
     re.S,
 )
 _RICH_MATH_BLOCK_RE = re.compile(r"(?<!\\)\$\$(.+?)\$\$", re.S)
-_RICH_MATH_INLINE_RE = re.compile(r"(?<!\\)\$(?!\s)(.+?)(?<!\s)\$(?!\$)", re.S)
+# ⚠️ `re.S` ATAYLAB YO'Q — u jonli nosozlik sababi edi. Bir qatorlik
+# matematika qatordan oshmaydi; `re.S` bilan esa ochilgan `$` butun javob
+# bo'ylab yugurardi. Narxlar ro'yxatida birinchi `$85` ochib, keyingi
+# banddagi `$59` yopardi va oradagi hamma narsa kursiv formulaga aylanardi.
+_RICH_MATH_INLINE_RE = re.compile(r"(?<!\\)\$(?!\s)(.+?)(?<!\s)\$(?!\$)")
 _RICH_DATE_PATTERNS = (
     re.compile(r"\b(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?\b"),
     re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{2}):(\d{2}))?\b"),
@@ -238,11 +242,37 @@ def _restore_spans(text: str, placeholders):
     return text
 
 
+# `$` ikki xil ma'noda keladi: LaTeX ochuvchisi va VALYUTA belgisi. Bot
+# narxlar haqida ko'p gapiradi, shuning uchun bu ikkisini ajratish shart.
+# Quyidagi ikki qoida aynan shu ajratishni qiladi va ikkalasi ham jonli
+# nosozlikdan tug'ilgan (CS2 agentlari narxi jadvali, 2026-09-13).
+
+# HTML tegi: `</td>`, `<b>`, `<tr ...>`. Matematika ichida bunday narsa
+# BO'LMAYDI — bu jadval bosqichi yasagan HTML ekanini bildiradi.
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z]")
+# LaTeX buyrug'i (`\frac`) va qavs ichidagi matn (`v_{max}`) — ular
+# harflardan iborat bo'lsa ham matematika. Qolgan 3+ harfli so'z esa
+# oddiy matn: "85 dan 72 gacha" dagi "gacha" formulani emas, gapni
+# bildiradi.
+_LATEX_SOZ_RE = re.compile(r"\\[a-zA-Z]+|\{[^{}]*\}")
+_PROZA_RE = re.compile(r"[A-Za-z]{3,}")
+
+
 def _looks_like_math(expr: str) -> bool:
     expr = expr.strip()
     if not expr:
         return False
     if len(expr) > 120:
+        return False
+    # Jadval katagi ichidagi HTML — hech qachon formula emas. Busiz
+    # `$85` ochib, keyingi katakdagi `$72` yopardi va butun qator
+    # `<tg-math>` ichiga tushib, o'quvchiga xom `</td></tr>` ko'rinardi.
+    if _HTML_TAG_RE.search(expr):
+        return False
+    # Gapga o'xshasa — formula emas, valyuta. LaTeX buyruqlari va
+    # {qavs} ichidagi matn avval olib tashlanadi, aks holda `\frac`
+    # ning "rac" qismi gap deb o'qilardi.
+    if _PROZA_RE.search(_LATEX_SOZ_RE.sub(" ", expr)):
         return False
     math_chars = set("=+-*/^_()[]{}<>∑∫√π∞≈≠≤≥·×÷")
     return any(ch in math_chars for ch in expr) or (any(ch.isdigit() for ch in expr) and any(ch.isalpha() for ch in expr))

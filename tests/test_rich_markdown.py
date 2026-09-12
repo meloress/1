@@ -289,6 +289,54 @@ def test_jadval_haqiqiy():
     print("[22] markdown jadval haqiqiy <table> ga aylandi OK")
 
 
+def test_valyuta_jadvalni_buzmaydi():
+    """JONLI NOSOZLIK (2026-09-13): narxli jadval o'qib bo'lmas holga keldi.
+
+    Model CS2 agentlari narxini jadvalga soldi, kataklarda `$85`, `$72`.
+    Jadval bosqichi HTML yasagach, matematika bosqichi birinchi `$` ni
+    ochuvchi deb o'qidi va keyingi katakdagi `$` gacha bo'lgan HAMMA
+    narsani — `</td></tr><tr><td>` teglari bilan birga — `<tg-math>`
+    ichiga soldi. O'quvchi katak ichida kursiv shriftda xom HTML ko'rdi.
+
+    Ikkita sabab bor edi va ikkalasi ham shu yerda qo'riqlanadi.
+    """
+    jadval = ("| Tomon | Agent | Narx |\n|---|---|---|\n"
+              "| T | Miami Darryl | $85 |\n| T | Getaway Sally | $72 |")
+    out = build_rich_markdown(jadval)
+    assert "<tg-math>" not in out, out
+    assert "&lt;/td&gt;" not in out, out
+    assert "<td>$85</td>" in out and "<td>$72</td>" in out, out
+    print("[23] jadval katagidagi narx formulaga aylanmaydi OK")
+
+    # Ikkinchi sabab: `re.S` ochilgan `$` ni butun javob bo'ylab
+    # yugurtirardi, ya'ni ro'yxatning 1-bandidagi `$` 3-bandda yopilardi.
+    royxat = ("1. Miami Darryl — taxminan $85.\n"
+              "2. Getaway Sally — taxminan $72.\n"
+              "3. Number K — taxminan $48.")
+    out = build_rich_markdown(royxat)
+    assert "<tg-math>" not in out, out
+    assert out.count("$") == 3, out
+    print("[24] narx belgisi qatordan oshib ketmaydi OK")
+
+
+def test_matematika_hamon_ishlaydi():
+    """Tuzatish foydali xususiyatni o'ldirmagan bo'lishi kerak.
+
+    Prompt LaTeX'ni MAJBURIY qiladi va `$` dan boshqa delimiter
+    taqiqlangan, ya'ni `$` ni butunlay o'chirib qo'yish mumkin emas —
+    faqat valyutadan ajratish mumkin.
+    """
+    for ifoda in ("$E = mc^2$", "$a^{2} + b^{2} = c^{2}$", r"$\frac{a}{b}$",
+                  "$v_{max}$"):
+        out = build_rich_markdown(ifoda)
+        assert "<tg-math>" in out, f"{ifoda} -> {out}"
+    print("[25] haqiqiy formulalar hamon <tg-math> bo'ladi OK")
+
+    # Blok matematika ham ishlashda davom etadi.
+    assert "<tg-math-block>" in build_rich_markdown("$$a^{2}+b^{2}=c^{2}$$")
+    print("[26] blok matematika ishlaydi OK")
+
+
 if __name__ == "__main__":
     test_url_sanasi_tegilmaydi()
     test_yalangoch_url_ham_himoyalangan()
@@ -313,4 +361,6 @@ if __name__ == "__main__":
     test_belgi_ichidagi_bosh_joy()
     test_havola_himoyasi_buzilmadi()
     test_jadval_haqiqiy()
-    print("\nrich_markdown: barcha tekshiruvlar o'tdi (23/23).")
+    test_valyuta_jadvalni_buzmaydi()
+    test_matematika_hamon_ishlaydi()
+    print("\nrich_markdown: barcha tekshiruvlar o'tdi (26/26).")

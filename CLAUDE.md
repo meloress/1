@@ -570,6 +570,30 @@ HTML attribute spellings are not documented (`_EXPANDABLE_ATTR` is the standing
 warning that field name ≠ attribute name), so adding them needs a live send
 test before shipping — a wrong attribute gets the whole message rejected.
 
+### `$` means two things, and the bot talks about prices
+
+The prompt makes LaTeX mandatory and allows **only** `$…$` and `$$…$$` as delimiters, so
+the math pass cannot simply stop honouring `$`. But this bot quotes prices constantly, and
+a live answer (a CS2 agent price table, 2026-09-13) arrived with raw `</td></tr><tr><td>`
+rendered in serif italic *inside a table cell*: `$85` opened a math span, the next cell's
+`$72` closed it, and everything between — the table HTML `_compact_tables()` had just
+produced — became `<tg-math>`.
+
+Two independent defects, both now guarded by `tests/test_rich_markdown.py` checks 23-26:
+
+- `_RICH_MATH_INLINE_RE` carried `re.S`, so an unclosed `$` ran across the whole answer;
+  three bullet points of a price list were swallowed into one span. Inline math never
+  spans a line — the flag is gone, and it must stay gone.
+- `_looks_like_math()` accepted anything with a digit and a letter, which is every price
+  sentence *and* every HTML fragment (`<`, `>`, `/` were in its `math_chars`). It now
+  rejects an expression containing an HTML tag, and rejects prose — a 3+ letter word
+  after LaTeX commands (`\frac`) and `{…}` groups are stripped out, so `v_{max}` and
+  `\sin(x)` still count as maths while "85 dan 72 gacha" does not.
+
+⚠️ Do not "fix" this by reordering the pipeline. `_compact_tables()` runs **before** the
+math pass deliberately, and the comment above it says why: `_cell_html()` html-escapes cell
+text, so a `<tg-math>` built earlier would reach the reader as literal text.
+
 ### Inline button styles
 
 Telegram accepts only `primary` / `success` / `danger` on a real `InlineKeyboardButton`. Any other value is rejected and **the whole message fails to send**. Use `pro_module.btn()` and the `BTN_*` constants. Where delivery matters, build a plain fallback keyboard too — `pro.send_rich()` degrades progressively, and the broadcast sender switches the entire run to plain on the first rejection.
