@@ -170,7 +170,57 @@ async def main():
     assert ai._TTS_PRO_MAX_CHARS <= 4096, "model chegarasidan oshmasligi kerak"
     print("[9] TTS matn chegarasi xavfsiz OK")
 
-    print("\nvoice_fallback: barcha tekshiruvlar o'tdi (9/9).")
+    # ── 7) HAVOLA OVOZDA O'QILMAYDI ─────────────────────────────────
+    # JONLI SHIKOYAT (2026-09-14): ovozli javob oxirida bot manbalarni
+    # o'qib berardi. `_MD_MARKERS_RE` faqat `*_#>` belgilarini oladi,
+    # qavslarni EMAS — natijada butun URL harfma-harf ovozga chiqardi.
+    #
+    # ⚠️ Tuzatish `clean_text_for_speech()` ichida, ya'ni IKKALA tarif
+    # ham undan o'tadi. Shuning uchun quyidagi tekshiruvlar bepul va Pro
+    # yo'llarining ikkalasini birdan qo'riqlaydi.
+    javob = (
+        "Toshkentda bugun 32 daraja.\n"
+        "Ertaga yomg'ir kutilmoqda[^1].\n\n"
+        "**Manbalar:**\n"
+        "- [meteo.uz](https://meteo.uz/uz/prognoz)\n"
+        "- [kun.uz](https://kun.uz/news/2026/09/14/ob-havo)\n"
+    )
+    ovoz = ai.clean_text_for_speech(javob)
+    assert "http" not in ovoz, f"URL ovozga tushdi: {ovoz}"
+    assert "meteo" not in ovoz and "kun.uz" not in ovoz, ovoz
+    assert "Manbalar" not in ovoz, ovoz
+    assert "[^1]" not in ovoz, ovoz
+    assert "32 daraja" in ovoz, "javob matni yo'qolmasligi kerak"
+    print("[10] manbalar bloki va izoh belgisi ovozga tushmaydi OK")
+
+    # BITTA manba ham yetarli: ekranda u ro'yxat bo'lib qoladi
+    # (_SOURCES_MIN=2), ovozda esa baribir o'qilib ketardi.
+    bitta = "Javob shu.\n\nManba:\n- [uz.wikipedia.org](https://uz.wikipedia.org/wiki/X)\n"
+    assert "http" not in ai.clean_text_for_speech(bitta), ai.clean_text_for_speech(bitta)
+    print("[11] bitta manba ham ovozga tushmaydi OK")
+
+    # Matn ICHIDAGI havola: nom qoladi, URL ketadi — ma'no saqlanadi.
+    ichki = "Batafsil [shu yerda](https://example.com/a/b) yozilgan."
+    ovoz2 = ai.clean_text_for_speech(ichki)
+    assert "shu yerda" in ovoz2 and "http" not in ovoz2, ovoz2
+    print("[12] matn ichidagi havola nomga qisqaradi OK")
+
+    # Yalang'och havola ham o'qilmaydi.
+    assert "http" not in ai.clean_text_for_speech("Manzil: https://kun.uz/x bor.")
+    print("[13] yalang'och havola olib tashlanadi OK")
+
+    # ⚠️ EKRANDA HECH NARSA O'ZGARMAYDI — manbalar o'z joyida qolishi
+    # kerak. Ovoz uchun qilingan tozalash matnli javobga tegmasin.
+    ekran = ai.build_rich_markdown(javob)
+    assert "meteo.uz" in ekran and "<blockquote" in ekran, ekran
+    print("[14] ekranda manbalar joyida qoldi OK")
+
+    # Manbasiz javob umuman o'zgarmaydi.
+    oddiy = "Salom, qalaysiz?"
+    assert ai.clean_text_for_speech(oddiy) == oddiy
+    print("[15] manbasiz javob tegilmaydi OK")
+
+    print("\nvoice_fallback: barcha tekshiruvlar o'tdi (15/15).")
 
 
 if __name__ == "__main__":

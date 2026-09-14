@@ -357,17 +357,22 @@ _SOURCE_ITEM_RE = re.compile(r"^\s*[-*+]\s*\[([^\]]+)\]\(\s*(\S+?)\s*\)\s*$")
 _SOURCES_MIN = 2
 
 
-def _collapse_sources(text: str) -> str:
-    """Javob OXIRIDAGI manbalar ro'yxatini yig'iladigan sitataga o'raydi.
+def _sources_tail(lines: list[str],
+                  min_items: int) -> Optional[tuple[int, list[tuple[str, str]]]]:
+    """Matn OXIRIDAGI manbalar blokini topadi.
 
-    ⚠️ ATAYLAB faqat matn oxiridagi blok: o'rtadagi ro'yxat javobning
-    mantiqiy qismi bo'lishi mumkin, uni yashirish ma'noni buzadi.
+    Qaytaradi: (sarlavha qatori indeksi, [(nom, url), ...]) yoki None.
 
-    ⚠️ Bu funksiya _restore_spans() dan KEYIN, ya'ni havolalar haqiqiy
-    holatda bo'lganda chaqiriladi — href atributiga token emas, URL
-    tushishi kerak.
+    ⚠️ IKKI CHAQIRUVCHI, BITTA ANIQLOVCHI. Ekranda blok yig'iladigan
+    sitataga o'raladi (`_collapse_sources`), ovozda esa BUTUNLAY
+    tashlanadi (`clean_text_for_speech`). Agar model manba yozish
+    uslubini o'zgartirsa, ikkalasi birdan yangilanadi — alohida ikkita
+    naqsh bo'lsa, biri jimgina eskirardi.
+
+    `min_items` shuning uchun parametr: ekranda bitta havolani yashirish
+    ma'nosiz (topish qiyinlashadi), ovozda esa BITTA havola ham o'qilsa
+    bas — foydalanuvchi butun URL'ni harfma-harf eshitadi.
     """
-    lines = text.rstrip().split("\n")
     items: list[tuple[str, str]] = []
     idx = len(lines) - 1
 
@@ -383,12 +388,31 @@ def _collapse_sources(text: str) -> str:
         items.append((m.group(1).strip(), m.group(2).strip()))
         idx -= 1
 
-    if len(items) < _SOURCES_MIN or idx < 0:
-        return text
+    if len(items) < min_items or idx < 0:
+        return None
     if not _SOURCES_HEADING_RE.match(lines[idx]):
-        return text
+        return None
 
     items.reverse()
+    return idx, items
+
+
+def _collapse_sources(text: str) -> str:
+    """Javob OXIRIDAGI manbalar ro'yxatini yig'iladigan sitataga o'raydi.
+
+    ⚠️ ATAYLAB faqat matn oxiridagi blok: o'rtadagi ro'yxat javobning
+    mantiqiy qismi bo'lishi mumkin, uni yashirish ma'noni buzadi.
+
+    ⚠️ Bu funksiya _restore_spans() dan KEYIN, ya'ni havolalar haqiqiy
+    holatda bo'lganda chaqiriladi — href atributiga token emas, URL
+    tushishi kerak.
+    """
+    lines = text.rstrip().split("\n")
+    topilgan = _sources_tail(lines, _SOURCES_MIN)
+    if topilgan is None:
+        return text
+    idx, items = topilgan
+
     body = "<br>".join(
         f'<a href="{html_escape(url, quote=True)}">{html_escape(name)}</a>'
         for name, url in items
@@ -4470,15 +4494,49 @@ _EMOJI_RE = re.compile(
 )
 
 
+# Ovozda HECH QACHON o'qilmasligi kerak bo'lgan narsalar.
+#
+# JONLI SHIKOYAT (2026-09-14): ovozli javob oxirida bot manbalarni
+# o'qib berardi. `_MD_MARKERS_RE` faqat `*_#>` kabi belgilarni oladi,
+# kvadrat va oddiy qavslarni EMAS — natijada `[kun.uz](https://kun.uz/
+# news/2026/09/12/...)` to'liq, URL'i bilan ovozga chiqardi.
+_SPEECH_FOOTNOTE_RE = re.compile(r"\[\^[^\]\n]{1,20}\]:?")
+_SPEECH_URL_RE = re.compile(r"(?:https?://|www\.)\S+")
+
+
 def clean_text_for_speech(text: str) -> str:
     """Ovozga berishdan oldin matnni tozalaydi.
 
     Belgilar (markdown yulduzchalari, emoji, HTML teglar) ovozda
     "yulduzcha", "reshotka" bo'lib o'qilib, javobni tushunarsiz qiladi.
+
+    ⚠️ HAVOLA OG'ZAKI NUTQDA MA'NOSIZ. Ekranda havola bosiladigan narsa,
+    ovozda esa u harfma-harf o'qiladigan uzun shovqin. Shuning uchun bu
+    yerda uch bosqich bor va uchalasi ham bitta qoidaning ifodasi —
+    "URL hech qachon o'qilmaydi":
+      1. oxiridagi manbalar bloki butunlay tashlanadi;
+      2. `[nom](url)` faqat NOMga qisqaradi — ma'no qoladi, shovqin yo'q;
+      3. matn ichida qolgan yalang'och havola olib tashlanadi.
+
+    Ikkala tarif ham shu funksiyadan o'tadi: bepul (edge-tts / Gemini)
+    ham, Pro (OpenAI TTS) ham. Tuzatish shu yerda — chaqiruvchida emas.
     """
+    # 1. Oxiridagi manbalar ro'yxati. Ekrandagidan farqli: bu yerda
+    #    BITTA manba ham yetarli, chunki u ham to'liq o'qilib ketadi.
+    satrlar = text.rstrip().split("\n")
+    topilgan = _sources_tail(satrlar, 1)
+    if topilgan is not None:
+        text = "\n".join(satrlar[:topilgan[0]]).rstrip()
+
     text = text.replace("`", "'")
     text = re.sub(r"<[^>]+>", "", text)
     text = text.replace("$$", "").replace("$", "")
+    # 2. `[nom](url)` -> `nom`. HTML teglaridan KEYIN: `<a href=...>`
+    #    allaqachon olib tashlangan bo'ladi.
+    text = _CELL_LINK_RE.sub(r"\1", text)
+    # 3. Izoh belgisi (`[^1]`) va qolgan yalang'och havolalar.
+    text = _SPEECH_FOOTNOTE_RE.sub("", text)
+    text = _SPEECH_URL_RE.sub("", text)
     text = _EMOJI_RE.sub("", text)
     text = _MD_MARKERS_RE.sub("", text)
     return re.sub(r"[ \t]{2,}", " ", text).strip()

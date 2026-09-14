@@ -624,6 +624,29 @@ Two independent defects, both now guarded by `tests/test_rich_markdown.py` check
 math pass deliberately, and the comment above it says why: `_cell_html()` html-escapes cell
 text, so a `<tg-math>` built earlier would reach the reader as literal text.
 
+### A URL must never be spoken
+
+`clean_text_for_speech()` is the single gate every voice reply passes — free (edge-tts /
+Gemini) and Pro (OpenAI TTS) both call it, so the fix for anything audible belongs there
+and never in a caller. It used to strip only `*_#>` via `_MD_MARKERS_RE`, which leaves
+square and round brackets alone: a live complaint (2026-09-14) had the bot reading
+`[kun.uz](https://kun.uz/news/2026/09/14/…)` aloud, URL and all, at the end of every
+searched answer.
+
+Three steps now enforce one rule — a link is something you tap on screen and pure noise in
+speech: the trailing sources block is dropped entirely, `[name](url)` collapses to `name`
+so the meaning survives, and any bare URL left in the body is removed. Footnote markers
+(`[^1]`) go too, for the same reason.
+
+`_sources_tail()` is the shared detector behind both consumers — `_collapse_sources()`
+wraps the block in a collapsible quote for the screen, the speech cleaner deletes it. Its
+`min_items` differs by design: the screen keeps a single source visible (hiding one link
+only makes it harder to find) while speech drops even one, since one URL read character by
+character is already the whole complaint. Keeping one detector matters because the model
+decides how it formats sources; two regexes would drift and one would rot silently.
+`tests/test_voice_fallback.py` checks 10-15 cover both sides, including that the screen
+output is unchanged.
+
 ### Inline button styles
 
 Telegram accepts only `primary` / `success` / `danger` on a real `InlineKeyboardButton`. Any other value is rejected and **the whole message fails to send**. Use `pro_module.btn()` and the `BTN_*` constants. Where delivery matters, build a plain fallback keyboard too — `pro.send_rich()` degrades progressively, and the broadcast sender switches the entire run to plain on the first rejection.
