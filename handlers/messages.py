@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import time
 import os
 import re
@@ -708,6 +709,16 @@ STATUS_TEXTS_BY_TYPE: dict[str, list[str]] = {
         "Fikrlar jamlanmoqda",
         "Javob shakllantirilmoqda",
     ],
+    # ⚠️ Bu ro'yxat javob YUBORILGANDAN KEYIN ishlaydi — boshqa hammasi
+    # javobdan oldin. Foydalanuvchi matnni o'qib bo'lgan, endi ovoz
+    # sintez qilinishini kutyapti (5-10 soniya). Ilgari bu vaqt
+    # BUTUNLAY jim o'tardi va odam ovoz kelishini bilmasdi.
+    "tts": [
+        "Ovozli javob tayyorlanmoqda",
+        "Matn ovozga o'girilmoqda",
+        "Ohang sozlanmoqda",
+        "Ovoz yakunlanmoqda",
+    ],
     "search": [
         "Internetdan ma'lumot qidirilmoqda",
         "Manbalar solishtirilmoqda",
@@ -771,7 +782,155 @@ EMOJI_ID_BY_TYPE: dict[str, str] = {
     "file_task": CUSTOM_EMOJI["document"],
     "image": CUSTOM_EMOJI["photo"],
     "research": CUSTOM_EMOJI["search"],
+    "tts": CUSTOM_EMOJI["voice"],
 }
+
+
+# ── Status animatsiyasining umumiy qismi ────────────────────────────
+# Bu to'rttasi ilgari process_stream_draft() ichida, lokal o'zgaruvchi
+# edi. Ovoz sintezi uchun ham AYNAN shu ko'rsatkich kerak bo'lgach,
+# ular modul darajasiga chiqarildi — ikkinchi nusxa yozilsa, ohang va
+# tezlik ikki joyda ayri o'zgarib, ikkita boshqacha animatsiya paydo
+# bo'lardi.
+STATUS_INTERVAL = 2.4          # matn almashish oralig'i
+DOT_INTERVAL = 0.5             # nuqtalar
+RICH_DRAFT_PING_INTERVAL = 0.6
+FALLBACK_PING_INTERVAL = 1.0
+
+
+def _status_texts_for(active_type: str) -> list[str]:
+    return STATUS_TEXTS_BY_TYPE.get(active_type, STATUS_TEXTS_BY_TYPE["text"])
+
+
+def _thinking_html_for(active_type: str, elapsed: float) -> str:
+    """Rich draft uchun xira (`<tg-thinking>`) status bloki."""
+    status_texts = _status_texts_for(active_type)
+    emoji_id = EMOJI_ID_BY_TYPE.get(active_type, EMOJI_ID_BY_TYPE["text"])
+    status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
+    dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
+    safe_status = html_lib.escape(status_texts[status_index])
+    elapsed_label = html_lib.escape(_format_elapsed(elapsed))
+    return (
+        f'<tg-thinking><tg-emoji emoji-id="{emoji_id}">🔄</tg-emoji> '
+        f"<b>{safe_status}{dots}</b><br/>"
+        f"{elapsed_label}</tg-thinking>"
+    )
+
+
+def _thinking_plain_for(active_type: str, elapsed: float) -> str:
+    """Draft ishlamaydigan joy (guruh) uchun oddiy matnli status."""
+    status_texts = _status_texts_for(active_type)
+    status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
+    dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
+    return f"🔄 *{status_texts[status_index]}{dots}*\n{_format_elapsed(elapsed)}"
+
+
+@asynccontextmanager
+async def _status_indicator(message: Message, kind: str):
+    """Javob YUBORILGANDAN KEYIN ishlaydigan status ko'rsatkichi.
+
+    `process_stream_draft()` dagi animatsiya javob kelishi bilan
+    tugaydi. Ovoz sintezi esa shundan KEYIN 5-10 soniya davom etadi va
+    bu vaqt butunlay jim o'tardi: matn keldi, bot jim bo'ldi, keyin
+    kutilmaganda ovoz tushdi. Foydalanuvchi ovoz kelishini bilmasdi.
+
+    ⚠️ `send_chat_action` bu yerda YETARLI EMAS va aynan shuning uchun
+    bu funksiya bor: Telegram chat action'ni ATIGI 5 soniya ko'rsatadi,
+    sintez esa undan uzoq. Kodda o'sha chaqiruv bor edi — u ishlardi,
+    ko'rinmasdi.
+
+    Ikki pog'ona, process_stream_draft bilan bir xil tartibda:
+      1. shaxsiy chatda — rich draft (xira `<tg-thinking>` bloki);
+      2. guruhda yoki draft rad etilsa — oddiy xabar, tahrirlanadi.
+
+    ⛔️ CHIQISHDA IKKALASI HAM TOZALANADI. Draft bo'sh kontent bilan
+    USTIGA YOZILADI, oddiy xabar esa O'CHIRILADI. Tashlab ketilgan
+    draft — allaqachon bir marta to'langan xato: u ekranda osilib
+    qolib, keyingi animatsiyani ham o'ldirgan edi (BOT_API_103.md).
+    """
+    chat_id = message.chat.id
+    thread_id = getattr(message, "message_thread_id", None)
+    draft_id = abs(hash((chat_id, message.message_id, time.time_ns(), kind))) \
+        % 2_147_483_647 or 1
+    # Draft faqat shaxsiy chatda ishlaydi (API cheklovi) — guruhda darhol
+    # oddiy xabar yo'liga tushamiz, bekorga urinib kechikish qo'shmaymiz.
+    rich = message.chat.type == "private"
+    plain_msg = None
+    stop = asyncio.Event()
+
+    async def animator():
+        nonlocal rich, plain_msg
+        start = time.monotonic()
+        nosozlik = 0
+        oxirgi = None
+        while not stop.is_set():
+            elapsed = time.monotonic() - start
+            kutish = RICH_DRAFT_PING_INTERVAL
+            if rich:
+                try:
+                    res = await _send_rich_draft(
+                        chat_id, draft_id,
+                        html_content=_thinking_html_for(kind, elapsed),
+                        message_thread_id=thread_id)
+                    nosozlik = 0 if res is not None else nosozlik + 1
+                except Exception:
+                    nosozlik += 1
+                # Ikki marta rad etilsa — draft bu chatda ishlamaydi.
+                if nosozlik >= 2:
+                    rich = False
+            if not rich:
+                matn = _thinking_plain_for(kind, elapsed)
+                kutish = FALLBACK_PING_INTERVAL
+                try:
+                    if plain_msg is None:
+                        plain_msg = await message.answer(
+                            matn, parse_mode="Markdown",
+                            **ephemeral_params(message))
+                        oxirgi = matn
+                    elif matn != oxirgi:
+                        await _edit_message_fallback(plain_msg, matn)
+                        oxirgi = matn
+                except TelegramRetryAfter as e:
+                    kutish = e.retry_after + 0.1
+                except Exception:
+                    pass
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=kutish)
+            except asyncio.TimeoutError:
+                pass
+
+    task = asyncio.create_task(animator())
+    try:
+        yield
+    finally:
+        stop.set()
+        task.cancel()
+        # ⚠️ CancelledError — BaseException, `except Exception` uni
+        # TUTMAYDI. Animator aynan Telegram'ga so'rov yuborayotgan
+        # paytda bekor qilinsa, xato yuqoriga otilib, tayyor ovoz
+        # foydalanuvchiga YETMASDI.
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        # Draftni bo'sh kontent bilan ustiga yozib yopamiz.
+        if rich:
+            try:
+                await _send_rich_draft(chat_id, draft_id, markdown="",
+                                       message_thread_id=thread_id)
+            except Exception:
+                pass
+        if plain_msg is not None:
+            try:
+                await plain_msg.delete()
+            except Exception:
+                # O'chirib bo'lmasa (eski xabar, ruxsat yo'q) — hech
+                # bo'lmasa matnini almashtiramiz, "tayyorlanmoqda"
+                # degan yolg'on qatorni qoldirmaymiz.
+                try:
+                    await _edit_message_fallback(plain_msg, "✅")
+                except Exception:
+                    pass
 
 
 # --------------------------------------------------
@@ -944,10 +1103,8 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     # ham shunga mos almashadi (pastdagi async-for ichida yangilanadi).
     active_type = content_type
 
-    STATUS_INTERVAL = 2.4
-    DOT_INTERVAL = 0.5
-    RICH_DRAFT_PING_INTERVAL = 0.6
-    FALLBACK_PING_INTERVAL = 1.0
+    # ⚠️ STATUS_INTERVAL / DOT_INTERVAL / *_PING_INTERVAL endi modul
+    # darajasida — ularni ovoz sintezi ko'rsatkichi ham ishlatadi.
     RICH_DRAFT_FAILURE_LIMIT = 2
 
     # Jonli oqim tezligi. ⚠️ Telegram tahrirlashni qattiq cheklaydi:
@@ -961,25 +1118,13 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
     stop_animation = asyncio.Event()
 
+    # `active_type` oqim davomida o'zgaradi ([STATUS]search), shuning
+    # uchun umumiy funksiyalar shu yerda o'ralib chaqiriladi.
     def _status_texts() -> list[str]:
-        return STATUS_TEXTS_BY_TYPE.get(active_type, STATUS_TEXTS_BY_TYPE["text"])
+        return _status_texts_for(active_type)
 
     def _thinking_html(elapsed: float) -> str:
-        status_texts = _status_texts()
-        emoji_id = EMOJI_ID_BY_TYPE.get(active_type, EMOJI_ID_BY_TYPE["text"])
-        status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
-        current_status = status_texts[status_index]
-        dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
-        safe_status = html_lib.escape(current_status)
-        elapsed_label = html_lib.escape(_format_elapsed(elapsed))
-
-        # JAVOB SHU YERDA: <br/> orqali yangi qatorga tushirildi, lekin <tg-thinking> ichida saqlab qolindi.
-        # Natijada sekund ham status xabari kabi bir xil xira (grayish/translucent) bo'lib chiqadi.
-        return (
-            f'<tg-thinking><tg-emoji emoji-id="{emoji_id}">🔄</tg-emoji> '
-            f"<b>{safe_status}{dots}</b><br/>"
-            f"{elapsed_label}</tg-thinking>"
-        )
+        return _thinking_html_for(active_type, elapsed)
 
     async def emoji_animator():
         nonlocal fallback_message, using_rich_draft, rich_draft_ok
@@ -1012,11 +1157,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                         using_rich_draft = False
 
             if not using_rich_draft:
-                status_texts = _status_texts()
-                status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
-                dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
-                elapsed_label = _format_elapsed(elapsed)
-                text_to_send_fallback = f"🔄 *{status_texts[status_index]}{dots}*\n{elapsed_label}"
+                text_to_send_fallback = _thinking_plain_for(active_type, elapsed)
                 wait_time = FALLBACK_PING_INTERVAL
                 try:
                     if fallback_message is None:
@@ -2579,13 +2720,28 @@ async def handle_voice(message: Message, state: FSMContext):
         except Exception:
             pass
 
+        # ⚠️ Chat action ATIGI 5 soniya ko'rinadi, sintez esa 5-10
+        # soniya. Shuning uchun ustiga to'liq status ko'rsatkichi
+        # qo'yiladi — matn kelgandan keyingi jimlik aynan shu yerda edi.
         audio_filename = f"reply_{chat_id}_{int(time.time())}.mp3"
-        generated_audio = await text_to_speech_smart(
-            full_reply_text, audio_filename, is_pro=_is_pro(quota))
+        async with _status_indicator(message, "tts"):
+            generated_audio = await text_to_speech_smart(
+                full_reply_text, audio_filename, is_pro=_is_pro(quota))
 
         if generated_audio and os.path.exists(generated_audio):
             input_file = FSInputFile(generated_audio)
             await message.answer_voice(input_file)
+        elif full_reply_text:
+            # ⚠️ JIMLIK — ENG YOMON XATO TURI. Ilgari bu yerda `else`
+            # yo'q edi: sintez yiqilsa bot ovoz va'da qilib jim qolardi
+            # va foydalanuvchi kutishda davom etardi. Matn allaqachon
+            # yuborilgan, ya'ni javob yo'qolmagan — buni aytish yetarli.
+            try:
+                await message.answer(
+                    "🔇 Ovozli javob tayyorlanmadi — matnli javobni o'qing.",
+                    **ephemeral_params(message))
+            except Exception:
+                pass
 
     except Exception as e:
         logger.error(f"Voice error: {e}")

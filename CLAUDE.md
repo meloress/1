@@ -624,6 +624,43 @@ Two independent defects, both now guarded by `tests/test_rich_markdown.py` check
 math pass deliberately, and the comment above it says why: `_cell_html()` html-escapes cell
 text, so a `<tg-math>` built earlier would reach the reader as literal text.
 
+### The wait after the answer needed its own indicator
+
+A voice question produces the text answer first, then 5-10 seconds of TTS synthesis. That
+window was **completely silent**: the user read the reply, the bot went quiet, and the
+voice note landed unannounced. `handle_voice` did call
+`send_chat_action(chat_id, "record_voice")` — and it worked; it simply isn't enough,
+because Telegram shows a chat action for **5 seconds** and the synthesis outlasts it.
+Reach for `_status_indicator()` rather than a second `send_chat_action` for anything
+slower than that.
+
+`_status_indicator(message, kind)` is an async context manager that runs the same
+animation `process_stream_draft()` shows, but *after* the answer has been sent: a rich
+draft with `<tg-thinking>` in private chats, a plain edited message in groups (drafts are
+private-chat-only), keyed by `STATUS_TEXTS_BY_TYPE["tts"]`.
+
+⛔️ **Both rungs are cleaned up on exit and that is the whole risk of this feature.** The
+draft is overwritten with empty markdown, the plain message is deleted (and, if the delete
+is refused, edited to "✅" so no false "preparing…" line survives). An abandoned draft has
+already cost this project once — it hung on screen and killed the next animation
+(`BOT_API_103.md`). Cleanup runs from `finally`, so a synthesis failure cleans up too, and
+the `await task` there catches `CancelledError` explicitly — it is a `BaseException` and
+`except Exception` would let it escape and swallow the finished audio.
+
+⚠️ Telegram's clearing of an emptied draft is **not verified live** — offline tests can
+only prove the call is made. If a ghost bubble is ever reported after a voice answer, that
+call is the place to look.
+
+`_thinking_html_for()` / `_thinking_plain_for()` / `_status_texts_for()` and the four
+timing constants were lifted out of `process_stream_draft()` to module level for this;
+they must stay shared. A second copy would drift and the bot would animate two different
+ways in two places.
+
+And `handle_voice` now says something when synthesis fails. There was no `else` on
+`if generated_audio …`: the bot promised a voice reply and went silent forever, with the
+user still waiting. Silence is the worst failure mode — the text answer is already
+delivered, so one line saying so is enough.
+
 ### A URL must never be spoken
 
 `clean_text_for_speech()` is the single gate every voice reply passes — free (edge-tts /
