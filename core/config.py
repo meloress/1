@@ -1014,6 +1014,34 @@ SEARCH_IMAGE_PICK_MODEL = "gpt-4.1"
 # Ko'rish bosqichi ishlamay qolsa (model yo'q, kvota tugadi) qidiruv
 # eski tartibda — ko'rmasdan, birinchi topilganlarni — qaytaradi.
 SEARCH_IMAGE_PICK_TIMEOUT = 25
+
+
+# ── SUHBAT XOTIRASI: ESKI QISMNI SIQIB SAQLASH ──────────────────────
+# Ilgari oynadan chiqqan xabarlar SHUNCHAKI O'CHIRILARDI. Ya'ni uzun
+# suhbatning boshi abadiy yo'qolardi va bot buni foydalanuvchiga ham
+# aytmasdi: u "o'tgan hafta aytgandim-ku" deganda bot bilmasdi va
+# bilmasligini ham bilmasdi.
+#
+# Endi ular o'chirilishdan OLDIN qisqa xulosaga aylanadi.
+#
+# ⚠️ MODEL ATAYLAB "mini" OILASIDAN. OpenAI bepul kvotasi ikkita AYRI
+# chelakda: katta modellar ~250k token/kun, mini modellar ~2.5M — o'n
+# barobar kattaroq (tests/test_free_models.py dagi ro'yxatga qarang).
+# Xulosa yozish — sof mexanik ish, unga kuchli model kerak emas, va
+# uni katta chelakdan yechish javoblar uchun qolgan joyni yeb qo'yardi.
+HISTORY_SUMMARY_MODEL: str = "gpt-5.4-mini"
+# Xulosa o'zi ham har raundda yuboriladi, ya'ni u CHEKSIZ o'SMASLIGI
+# kerak. 1200 belgi ~300 token — 20 ta xabarning xom holati ~2000
+# tokendan oshadi, ya'ni yutuq sezilarli.
+HISTORY_SUMMARY_MAX_CHARS: int = 1200
+# Har xabarda emas, to'plam bo'lib siqamiz: bitta chaqiruv 20 ta
+# xabarga. Aks holda 81-chi xabardan boshlab HAR safar model chaqirilardi.
+HISTORY_SUMMARY_BATCH: int = 20
+# ⛔️ Oxirgi himoya. Xulosa yozish ishlamay qolsa (model yo'q, kvota
+# tugagan) xabarlar O'CHIRILMAYDI — ma'lumot yo'qotgandan ko'ra jadval
+# o'ssin. Lekin cheksiz o'sishiga ham yo'l qo'yib bo'lmaydi: shu chegaradan
+# oshsa eski xatti-harakat qaytadi va eskisi xulosasiz o'chadi.
+HISTORY_HARD_LIMIT: int = 200
 # 4 soniya YETMAYDI: 10 ta so'rov bir vaqtda ketadi va yangi hostga
 # ulanish + TLS shu chegaraga sig'may qolardi. Commons rasmlari
 # aynan shu tufayli "o'lik" deb tashlanardi (aslida 0.2s da javob

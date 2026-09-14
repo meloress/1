@@ -337,6 +337,19 @@ Whatever the model writes into a tool call reaches the database. Validation live
 ### Two kinds of memory
 
 - **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.
+- **Compressed tail** (`chat_summaries`, one row per chat) — what fell out of the 80-message window. It used to be plain `DELETE`: a long conversation lost its beginning permanently and the bot never said so, which reads as "the bot forgot me". Now the rows are summarised before they go.
+
+  ⛔️ **Order is the safety property.** `_compress_old()` fetches the summary, saves it, and deletes the raw rows **only after** that succeeded. `summarize_history_chunk()` returns an empty string on any failure — never raises — and an empty string means *keep the rows and retry on the next message*. Written the other way round, the fix would reproduce the very bug it repairs. `HISTORY_HARD_LIMIT` (200) is the backstop: if summarising stays broken the table would grow forever, so past that point the old unsummarised trim returns.
+
+  Compression runs in a background task (the user's reply must not wait on it), batched at `HISTORY_SUMMARY_BATCH` (20) so the model is called once per 20 messages rather than on every message past 80, and guarded by a per-chat `asyncio.Lock` — two quick messages would otherwise both summarise the same rows.
+
+  ⚠️ `HISTORY_SUMMARY_MODEL` is deliberately a **mini** model. OpenAI's free allowance is two separate buckets: big models ~250k tokens/day, mini ~2.5M — ten times larger (`tests/test_free_models.py` holds both lists). Summarising is mechanical work; taking it from the big bucket would eat the room the actual answers need. `tests/test_history_summary.py` check 14 pins this.
+
+  The summary reaches the model as a `developer` message placed **before** the raw history — it is the older part, and appended after it the model read it as the latest thing said. It must stay out of `instructions` for the usual reason: per-user content there poisons the prompt cache for everyone. The wrapper text tells the model the block is compressed and not to quote it; without that it said "you told me…" and quoted a summary line as if verbatim.
+
+  `clear_history()` deletes the summary too. Without that `/new` would be a lie — the user is told the history is cleared while the bot keeps using the compressed version.
+
+  On token cost, be honest about the shape: measured on a live call, 7 short messages summarised to 91 tokens against 88 raw — i.e. **no saving at all on short exchanges**. The win is that raw history grows without bound (the Railway log shows 0 → ~8 200) while the summary is capped at `HISTORY_SUMMARY_MAX_CHARS` (1 200 chars ≈ 300 tokens). It is a ceiling, not a discount, and the primary reason to have it is that the conversation stops being lost.
 - **Long-term memory** (`user_memories`) — facts the model chose to keep, category-prefixed (`ism:`, `kasb:`, …). Survives `/new`. Available on every tariff.
 
 History used to live in SQLite; Railway wipes the container filesystem on every deploy, so each deploy reset every user's context. It is Postgres now — do not move it back to a file.

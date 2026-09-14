@@ -37,6 +37,7 @@ try:
         build_system_prompt, build_request_params, pick_reasoning_effort,
         SEARCH_IMAGE_MAX, SEARCH_IMAGE_CANDIDATES, SEARCH_IMAGE_HEAD_TIMEOUT,
         SEARCH_IMAGE_DEFAULT, SEARCH_IMAGE_PICK_MODEL, SEARCH_IMAGE_PICK_TIMEOUT,
+        HISTORY_SUMMARY_MODEL, HISTORY_SUMMARY_MAX_CHARS,
         SEARCH_IMAGE_SAFESEARCH, SEARCH_COMMONS_UA, SEARCH_COMMONS_TIMEOUT,
         SEARCH_IMAGE_MAX_BYTES, SEARCH_IMAGE_GALLERY_MIN,
         SEARCH_IMAGE_COLLAGE_MAX, TEXT_CUSTOM_EMOJI, TEXT_CUSTOM_EMOJI_MAX,
@@ -64,6 +65,8 @@ except ImportError:
     SEARCH_IMAGE_CANDIDATES = 20
     SEARCH_IMAGE_PICK_MODEL = "gpt-4.1-mini"
     SEARCH_IMAGE_PICK_TIMEOUT = 25
+    HISTORY_SUMMARY_MODEL = "gpt-4.1-mini"
+    HISTORY_SUMMARY_MAX_CHARS = 1200
     SEARCH_IMAGE_HEAD_TIMEOUT = 4
     SEARCH_IMAGE_MAX_BYTES = 10 * 1024 * 1024
     SEARCH_IMAGE_GALLERY_MIN = 2
@@ -138,6 +141,94 @@ async def safe_update_history(chat_id: int, content: str, role: str = "user",
         # Xabar HECH QAYERGA saqlanmagani keyingi javoblarda kontekst
         # yo'qolishiga bevosita olib keladi, shuning uchun warning.
         logger.warning(f"[Tarix yozish xatosi] chat={chat_id}, role={role}: {e}")
+
+_SUMMARY_PROMPT = (
+    "Siz suhbat arxivchisisiz. Quyida bitta suhbatning ESKI qismi "
+    "berilgan (va agar bo'lsa, undan ham oldingi xulosa). Ularni BITTA "
+    "qisqa xulosaga birlashtiring.\n\n"
+    "QOIDALAR:\n"
+    "- Faqat KEYIN KERAK BO'LADIGAN narsani saqlang: foydalanuvchi "
+    "haqidagi faktlar, qabul qilingan qarorlar, berilgan raqamlar va "
+    "nomlar, tugallanmagan ishlar.\n"
+    "- Tashlang: salomlashish, rahmat, takror, botning uzun "
+    "tushuntirishlari.\n"
+    "- Foydalanuvchi qaysi tilda gaplashgan bo'lsa, o'sha tilda yozing.\n"
+    "- Uchinchi shaxsda, qisqa bandlar bilan: «Foydalanuvchi ... ».\n"
+    f"- ENG MUHIMI: javob {HISTORY_SUMMARY_MAX_CHARS} belgidan "
+    "OSHMASIN. Joy yetmasa eng eski va eng ahamiyatsizini tashlang.\n"
+    "- Faqat xulosaning o'zini yozing, hech qanday muqaddima yo'q."
+)
+
+
+async def summarize_history_chunk(old_summary: str, rows: List[Dict]) -> str:
+    """Eski xabarlarni (va avvalgi xulosani) bitta xulosaga siqadi.
+
+    ⚠️ BO'SH SATR = MUVAFFAQIYATSIZLIK. Chaqiruvchi shunda eski
+    xabarlarni O'CHIRMAYDI. Bu ataylab: xulosa chiqmaganda ham o'chirib
+    yuborsak, tuzatishning o'zi ma'lumot yo'qotadigan bo'lib qolardi —
+    ya'ni tuzatayotgan nosozligimizni takrorlardik.
+    """
+    if not rows:
+        return old_summary or ""
+
+    parts = []
+    if old_summary:
+        parts.append(f"[AVVALGI XULOSA]\n{old_summary}")
+    parts.append("[ESKI XABARLAR]\n" + "\n".join(
+        f"{'Foydalanuvchi' if r.get('role') == 'user' else 'Bot'}: "
+        f"{(r.get('content') or '')[:1500]}"
+        for r in rows))
+
+    try:
+        resp = await asyncio.wait_for(
+            openai_client.responses.create(
+                model=HISTORY_SUMMARY_MODEL,
+                instructions=_SUMMARY_PROMPT,
+                input=[{"role": "user", "content": "\n\n".join(parts)}],
+                store=False,
+            ),
+            timeout=60,
+        )
+        matn = (resp.output_text or "").strip()
+    except Exception as e:
+        # `asyncio.TimeoutError` ning str() si BO'SH — rasm tanlovchisida
+        # aynan shu sabab log qatori hech nima demasdi.
+        sabab = str(e) or type(e).__name__
+        logger.warning(f"[XOTIRA] xulosa yozilmadi ({len(rows)} xabar): {sabab}")
+        return ""
+
+    if not matn:
+        logger.warning("[XOTIRA] model bo'sh xulosa qaytardi")
+        return ""
+    # Model chegarani buzsa ham jadval o'smasin — kesib qo'yamiz.
+    return matn[:HISTORY_SUMMARY_MAX_CHARS]
+
+
+async def safe_history_summary_message(chat_id: int) -> Optional[Dict[str, str]]:
+    """Oynadan chiqqan suhbatning siqilgan shakli — `developer` xabari.
+
+    ⚠️ `instructions` GA EMAS. Uning mazmuni har foydalanuvchida boshqacha,
+    ya'ni u yerga qo'yilsa prompt keshi HAMMA uchun buzilardi (uzoq muddatli
+    xotira ham aynan shu sababdan `messages` ichida yuboriladi).
+    """
+    try:
+        from db.history import get_chat_summary
+        matn = await get_chat_summary(chat_id)
+    except Exception as e:
+        logger.warning(f"[XOTIRA] xulosa o'qilmadi chat={chat_id}: {e}")
+        return None
+    if not matn:
+        return None
+    return {
+        "role": "developer",
+        # Modelga bu ESKI va SIQILGAN ekanini aytish shart: aks holda u
+        # xulosadagi jumlani foydalanuvchining hozirgi so'zi deb o'qib,
+        # "siz aytgandingiz" deya so'zma-so'z iqtibos keltirardi.
+        "content": ("[SUHBATNING OLDINGI QISMI — siqilgan xulosa, so'zma-so'z "
+                    "emas. Kontekst uchun ishlating, iqtibos qilmang va "
+                    "foydalanuvchiga xulosa borligini aytmang.]\n" + matn),
+    }
+
 
 async def safe_get_chat_history(chat_id: int, limit: int = CONTEXT_WINDOW) -> List[Dict[str, str]]:
     try:
@@ -2041,6 +2132,12 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     # shunda foydalanuvchi rasm haqida davom etuvchi savol bersa
     # ("bu yerdagi ikkinchi odam-chi?"), model buni oldingi rasm/suhbat
     # bilan bog'lay oladi.
+    # Rasm yo'lida ham eski suhbatning xulosasi kerak — foydalanuvchi
+    # rasm bilan "o'sha mashinami?" deb so'rasa, javob oldingi suhbatda.
+    xulosa_msg = await safe_history_summary_message(chat_id)
+    if xulosa_msg:
+        messages.append(xulosa_msg)
+
     recent = await safe_get_chat_history(chat_id, limit=CONTEXT_WINDOW)
     for m in recent:
         if "role" in m and "content" in m:
@@ -3782,6 +3879,13 @@ async def get_openai_reply(
     mem_rows, mem_msg = await _memory_context(user_id, tg_name=tg_name)
     if mem_msg:
         messages.append(mem_msg)
+
+    # ⚠️ XULOSA XOM XABARLARDAN OLDIN. U suhbatning ESKI qismi, ya'ni
+    # vaqt bo'yicha ham oldin turadi. Keyin qo'yilsa model uni eng
+    # so'nggi gap deb o'qib, allaqachon hal qilingan mavzuga qaytardi.
+    xulosa_msg = await safe_history_summary_message(chat_id)
+    if xulosa_msg:
+        messages.append(xulosa_msg)
 
     # Pro imkoniyati: 3× uzun xotira (50 -> 150). Saqlash hamma uchun bir xil, farq
     # faqat modelga nechta xabar ko'rsatilishida (db/history.py izohi).
