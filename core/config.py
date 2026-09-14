@@ -1042,6 +1042,12 @@ HISTORY_SUMMARY_BATCH: int = 20
 # o'ssin. Lekin cheksiz o'sishiga ham yo'l qo'yib bo'lmaydi: shu chegaradan
 # oshsa eski xatti-harakat qaytadi va eskisi xulosasiz o'chadi.
 HISTORY_HARD_LIMIT: int = 200
+# «Bu suhbat uzayib ketdi» ogohlantirishi shuncha xabar SIQILGANDAN keyin
+# bir marta beriladi. O'lchov aynan `chat_summaries.covered` — u faqat
+# o'sadi, xom qatorlar soni esa siqilgach qaytib tushadi, ya'ni COUNT(*)
+# bu chegaraga hech qachon yetmasdi. 120 + jonli 80 lik oyna ≈ 200 xabar,
+# ya'ni haqiqatan uzun suhbat.
+HISTORY_LONG_WARN_AT: int = 120
 # 4 soniya YETMAYDI: 10 ta so'rov bir vaqtda ketadi va yangi hostga
 # ulanish + TLS shu chegaraga sig'may qolardi. Commons rasmlari
 # aynan shu tufayli "o'lik" deb tashlanardi (aslida 0.2s da javob

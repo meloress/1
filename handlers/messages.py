@@ -49,10 +49,56 @@ from services.ai import (
     strip_custom_emoji, code_fences_to_html, strip_internal_names,
 )
 
+from db.history import take_long_warning
+
 router = Router()
 chat_last_interaction = {}
 
 SESSION_TIMEOUT = 86400
+
+# main.py getMe() dan to'ldiradi. Mavzu (topic) rejimi @BotFather Mini
+# App'dagi tugma bilan yoqiladi, koddan emas — shuning uchun bot uni
+# faqat o'qiy oladi. Bu bayroq FAQAT matn tanlash uchun: "yangi mavzu
+# oching" deyishdan oldin mavzu ocholishiga ishonch hosil qilamiz.
+TOPICS_ENABLED = False
+
+
+def _thread_key(message) -> int:
+    """Shu xabar qaysi suhbatga tegishli — mavzu (topic) identifikatori.
+
+    ⚠️ `is_topic_message` SHARTI ATAYLAB: aiogram'ning o'zi
+    `message.answer()` da aynan shu shartni ishlatadi
+    (`message_thread_id if is_topic_message else None`). Ikki joyda ikki
+    xil shart bo'lsa, javob bir mavzuga ketib, tarix boshqasiga
+    yozilardi — ya'ni bot o'z javobini keyingi savolda ko'rmasdi.
+
+    0 = mavzusiz chat. Topic rejimi o'chiq bo'lganda hamma narsa aynan
+    shu qiymatda qoladi, ya'ni bugungi xatti-harakat o'zgarmaydi.
+    """
+    if not getattr(message, "is_topic_message", False):
+        return 0
+    return getattr(message, "message_thread_id", None) or 0
+
+
+async def _maybe_warn_long(message, thread_id: int = 0) -> None:
+    """«Bu suhbat uzayib ketdi» — bir marta, javobdan keyin.
+
+    Bayroqni fon vazifasi (db/history.py::_compress_old) qo'yadi, bu
+    yerda esa faqat RAMdan o'qiladi — javob yo'lida qo'shimcha baza
+    so'rovi bo'lmasligi uchun.
+    """
+    if not take_long_warning(message.chat.id, thread_id):
+        return
+    yol = ("yangi mavzu (topic) oching"
+           if TOPICS_ENABLED else "/new yozing")
+    try:
+        await message.answer(
+            "💭 <i>Bu suhbat ancha uzayib ketdi — eng eski qismini "
+            f"qisqartirib saqlayapman. Yangi mavzu uchun {yol}, "
+            "shunda javoblarim aniqroq bo'ladi.</i>",
+            parse_mode="HTML")
+    except Exception:
+        pass
 
 
 # --------------------------------------------------
@@ -618,7 +664,8 @@ async def _send_output_files_rich(chat_id: int, output_files: list,
     return True
 
 
-async def _send_output_files(chat_id: int, output_files: list) -> None:
+async def _send_output_files(chat_id: int, output_files: list,
+                             thread_id: int = 0) -> None:
     """run_python_sandbox yaratgan fayllarni foydalanuvchiga yuboradi.
 
     Bitta fayldagi xato qolganlarini to'xtatmaydi va jim qolmaydi —
@@ -634,10 +681,16 @@ async def _send_output_files(chat_id: int, output_files: list) -> None:
     # Avval bitta tartibli rich xabarga urinamiz (2+ fayl bo'lganda).
     # Rad etilsa — pastdagi eski, fayl-ba-fayl yo'l ishlaydi.
     try:
-        if await _send_output_files_rich(chat_id, output_files):
+        if await _send_output_files_rich(chat_id, output_files,
+                                         message_thread_id=thread_id or None):
             return
     except Exception as e:
         logger.warning(f"[Fayl] rich to'plamda xatolik, alohida yuboriladi: {e}")
+
+    # ⚠️ Bu yerda `message.answer()` emas, xom `bot.send_*` ishlatiladi —
+    # ya'ni aiogram mavzuni O'ZI qo'shib bermaydi. Busiz natija fayllari
+    # savol berilgan mavzuga emas, chatning asosiy oqimiga tushardi.
+    mavzu = {"message_thread_id": thread_id} if thread_id else {}
 
     last_sent: tuple[str, bytes] | None = None
     for filename, content in output_files:
@@ -648,6 +701,7 @@ async def _send_output_files(chat_id: int, output_files: list) -> None:
                     chat_id,
                     f"⚠️ «{filename}» fayli 50 MB Telegram chegarasidan katta "
                     "bo'lgani uchun yuborib bo'lmadi.",
+                    **mavzu,
                 )
             except Exception:
                 pass
@@ -660,19 +714,22 @@ async def _send_output_files(chat_id: int, output_files: list) -> None:
         if (filename.lower().endswith(_PHOTO_EXTENSIONS)
                 and len(content) <= MAX_TELEGRAM_PHOTO_SIZE):
             try:
-                await bot.send_photo(chat_id, BufferedInputFile(content, filename=filename))
+                await bot.send_photo(chat_id, BufferedInputFile(content, filename=filename),
+                                     **mavzu)
                 last_sent = (filename, content)
                 continue
             except Exception as e:
                 logger.warning(f"Rasmni photo sifatida yuborib bo'lmadi ({filename}): {e}")
 
         try:
-            await bot.send_document(chat_id, BufferedInputFile(content, filename=filename))
+            await bot.send_document(chat_id, BufferedInputFile(content, filename=filename),
+                                    **mavzu)
             last_sent = (filename, content)
         except Exception as e:
             logger.warning(f"Natija faylni yuborib bo'lmadi ({filename}): {e}")
             try:
-                await bot.send_message(chat_id, f"⚠️ «{filename}» faylini yuborishda xatolik yuz berdi.")
+                await bot.send_message(chat_id, f"⚠️ «{filename}» faylini yuborishda xatolik yuz berdi.",
+                                       **mavzu)
             except Exception:
                 pass
 
@@ -1482,7 +1539,8 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     # Uzun kod — matndan keyin alohida fayl(lar) bo'lib boradi.
     if kod_fayllar:
         try:
-            await _send_output_files(message.chat.id, kod_fayllar)
+            await _send_output_files(message.chat.id, kod_fayllar,
+                                     _thread_key(message))
         except Exception as e:
             logger.warning(f"[Kod fayl] yuborilmadi (chat={message.chat.id}): {e}")
 
@@ -1502,25 +1560,32 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 # --------------------------------------------------
 # XOTIRANI AVTOMATIK TOZALASH
 # --------------------------------------------------
-async def check_and_clear_session(chat_id: int):
+async def check_and_clear_session(chat_id: int, thread_id: int = 0):
+    """⚠️ Faqat SHU mavzuni tozalaydi. `thread_id=None` (hammasi) ATAYLAB
+    berilmaydi: bir mavzuda sukut saqlagan odamning boshqa mavzudagi
+    suhbatlarini ham o'chirish — mavzuning butun ma'nosini yo'qotardi."""
+    # Oxirgi faollik ham mavzu bo'yicha sanaladi, aks holda faol bitta
+    # mavzu qolgan hammasini "tirik" ko'rsatib turardi.
+    key = (chat_id, thread_id)
     now = time.time()
-    last_time = chat_last_interaction.get(chat_id, now)
+    last_time = chat_last_interaction.get(key, now)
 
     if now - last_time > SESSION_TIMEOUT:
         forget_sent_images(chat_id)
         forget_location(chat_id)
-        await clear_chat_history(chat_id)
+        await clear_chat_history(chat_id, thread_id=thread_id)
         try:
             msg = await bot.send_message(
                 chat_id,
                 "🧹 <i>Suhbat xotirasi yangilandi.</i>",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                **({"message_thread_id": thread_id} if thread_id else {}),
             )
             asyncio.create_task(delete_msg_later(chat_id, msg.message_id, 5))
         except Exception:
             pass
 
-    chat_last_interaction[chat_id] = now
+    chat_last_interaction[key] = now
 
 
 async def delete_msg_later(chat_id: int, message_id: int, delay: int):
@@ -2015,13 +2080,20 @@ async def handle_text(message: Message, state: FSMContext):
     text_str = message.text.strip()
 
     if text_str.lower() in ["/new", "/clear", "yangi suhbat"]:
+        # ⚠️ FAQAT SHU MAVZU tozalanadi. Mavzular ayrim suhbat bo'lgani
+        # uchun, bittasida /new bosgan odam qolganlarini yo'qotsa, bu
+        # ma'lumot yo'qotish bo'lardi va bot buni aytmasdi ham.
+        thread_id = _thread_key(message)
         clear_text_merge_buffer(chat_id)
         clear_pending_file(chat_id)
         forget_sent_images(chat_id)
         forget_location(chat_id)
-        await clear_chat_history(chat_id)
-        chat_last_interaction[chat_id] = time.time()
-        await message.answer("🧹 Xotira tozalandi! Mutlaqo yangi mavzuda suhbatlashishimiz mumkin.")
+        await clear_chat_history(chat_id, thread_id=thread_id)
+        chat_last_interaction[(chat_id, thread_id)] = time.time()
+        await message.answer(
+            "🧹 Bu mavzudagi xotira tozalandi! Mutlaqo yangi mavzuda "
+            "suhbatlashishimiz mumkin." if thread_id else
+            "🧹 Xotira tozalandi! Mutlaqo yangi mavzuda suhbatlashishimiz mumkin.")
         return
 
     track_user_activity(user_id, message.from_user.username, "text_message")
@@ -2130,7 +2202,8 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         await _send_limit_reached_message(last_message, quota, feature="text")
         return
 
-    await check_and_clear_session(chat_id)
+    thread_id = _thread_key(last_message)
+    await check_and_clear_session(chat_id, thread_id)
     await state.set_state(GeneratingState.generating)
 
     try:
@@ -2191,11 +2264,12 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
                                    images_out=images,
                                    is_pro=_is_pro(quota),
                                    tg_name=last_message.from_user.full_name,
+                                   thread_id=thread_id,
                                    **file_kwargs)
         full_reply = await process_stream_draft(last_message, stream_gen, images=images)
 
         if output_files:
-            await _send_output_files(chat_id, output_files)
+            await _send_output_files(chat_id, output_files, thread_id)
         await _after_file_task(last_message, file_quota_box, bool(output_files))
 
         # ⚠️ HECH NARSA YETKAZILMAGAN bo'lsa ball qaytariladi. Bu holat
@@ -2209,11 +2283,13 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         if full_reply:
             notify_watchers(user_id, last_message.from_user.username, "out", text=full_reply)
             try:
-                await safe_update_history(chat_id, merged_text, role="user")
+                await safe_update_history(chat_id, merged_text, role="user",
+                                          thread_id=thread_id)
                 await safe_update_history(chat_id, full_reply, role="assistant",
-                                          images=images)
+                                          images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - matn] chat={chat_id}: {e}")
+            await _maybe_warn_long(last_message, thread_id)
 
     except Exception as e:
         logger.error(f"[Text Error] {e}")
@@ -2303,7 +2379,8 @@ async def handle_research(message: Message, state: FSMContext,
 
     track_user_activity(user_id, message.from_user.username, "research")
     notify_watchers(user_id, message.from_user.username, "in", text=f"/research {topic}")
-    await check_and_clear_session(chat_id)
+    thread_id = _thread_key(message)
+    await check_and_clear_session(chat_id, thread_id)
     await state.set_state(GeneratingState.generating)
 
     output_files: list = []
@@ -2319,22 +2396,25 @@ async def handle_research(message: Message, state: FSMContext,
             images_out=images,
             is_pro=True,
             research=True,
+            thread_id=thread_id,
         )
         full_reply = await process_stream_draft(message, stream_gen,
                                                 content_type="research", images=images)
 
         if output_files:
-            await _send_output_files(chat_id, output_files)
+            await _send_output_files(chat_id, output_files, thread_id)
 
         if full_reply:
             quota.mark_success()
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
-                await safe_update_history(chat_id, f"[Tadqiqot]: {topic}", role="user")
+                await safe_update_history(chat_id, f"[Tadqiqot]: {topic}", role="user",
+                                          thread_id=thread_id)
                 await safe_update_history(chat_id, full_reply, role="assistant",
-                                          images=images)
+                                          images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - tadqiqot] chat={chat_id}: {e}")
+            await _maybe_warn_long(message, thread_id)
     except Exception as e:
         logger.error(f"[Research Error] {e}")
         await message.answer(
@@ -2358,7 +2438,8 @@ async def handle_photo(message: Message, state: FSMContext):
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
     asyncio.create_task(process_daily_pin(message))
 
-    await check_and_clear_session(chat_id)
+    thread_id = _thread_key(message)
+    await check_and_clear_session(chat_id, thread_id)
 
     quota = await _check_quota(user_id, MESSAGE_COST_PHOTO)
     if not quota["allowed"]:
@@ -2399,25 +2480,29 @@ async def handle_photo(message: Message, state: FSMContext):
                                       is_pro=_is_pro(quota), user_id=user_id,
                                       tg_name=message.from_user.full_name,
                                       output_files=output_files,
-                                      file_quota_out=file_quota_box)
+                                      file_quota_out=file_quota_box,
+                                      thread_id=thread_id)
         full_reply = await process_stream_draft(message, stream_gen, content_type="photo")
 
         # Tahrirlangan rasm shu yerda yuboriladi va `produced=True` bilan
         # eslab qolinadi — «yana biroz yorqinroq qil» zanjiri shu bilan
         # ishlaydi.
         if output_files:
-            await _send_output_files(chat_id, output_files)
+            await _send_output_files(chat_id, output_files, thread_id)
         await _after_file_task(message, file_quota_box, bool(output_files))
 
         if full_reply:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
-                await safe_update_history(chat_id, f"[Rasm yuborildi]: {caption}", role="user")
+                await safe_update_history(chat_id, f"[Rasm yuborildi]: {caption}",
+                                          role="user", thread_id=thread_id)
                 # Vision yo'lida internetdan rasm qidirilmaydi (get_vision_reply
                 # bir raundli va unda qidiruv tooli yo'q) — `images` ham yo'q.
-                await safe_update_history(chat_id, full_reply, role="assistant")
+                await safe_update_history(chat_id, full_reply, role="assistant",
+                                          thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - rasm] chat={chat_id}: {e}")
+            await _maybe_warn_long(message, thread_id)
 
     except Exception as e:
         logger.error(f"Rasm xatosi: {str(e)}")
@@ -2440,7 +2525,8 @@ async def handle_document(message: Message, state: FSMContext):
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
     asyncio.create_task(process_daily_pin(message))
 
-    await check_and_clear_session(chat_id)
+    thread_id = _thread_key(message)
+    await check_and_clear_session(chat_id, thread_id)
 
     # Qattiq shift — tarifdan qat'i nazar: Telegram Bot API 20 MB dan
     # kattasini yuklab olishga umuman ruxsat bermaydi.
@@ -2550,12 +2636,13 @@ async def handle_document(message: Message, state: FSMContext):
             images_out=images,
             is_pro=_is_pro(quota),
             tg_name=message.from_user.full_name,
+            thread_id=thread_id,
         )
         full_reply = await process_stream_draft(message, stream_gen,
                                                 content_type="document", images=images)
 
         if output_files:
-            await _send_output_files(chat_id, output_files)
+            await _send_output_files(chat_id, output_files, thread_id)
         await _after_file_task(message, file_quota_box, bool(output_files))
 
         # Hech narsa yetkazilmadi — ball qaytariladi (to'xtatish tugmasi
@@ -2566,11 +2653,13 @@ async def handle_document(message: Message, state: FSMContext):
         if full_reply:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
-                await safe_update_history(chat_id, f"[Fayl yuborildi: {file_name}]: {caption}", role="user")
+                await safe_update_history(chat_id, f"[Fayl yuborildi: {file_name}]: {caption}",
+                                          role="user", thread_id=thread_id)
                 await safe_update_history(chat_id, full_reply, role="assistant",
-                                          images=images)
+                                          images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - hujjat] chat={chat_id}: {e}")
+            await _maybe_warn_long(message, thread_id)
 
     except Exception as e:
         logger.error(f"Hujjat xatosi: {str(e)}")
@@ -2621,9 +2710,10 @@ async def handle_location(message: Message, state: FSMContext):
         return
     track_user_activity(message.from_user.id,
                         message.from_user.username, "location_message")
-    await check_and_clear_session(chat_id)
+    thread_id = _thread_key(message)
+    await check_and_clear_session(chat_id, thread_id)
     remember_location(chat_id, loc.latitude, loc.longitude)
-    chat_last_interaction[chat_id] = time.time()
+    chat_last_interaction[(chat_id, thread_id)] = time.time()
     # ⚠️ JOYLASHUV SUHBATGA XABAR BO'LIB KIRADI, tayyor kartochka bilan
     # javob berilmaydi. Avval shunday edi va u JONLI XATO berdi: kartochka
     # tarixga tushmaydi, ya'ni model uchun ko'rinmas. Model ekranda
@@ -2646,7 +2736,8 @@ async def handle_voice(message: Message, state: FSMContext):
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
     asyncio.create_task(process_daily_pin(message))
 
-    await check_and_clear_session(chat_id)
+    thread_id = _thread_key(message)
+    await check_and_clear_session(chat_id, thread_id)
 
     quota = await _check_quota(user_id, MESSAGE_COST_VOICE)
     if not quota["allowed"]:
@@ -2691,12 +2782,13 @@ async def handle_voice(message: Message, state: FSMContext):
                                    file_quota_out=file_quota_box,
                                    images_out=images,
                                    is_pro=_is_pro(quota),
-                                   tg_name=message.from_user.full_name)
+                                   tg_name=message.from_user.full_name,
+                                   thread_id=thread_id)
         full_reply_text = await process_stream_draft(message, stream_gen,
                                                      content_type="voice", images=images)
 
         if output_files:
-            await _send_output_files(chat_id, output_files)
+            await _send_output_files(chat_id, output_files, thread_id)
         await _after_file_task(message, file_quota_box, bool(output_files))
 
         # Javob umuman chiqmadi — ovoz ham sintez qilinmaydi, ball
@@ -2709,11 +2801,13 @@ async def handle_voice(message: Message, state: FSMContext):
         if full_reply_text:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply_text)
             try:
-                await safe_update_history(chat_id, user_text, role="user")
+                await safe_update_history(chat_id, user_text, role="user",
+                                          thread_id=thread_id)
                 await safe_update_history(chat_id, full_reply_text, role="assistant",
-                                          images=images)
+                                          images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - ovoz] chat={chat_id}: {e}")
+            await _maybe_warn_long(message, thread_id)
 
         try:
             await bot.send_chat_action(chat_id, "record_voice")

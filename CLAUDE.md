@@ -32,6 +32,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   it proves that when summarising fails (empty result, model error, exception) the raw
   messages are **not** deleted. Get that backwards and the repair silently destroys the
   conversations it exists to save. Runs with a fake pool, no DB and no network.
+- `test_topics.py` — the two silent failures of per-topic conversations: a reply
+  going to one topic while its history is written to another (the bot then cannot see
+  its own answer, and nothing logs), and result files landing in the chat's main flow
+  instead of the topic. Pins `_thread_key()` to aiogram's own `is_topic_message`
+  condition. Runs offline.
 - `test_voice_status.py` — the TTS status indicator cleans up on every exit path
   (draft emptied, group message deleted, and both still done when the body raises). An
   abandoned draft hangs on screen and kills the next animation.
@@ -349,7 +354,7 @@ Whatever the model writes into a tool call reaches the database. Validation live
 
 ### Two kinds of memory
 
-- **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.
+- **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Keyed on `(chat_id, thread_id)`, see the Topics section. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.
 - **Compressed tail** (`chat_summaries`, one row per chat) — what fell out of the 80-message window. It used to be plain `DELETE`: a long conversation lost its beginning permanently and the bot never said so, which reads as "the bot forgot me". Now the rows are summarised before they go.
 
   ⛔️ **Order is the safety property.** `_compress_old()` fetches the summary, saves it, and deletes the raw rows **only after** that succeeded. `summarize_history_chunk()` returns an empty string on any failure — never raises — and an empty string means *keep the rows and retry on the next message*. Written the other way round, the fix would reproduce the very bug it repairs. `HISTORY_HARD_LIMIT` (200) is the backstop: if summarising stays broken the table would grow forever, so past that point the old unsummarised trim returns.
@@ -362,10 +367,64 @@ Whatever the model writes into a tool call reaches the database. Validation live
 
   `clear_history()` deletes the summary too. Without that `/new` would be a lie — the user is told the history is cleared while the bot keeps using the compressed version.
 
+  `chat_summaries.covered` counts how many messages have ever been compressed away. It
+  only grows, while the raw row count falls back after every compression — which is why
+  the "this conversation is long" hint (`HISTORY_LONG_WARN_AT`) is measured against
+  `covered` and not against `COUNT(*)`, a number that never reaches the threshold.
+  `_compress_old()` sets a RAM flag when it crosses, and `take_long_warning()` takes it
+  once; the reply path must not pay a DB query for a hint.
+
   On token cost, be honest about the shape: measured on a live call, 7 short messages summarised to 91 tokens against 88 raw — i.e. **no saving at all on short exchanges**. The win is that raw history grows without bound (the Railway log shows 0 → ~8 200) while the summary is capped at `HISTORY_SUMMARY_MAX_CHARS` (1 200 chars ≈ 300 tokens). It is a ceiling, not a discount, and the primary reason to have it is that the conversation stops being lost.
 - **Long-term memory** (`user_memories`) — facts the model chose to keep, category-prefixed (`ism:`, `kasb:`, …). Survives `/new`. Available on every tariff.
 
 History used to live in SQLite; Railway wipes the container filesystem on every deploy, so each deploy reset every user's context. It is Postgres now — do not move it back to a file.
+
+### Topics: one chat, several conversations
+
+Telegram allows forum topics **inside a private chat** (Bot API 9.4), and each topic is
+a separate conversation. So the history layer is keyed on `(chat_id, thread_id)`, not on
+`chat_id` — `thread_id = 0` means "no topic", which is exactly what a bot with topic
+mode off produces, so nothing changed for existing chats and existing rows migrated to
+`0`.
+
+`thread_id` is a **default argument** on every history function and on
+`get_openai_reply` / `get_vision_reply` / `get_gpt_reply`. That is what kept the change
+small: only the five reply paths in `handlers/messages.py` pass it, everything else
+(guest, digest, helpers) keeps working untouched.
+
+⚠️ **`_thread_key()` must match aiogram's own condition, exactly.** aiogram fills
+`message.answer*()` with `message_thread_id if is_topic_message else None`, so the helper
+uses the same test. Two different conditions and the reply lands in one topic while its
+history is written to another — the bot then cannot see its own last answer, nothing
+raises, nothing logs, and the user reads it as "the bot isn't listening". A forum
+group's General thread is the case that separates them: it carries a
+`message_thread_id` but `is_topic_message` is `False`.
+
+`message.answer()`, `answer_voice()` and `answer_document()` therefore need **no code at
+all** — aiogram routes them. The raw `bot.send_*` calls do not, and
+`_send_output_files()` is the one that matters: without the explicit
+`message_thread_id`, a generated PPTX arrives in the chat's main flow while the
+conversation that asked for it sits in a topic.
+
+`/new` clears **only the topic it was typed in**. `clear_history(thread_id=None)` is the
+"all topics" form and is deliberately reserved for wiping a user completely —
+`check_and_clear_session()` does not use it, because expiring one quiet topic must not
+take the others with it. `chat_last_interaction` is keyed by the pair for the same
+reason.
+
+⛔️ **Turning it on is a @BotFather Mini App toggle, not code.** `getMe` exposes
+`has_topics_enabled` and `allows_users_to_create_topics`; `main.py` reads the first into
+`messages.TOPICS_ENABLED`, which only picks the wording of the "this conversation is
+long" hint — telling someone to open a topic they cannot open is worse than saying
+nothing. Test on a **second bot** before flipping it on the live one: the section below
+is what happens when a BotFather toggle is trusted without a live test. The specific
+thing to verify is that `sendRichMessageDraft` works inside a topic, since the whole
+streaming animation and the stop button are built on it.
+
+Topic creation, renaming and deletion are left to Telegram's own UI on purpose. There is
+no `forum_topic_deleted` update, but nothing needs one: nobody can send into a deleted
+topic, so its rows just become unreachable. A `/suhbatlar` list was considered and
+dropped — the native topic tabs already are that list.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

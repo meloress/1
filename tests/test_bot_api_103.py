@@ -184,7 +184,7 @@ check("14c", "aloqasiz rasm TASHLANADI (rasmsiz — aloqasizdan yaxshiroq)",
 _yozilgan: list = []
 
 
-async def _fake_update(chat_id, content, role="user"):
+async def _fake_update(chat_id, content, role="user", thread_id=0):
     _yozilgan.append((role, content))
 
 

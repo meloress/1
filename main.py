@@ -234,6 +234,24 @@ async def main():
                 "⚠️ Inline rejim YOQILGAN — bu Guest Mode'ni buzadi: "
                 "guruhda @bot bilan yozilgan savol botga yetib bormaydi. "
                 "@BotFather → /setinline o'chiring.")
+
+        # ── MAVZU (topic) REJIMI ────────────────────────────────────
+        # Bu @BotFather Mini App'dagi tugma, koddan yoqib bo'lmaydi —
+        # bot uni faqat O'QIY oladi. Bayroq javob matnini tanlash uchun
+        # kerak: mavzu ocholmaydigan odamga "yangi mavzu oching" deyish
+        # bajarilmaydigan maslahat bo'lardi.
+        #
+        # ⚠️ INLINE DARSI SHU YERDA HAM AMAL QILADI: BotFather tugmasi
+        # bir marta guest mode'ni o'ldirgan. Prod botda yoqishdan oldin
+        # sinov botida to'liq sinang — ayniqsa sendRichMessageDraft
+        # mavzu ichida ishlashini (butun jonli oqim shunga qurilgan).
+        messages_module.TOPICS_ENABLED = bool(
+            getattr(me, "has_topics_enabled", False))
+        logger.info(
+            f"Mavzu (topic) rejimi: "
+            f"{'YOQILGAN' if messages_module.TOPICS_ENABLED else 'o‘chiq'}; "
+            f"foydalanuvchi mavzu ocha oladimi: "
+            f"{bool(getattr(me, 'allows_users_to_create_topics', False))}")
     except Exception as e:
         logger.warning(f"get_me() muvaffaqiyatsiz — referal havolalari ishlamaydi: {e}")
 

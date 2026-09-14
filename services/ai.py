@@ -114,15 +114,18 @@ from db.database import (
 # YORDAMCHI: TARIX FUNKSIYALARI
 # ─────────────────────────────────────────────────────────────
 
-async def clear_chat_history(chat_id: int):
+async def clear_chat_history(chat_id: int, thread_id: Optional[int] = 0):
+    """`thread_id=None` — chatdagi BARCHA mavzular (faqat to'liq tozalash
+    uchun). `/new` esa o'zi bosilgan mavzunigina o'chiradi."""
     try:
         from db.history import clear_history
-        await clear_history(chat_id)
+        await clear_history(chat_id, thread_id=thread_id)
     except Exception as e:
         logger.error(f"Xotirani tozalashda xatolik: {e}")
 
 async def safe_update_history(chat_id: int, content: str, role: str = "user",
-                              images: Optional[List[dict]] = None):
+                              images: Optional[List[dict]] = None,
+                              thread_id: int = 0):
     if not content:
         return
     # ⚠️ [rasm:N] TARIXGA TUSHMASLIGI KERAK. Bu belgi faqat O'SHA javobdagi
@@ -136,7 +139,8 @@ async def safe_update_history(chat_id: int, content: str, role: str = "user",
     if not content:
         return
     try:
-        await update_chat_history(chat_id, content, role=role)
+        await update_chat_history(chat_id, content, role=role,
+                                  thread_id=thread_id)
     except Exception as e:
         # Xabar HECH QAYERGA saqlanmagani keyingi javoblarda kontekst
         # yo'qolishiga bevosita olib keladi, shuning uchun warning.
@@ -204,7 +208,8 @@ async def summarize_history_chunk(old_summary: str, rows: List[Dict]) -> str:
     return matn[:HISTORY_SUMMARY_MAX_CHARS]
 
 
-async def safe_history_summary_message(chat_id: int) -> Optional[Dict[str, str]]:
+async def safe_history_summary_message(chat_id: int,
+                                       thread_id: int = 0) -> Optional[Dict[str, str]]:
     """Oynadan chiqqan suhbatning siqilgan shakli — `developer` xabari.
 
     ⚠️ `instructions` GA EMAS. Uning mazmuni har foydalanuvchida boshqacha,
@@ -213,7 +218,7 @@ async def safe_history_summary_message(chat_id: int) -> Optional[Dict[str, str]]
     """
     try:
         from db.history import get_chat_summary
-        matn = await get_chat_summary(chat_id)
+        matn = await get_chat_summary(chat_id, thread_id=thread_id)
     except Exception as e:
         logger.warning(f"[XOTIRA] xulosa o'qilmadi chat={chat_id}: {e}")
         return None
@@ -230,10 +235,11 @@ async def safe_history_summary_message(chat_id: int) -> Optional[Dict[str, str]]
     }
 
 
-async def safe_get_chat_history(chat_id: int, limit: int = CONTEXT_WINDOW) -> List[Dict[str, str]]:
+async def safe_get_chat_history(chat_id: int, limit: int = CONTEXT_WINDOW,
+                                thread_id: int = 0) -> List[Dict[str, str]]:
     try:
         from db.history import get_chat_history
-        hist = await get_chat_history(chat_id, limit=limit)
+        hist = await get_chat_history(chat_id, limit=limit, thread_id=thread_id)
         return hist[-limit:] if isinstance(hist, list) else []
     except Exception as e:
         # DIQQAT: bu yerda xatolik "yutilib" bo'sh ro'yxat qaytarilsa,
@@ -2118,7 +2124,11 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
                            user_id: Optional[int] = None,
                            tg_name: Optional[str] = None,
                            output_files: Optional[list] = None,
-                           file_quota_out: Optional[list] = None):
+                           file_quota_out: Optional[list] = None,
+                           # Shaxsiy chatdagi mavzu (topic) — har mavzu
+                           # AYRIM suhbat, ya'ni ayrim tarix va xulosa.
+                           # 0 = mavzusiz chat (topic rejimi o'chiq).
+                           thread_id: int = 0):
     # model=None → build_request_params tarifga qarab o'zi tanlaydi. Ilgari
     # bu yerda default GPT_MODEL edi va Pro foydalanuvchi rasm yuborsa ham
     # bepul modelga tushib qolardi.
@@ -2134,11 +2144,12 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     # bilan bog'lay oladi.
     # Rasm yo'lida ham eski suhbatning xulosasi kerak — foydalanuvchi
     # rasm bilan "o'sha mashinami?" deb so'rasa, javob oldingi suhbatda.
-    xulosa_msg = await safe_history_summary_message(chat_id)
+    xulosa_msg = await safe_history_summary_message(chat_id, thread_id=thread_id)
     if xulosa_msg:
         messages.append(xulosa_msg)
 
-    recent = await safe_get_chat_history(chat_id, limit=CONTEXT_WINDOW)
+    recent = await safe_get_chat_history(chat_id, limit=CONTEXT_WINDOW,
+                                         thread_id=thread_id)
     for m in recent:
         if "role" in m and "content" in m:
             messages.append({"role": m["role"], "content": m["content"]})
@@ -3849,6 +3860,9 @@ async def get_openai_reply(
     research: bool = False,
     tg_name: Optional[str] = None,
     tools_enabled: bool = True,
+    # Shaxsiy chatdagi mavzu (topic). Har mavzu AYRIM suhbat — ayrim
+    # tarix va ayrim xulosa. 0 = mavzusiz chat (topic rejimi o'chiq).
+    thread_id: int = 0,
 ):
     # ⚠️ IMAGE_CAPABILITY_NOTE ataylab FAQAT shu yo'lda. get_vision_reply()
     # bir raundli va unda qidiruv tooli YO'Q — u yerda "rasm yubora olaman"
@@ -3883,14 +3897,15 @@ async def get_openai_reply(
     # ⚠️ XULOSA XOM XABARLARDAN OLDIN. U suhbatning ESKI qismi, ya'ni
     # vaqt bo'yicha ham oldin turadi. Keyin qo'yilsa model uni eng
     # so'nggi gap deb o'qib, allaqachon hal qilingan mavzuga qaytardi.
-    xulosa_msg = await safe_history_summary_message(chat_id)
+    xulosa_msg = await safe_history_summary_message(chat_id, thread_id=thread_id)
     if xulosa_msg:
         messages.append(xulosa_msg)
 
     # Pro imkoniyati: 3× uzun xotira (50 -> 150). Saqlash hamma uchun bir xil, farq
     # faqat modelga nechta xabar ko'rsatilishida (db/history.py izohi).
     recent = await safe_get_chat_history(
-        chat_id, limit=CONTEXT_WINDOW_PRO if is_pro else CONTEXT_WINDOW)
+        chat_id, limit=CONTEXT_WINDOW_PRO if is_pro else CONTEXT_WINDOW,
+        thread_id=thread_id)
     for m in recent:
         if "role" in m and "content" in m:
             messages.append({"role": m["role"], "content": m["content"]})
@@ -4454,10 +4469,12 @@ async def get_gpt_reply(
     research: bool = False,
     tg_name: Optional[str] = None,
     tools_enabled: bool = True,
+    thread_id: int = 0,
 ):
     async for chunk in get_openai_reply(
         chat_id,
         user_message,
+        thread_id=thread_id,
         user_id=user_id,
         input_file_bytes=input_file_bytes,
         input_filename=input_filename,
