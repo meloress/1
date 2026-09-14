@@ -28,6 +28,13 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_url_read.py` — the untrusted-boundary guard on `internet_search(url=…)`: a
   model-written URL must never reach an internal address, and a page that will not open
   must return an explicit error rather than silence. Runs offline (numeric IPs, no DNS).
+- `test_history_summary.py` — the one that matters most if you touch `db/history.py`:
+  it proves that when summarising fails (empty result, model error, exception) the raw
+  messages are **not** deleted. Get that backwards and the repair silently destroys the
+  conversations it exists to save. Runs with a fake pool, no DB and no network.
+- `test_voice_status.py` — the TTS status indicator cleans up on every exit path
+  (draft emptied, group message deleted, and both still done when the body raises). An
+  abandoned draft hangs on screen and kills the next animation.
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
@@ -92,12 +99,18 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 | | tokens |
 |---|---|
 | `instructions` (prompt + concise + image note) | 5 521 |
-| tool schemas (Pro, all three doors closed) | 2 253 |
-| capability manifest | 319 |
-| **fixed total per round** | **8 093** |
-| history | 0 → ~8 200 |
+| tool schemas (Pro, all three doors closed) | 2 393 |
+| capability manifest | 405 |
+| **fixed total per round** | **8 319** |
+| history | 0 → ~8 200, then capped by the summary (~300) |
 | median user message | ~10 |
 | median reply | ~70 |
+
+That fixed total grew by 226 tokens on 2026-09-14/15 and both increases were deliberate,
+paid for by a live bug: `internet_search` gained the `url` field (+136, reading a pasted
+link instead of searching for it) and the capability manifest gained rules (4) and (5)
+(+69/+86, after the whole manifest reached a user translated into Uzbek). Re-measure with
+`tiktoken` after any schema or manifest edit — the table above is checked by nothing.
 
 Those first three are what a round costs before the user has said anything. The Railway
 log confirms it: sampled `[TOKEN]` lines run 7 697 (a free user, no `generate_image` or
@@ -290,7 +303,7 @@ The prompt also carries a phishing/social-engineering section that fixes the *sh
 
 ### The prompt is sent whole on every round, so duplication is expensive
 
-The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 521 tokens, tool schemas 2 253, capability manifest 319.
+The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 521 tokens, tool schemas 2 393, capability manifest 405.
 
 `STRICT_MATH_RULES` used to be appended after the whole prompt and was a near-verbatim copy of the template's own `MATH, PHYSICS & CHEMISTRY` section — nine rules stated twice, side by side in one string, 274 tokens per round. It is gone; the two phrases that were unique to it ("This is a hard requirement", "There are no other acceptable delimiters") were folded into the section that remains. `CONCISE_INSTRUCTION` likewise lost the three sentences that repeated `OUTPUT CONTRACT` rule 4.
 
