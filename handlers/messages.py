@@ -658,7 +658,8 @@ async def _send_output_files_rich(chat_id: int, output_files: list,
     # To'plam yetib bordi: keyingi so'rov uchun oxirgi fayl eslab qolinadi
     # (alohida yuborish yo'lidagi bilan bir xil mantiq).
     last_name, last_bytes = output_files[-1]
-    _remember_file(chat_id, last_bytes, last_name, produced=True)
+    _remember_file(chat_id, last_bytes, last_name, produced=True,
+                   thread_id=message_thread_id or 0)
     logger.info(f"[Fayl] {len(output_files)} ta natija bitta rich xabarda "
                 f"yuborildi (chat={chat_id})")
     return True
@@ -737,7 +738,8 @@ async def _send_output_files(chat_id: int, output_files: list,
     # nuqtasi bo'ladi. Yuborilmagan fayl eslab qolinmaydi — aks holda
     # foydalanuvchi ko'rmagan natija ustida ish davom etardi.
     if last_sent is not None:
-        _remember_file(chat_id, last_sent[1], last_sent[0], produced=True)
+        _remember_file(chat_id, last_sent[1], last_sent[0], produced=True,
+                       thread_id=thread_id)
         logger.info(f"[Fayl] natija eslab qolindi: {last_sent[0]} (chat={chat_id})")
 
 
@@ -906,7 +908,11 @@ async def _status_indicator(message: Message, kind: str):
     qolib, keyingi animatsiyani ham o'ldirgan edi (BOT_API_103.md).
     """
     chat_id = message.chat.id
-    thread_id = getattr(message, "message_thread_id", None)
+    # ⚠️ Xom maydon EMAS, `_thread_key()` — aiogram `message.answer()` da
+    # aynan shu shartni qo'llaydi. Ikki xil bo'lsa animatsiya bir joyga,
+    # javob boshqasiga tushardi (forum guruhdagi General aynan shunday:
+    # maydon bor, `is_topic_message` esa False).
+    thread_id = _thread_key(message) or None
     draft_id = abs(hash((chat_id, message.message_id, time.time_ns(), kind))) \
         % 2_147_483_647 or 1
     # Draft faqat shaxsiy chatda ishlaydi (API cheklovi) — guruhda darhol
@@ -1135,7 +1141,8 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     full_text = ""
     chunk_buffer = ""
     draft_id = abs(hash((message.chat.id, message.message_id, time.time_ns()))) % 2_147_483_647 or 1
-    message_thread_id = getattr(message, "message_thread_id", None)
+    # Xom maydon emas — sabab `_status_indicator()` dagi izohda.
+    message_thread_id = _thread_key(message) or None
     # ⚠️ IKKI XIL TALAB, ATAYLAB AJRATILGAN:
     #   * sendRichMessageDraft — Telegram FAQAT shaxsiy chatga ruxsat
     #     beradi ("target private chat"), shuning uchun animatsiya va
@@ -1947,7 +1954,12 @@ _PENDING_FILE_MAX = 30         # ponytail: RAM chegarasi, kerak bo'lsa Redis'ga 
 # yasash o'rniga eskisini tekshirish bilan barcha raundlarni sarflab,
 # oxirida foydalanuvchiga faylsiz, xom matnli javob yozib qo'ygan.
 _PENDING_FOLLOWUP_MAX_CHARS = 400
-_pending_files: dict[int, dict] = {}
+# ⚠️ KALIT (chat_id, thread_id). Eslab qolingan fayl ISTALGAN qisqa
+# xabarga biriktiriladi, shuning uchun faqat chat bo'yicha saqlansa
+# A-mavzuda olingan PPTX 10 daqiqa ichida B-mavzudagi «rahmat» ga
+# ham ilashib ketardi — model esa foydalanuvchi fayl yuborgan deb
+# o'ylardi. Mavzu ayrim suhbat; ayrim fayl.
+_pending_files: dict[tuple[int, int], dict] = {}
 
 
 def _prune_pending_files() -> None:
@@ -1960,43 +1972,44 @@ def _prune_pending_files() -> None:
         _pending_files.pop(oldest, None)
 
 
-def clear_pending_file(chat_id: int) -> None:
-    _pending_files.pop(chat_id, None)
+def clear_pending_file(chat_id: int, thread_id: int = 0) -> None:
+    _pending_files.pop((chat_id, thread_id), None)
 
 
-def _get_pending_file(chat_id: int) -> dict | None:
+def _get_pending_file(chat_id: int, thread_id: int = 0) -> dict | None:
     _prune_pending_files()
-    rec = _pending_files.get(chat_id)
+    rec = _pending_files.get((chat_id, thread_id))
     return rec if rec and rec.get("bytes") else None
 
 
 def _remember_file(chat_id: int, file_bytes: bytes, file_name: str,
-                   *, produced: bool = False) -> None:
+                   *, produced: bool = False, thread_id: int = 0) -> None:
     """`produced=True` — faylni BOT yaratgan (foydalanuvchi yuklagan emas).
 
     Bu farq muhim: davomiy so'rov ("nomini ham o'zgartir") botning OXIRGI
     natijasi ustiga qo'yilishi kerak, dastlabki xom fayl ustiga emas.
     """
     _prune_pending_files()
-    rec = _pending_files.setdefault(chat_id, {})
+    rec = _pending_files.setdefault((chat_id, thread_id), {})
     rec.update({"ts": time.time(), "bytes": file_bytes, "name": file_name,
                 "produced": produced})
 
 
-def _pending_for_request(chat_id: int, text: str) -> dict | None:
+def _pending_for_request(chat_id: int, text: str,
+                         thread_id: int = 0) -> dict | None:
     """Shu so'rovga eslab qolingan fayl biriktiriladimi?"""
     if len(text) > _PENDING_FOLLOWUP_MAX_CHARS:
         return None
-    return _get_pending_file(chat_id)
+    return _get_pending_file(chat_id, thread_id)
 
 
-def _capture_instruction(chat_id: int, text: str) -> bool:
+def _capture_instruction(chat_id: int, text: str, thread_id: int = 0) -> bool:
     """Fayl ko'rsatma kutayotgan bo'lsa, matnni unga uzatadi.
 
     True qaytsa — bu xabar fayl bilan BIRGA ishlanadi, shuning uchun
     handle_text uni alohida so'rov sifatida ishlamasligi kerak.
     """
-    rec = _pending_files.get(chat_id)
+    rec = _pending_files.get((chat_id, thread_id))
     event = rec.get("event") if rec else None
     if event is None or event.is_set():
         return False
@@ -2005,8 +2018,8 @@ def _capture_instruction(chat_id: int, text: str) -> bool:
     return True
 
 
-async def _wait_for_instruction(chat_id: int) -> str | None:
-    rec = _pending_files.get(chat_id)
+async def _wait_for_instruction(chat_id: int, thread_id: int = 0) -> str | None:
+    rec = _pending_files.get((chat_id, thread_id))
     event = rec.get("event") if rec else None
     if event is None:
         return None
@@ -2085,7 +2098,7 @@ async def handle_text(message: Message, state: FSMContext):
         # ma'lumot yo'qotish bo'lardi va bot buni aytmasdi ham.
         thread_id = _thread_key(message)
         clear_text_merge_buffer(chat_id)
-        clear_pending_file(chat_id)
+        clear_pending_file(chat_id, thread_id)
         forget_sent_images(chat_id)
         forget_location(chat_id)
         await clear_chat_history(chat_id, thread_id=thread_id)
@@ -2101,7 +2114,7 @@ async def handle_text(message: Message, state: FSMContext):
 
     # Hozirgina izohsiz fayl kelgan bo'lsa, bu xabar — o'sha fayl uchun
     # ko'rsatma. Uni handle_document kutib turibdi, shu yerda to'xtaymiz.
-    if _capture_instruction(chat_id, message.text):
+    if _capture_instruction(chat_id, message.text, _thread_key(message)):
         notify_watchers(user_id, message.from_user.username, "in", text=message.text)
         logger.info(f"[Hujjat] ko'rsatma alohida xabardan olindi: chat={chat_id}")
         return
@@ -2244,7 +2257,7 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         # ══════════════════════════════════════════════════════════════
         # Yaqinda fayl yuborilgan bo'lsa, uni shu so'rovga ham biriktiramiz —
         # "endi buni PDF qilib ber" kabi davomiy so'rovlar shu bilan ishlaydi.
-        pending = _pending_for_request(chat_id, merged_text)
+        pending = _pending_for_request(chat_id, merged_text, thread_id)
         prompt_text, file_kwargs = merged_text, {}
         if pending:
             note = pending_file_note(pending['name'], earlier=True,
@@ -2465,7 +2478,7 @@ async def handle_photo(message: Message, state: FSMContext):
         # biriktirilmasdi. Hujjat oqimi buni allaqachon qilardi, rasm
         # oqimi esa yo'q edi: ya'ni bot yuborilgan rasmni javob
         # yozilgandan keyin darhol unutardi.
-        _remember_file(chat_id, image_bytes, "rasm.jpg")
+        _remember_file(chat_id, image_bytes, "rasm.jpg", thread_id=thread_id)
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         caption = message.caption if message.caption else "Bu rasmda nimalar borligini to'liq tushuntirib ber."
 
@@ -2587,11 +2600,11 @@ async def handle_document(message: Message, state: FSMContext):
         else:
             extracted_text = extracted
 
-        _remember_file(chat_id, file_bytes, file_name)
+        _remember_file(chat_id, file_bytes, file_name, thread_id=thread_id)
 
         caption = message.caption
         if not caption:
-            caption = await _wait_for_instruction(chat_id)
+            caption = await _wait_for_instruction(chat_id, thread_id)
         if not caption:
             caption = "Shu hujjatning qisqacha mazmunini yozib ber."
 

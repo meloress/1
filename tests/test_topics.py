@@ -164,4 +164,36 @@ check(17, "TOPICS_ENABLED getMe dan to'ldiriladi",
       and "has_topics_enabled" in _MAIN)
 
 
-print("\ntopics: barcha tekshiruvlar o'tdi (17/17).")
+# ── 18-19. Eslab qolingan fayl ham mavzu bo'yicha ────────────────
+# ⚠️ Fayl ISTALGAN qisqa xabarga biriktiriladi va 10 daqiqa yashaydi.
+# Faqat chat bo'yicha saqlansa, A-mavzuda olingan PPTX B-mavzudagi
+# «rahmat» ga ham ilashib ketardi — model esa foydalanuvchi fayl
+# yuborgan deb o'ylardi.
+m._pending_files.clear()
+m._remember_file(1, b"AAA", "a.pptx", thread_id=10)
+m._remember_file(1, b"BBB", "b.pdf", thread_id=20)
+check(18, "har mavzuning fayli AYRIM",
+      m._get_pending_file(1, 10)["name"] == "a.pptx"
+      and m._get_pending_file(1, 20)["name"] == "b.pdf"
+      and m._get_pending_file(1, 0) is None)
+
+m.clear_pending_file(1, 10)
+check(19, "bitta mavzuning fayli o'chdi, qolgani joyida",
+      m._get_pending_file(1, 10) is None
+      and m._get_pending_file(1, 20) is not None)
+m._pending_files.clear()
+
+
+# ── 20. Draft va status BIR MANBADAN o'qiydi ─────────────────────
+# Xom `message_thread_id` ni o'qish — aynan 5-tekshiruvdagi drift:
+# animatsiya bir joyga, javob boshqasiga tushardi.
+for _nom, _fn in (("status ko'rsatkichi", m._status_indicator),
+                  ("oqim drafti", m.process_stream_draft)):
+    _src = inspect.getsource(_fn)
+    assert "_thread_key(message)" in _src, f"{_nom}: _thread_key yo'q"
+    assert 'getattr(message, "message_thread_id"' not in _src, \
+        f"{_nom}: hali xom maydonni o'qiyapti"
+check(20, "draft va status ham _thread_key dan o'qiydi", True)
+
+
+print("\ntopics: barcha tekshiruvlar o'tdi (20/20).")

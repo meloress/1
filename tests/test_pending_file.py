@@ -19,11 +19,14 @@ from handlers import messages as hm
 
 
 async def main():
+    # ⚠️ Kalit endi JUFTLIK: (chat_id, thread_id). Mavzu ayrim suhbat,
+    # ayrim fayl — A-mavzudagi PPTX B-mavzuga ilashmasligi uchun.
     CHAT = 12345
+    KEY = (CHAT, 0)
     hm._pending_files.clear()
 
     # 1) Izohsiz fayl kelganda ko'rsatma kutiladi va tutib olinadi
-    hm._pending_files[CHAT] = {"ts": time.time(), "event": asyncio.Event()}
+    hm._pending_files[KEY] = {"ts": time.time(), "event": asyncio.Event()}
     waiter = asyncio.create_task(hm._wait_for_instruction(CHAT))
     await asyncio.sleep(0)
     assert hm._capture_instruction(CHAT, "31.12.99 ni 0 qil") is True
@@ -36,7 +39,7 @@ async def main():
 
     # 3) Hech kim yozmasa — kutish tugaydi va None qaytadi (qisqacha mazmun)
     hm._INSTRUCTION_WAIT = 0.05
-    hm._pending_files[CHAT] = {"ts": time.time(), "event": asyncio.Event()}
+    hm._pending_files[KEY] = {"ts": time.time(), "event": asyncio.Event()}
     assert await hm._wait_for_instruction(CHAT) is None
     assert hm._capture_instruction(CHAT, "keyin yozdim") is False
     print("[3] ko'rsatma kelmasa kutish to'xtaydi OK")
@@ -48,7 +51,7 @@ async def main():
     print("[4] fayl keyingi so'rov uchun eslab qolindi OK")
 
     # 5) Vaqti o'tgan fayl biriktirilmaydi
-    hm._pending_files[CHAT]["ts"] = time.time() - hm._PENDING_FILE_TTL - 1
+    hm._pending_files[KEY]["ts"] = time.time() - hm._PENDING_FILE_TTL - 1
     assert hm._get_pending_file(CHAT) is None, "eskirgan fayl biriktirildi"
     print("[5] eskirgan fayl unutildi OK")
 
@@ -61,10 +64,11 @@ async def main():
     # 7) RAM cheklovi: eng eskilari tashlab yuboriladi
     hm._pending_files.clear()
     for i in range(hm._PENDING_FILE_MAX + 10):
-        hm._pending_files[i] = {"ts": time.time() + i, "bytes": b"x", "name": "a"}
+        hm._pending_files[(i, 0)] = {"ts": time.time() + i, "bytes": b"x", "name": "a"}
     hm._prune_pending_files()
     assert len(hm._pending_files) == hm._PENDING_FILE_MAX, len(hm._pending_files)
-    assert 0 not in hm._pending_files and hm._PENDING_FILE_MAX + 9 in hm._pending_files
+    assert ((0, 0) not in hm._pending_files
+            and (hm._PENDING_FILE_MAX + 9, 0) in hm._pending_files)
     print("[7] RAM chegarasi ishlaydi OK")
 
     # 8) Izoh matni modelga faylning sandboxda BORLIGINI aytadi
