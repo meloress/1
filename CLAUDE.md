@@ -647,9 +647,10 @@ already cost this project once — it hung on screen and killed the next animati
 the `await task` there catches `CancelledError` explicitly — it is a `BaseException` and
 `except Exception` would let it escape and swallow the finished audio.
 
-⚠️ Telegram's clearing of an emptied draft is **not verified live** — offline tests can
-only prove the call is made. If a ghost bubble is ever reported after a voice answer, that
-call is the place to look.
+Clearing the draft by overwriting it with empty markdown **is verified live**
+(2026-09-14): the indicator disappears when the voice note arrives, leaving no ghost
+bubble. If one is ever reported after a voice answer, that call is still the place to
+look.
 
 `_thinking_html_for()` / `_thinking_plain_for()` / `_status_texts_for()` and the four
 timing constants were lifted out of `process_stream_draft()` to module level for this;
