@@ -58,14 +58,25 @@ def test_telefonda_qamrov():
     telefonda = set(re.findall(r'data-go="(\w+)"', tabbar.group(0)))
     telefonda |= set(re.findall(r'data-go="(\w+)"', SECTIONS["dash"]))
 
-    yetmaydi = set(SECTIONS) - telefonda
+    # ⚠️ `profil` — ICHKI sahifa: unga tugma emas, ro'yxatdagi qator
+    # olib boradi, va Telegramning «Orqaga» tugmasi FAQAT o'sha yerda
+    # ko'rinadi (§3.1). Shuning uchun u pastki tab-panelda bo'lmasligi
+    # KERAK — bo'lsa, tablar teng darajada bo'lmay qolardi.
+    ICHKI = {"profil"}
+    yetmaydi = set(SECTIONS) - telefonda - ICHKI
     assert not yetmaydi, f"telefonda ochib bo'lmaydigan ekran: {yetmaydi}"
+    assert not (ICHKI & telefonda), "ichki sahifa tab-panelga chiqib qolgan"
+    # Ichki sahifaga yo'l BOR: foydalanuvchi qatori bosilganda ochiladi.
+    assert 'delegat("urows", "data-uid"' in JS, "foydalanuvchi profiliga yo'l yo'q"
+    assert 'go("profil")' in JS, "profil sahifasi hech qachon ochilmaydi"
+    # «Orqaga» faqat shu yerda.
+    assert 'if (hozir === "profil") tg.BackButton.show();' in JS,         "«Orqaga» tugmasi ichki sahifaga bog'lanmagan"
 
     # Kompyuterda esa chap menyuda HAMMASI turishi kerak.
     nav = re.search(r'<nav class="nav" id="nav">.*?</nav>', HTML, re.S)
     assert nav, "chap menyu yo'q"
     railda = set(re.findall(r'data-go="(\w+)"', nav.group(0)))
-    assert railda == set(SECTIONS), f"chap menyu to'liq emas: {set(SECTIONS) - railda}"
+    assert railda == set(SECTIONS) - ICHKI,         f"chap menyu to'liq emas: {set(SECTIONS) - ICHKI - railda}"
 
     # «Boshqa bo'limlar» kartochkasi faqat tor ekranda ko'rinadi.
     assert ".faqat-tel{display:none}" in CSS.replace(" ", "")

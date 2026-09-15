@@ -819,10 +819,10 @@ ACTIVITY_TYPES: Dict[str, tuple] = {
     "document_message":       ("📄", "Hujjat", MESSAGE_COST_DOCUMENT),
     "voice_message":          ("🎤", "Ovoz", MESSAGE_COST_VOICE),
     "location_message":       ("📍", "Joylashuv", 0),
-    "guest_text_message":     ("✉️", "Matn · guest", MESSAGE_COST_TEXT),
-    "guest_photo_message":    ("🖼", "Rasm · guest", MESSAGE_COST_PHOTO),
-    "guest_document_message": ("📄", "Hujjat · guest", MESSAGE_COST_DOCUMENT),
-    "guest_voice_message":    ("🎤", "Ovoz · guest", MESSAGE_COST_VOICE),
+    "guest_text_message":     ("✉️", "Matn · mehmon", MESSAGE_COST_TEXT),
+    "guest_photo_message":    ("🖼", "Rasm · mehmon", MESSAGE_COST_PHOTO),
+    "guest_document_message": ("📄", "Hujjat · mehmon", MESSAGE_COST_DOCUMENT),
+    "guest_voice_message":    ("🎤", "Ovoz · mehmon", MESSAGE_COST_VOICE),
     "file_task":              ("🛠", "Fayl yaratish", 0),
     "research":               ("🔎", "Chuqur tadqiqot", 0),
 }
@@ -842,43 +842,77 @@ ACTIVITY_TYPES: Dict[str, tuple] = {
 # yorliq umuman ishlatilmaydigan kalitga osilgan edi.
 # `tests/test_web_journal.py` endi kod YOZADIGAN amallarni shu ro'yxat
 # bilan solishtiradi — xuddi `ACTIVITY_TYPES` kabi.
-AUDIT_ACTIONS: Dict[str, str] = {
-    "ban_user":          "🚫 Bloklandi",
-    "unban_user":        "✅ Blok olib tashlandi",
-    "set_premium":       "💎 Pro berildi",
-    "set_plan":          "🆓 Tarif o'zgartirildi",
-    "reset_quota":       "🔄 Kvota tiklandi",
-    "refund_stars":      "💸 To'lov qaytarildi",
-    "send_message":      "📨 Xabar yuborildi",
-    "add_admin":         "➕ Admin qo'shildi",
-    "remove_admin":      "➖ Admin o'chirildi",
-    "broadcast":         "📢 Tarqatma",
-    "limit_change":      "🎚 Limit o'zgartirildi",
-    "create_promo":      "🎟 Promokod yaratildi",
-    "revoke_promo":      "🚫 Promokod bekor qilindi",
-    "send_promo":        "🎟 Promokod yuborildi",
-    "send_referral":     "🤝 Referal havolasi yuborildi",
-    "user_report":       "📩 Foydalanuvchi xabari",
+AUDIT_ACTIONS: Dict[str, tuple[str, str]] = {
+    # amal -> (odam o'qiydigan nom, ikonka kaliti)
+    #
+    # ⚠️ Nomlarda EMOJI YO'Q va bu ataylab: jurnal qatorining boshida
+    # 🚫 💎 🆓 🔄 turgani paneldagi boshqa hamma ikonka bilan (pastki
+    # navigatsiya, yon menyu — hammasi chiziqli SVG) bir uslubda emasdi.
+    # Ikonka endi kalit bo'lib keladi, panel uni o'zining SVG to'plamidan
+    # chizadi (`panel.js::IKONKA`). Kalit topilmasa nuqta chiziladi, ya'ni
+    # yangi amal ikonkasiz ham ko'rinadi — yo'qolmaydi.
+    "ban_user":          ("Bloklandi",                  "ban"),
+    "unban_user":        ("Blok olib tashlandi",        "unban"),
+    "set_premium":       ("Pro berildi",                "pro"),
+    "set_plan":          ("Tarif o'zgartirildi",        "plan"),
+    "reset_quota":       ("Kvota tiklandi",             "reset"),
+    "refund_stars":      ("To'lov qaytarildi",          "pul"),
+    "send_message":      ("Xabar yuborildi",            "xabar"),
+    "add_admin":         ("Admin qo'shildi",            "admin_qosh"),
+    "remove_admin":      ("Admin o'chirildi",           "admin_ol"),
+    "broadcast":         ("Tarqatma",                   "tarqatma"),
+    "limit_change":      ("Limit o'zgartirildi",        "limit"),
+    "create_promo":      ("Promokod yaratildi",         "promo"),
+    "revoke_promo":      ("Promokod bekor qilindi",     "promo_bekor"),
+    "send_promo":        ("Promokod yuborildi",         "promo"),
+    "send_referral":     ("Referal havolasi yuborildi", "referal"),
+    "user_report":       ("Foydalanuvchi xabari",       "xabar"),
     # ⚠️ `referral_campaign` SHU YERDA EDI va 7-bosqichda olib tashlandi:
     # uni yozadigan oqim (botdagi referal sharti ekrani) webga ko'chdi va
-    # endi `referral_config` yoziladi. Jonli bazada eski ikkita yozuv
-    # qoldi — ular jurnalda XOM nomi bilan ko'rinadi, va bu ataylab:
-    # o'sha bazada `stats_view`, `users_export` kabi yana 12 ta eski amal
-    # bor, ularning hech qaysisi ro'yxatda emas. Noma'lum amalni
-    # YASHIRMAY, xom nomi bilan ko'rsatish 5-bosqichda tanlangan qoida
-    # (`test_web_journal.py` 4-tekshiruvi) — yashirilsa yozuv umuman
-    # yo'qday bo'lardi. Yozilmaydigan yorliqni saqlash esa ro'yxatni
-    # shishiradi va «bor ekan» degan yolg'on tuyg'u beradi.
+    # endi `referral_config` yoziladi. Eski yozuvlar uchun `AUDIT_ESKI` ga
+    # qarang — ular endi xom nom bilan emas, nomi bilan ko'rinadi.
     # ⚠️ Quyidagi oltitasini FAQAT web panel yozadi. Telegram ekranlari bu
     # amallarni umuman auditga yozmasdi — ya'ni texnik ta'tilni kim yoqqani
     # va kim kuzatuvga qo'shilgani hech qayerda qolmasdi. Panel yozadi.
-    "maintenance":       "🛠 Texnik ta'til",
-    "watch_add":         "👁 Kuzatuvga qo'shildi",
-    "watch_remove":      "👁 Kuzatuvdan olindi",
-    "watch_group":       "👁 Kuzatuv guruhi o'zgartirildi",
-    "referral_config":   "🤝 Referal sharti o'zgartirildi",
-    "cancel_broadcast":  "🗑 Tarqatma bekor qilindi",
+    "maintenance":       ("Texnik ta'til",              "tatil"),
+    "watch_add":         ("Kuzatuvga qo'shildi",        "kuzatuv"),
+    "watch_remove":      ("Kuzatuvdan olindi",          "kuzatuv_ol"),
+    "watch_group":       ("Kuzatuv guruhi o'zgartirildi", "kuzatuv"),
+    "referral_config":   ("Referal sharti o'zgartirildi", "referal"),
+    "cancel_broadcast":  ("Tarqatma bekor qilindi",     "tarqatma_bekor"),
 }
+
+# Kod ENDI YOZMAYDIGAN, lekin jonli bazada YOZUVI BOR amallar.
+#
+# ⚠️ Nega alohida ro'yxat: `AUDIT_ACTIONS` ning qoidasi — «yozilmaydigan
+# yorliq bo'lmasin» (`tests/test_web_journal.py` 2-tekshiruvi), chunki
+# o'lik yorliq ro'yxatni shishiradi va «bu amal bor ekan» degan yolg'on
+# tuyg'u beradi. Lekin tarixiy qator EKRANDA turadi va `referral_campaign`
+# bo'lib ko'rinishi — adminga hech narsa aytmaydigan xom satr. Ikki
+# ro'yxat ikki savolga javob beradi: birinchisi «kod nima yozadi»,
+# ikkinchisi «bazada nima yotibdi». Yangi amal FAQAT birinchisiga
+# qo'shiladi.
+AUDIT_ESKI: Dict[str, tuple[str, str]] = {
+    "referral_campaign": ("Referal kampaniyasi",        "referal"),
+    "stats_view":        ("Statistika ochildi",         "statistika"),
+    "users_export":      ("Ro'yxat yuklab olindi",      "eksport"),
+    "journal_view":      ("Jurnal ochildi",             "jurnal"),
+    "set_free":          ("Bepulga tushirildi",         "plan"),
+    "promo_create":      ("Promokod yaratildi",         "promo"),
+    "ban":               ("Bloklandi",                  "ban"),
+    "unban":             ("Blok olib tashlandi",        "unban"),
+    "refund":            ("To'lov qaytarildi",          "pul"),
+}
+
+
+def audit_nomi(amal: str) -> tuple[str, str]:
+    """Audit amalining (nomi, ikonkasi). Noma'lum bo'lsa — XOM nomi.
+
+    ⚠️ Xom nom YASHIRILMAYDI (5-bosqich qarori, `test_web_journal.py`
+    4-tekshiruvi): yozuvni yashirish — uni umuman yo'qday qilib
+    ko'rsatish, bu esa auditning ma'nosini buzadi.
+    """
+    return AUDIT_ACTIONS.get(amal) or AUDIT_ESKI.get(amal) or (amal or "—", "")
 
 
 # ── Fayl yaratish/tahrirlash uchun ALOHIDA kunlik sanoq ─────────────
@@ -954,6 +988,42 @@ PLAN_LIMITS: dict[str, dict[str, int | None]] = {
                 "images": None, "research": None},
 }
 
+# ── TARIF NOMLARI — YAGONA MANBA ────────────────────────────────────
+# Kalitlar `PLAN_LIMITS` ning kalitlari, ya'ni `users.plan_type` da
+# uchraydigan qiymatlar. Panel ham, bot ham SHU YERDAN o'qiydi.
+#
+# ⚠️ Beshinchi eskirgan nusxa shu yerdan boshlanayotgan edi: panel
+# `panel.js` ichida `PLAN = {pro: "Pro", free: "Bepul"}` degan o'z
+# ro'yxatini tutardi va unda `premium` UMUMAN yo'q edi — shuning uchun
+# `plan_type = 'premium'` bo'lgan odam jadvalda «Pro» bo'lib, tarif
+# doirasida esa alohida «Premium» bo'lib ko'rinardi. Bitta odam ikki
+# joyda ikki xil atalgan.
+#
+# ⚠️ `premium` — ESKI, CHEKSIZ limitli tarif. Yangi hech narsa uni
+# bermaydi (`set_user_premium` endi `plan="pro"` yozadi), lekin bazada
+# eski qatorlar bor va ular nomi bilan ko'rinishi kerak.
+TARIF_NOMI: dict[str, str] = {
+    "free":    "Bepul",
+    "pro":     "Pro",
+    "premium": "Premium",
+}
+
+# Paneldagi tarif doirasining rangi va tartibi. `ban` — tarif emas,
+# holat, lekin doira ustunlari qo'shilganda JAMIGA teng chiqishi uchun
+# u ham segment bo'lib turadi (1.1/1.2: «bepul 228 + pro 2 = 230»).
+#
+# ⚠️ Bu yerda HEX EMAS, CSS TOKENI. Qotirilgan `#3A3556` qorong'i
+# temada to'g'ri, yorug' temada esa oq fonda qop-qora dog' bo'lib
+# chiqardi — va uni o'zgartirish uchun Python faylini tahrirlash
+# kerak bo'lardi. Token esa `panel.css` da ikkala tema uchun ham
+# ta'riflangan, ya'ni rang tanlovi bitta joyda — uslublar faylida.
+TARIF_RANGI: dict[str, str] = {
+    "pro":     "var(--t-pro)",
+    "premium": "var(--t-premium)",
+    "free":    "var(--t-free)",
+    "ban":     "var(--t-ban)",
+}
+
 # Kunlik sanoq turi -> (ishlatilgan ustuni, sana ustuni, PLAN_LIMITS kaliti).
 #
 # Bu YAGONA manba: db.check_and_consume_daily() SQL ustun nomlarini aynan
@@ -995,6 +1065,23 @@ LIMIT_NOMI: dict[str, str] = {
     "files":    "Fayl yaratish",
     "images":   "Rasm chizish",
     "research": "Chuqur tadqiqot",
+}
+
+# Limitning bir qatorlik izohi — Sozlamalar ekranida nom tagida turadi.
+#
+# ⚠️ Kalitlar `LIMIT_NOMI` nikiday. Ilgari izoh umuman yo'q edi va
+# «Kunlik ballar 1000» degan qator adminga hech narsa aytmasdi: 1000
+# ball ko'pmi yoki ozmi — bu bitta so'rov necha ball ekaniga bog'liq,
+# va o'sha narxlar kodning boshqa joyida (`MESSAGE_COST_*`) turardi.
+# Izoh shu konstantalardan YIG'ILADI, qo'lda yozilmaydi — narx
+# o'zgarsa matn o'zi to'g'rilanadi.
+LIMIT_IZOHI: dict[str, str] = {
+    "points": (f"Har so'rov ball yechadi: matn {MESSAGE_COST_TEXT}, "
+               f"ovoz {MESSAGE_COST_VOICE}, hujjat {MESSAGE_COST_DOCUMENT}, "
+               f"rasm tahlili {MESSAGE_COST_PHOTO}."),
+    "files":    "Kuniga nechta hujjat yaratish mumkin (PPTX, PDF, XLSX, DOCX).",
+    "images":   "Kuniga nechta rasm chizish yoki tahrirlash mumkin.",
+    "research": "Kuniga nechta chuqur tadqiqot (/research) qilish mumkin.",
 }
 
 

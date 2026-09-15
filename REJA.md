@@ -831,6 +831,74 @@ Bu yo'l-yo'lakay ikkita nozik joyni ochdi:
   (limiti to'lgan yoki bekor qilingani odamga ishlamaydigan sovg'a
   bo'lardi), kod yo'qda panelga yo'naltirish, eski callback yiqitmasligi.
 
+### 8-bosqich — telefondagi jonli sinovdan keyingi tuzatishlar
+
+7 bosqich tugagach panel telefonda ochildi va olti ekran suratga
+olindi. Topilganlar ikki turkumga bo'lindi va ikkalasi ham bitta
+sababdan edi: **panel kompyuterda yasalgan, telefonda sinalmagan**.
+
+**Raqamlar bir-biriga mos kelmasdi.** Bitta ekranda «Pro obunachilar 2»,
+«Pro 1 · Premium 1» va «2 tasi Pro» yonma-yon turardi. Hech biri
+alohida olganda xato emasdi — uchta so'rov «Pro nima?» degan savolga
+uch xil javob berardi: biri bloklanganni chiqarardi, biri chiqarmasdi,
+uchinchisi adminlarni ham sanardi. Shartlar `_PRO_SHART` /
+`_FREE_SHART` / `_BAN_SHART` bo'lib bitta joyga ko'chirildi va
+`daily_report_stats()` ning HAR BIR odam sanog'iga `_ODDIY_USER`
+qo'shildi.
+
+Xuddi shu sababdan «24 soatdagi so'rovlar 150» yozilib, ustunlar
+qo'shilganda 142 chiqardi: tur kesimi `LIMIT 5` bilan olinardi va
+`ACTIVITY_TYPES` da yo'q turlar (`start`) jimgina tashlanardi. Endi
+kesim to'liq qaytadi, `actions` esa O'SHA ro'yxatning yig'indisi —
+ya'ni tenglik ta'rifan kafolatlangan; nomsiz turlar «Boshqa» qatoriga
+tushadi.
+
+**Eng qimmat topilma — `set_user_premium()` ning standart tarifi.** U
+`plan='premium'` edi, ya'ni paneldagi «Pro berish · 7 kun» tugmasi
+odamga `PLAN_LIMITS` dagi CHEKSIZ tarifni berardi va Limitlar ekrani
+uni umuman boshqara olmasdi (u yerda faqat Bepul va Pro bor). O'sha
+odam Boshqaruvda to'rtinchi rang — «Premium 1» — bo'lib ko'rinardi.
+Standart qiymat `'pro'` ga o'zgartirildi.
+
+**Promokod muddati UTC yarim tunida tugardi.** `clean_promo_spec()`
+sanaga `tzinfo=utc` qo'yardi, panel esa uni «21.09.2026 05:00» deb
+ko'rsatardi — va bu faqat ko'rinish emasdi: `redeem_promo()` ham o'sha
+lahzani tekshiradi, ya'ni kod tanlangan kunning deyarli hammasida
+allaqachon o'lik bo'lardi. Endi 23:59:59, Toshkent vaqti bilan.
+
+**Telefonda layout buzuq edi.** Har ro'yxat `<table>` ichida,
+`overflow-x:auto` bilan turardi: oxirgi ustun — «Oxirgi faollik» va
+amal tugmalari — ekrandan tashqarida qolardi va admin u yerda nimadir
+borligini bilmasdi ham. Jadvallar butunlay olib tashlandi; endi bitta
+tuzilma (`.rows > .row`), keng ekranda `--ust` o'zgaruvchisi uni
+ustunga aylantiradi, torda esa qator o'ralib kartochka bo'ladi.
+Limitlardagi har qatorlik «Saqlash» tugmasi Telegramning `MainButton`
+iga ko'chdi (brauzerda zaxira tugma bor), pastki navigatsiya balandligi
+`--nav-h` tokeni bo'lib kontentdan bo'shatildi, sanalar esa serverdan
+ISO bo'lib kelib panelda qisqa yoki nisbiy («2 soat oldin») shaklda
+chiziladi.
+
+**Tema endi Telegramdan meros olinadi.** Ilgari panel qat'iy qora edi
+va Telegram sarlavhasini o'z rangiga bo'yardi (3.2 dagi qaror).
+Yorug' temadagi mijozda esa butun ilova oq, panel qop-qora bo'lib
+chiqardi. Endi `tg.colorScheme` → `data-tema`, har rang ikkala temada
+ham ta'riflangan, kulrang izohlar WCAG AA dan o'tadi (eski `--ink-3`
+3.7:1 edi).
+
+⚠️ **Telegramning `themeParams` ranglari ATAYLAB meros olinmaydi** —
+faqat yorug'/qorong'i tanlovi. Sabab: `--tg-theme-bg-color` istalgan
+rang bo'lishi mumkin va u bilan birga kelgan matn rangi panelning
+qolgan ranglariga mos tushishiga hech qanday kafolat yo'q, ya'ni
+kontrast tasodifga qolardi. Panel o'z palitrasini saqlaydi, lekin
+mijozning yorug'ligiga moslashadi.
+
+**Xavfsizlik:** panel endi HAR so'rovga `initData` ni
+`X-Telegram-Init-Data` sarlavhasida qo'shadi va `admin_only` cookie'ga
+qaramasdan OLDIN o'sha imzoni bot tokeni bilan qayta tekshiradi. Yoshi
+24 soat (5 daqiqa emas) — `initData` Mini App ochilganda bir marta
+beriladi va yangilanmaydi. Cookie ikkinchi yo'l bo'lib qoladi:
+brauzerda `initData` umuman yo'q.
+
 ---
 
 ## 8. Testlar

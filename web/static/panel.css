@@ -1,299 +1,510 @@
-/* ── Token tizimi ────────────────────────────────────────────────
-   Maket: artifact "UzChatGPT Panel" (tasdiqlangan). Bitta dunyoga
-   qasddan sodiq: bot logotipi qora fondagi neon tugun, panel ham
-   shunday. Shuning uchun YORUG' TEMA YO'Q — hamma rang aniq
-   bo'yalgan, Telegram `themeParams` dan hech narsa meros olinmaydi.
-   Buning o'rniga teskarisi qilinadi: panel Telegram sarlavhasini
-   O'Z rangiga bo'yaydi (panel.js, `setHeaderColor`).            */
+/* ══ TOKEN TIZIMI ══════════════════════════════════════════════════
+   Hamma rang, radius, oraliq va shrift o'lchami SHU YERDA. Qoida:
+   qolgan faylda `#` bilan boshlanadigan rang bo'lmasin — faqat
+   `var(--…)`. Yagona istisno — brend gradienti ichidagi to'xtash
+   ranglari va SVG `<defs>` (ular SVG atributi, CSS emas).
+
+   ⚠️ ILGARI YORUG' TEMA YO'Q EDI va bu ataylab qilingandi: panel
+   Telegram sarlavhasini o'z rangiga bo'yardi. Lekin Mini App yorug'
+   temadagi mijozda ochilganda butun Telegram oq, panel esa qop-qora
+   bo'lib turardi — bu «bir dastur» taassurotini emas, «ilova
+   buzilgan» taassurotini beradi. Endi tema Telegramdan meros
+   olinadi: `panel.js` `tg.colorScheme` ni `data-tema` ga yozadi va
+   `themeChanged` hodisasiga obuna bo'ladi.
+
+   Brauzerda `data-tema` bo'lmaydi — o'shanda `prefers-color-scheme`
+   hal qiladi. Ya'ni ikkala yo'l ham ishlaydi va hech qaysi rang
+   faqat media-so'rov ichida ta'riflanmagan.                        */
 :root{
-  --void:#07060C;          /* sahifa zamini — binafsha tomon egilgan qora */
-  --deep:#0B0A14;          /* rail va sarlavha */
+  /* Qorong'i — asosiy ko'rinish (bot logotipi qora fondagi neon tugun) */
+  --void:#07060C;          /* sahifa zamini */
+  --deep:#0B0A14;          /* sarlavha va pastki panel */
   --panel:#11101C;         /* kartochka yuzasi */
-  --panel-2:#171525;       /* ichki yuzalar, jadval sarlavhasi */
-  --line:#211E33;          /* ingichka chiziqlar */
-  --line-soft:#1A1828;
+  --panel-2:#171525;       /* ichki yuzalar, kiritish maydonlari */
+  --line:#2A2640;
+  --line-soft:#201D31;
   --ink:#EDEBF7;           /* asosiy matn */
-  --ink-2:#A9A4C4;         /* ikkilamchi */
-  --ink-3:#6E6A8A;         /* uchinchi darajali, izoh */
-  --magenta:#C724FF;
+  --ink-2:#BDB8D6;         /* ikkilamchi */
+  --ink-3:#9A95B8;         /* izoh — WCAG AA (6.6:1 kartochka fonida) */
+  --ink-teskari:#08070F;   /* gradient ustidagi matn */
+
   --violet:#7B5CFF;
   --azure:#2BB3FF;
   --grad:linear-gradient(135deg,#C724FF 0%,#7B5CFF 48%,#2BB3FF 100%);
-  --ok:#2ED69A;
+  --ok:#3FE0A8;
+  --ok-yuza:rgba(63,224,168,.12);
   --warn:#FFB13D;
-  --bad:#FF4D6A;
-  --r-s:8px; --r-m:12px; --r-l:18px;
-  /* Telegram oynasining haqiqiy balandligi. panel.js uni
-     `viewportStableHeight` dan yangilab turadi; brauzerda 100vh qoladi. */
+  --warn-yuza:rgba(255,177,61,.12);
+  --bad:#FF6B85;
+  --bad-yuza:rgba(255,107,133,.12);
+  --pro-yuza:rgba(123,92,255,.16);
+  --pro-ink:#C9BCFF;
+  /* Tarif doirasining segment ranglari. Kalitlar
+     `core/config.py::TARIF_RANGI` dan keladi — server token NOMINI
+     yuboradi, rangni esa shu yer tanlaydi. */
+  --t-pro:#9A44FF;
+  --t-premium:#2BB3FF;
+  --t-free:#3A3556;
+  --t-ban:#FF4D6A;
+  --tanlangan:linear-gradient(135deg,rgba(199,36,255,.24),rgba(43,179,255,.16));
+  --soya:0 8px 24px rgba(0,0,0,.5);
+
+  /* Shakl */
+  --r-s:8px; --r-m:12px; --r-l:18px; --r-full:999px;
+  /* Oraliq — 4px panjara */
+  --s-2:8px; --s-3:12px; --s-4:16px; --s-5:22px;
+  /* Shrift o'lchamlari */
+  --f-xs:11px; --f-s:12.5px; --f-m:13.5px; --f-l:15px;
+  --f-xl:18px; --f-2xl:22px; --f-3xl:28px;
+
+  /* Telegram oynasining haqiqiy balandligi va xavfsiz chekkalari.
+     panel.js ularni `viewportStableHeight` / `safeAreaInset` dan
+     yangilab turadi; brauzerda quyidagi zaxira qiymatlar qoladi. */
   --vh:100vh;
+  --tepa:env(safe-area-inset-top, 0px);
+  --past:env(safe-area-inset-bottom, 0px);
+  /* Pastki navigatsiya balandligi — kontent shu qadar pastdan
+     bo'shatiladi. §2.6: aks holda oxirgi kartochka nav tagida qoladi. */
+  --nav-h:58px;
+
   color-scheme:dark;
 }
 
+/* Yorug' tema — Telegram shunday desa yoki brauzer shunday so'rasa.
+   ⚠️ Har ikkala yo'l ham bir xil qiymatlar to'plamini yozadi; qaysi
+   biri yo'q bo'lsa ham panel to'liq bo'yalgan qoladi. */
+:root[data-tema="light"]{
+  --void:#F4F3F9;
+  --deep:#FFFFFF;
+  --panel:#FFFFFF;
+  --panel-2:#F2F0F8;
+  --line:#DFDCEC;
+  --line-soft:#ECEAF4;
+  --ink:#15131F;
+  --ink-2:#4A4560;
+  --ink-3:#6B657F;         /* WCAG AA (5.5:1 oq fonda) */
+  --ink-teskari:#FFFFFF;
+  /* ⚠️ Brend ranglari yorug' temada TO'QLASHADI. Neon #7B5CFF va
+     #2BB3FF qora fonda ajoyib, oq fonda esa mos ravishda 3.9:1 va
+     2.1:1 — ya'ni ular bilan yozilgan matn («Bekor qilish») o'qilmay
+     qoladi. Gradient o'zi o'zgarmaydi: u fon, matn emas. */
+  --violet:#5B3FD6;
+  --azure:#0A72B8;
+  --ok:#0E9E6E;
+  --ok-yuza:rgba(14,158,110,.12);
+  --warn:#B36A00;
+  --warn-yuza:rgba(179,106,0,.12);
+  --bad:#D32F4C;
+  --bad-yuza:rgba(211,47,76,.1);
+  --pro-yuza:rgba(123,92,255,.12);
+  --pro-ink:#5B3FD6;
+  --t-pro:#8A2BE2;
+  --t-premium:#0A72B8;
+  --t-free:#CFCADF;
+  --t-ban:#D32F4C;
+  --tanlangan:linear-gradient(135deg,rgba(199,36,255,.14),rgba(43,179,255,.1));
+  --soya:0 8px 24px rgba(20,16,40,.12);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-tema="dark"]){
+    --void:#F4F3F9; --deep:#FFFFFF; --panel:#FFFFFF; --panel-2:#F2F0F8;
+    --line:#DFDCEC; --line-soft:#ECEAF4;
+    --ink:#15131F; --ink-2:#4A4560; --ink-3:#6B657F; --ink-teskari:#FFFFFF;
+    --violet:#5B3FD6; --azure:#0A72B8;
+    --ok:#0E9E6E; --ok-yuza:rgba(14,158,110,.12);
+    --warn:#B36A00; --warn-yuza:rgba(179,106,0,.12);
+    --bad:#D32F4C; --bad-yuza:rgba(211,47,76,.1);
+    --pro-yuza:rgba(123,92,255,.12); --pro-ink:#5B3FD6;
+    --t-pro:#8A2BE2; --t-premium:#0A72B8; --t-free:#CFCADF; --t-ban:#D32F4C;
+    --tanlangan:linear-gradient(135deg,rgba(199,36,255,.14),rgba(43,179,255,.1));
+    --soya:0 8px 24px rgba(20,16,40,.12);
+    color-scheme:light;
+  }
+}
+
 *{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
 body{
   margin:0;
-  background:
-    radial-gradient(900px 520px at 78% -12%, rgba(123,92,255,.16), transparent 62%),
-    radial-gradient(700px 460px at 8% 104%, rgba(43,179,255,.10), transparent 60%),
-    var(--void);
+  background:var(--void);
   color:var(--ink);
-  font:400 15px/1.55 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* ⚠️ BITTA SHRIFT OILASI. Ilgari uchtasi aralash edi (Sora —
+     sarlavha, IBM Plex Sans — matn, IBM Plex Mono — raqam) va
+     telefonda bu shunchaki chalkash ko'rinardi. Raqamlar bir xil
+     kenglikda turishi uchun `tabular-nums` yetarli — buning uchun
+     alohida monospace oila kerak emas. */
+  font:400 var(--f-l)/1.5 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;       /* §2.1: gorizontal siljish hech qayerda yo'q */
 }
-h1,h2,h3{font-family:"Sora","IBM Plex Sans",system-ui,sans-serif;margin:0;text-wrap:balance;letter-spacing:-.015em}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
 a{color:inherit}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-:focus-visible{outline:2px solid var(--azure);outline-offset:2px;border-radius:6px}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+input,textarea,select{font:inherit}
+:focus-visible{outline:2px solid var(--azure);outline-offset:2px;border-radius:var(--r-s)}
 [hidden]{display:none!important}
+img{max-width:100%}
+.num{font-variant-numeric:tabular-nums}
 
-/* ── Karkas ───────────────────────────────────────────────────── */
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ══ KARKAS ════════════════════════════════════════════════════════ */
 .shell{display:grid;grid-template-columns:238px 1fr;min-height:var(--vh)}
 
 .rail{
   background:var(--deep);border-right:1px solid var(--line);
-  display:flex;flex-direction:column;gap:22px;
+  display:flex;flex-direction:column;gap:var(--s-5);
   padding:20px 14px 16px;position:sticky;top:0;height:var(--vh);
 }
 .brand{display:flex;align-items:center;gap:11px;padding:2px 6px 0}
-/* Logotip — panelning YAGONA rasmi: `/static/logo.jpg`. Boshqa yo'l
-   yoki tashqi havola qo'shilmaydi (REJA 3.2.1). */
+/* Logotip — panelning YAGONA rasmi: `/static/logo.jpg` (REJA 3.2.1). */
 .mark{width:34px;height:34px;flex:none;border-radius:10px;object-fit:cover;
-      filter:drop-shadow(0 0 12px rgba(123,92,255,.55))}
-.brand b{font-family:"Sora",sans-serif;font-size:15px;font-weight:600;letter-spacing:-.01em;display:block;line-height:1.2}
-.brand span{font-size:11.5px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+      filter:drop-shadow(0 0 12px rgba(123,92,255,.45))}
+.brand b{font-size:var(--f-l);font-weight:600;display:block;line-height:1.2}
+.brand span{font-size:var(--f-xs);color:var(--ink-3)}
 
 .nav{display:flex;flex-direction:column;gap:2px}
 .nav-label{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);padding:0 10px 6px;font-weight:600;margin:0}
-.nav-label.gap{margin-top:14px}
+.nav-label.gap{margin-top:var(--s-3)}
 .nav button{
   display:flex;align-items:center;gap:11px;width:100%;text-align:left;
   padding:9px 10px;border-radius:var(--r-s);color:var(--ink-2);font-size:14px;
   transition:background .14s,color .14s;
 }
-.nav button svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
-.nav button:hover{background:#15132250;color:var(--ink)}
-.nav button[aria-current="true"]{background:linear-gradient(90deg,rgba(199,36,255,.16),rgba(43,179,255,.07));color:#fff;box-shadow:inset 2px 0 0 0 var(--violet)}
-.nav .count{margin-left:auto;font:500 11px/1 "IBM Plex Mono",monospace;color:var(--ink-3);background:var(--panel-2);padding:3px 6px;border-radius:5px}
+.nav button svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.nav button:hover{background:var(--panel-2);color:var(--ink)}
+.nav button[aria-current="true"]{background:var(--tanlangan);color:var(--ink);box-shadow:inset 2px 0 0 0 var(--violet)}
+.nav .count{margin-left:auto;font-size:var(--f-xs);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);padding:3px 6px;border-radius:5px}
 
 .who{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:var(--r-m);background:var(--panel);border:1px solid var(--line)}
-.who .av{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font:600 12px "Sora",sans-serif;color:#0b0a14;flex:none}
+.who .av{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font:600 12px/1 inherit;color:var(--ink-teskari);flex:none}
 .who .t{min-width:0}
-.who b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.who span{font-size:11px;color:var(--ok)}
-.who .out{margin-left:auto;flex:none;padding:6px;border-radius:8px;color:var(--ink-3)}
+.who b{display:block;font-size:var(--f-m);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who span{font-size:var(--f-xs);color:var(--ok)}
+.who .out{margin-left:auto;flex:none;padding:6px;border-radius:var(--r-s);color:var(--ink-3)}
 .who .out:hover{color:var(--bad);background:var(--panel-2)}
 .who .out svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;display:block}
 
-/* ── Sarlavha qatori ──────────────────────────────────────────── */
-.main{min-width:0;display:flex;flex-direction:column}
+/* ══ SARLAVHA QATORI ═══════════════════════════════════════════════
+   §2.8: ilgari bu blok uch qator egallardi (sarlavha, sana, katta
+   «Bot ishlayapti» nishoni) va telefonda ekranning oltidan birini
+   yeb qo'yardi. Endi bitta qator: sarlavha + kichik holat nuqtasi,
+   sana esa sarlavha tagida mayda yozuv.                            */
 .topbar{
-  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:16px 26px;background:rgba(11,10,20,.86);backdrop-filter:blur(14px);
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:var(--s-3);
+  padding:12px 26px;background:var(--deep);
   border-bottom:1px solid var(--line);
+  padding-top:calc(12px + var(--tepa));
 }
-.topbar h1{font-size:19px;font-weight:600}
-.crumb{font-size:12px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;margin:0}
+.topbar h1{font-size:var(--f-xl)}
+.crumb{font-size:var(--f-xs);color:var(--ink-3);margin:0;font-variant-numeric:tabular-nums}
 .spacer{flex:1}
-.pill{
-  display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;
-  padding:5px 10px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);background:var(--panel);
+
+/* Kichik holat indikatori — matnli katta nishon o'rniga.
+   Rangi haqiqiy holatdan: yashil ishlayapti, sariq ta'til, qizil
+   baza uzilgan. */
+.holat{display:inline-flex;align-items:center;gap:6px;font-size:var(--f-xs);
+       color:var(--ink-3);white-space:nowrap}
+.holat i{width:8px;height:8px;border-radius:50%;background:var(--ok);
+         box-shadow:0 0 0 3px var(--ok-yuza);flex:none}
+.holat.ogoh i{background:var(--warn);box-shadow:0 0 0 3px var(--warn-yuza)}
+.holat.yomon i{background:var(--bad);box-shadow:0 0 0 3px var(--bad-yuza)}
+.holat .matn{display:none}
+@media (min-width:520px){.holat .matn{display:inline}}
+
+.wrap{
+  padding:var(--s-4) 26px;
+  display:flex;flex-direction:column;gap:var(--s-4);
+  max-width:1240px;width:100%;
 }
-.pill i{width:6px;height:6px;border-radius:50%;background:var(--warn);display:block}
-.pill.live i{background:var(--ok);box-shadow:0 0 0 3px rgba(46,214,154,.16)}
-
-.wrap{padding:22px 26px 96px;display:flex;flex-direction:column;gap:22px;max-width:1240px;width:100%}
-section[data-screen]{display:none;flex-direction:column;gap:22px}
-section[data-screen].on{display:flex;animation:rise .22s ease-out}
+section[data-screen]{display:none;flex-direction:column;gap:var(--s-4)}
+section[data-screen].on{display:flex;animation:rise .2s ease-out}
 @keyframes rise{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}
+.main{min-width:0;display:flex;flex-direction:column}
 
-/* ── Umumiy bo'laklar ─────────────────────────────────────────── */
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-l);padding:18px}
-.card > header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.card h2{font-size:14.5px;font-weight:600}
+/* ══ UMUMIY BO'LAKLAR ══════════════════════════════════════════════ */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-l);padding:var(--s-4);min-width:0}
+.card > header{display:flex;align-items:center;gap:var(--s-2);margin-bottom:var(--s-3);flex-wrap:wrap}
+.card h2{font-size:14.5px}
 .card header .spacer{flex:1}
-.hint{font-size:12.5px;color:var(--ink-3);line-height:1.5}
+.hint{font-size:var(--f-s);color:var(--ink-3);line-height:1.5;margin:0}
 
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-m);padding:15px 16px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s-3)}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-m);padding:14px 15px;min-width:0}
 .kpi p{margin:0}
-.kpi .k{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
-.kpi .v{font-family:"Sora",sans-serif;font-size:27px;font-weight:600;letter-spacing:-.02em;margin-top:7px;font-variant-numeric:tabular-nums}
-.kpi .d{font-size:12px;margin-top:3px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.kpi .d b{font-weight:500}
+.kpi .k{font-size:var(--f-xs);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.kpi .v{font-size:var(--f-3xl);font-weight:600;letter-spacing:-.02em;margin-top:6px;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi .d{font-size:var(--f-s);margin-top:3px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .up{color:var(--ok)} .down{color:var(--bad)}
-.kpi.hero{background:linear-gradient(150deg,rgba(199,36,255,.15),rgba(43,179,255,.07) 70%),var(--panel);border-color:#2E2547}
+.kpi.hero{background:var(--tanlangan);border-color:var(--line)}
 
-.grid2{display:grid;grid-template-columns:1.55fr 1fr;gap:16px}
+.grid2{display:grid;grid-template-columns:1.55fr 1fr;gap:var(--s-4)}
 .grid2.even{grid-template-columns:1fr 1fr}
 
-/* ── Jadval ───────────────────────────────────────────────────── */
-.tbl-wrap{overflow-x:auto;margin:0 -18px -18px;padding:0 0 2px}
-table{width:100%;border-collapse:collapse;font-size:13.5px}
-th{
-  text-align:left;font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
-  font-weight:600;padding:9px 14px;background:var(--panel-2);white-space:nowrap;
+/* ══ RO'YXATLAR ════════════════════════════════════════════════════
+   ⚠️ JADVAL YO'Q. Ilgari har ro'yxat `<table>` edi va telefonda
+   `overflow-x:auto` ichida turardi — ya'ni oxirgi ustun («Oxirgi
+   faollik», «Amal») ekrandan chiqib ketardi va uni ko'rish uchun
+   qatorni yonga surish kerak edi. Admin esa u yerda tugma borligini
+   bilmasdi ham.
+
+   Endi bitta tuzilma: `.rows > .row`, ya'ni flex. Keng ekranda
+   `--ust` o'zgaruvchisi qatorni panjaraga aylantiradi (jadval
+   zichligi saqlanadi), tor ekranda esa u o'chadi va qator o'zidan
+   o'rab, kartochkaga aylanadi. Bitta razmetka, ikki ko'rinish.     */
+.rows{display:flex;flex-direction:column;min-width:0}
+.row{
+  display:flex;align-items:center;gap:var(--s-3);padding:12px 0;
+  border-top:1px solid var(--line-soft);flex-wrap:wrap;min-width:0;
 }
-th:first-child{padding-left:18px} td:first-child{padding-left:18px}
-th:last-child,td:last-child{padding-right:18px;text-align:right}
-td{padding:11px 14px;border-top:1px solid var(--line-soft);vertical-align:middle}
-tbody tr{transition:background .12s}
-tbody tr:hover{background:#16142440}
-tbody tr.clickable{cursor:pointer}
-.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
-.uid{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-3)}
-.person{display:flex;align-items:center;gap:10px;min-width:0}
-.person .av{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font:600 11px "Sora",sans-serif;flex:none;background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line)}
-.person .av.pro{background:var(--grad);color:#0b0a14;border:0}
-.person b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.person span{display:block;font-size:11.5px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.row:first-child{border-top:0;padding-top:0}
+.row .t{min-width:0;flex:1 1 150px}
+.row .t b{display:block;font-size:var(--f-m);font-weight:500;overflow-wrap:anywhere}
+.row .t span{font-size:var(--f-s);color:var(--ink-3);overflow-wrap:anywhere}
+.row.bosiladi{cursor:pointer}
+.row.bosiladi:hover{background:var(--panel-2)}
+.rows.zich .row{padding:9px 0}
 
-.tag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);white-space:nowrap}
-.tag.pro{border-color:rgba(123,92,255,.45);color:#C6B8FF;background:rgba(123,92,255,.12)}
-.tag.ban{border-color:rgba(255,77,106,.4);color:#FF9FB0;background:rgba(255,77,106,.1)}
-.tag.ok{border-color:rgba(46,214,154,.35);color:#7DE8C4;background:rgba(46,214,154,.1)}
-.tag.warn{border-color:rgba(255,177,61,.35);color:#FFD79A;background:rgba(255,177,61,.1)}
+/* Sarlavha qatori — faqat keng ekranda. */
+.rbosh{display:none;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+       color:var(--ink-3);font-weight:600;padding:0 0 8px;gap:var(--s-3)}
+@media (min-width:760px){
+  .rows.ustunli .row,.rows.ustunli .rbosh{
+    display:grid;grid-template-columns:var(--ust,1fr auto);align-items:center;
+  }
+  .rows.ustunli .rbosh{display:grid}
+  .rows.ustunli .row > *{min-width:0}
+}
+.ong{text-align:right;justify-self:end}
 
-/* ── Boshqaruv elementlari ────────────────────────────────────── */
-.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;font-size:13.5px;font-weight:500;border:1px solid var(--line);background:var(--panel-2);transition:border-color .15s,transform .05s}
-.btn:hover{border-color:#39335A}
+/* Odam: avatar + nom + ID */
+.person{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 150px}
+.person .av{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+  font:600 11px/1 inherit;flex:none;background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line)}
+.person .av.pro{background:var(--grad);color:var(--ink-teskari);border:0}
+.person b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;font-size:var(--f-m)}
+.person span{display:block;font-size:var(--f-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+/* ══ YORLIQLAR ═════════════════════════════════════════════════════
+   §2.4: `white-space:nowrap` — chip qator o'rtasida BO'LINMAYDI.
+   Ilgari «BEHRUZ -> 1 ta» ikki qatorga bo'linib, chetlari singan
+   ko'rinardi. Endi u butunligicha yangi qatorga o'tadi.            */
+.tag{
+  display:inline-flex;align-items:center;gap:5px;font-size:var(--f-xs);font-weight:500;
+  padding:3px 9px;border-radius:var(--r-full);border:1px solid var(--line);
+  color:var(--ink-2);white-space:nowrap;flex:none;
+}
+.tag.pro{border-color:transparent;color:var(--pro-ink);background:var(--pro-yuza);font-weight:600}
+.tag.ban{border-color:transparent;color:var(--bad);background:var(--bad-yuza)}
+.tag.ok{border-color:transparent;color:var(--ok);background:var(--ok-yuza)}
+.tag.warn{border-color:transparent;color:var(--warn);background:var(--warn-yuza)}
+/* Ishlamaydigan narsa xira turadi — §4 Promo. */
+.tag.xira,.row.xira .person b,.row.xira .t b{opacity:.55}
+
+.code{
+  font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  font-size:var(--f-xs);background:var(--panel-2);border:1px solid var(--line);
+  border-radius:6px;padding:2px 7px;white-space:nowrap;display:inline-block;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;
+}
+.code.uzun{white-space:normal;overflow-wrap:anywhere}
+
+/* ══ BOSHQARUV ELEMENTLARI ═════════════════════════════════════════ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 14px;
+  border-radius:var(--r-s);font-size:var(--f-m);font-weight:500;border:1px solid var(--line);
+  background:var(--panel-2);transition:border-color .15s,transform .05s;white-space:nowrap}
+.btn:hover{border-color:var(--violet)}
 .btn:active{transform:translateY(1px)}
-.btn.primary{background:var(--grad);color:#08070F;border:0;font-weight:600}
-.btn.danger{color:#FF9FB0;border-color:rgba(255,77,106,.3)}
-.btn.sm{padding:6px 11px;font-size:12.5px}
-.btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.btn:disabled{opacity:.45;cursor:default}
+/* §4 Promo: gradient ustidagi matn OQ. Ilgari u to'q edi va
+   binafsha-ko'k gradientda deyarli o'qilmasdi. */
+.btn.primary{background:var(--grad);color:#FFFFFF;border:0;font-weight:600}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.sm{padding:6px 11px;font-size:var(--f-s)}
+.btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.btn.faqat-ikon{padding:7px;width:34px}
 
-.field{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:0 12px}
-.field svg{width:15px;height:15px;stroke:var(--ink-3);fill:none;stroke-width:1.7}
-.field input{background:none;border:0;outline:none;color:var(--ink);font:inherit;font-size:13.5px;padding:8px 0;width:190px}
+.field{display:flex;align-items:center;gap:var(--s-2);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:var(--r-s);padding:0 12px;min-width:0;flex:1 1 100%}
+.field svg{width:15px;height:15px;stroke:var(--ink-3);fill:none;stroke-width:1.7;flex:none}
+.field input{background:none;border:0;outline:none;color:var(--ink);font-size:var(--f-m);
+  padding:9px 0;width:100%;min-width:0}
 .field input::placeholder{color:var(--ink-3)}
 
-.chips{display:flex;gap:7px;flex-wrap:wrap}
-.chip{padding:6px 12px;border-radius:999px;border:1px solid var(--line);font-size:12.5px;color:var(--ink-2);background:var(--panel-2)}
-.chip[aria-pressed="true"]{border-color:transparent;background:linear-gradient(135deg,rgba(199,36,255,.22),rgba(43,179,255,.14));color:#fff}
+/* Chiplar — yonma-yon, o'rab tushadi, hech qachon kesilmaydi. */
+.chips{display:flex;gap:7px;flex-wrap:wrap;min-width:0}
+.chip{padding:6px 12px;border-radius:var(--r-full);border:1px solid var(--line);
+  font-size:var(--f-s);color:var(--ink-2);background:var(--panel-2);white-space:nowrap}
+.chip[aria-pressed="true"]{border-color:transparent;background:var(--tanlangan);color:var(--ink);font-weight:600}
+.chip .n{font-variant-numeric:tabular-nums;opacity:.75;margin-left:4px}
 
-.switch{position:relative;width:46px;height:26px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line);flex:none;transition:background .18s}
+.switch{position:relative;width:46px;height:26px;border-radius:var(--r-full);background:var(--panel-2);border:1px solid var(--line);flex:none;transition:background .18s}
 .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--ink-3);transition:transform .18s,background .18s}
-.switch[aria-pressed="true"]{background:linear-gradient(135deg,rgba(199,36,255,.55),rgba(43,179,255,.45));border-color:transparent}
-.switch[aria-pressed="true"]::after{transform:translateX(20px);background:#fff}
+.switch[aria-pressed="true"]{background:var(--grad);border-color:transparent}
+.switch[aria-pressed="true"]::after{transform:translateX(20px);background:#FFFFFF}
 
-.rows{display:flex;flex-direction:column}
-.row{display:flex;align-items:center;gap:14px;padding:13px 0;border-top:1px solid var(--line-soft)}
-.row:first-child{border-top:0;padding-top:0}
-.row .t{min-width:0;flex:1}
-.row .t b{display:block;font-size:13.5px;font-weight:500}
-.row .t span{font-size:12px;color:var(--ink-3)}
+.actions{display:flex;gap:var(--s-2);flex-wrap:wrap}
+.actions .btn{flex:1 1 auto}
+@media (min-width:520px){.actions .btn{flex:0 0 auto}}
 
-/* ── Grafiklar ────────────────────────────────────────────────── */
+/* ══ KIRITISH MAYDONLARI ═══════════════════════════════════════════ */
+.kiritish{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-s);
+  color:var(--ink);font-size:var(--f-m);padding:9px 11px;outline:none;width:100%;min-width:0;
+}
+.kiritish:focus{border-color:var(--violet)}
+.kiritish::placeholder{color:var(--ink-3)}
+.kiritish.xato{border-color:var(--bad)}
+textarea.kiritish{resize:vertical;line-height:1.6}
+.kiritish.tor{width:100%;max-width:120px;text-align:right;font-variant-numeric:tabular-nums}
+.forma{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:var(--s-3);min-width:0}
+.forma .kiritish{width:auto;flex:1 1 130px;min-width:0}
+.natija{margin-top:10px;font-size:var(--f-s);min-height:17px;color:var(--ok)}
+.natija.yomon{color:var(--bad)}
+
+/* ══ GRAFIKLAR ═════════════════════════════════════════════════════ */
 .chart{position:relative}
 .chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart .setka{stroke:var(--line-soft);stroke-width:1}
+.chart text{fill:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
 .tip{
   position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-118%);
-  background:#0C0B16;border:1px solid #2C2745;border-radius:9px;padding:7px 10px;
-  font-size:12px;white-space:nowrap;transition:opacity .12s;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:5;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-s);padding:7px 10px;
+  font-size:var(--f-s);white-space:nowrap;transition:opacity .12s;box-shadow:var(--soya);z-index:5;
 }
-.tip b{font-family:"IBM Plex Mono",monospace;font-weight:500}
-.bars{display:flex;flex-direction:column;gap:11px}
-.bar{display:grid;grid-template-columns:104px 1fr 58px;align-items:center;gap:12px;font-size:13px}
-.bar .track{height:9px;border-radius:999px;background:var(--panel-2);overflow:hidden}
-.bar .fill{height:100%;border-radius:999px;background:linear-gradient(90deg,#7B5CFF,#2BB3FF)}
+.tip b{font-variant-numeric:tabular-nums}
+
+.bars{display:flex;flex-direction:column;gap:10px}
+.bar{display:grid;grid-template-columns:minmax(72px,104px) 1fr minmax(38px,58px);
+     align-items:center;gap:var(--s-3);font-size:var(--f-m);min-width:0}
+.bar > span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .track{height:9px;border-radius:var(--r-full);background:var(--panel-2);overflow:hidden}
+.bar .fill{height:100%;border-radius:var(--r-full);background:linear-gradient(90deg,var(--violet),var(--azure))}
 .bar .fill.top{background:var(--grad)}
-.bar .n{text-align:right;color:var(--ink-2)}
-.ratio{display:flex;height:11px;border-radius:999px;overflow:hidden;gap:2px;background:transparent}
-.ratio i{display:block}
-.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:11px;font-size:12.5px;color:var(--ink-2)}
-.legend span{display:inline-flex;align-items:center;gap:7px}
-.legend i{width:9px;height:9px;border-radius:3px;display:block}
+.bar .fill.kul{background:var(--ink-3);opacity:.45}
+.bar .n{text-align:right;color:var(--ink-2);font-variant-numeric:tabular-nums}
 
-/* ── Foydalanuvchi kartochkasi ────────────────────────────────── */
-.uhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.uhead .av{width:52px;height:52px;border-radius:15px;background:var(--grad);display:grid;place-items:center;font:600 19px "Sora",sans-serif;color:#0b0a14;flex:none}
-.uhead h2{font-size:18px}
-.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-m);overflow:hidden}
-.fact{background:var(--panel);padding:12px 14px}
+/* Tarif taqsimoti — doira + FOIZLI ro'yxat (§4).
+   ⚠️ 230 tadan 1 ta segment doirada ko'rinmaydi (0.4% ≈ yarim
+   piksel), shuning uchun raqam va foiz ro'yxatda yoziladi: doira
+   nisbat uchun, ro'yxat aniqlik uchun. */
+.ratio{display:flex;height:10px;border-radius:var(--r-full);overflow:hidden;gap:2px;background:var(--panel-2)}
+.ratio i{display:block;min-width:2px}
+.ulush{display:flex;flex-direction:column;gap:9px;margin-top:var(--s-3)}
+.ulush .u{display:flex;align-items:center;gap:var(--s-2);font-size:var(--f-m)}
+.ulush .u i{width:9px;height:9px;border-radius:3px;display:block;flex:none}
+.ulush .u b{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600}
+.ulush .u .p{color:var(--ink-3);font-size:var(--f-s);font-variant-numeric:tabular-nums;min-width:48px;text-align:right}
+
+/* ══ FAKTLAR PANJARASI ═════════════════════════════════════════════ */
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--r-m);overflow:hidden}
+.fact{background:var(--panel);padding:11px 13px;min-width:0}
 .fact p{margin:0}
-.fact .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
-.fact .v{font-size:15px;margin-top:5px;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
-.actions{display:flex;gap:8px;flex-wrap:wrap}
+.fact .k{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.fact .v{font-size:var(--f-l);margin-top:4px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 
-/* ── Sub-tablar ───────────────────────────────────────────────── */
-.subtabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);padding-bottom:0}
-.subtabs button{padding:9px 13px;font-size:13.5px;color:var(--ink-3);border-bottom:2px solid transparent;white-space:nowrap}
+.uhead{display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap}
+.uhead .av{width:48px;height:48px;border-radius:14px;background:var(--grad);display:grid;place-items:center;font:600 18px/1 inherit;color:var(--ink-teskari);flex:none}
+.uhead h2{font-size:var(--f-xl);overflow-wrap:anywhere}
+
+/* ══ SUB-TABLAR ════════════════════════════════════════════════════ */
+.subtabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);
+  scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.subtabs::-webkit-scrollbar{display:none}
+.subtabs button{padding:9px 13px;font-size:var(--f-m);color:var(--ink-3);border-bottom:2px solid transparent;white-space:nowrap}
 .subtabs button:hover{color:var(--ink-2)}
-.subtabs button[aria-current="true"]{color:#fff;border-bottom-color:var(--violet)}
+.subtabs button[aria-current="true"]{color:var(--ink);border-bottom-color:var(--violet);font-weight:600}
 .pane{display:none}.pane.on{display:block}
 
-.note{display:flex;gap:11px;padding:14px 16px;border-radius:var(--r-m);background:linear-gradient(135deg,rgba(199,36,255,.1),rgba(43,179,255,.05));border:1px solid #2A2344}
+.note{display:flex;gap:11px;padding:13px 15px;border-radius:var(--r-m);
+  background:var(--panel-2);border:1px solid var(--line)}
 .note svg{width:18px;height:18px;flex:none;stroke:var(--violet);fill:none;stroke-width:1.7;margin-top:2px}
-.note p{margin:0;font-size:13.5px;color:var(--ink-2)}
+.note p{margin:0;font-size:var(--f-m);color:var(--ink-2)}
 .note b{color:var(--ink)}
 
-.kv{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-top:1px solid var(--line-soft);font-size:13.5px}
+.kv{display:flex;justify-content:space-between;gap:var(--s-4);padding:9px 0;
+  border-top:1px solid var(--line-soft);font-size:var(--f-m)}
 .kv:first-child{border-top:0}
 .kv span{color:var(--ink-2)}
-.kv b{font-weight:500;font-family:"IBM Plex Mono",monospace}
+.kv b{font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
 
-.code{font-family:"IBM Plex Mono",monospace;font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:2px 7px}
+/* Sana guruhi sarlavhasi — «Bugun» / «Kecha» / «14-sentabr» (§4). */
+.kun-bosh{font-size:var(--f-xs);letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:600;padding:14px 0 6px;border-top:1px solid var(--line-soft)}
+.kun-bosh:first-child{border-top:0;padding-top:0}
 
-/* ── Kirish va xato ekranlari ─────────────────────────────────── */
-/* Panel ochilishi bilan ko'rinadigan yagona narsa — logo. Ma'lumot
-   `/api/session` javobidan keyin chiziladi. */
-.gate{min-height:var(--vh);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px 20px;text-align:center}
+/* Audit qatoridagi ikonka — pastki navigatsiya bilan BIR USLUBDA
+   (chiziqli SVG), emoji emas. */
+.ikon{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;color:var(--ink-3)}
+
+/* ══ SKELET, BO'SH VA XATO HOLATLARI (§5) ══════════════════════════ */
+.skelet{display:flex;flex-direction:column;gap:10px}
+.skelet i{display:block;height:13px;border-radius:6px;background:var(--panel-2);
+  animation:pulse 1.2s ease-in-out infinite}
+.skelet i:nth-child(2){width:78%}
+.skelet i:nth-child(3){width:56%}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.holat-bosh{display:flex;flex-direction:column;align-items:flex-start;gap:10px;
+  padding:18px 0;color:var(--ink-3);font-size:var(--f-m)}
+
+/* ══ TOAST (§3.4) ══════════════════════════════════════════════════ */
+.toast{
+  position:fixed;left:50%;transform:translate(-50%,16px);
+  bottom:calc(var(--nav-h) + var(--past) + 14px);
+  z-index:60;display:flex;align-items:center;gap:var(--s-3);
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-m);
+  padding:10px 14px;box-shadow:var(--soya);font-size:var(--f-m);
+  opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;
+  max-width:calc(100vw - 32px);
+}
+.toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast button{color:var(--azure);font-weight:600;font-size:var(--f-s);white-space:nowrap}
+
+/* ══ KIRISH VA XATO EKRANLARI ══════════════════════════════════════ */
+.gate{min-height:var(--vh);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s-4);padding:28px 20px;text-align:center}
 .gate .mark{width:72px;height:72px;border-radius:22px}
-.gate h1{font-size:20px;font-weight:600}
-.gate p{margin:0;color:var(--ink-3);max-width:34ch;font-size:13.5px;line-height:1.55}
+.gate h1{font-size:var(--f-2xl)}
+.gate p{margin:0;color:var(--ink-3);max-width:34ch;font-size:var(--f-m);line-height:1.55}
 .gate .spin{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--violet);animation:aylan .7s linear infinite}
 @keyframes aylan{to{transform:rotate(360deg)}}
 
-/* ── Telefon: pastki tab panel (Mini App holati) ──────────────── */
+/* ══ TELEFON ═══════════════════════════════════════════════════════ */
 .tabbar{display:none}
-/* Tab-panelga sig'magan ekranlarga yo'l. Kompyuterda chap menyu bor,
-   ya'ni bu kartochka u yerda ortiqcha takror bo'lardi. */
 .faqat-tel{display:none}
+
 @media (max-width:900px){
   .shell{grid-template-columns:1fr}
   .rail{display:none}
-  .topbar{padding:13px 16px}
-  .wrap{padding:16px 16px 104px}
+  .topbar{padding:10px var(--s-4);padding-top:calc(10px + var(--tepa))}
+  .topbar h1{font-size:16.5px}
+  /* §2.6: oxirgi kartochka pastki navigatsiya tagida qolmasin. */
+  .wrap{padding:var(--s-3) var(--s-4)
+        calc(var(--nav-h) + var(--past) + var(--s-5));}
   .kpis{grid-template-columns:1fr 1fr}
   .grid2,.grid2.even{grid-template-columns:1fr}
+  .card{padding:var(--s-3);border-radius:var(--r-m)}
   .tabbar{
     display:flex;position:fixed;bottom:0;left:0;right:0;z-index:30;
-    background:rgba(11,10,20,.94);backdrop-filter:blur(16px);border-top:1px solid var(--line);
-    padding:7px 6px calc(7px + env(safe-area-inset-bottom));
+    background:var(--deep);border-top:1px solid var(--line);
+    padding:6px 6px calc(6px + var(--past));
   }
-  .tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:5px 2px;color:var(--ink-3);font-size:10.5px}
+  .tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 2px;color:var(--ink-3);font-size:10.5px;min-width:0}
   .tabbar button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-  .tabbar button[aria-current="true"]{color:#fff}
+  .tabbar button span{overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .tabbar button[aria-current="true"]{color:var(--ink);font-weight:600}
   .tabbar button[aria-current="true"] svg{stroke:url(#gradStroke)}
   .faqat-tel{display:block}
-}
-@media (max-width:420px){
-  .kpis{grid-template-columns:1fr}
-  .bar{grid-template-columns:86px 1fr 46px}
+  .kpi .v{font-size:var(--f-2xl)}
 }
 
-/* ── Kiritish maydonlari (6-bosqich) ──────────────────────────────
-   Uslub ILGARI `panel.html` ichida, `style="..."` bo'lib yozilgandi
-   (xabar matni uchun). Sozlamalar ekranida bunday maydon sakkizta —
-   nusxa ko'chirish o'rniga bitta sinf.
-   ⚠️ `font-size` 16px dan KICHIK bo'lmasligi kerak edi? Yo'q: iOS
-   Safari kiritishda sahifani kattalashtiradi, LEKIN Telegram Mini App
-   `user-scalable=no` bilan ochiladi, shuning uchun 13.5px xavfsiz va
-   qolgan panel bilan bir xil o'lchamda turadi. */
-.kiritish{
-  background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
-  color:var(--ink);font:inherit;font-size:13.5px;padding:9px 11px;
-  outline:none;width:100%;
+@media (max-width:420px){
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpi{padding:11px 12px}
+  .kpi .v{font-size:20px}
+  .kpi .k{font-size:10px;letter-spacing:.04em}
+  .bar{grid-template-columns:minmax(64px,88px) 1fr 40px;gap:var(--s-2)}
+  .wrap{padding-left:var(--s-3);padding-right:var(--s-3)}
 }
-.kiritish:focus{border-color:rgba(199,36,255,.45)}
-.kiritish::placeholder{color:var(--ink-3)}
-textarea.kiritish{resize:vertical;line-height:1.6}
-/* Jadval ichidagi son maydoni — qator balandligini o'stirmasin. */
-.kiritish.tor{width:88px;padding:6px 9px;text-align:right;
-  font-variant-numeric:tabular-nums}
-/* Bir nechta maydon yonma-yon; tor ekranda o'zi tushadi. */
-.forma{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:12px}
-.forma .kiritish{width:auto;flex:1 1 130px;min-width:0}
-.natija{margin-top:10px;font-size:12.5px;min-height:17px;color:var(--ok)}
-.natija.yomon{color:var(--bad)}

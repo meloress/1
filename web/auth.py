@@ -27,6 +27,23 @@ logger = logging.getLogger(__name__)
 COOKIE_NAME = "sid"
 SESSION_TTL = 12 * 3600          # REJA 4.2: 12 soat
 INIT_DATA_MAX_AGE = 5 * 60       # qayta ishlatishga qarshi: 5 daqiqa
+
+# ── Har so'rovdagi imzo ─────────────────────────────────────────────
+# Panel HAR so'rovga Telegram bergan `initData` ni shu sarlavhada
+# qo'shadi va server uni HAR SAFAR bot tokeni bilan qayta tekshiradi.
+#
+# ⚠️ Nega yoshi 24 soat, `/api/session` dagi 5 daqiqa emas: `initData`
+# Mini App ochilganda BIR MARTA beriladi va keyin YANGILANMAYDI —
+# `auth_date` o'sha lahzada qotadi. 5 daqiqalik chegara bu yerda
+# panelni besh daqiqadan keyin o'ligiga aylantirardi. 24 soat —
+# Telegram hujjatining o'z tavsiyasi.
+#
+# Cookie YO'Q QILINMADI: brauzerda (Telegramdan tashqarida) ochilgan
+# panelda `initData` umuman bo'lmaydi, va `/api/session` dagi 5
+# daqiqalik qat'iy tekshiruv aynan o'sha cookie'ni berish uchun turadi.
+# Ya'ni ikkita yo'l bor va ikkalasi ham imzoga tayanadi.
+INIT_DATA_HEADER = "X-Telegram-Init-Data"
+INIT_DATA_SOROV_MAX_AGE = 24 * 3600
 SESSION_RATE_LIMIT = 10          # bitta IP — daqiqasiga 10 ta urinish
 
 # ponytail: IP -> [vaqt, ...] RAM'da. Bitta jarayon, bitta admin — Redis
@@ -69,7 +86,7 @@ def sessiya_ochi(cookie: Optional[str]) -> Optional[int]:
         return None
 
 
-def init_data_tekshir(init_data: str):
+def init_data_tekshir(init_data: str, max_age: int = INIT_DATA_MAX_AGE):
     """Telegram imzosi + yoshi. Xato bo'lsa ValueError.
 
     `safe_parse_webapp_init_data` HMAC ni o'zi tekshiradi (aiogram'da
@@ -77,9 +94,26 @@ def init_data_tekshir(init_data: str):
     `initData` abadiy amal qilardi.
     """
     data = safe_parse_webapp_init_data(BOT_TOKEN, init_data)
-    if time.time() - data.auth_date.timestamp() > INIT_DATA_MAX_AGE:
+    if time.time() - data.auth_date.timestamp() > max_age:
         raise ValueError("initData eskirgan")
     return data
+
+
+def imzodan_user_id(request: web.Request) -> Optional[int]:
+    """So'rov sarlavhasidagi `initData` dan `user_id`. Yo'q/buzuq — None.
+
+    Imzo bot tokeni bilan HAR SO'ROVDA qayta hisoblanadi, ya'ni
+    sarlavhaning bir belgisi o'zgarsa ham so'rov rad etiladi.
+    """
+    xom = request.headers.get(INIT_DATA_HEADER)
+    if not xom:
+        return None
+    try:
+        data = init_data_tekshir(xom, INIT_DATA_SOROV_MAX_AGE)
+    except Exception as exc:
+        logger.info(f"[web] sarlavhadagi imzo rad etildi: {exc}")
+        return None
+    return data.user.id if data.user else None
 
 
 def chastota_oshdimi(ip: str) -> bool:
@@ -98,7 +132,13 @@ def admin_only(handler):
     """
     @functools.wraps(handler)
     async def wrapper(request: web.Request):
-        user_id = sessiya_ochi(request.cookies.get(COOKIE_NAME))
+        # ⚠️ TARTIB MUHIM: avval Telegram imzosi, keyin cookie.
+        # Imzo kuchliroq dalil — u bot tokeni bilan shu yerda qayta
+        # hisoblanadi va uni faqat Telegram yasay oladi; cookie esa
+        # bizning o'z imzomiz va u o'g'irlansa 12 soat ishlardi.
+        user_id = imzodan_user_id(request)
+        if user_id is None:
+            user_id = sessiya_ochi(request.cookies.get(COOKIE_NAME))
         if user_id is None:
             return web.json_response({"error": "sessiya yo'q"}, status=401)
         if not await huquq_bormi(user_id):

@@ -1335,7 +1335,7 @@ async def get_full_user_profile(user_id: int) -> Optional[Dict[str, Any]]:
     global pool
     if pool is None:
         await create_db_pool()
-    
+
     async with pool.acquire() as conn:
         user_row = await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
         if not user_row:
@@ -1461,15 +1461,25 @@ _EXTEND_PLAN_SQL = """
 
 @with_db_retry()
 async def set_user_premium(user_id: int, days: Optional[int], *,
-                           plan: str = 'premium', extend: bool = False) -> None:
+                           plan: str = 'pro', extend: bool = False) -> None:
     """Tarif beradi. days=None — muddatsiz.
 
-    extend=False (DEFAULT) — eski xatti-harakat: muddatni USTIDAN yozadi.
-    Admin paneli (handlers/admin.py) aynan shunga tayanadi, o'zgartirilmasin.
+    extend=False (DEFAULT) — muddatni USTIDAN yozadi (tuzatish amali).
+    extend=True — qolgan muddat USTIGA qo'shadi (sovg'a, to'lov, referal,
+    promokod): 20 kuni qolganida 1 oy olgan odam 50 kun oladi, 30 emas.
 
-    extend=True — qolgan muddat USTIGA qo'shadi. To'lov, sovg'a, referal va
-    promokod uchun shu ishlatiladi: 20 kuni qolganida 1 oy sotib olgan
-    foydalanuvchi 50 kun oladi, 30 emas.
+    ⚠️ `plan` STANDART QIYMATI `'premium'` EDI va bu jonli xato edi.
+    Paneldagi tugma «Pro berish» deb yozilgan, `PLAN_LIMITS` da esa
+    `premium` — CHEKSIZ limitli alohida tarif. Ya'ni admin «7 kunlik Pro»
+    bergan odam aslida cheksiz limitli tarif olardi, panelning Limitlar
+    ekrani esa uni umuman boshqara olmasdi (u yerda faqat Bepul va Pro
+    bor). Ustiga-ustak o'sha odam Boshqaruv ekranida to'rtinchi rang
+    bo'lib — «Premium 1» — ko'rinib turardi, va admin «Pro obunachilar 2»
+    bilan taqqoslab tushunmasdi.
+
+    Chaqiruvchilar buni ATAYLAB yozmaydi: bitta standart qiymat bo'lsa
+    keyingi chaqiruvchi ham xuddi shu tuzoqqa tushardi. `premium` faqat
+    bazadagi eski qatorlarda qoladi (`TARIF_NOMI` izohiga qarang).
     """
     global pool
     if pool is None:
@@ -2221,9 +2231,24 @@ def clean_promo_spec(code, days, max_uses, expires_raw):
     xom = str(expires_raw or "").strip()
     if xom and xom != "-":
         try:
-            expires_at = datetime.strptime(xom, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            kun = datetime.strptime(xom, "%Y-%m-%d")
         except ValueError:
             return None, "MUDDAT formati: YYYY-MM-DD yoki «-»."
+        # ⚠️ TANLANGAN KUNNING OXIRI, TOSHKENT VAQTI BILAN.
+        #
+        # Ilgari bu qator `replace(tzinfo=timezone.utc)` edi, ya'ni sana
+        # UTC YARIM TUNIGA tushardi. Toshkent UTC+5 bo'lgani uchun panel
+        # uni «21.09.2026 05:00» deb ko'rsatardi va admin «men 21-sentabr
+        # deb yozgan edim-ku, nega ertalab soat beshda tugaydi?» degan
+        # savolga tushardi. Yomoni — bu faqat ko'rinish emas edi:
+        # `redeem_promo()` ham o'sha lahzani tekshiradi, ya'ni kod
+        # tanlangan kunning deyarli hammasida ALLAQACHON o'lik bo'lardi.
+        #
+        # 23:59:59 — kun oxiri. Sekund aniqligi yetarli: kod sotib olish
+        # emas, sovg'a; yarim tunda bir sekundlik teshik hech kimga
+        # ta'sir qilmaydi, «bir kun yo'qoldi» esa har safar ta'sir qiladi.
+        expires_at = kun.replace(hour=23, minute=59, second=59,
+                                 tzinfo=TASHKENT_TZ)
         # Kechagi sana bilan yaratilgan kod — darhol o'lik kod: admin uni
         # ro'yxatda «Faol» deb ko'radi, foydalanuvchi esa ishlatolmaydi.
         if expires_at <= datetime.now(timezone.utc):
@@ -2682,35 +2707,6 @@ async def search_users(fragment: str, limit: int = 12) -> List[Dict[str, Any]]:
 
 
 @with_db_retry()
-async def inactive_users(limit: int = 30) -> List[Dict[str, Any]]:
-    """Botni bloklagan yoki o'chirib yuborgan foydalanuvchilar.
-
-    `is_active = FALSE` ni tarqatma paytida `deactivate_user()` qo'yadi.
-    """
-    global pool
-    if pool is None:
-        await create_db_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            '''SELECT user_id, username, plan_type, last_seen
-               FROM users WHERE is_active = FALSE
-               ORDER BY last_seen DESC NULLS LAST LIMIT $1''', limit)
-        return [dict(r) for r in rows]
-
-
-@with_db_retry()
-async def count_inactive_users() -> int:
-    global pool
-    if pool is None:
-        await create_db_pool()
-    async with pool.acquire() as conn:
-        return await conn.fetchval(
-            'SELECT COUNT(*) FROM users WHERE is_active = FALSE') or 0
-
-
-# ── Kunlik limitlar (admin panelidan sozlanadi) ────────────────────
-
-@with_db_retry()
 async def get_limit_overrides() -> Dict[str, Any]:
     """Bazadagi limit o'zgartirishlari. Bo'sh dict = config'dagi qiymat."""
     global pool
@@ -2879,24 +2875,44 @@ async def top_users(days: int, limit: int) -> List[Dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-# Tarif filtrlari — UCHALASI KESISHMAYDI, ya'ni pro + free + ban = jami.
+# Tarif shartlari — UCHALASI KESISHMAYDI, ya'ni pro + free + ban = jami.
 # Bloklangan odam «bepul» sanog'ida ham turgan bo'lsa, chiplardagi
 # sonlar qo'shilganda jamidan oshib ketardi va admin raqamlarga
 # ishonmay qolardi (bu xato bir marta bo'lgan — `_ODDIY_USER` izohiga
 # qarang).
-_TARIF_SHARTI = """
+#
+# ⚠️ SHARTLAR SHU YERDA, BITTA JOYDA. Ilgari ular uchta so'rovda uch
+# marta yozilgandi va uchtasi ham boshqacha edi: `list_users` bloklangan
+# odamni «pro» sanog'idan chiqarardi, `activity_stats` esa chiqarmasdi,
+# `daily_report_stats` esa adminlarni ham qo'shib sanardi. Natijada
+# bitta ekranda «Pro obunachilar 2», ikkinchisida «Pro 1 · Premium 1»,
+# uchinchisida «2 tasi Pro» chiqib turardi — uchta raqam, uchta ta'rif.
+_PRO_SHART = "(is_banned IS NOT TRUE AND COALESCE(plan_type,'free') <> 'free')"
+_FREE_SHART = "(is_banned IS NOT TRUE AND COALESCE(plan_type,'free') = 'free')"
+_BAN_SHART = "(is_banned = TRUE)"
+
+_TARIF_SHARTI = f"""
     CASE $3::text
-      WHEN 'pro'  THEN (is_banned IS NOT TRUE AND COALESCE(plan_type,'free') <> 'free')
-      WHEN 'free' THEN (is_banned IS NOT TRUE AND COALESCE(plan_type,'free') = 'free')
-      WHEN 'ban'  THEN is_banned = TRUE
+      WHEN 'pro'  THEN {_PRO_SHART}
+      WHEN 'free' THEN {_FREE_SHART}
+      WHEN 'ban'  THEN {_BAN_SHART}
       ELSE TRUE
     END
 """
 
 
+# Ro'yxat tartibi. Kalit paneldan keladi, ya'ni ISHONCHSIZ — shuning
+# uchun u SQL ga yopishtirilmaydi, balki SHU ro'yxatdan tanlanadi.
+_TARTIB = {
+    "faollik": "last_seen DESC NULLS LAST, user_id",
+    "yangi":   "created_at DESC NULLS LAST, user_id",
+}
+
+
 @with_db_retry()
 async def list_users(q: Optional[str] = None, tarif: str = "all",
-                     limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+                     limit: int = 20, offset: int = 0,
+                     tartib: str = "faollik") -> Dict[str, Any]:
     """Web paneldagi foydalanuvchilar jadvali: qidiruv + filtr + sahifa.
 
     Nega yangi funksiya: `get_all_users()` da na chegara, na filtr bor —
@@ -2915,6 +2931,17 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
     if pool is None:
         await create_db_pool()
 
+    # ⚠️ `tarif == "nofaol"` — BOTNI BLOKLAGANLAR (`is_active = FALSE`).
+    # Qolgan hamma filtr faqat FAOL qatorlarni ko'radi, ya'ni shart
+    # ikkalasi uchun bir xil bo'lolmaydi. Ilgari bu ro'yxat Jurnal
+    # ekranida alohida jadval edi — bir xil odamlar ikki ekranda ikki
+    # xil ustun bilan ko'rsatilardi.
+    nofaol = tarif == "nofaol"
+    faollik = "is_active = FALSE" if nofaol else "is_active = TRUE"
+    if nofaol:
+        tarif = "all"
+    buyruq = _TARTIB.get(tartib, _TARTIB["faollik"])
+
     frag = (q or "").strip().lstrip("@") or None
     # Faqat raqamdan iborat so'rov — ID bo'lishi mumkin. `int()` ni
     # ataylab cheklaymiz: BIGINT dan katta son so'rovni yiqitardi.
@@ -2932,15 +2959,15 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
             SELECT user_id, username, plan_type, is_banned, premium_until,
                    created_at, last_seen
             FROM users
-            WHERE is_active = TRUE {_ODDIY_USER} {qidiruv}
+            WHERE {faollik} {_ODDIY_USER} {qidiruv}
               AND {_TARIF_SHARTI}
-            ORDER BY last_seen DESC NULLS LAST, user_id
+            ORDER BY {buyruq}
             LIMIT $4 OFFSET $5
         ''', frag, uid, tarif, int(limit), int(offset))
 
         jami = await conn.fetchval(f'''
             SELECT COUNT(*) FROM users
-            WHERE is_active = TRUE {_ODDIY_USER} {qidiruv}
+            WHERE {faollik} {_ODDIY_USER} {qidiruv}
               AND {_TARIF_SHARTI}
         ''', frag, uid, tarif)
 
@@ -2948,27 +2975,36 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
         # «shu toifada nechta bor» degan ma'noni bildiradi.
         sanoq = await conn.fetchrow(f'''
             SELECT COUNT(*) AS all,
-                   COUNT(*) FILTER (WHERE is_banned IS NOT TRUE
-                                      AND COALESCE(plan_type,'free') <> 'free') AS pro,
-                   COUNT(*) FILTER (WHERE is_banned IS NOT TRUE
-                                      AND COALESCE(plan_type,'free') = 'free') AS free,
-                   COUNT(*) FILTER (WHERE is_banned = TRUE) AS ban
+                   COUNT(*) FILTER (WHERE {_PRO_SHART})  AS pro,
+                   COUNT(*) FILTER (WHERE {_FREE_SHART}) AS free,
+                   COUNT(*) FILTER (WHERE {_BAN_SHART})  AS ban
             FROM users WHERE is_active = TRUE {_ODDIY_USER}
+        ''')
+        # Nofaollar alohida sanaladi: ular yuqoridagi to'rttasiga
+        # kirmaydi (`is_active = FALSE`), ya'ni chip soni bo'lmasa
+        # admin ro'yxat bor-yo'qligini bosib ko'rishga majbur bo'lardi.
+        nofaol_soni = await conn.fetchval(f'''
+            SELECT COUNT(*) FROM users WHERE is_active = FALSE {_ODDIY_USER}
         ''')
         return {
             "rows": [dict(r) for r in rows],
             "jami": jami or 0,
-            "sanoq": dict(sanoq) if sanoq else {},
+            "sanoq": dict(sanoq, nofaol=nofaol_soni or 0) if sanoq else {},
         }
 
 
 @with_db_retry()
-async def activity_stats() -> Dict[str, Any]:
+async def activity_stats(kunlar: int = 7) -> Dict[str, Any]:
     """Statistika ekranining hamma raqami — bitta ulanishda.
 
     Qaytaradi: `total_users`, tarif sanoqlari, eng faollar, oxirgi
-    foydalanuvchi, 7 kunlik kunlik faollik va 30 kunlik turlar kesimi.
+    foydalanuvchi, `kunlar` kunlik faollik va 30 kunlik turlar kesimi.
+
+    `kunlar` — grafik oynasi (7 / 30 / 90). Panelda tanlanadi, shuning
+    uchun u ISHONCHSIZ qiymat: SQL ga parametr bo'lib ketadi va bu yerda
+    chegaralanadi.
     """
+    kunlar = max(1, min(int(kunlar), 365))
     global pool
     if pool is None:
         await create_db_pool()
@@ -2978,12 +3014,19 @@ async def activity_stats() -> Dict[str, Any]:
             WHERE is_active = TRUE {_ODDIY_USER}
         ''')
 
+        # ⚠️ To'rttasi QO'SHILGANDA `total_users` ga TENG bo'ladi va bu
+        # shart: panel ularni bitta doiraga chizadi. Ilgari bloklangan
+        # odam ham `free_count` ichida turardi, ya'ni doira jamidan
+        # oshib ketishi mumkin edi.
         plan_counts = await conn.fetchrow(f'''
             SELECT
-                COUNT(*) FILTER (WHERE plan_type = 'free' OR plan_type IS NULL) AS free_count,
-                COUNT(*) FILTER (WHERE plan_type = 'pro') AS pro_count,
-                COUNT(*) FILTER (WHERE plan_type IS NOT NULL
-                                   AND plan_type NOT IN ('free', 'pro')) AS premium_count
+                COUNT(*) FILTER (WHERE {_FREE_SHART}) AS free_count,
+                COUNT(*) FILTER (WHERE is_banned IS NOT TRUE
+                                   AND plan_type = 'pro') AS pro_count,
+                COUNT(*) FILTER (WHERE is_banned IS NOT TRUE
+                                   AND COALESCE(plan_type,'free')
+                                       NOT IN ('free', 'pro')) AS premium_count,
+                COUNT(*) FILTER (WHERE {_BAN_SHART}) AS ban_count
             FROM users
             WHERE is_active = TRUE {_ODDIY_USER}
         ''')
@@ -3010,29 +3053,46 @@ async def activity_stats() -> Dict[str, Any]:
 
         # Kun chegarasi Toshkent bo'yicha — server UTC da ishlaydi, ya'ni
         # aks holda "bugun" soat 05:00 da boshlanardi.
-        daily_activity = await conn.fetch('''
+        #
+        # ⚠️ Oyna ham KUNGA tekislangan. Ilgari u `NOW() - INTERVAL '7
+        # days'` edi — ya'ni aylanma 168 soat — va eng chekkadagi kun
+        # HAR DOIM chala chiqardi: ertalab ochilgan panelda 7 kun oldingi
+        # kunning faqat ertalabki soatlari sanalardi va grafik o'sha
+        # yerdan «pastdan» boshlanardi. Bu tushish emas, kesilgan kun.
+        daily_activity = await conn.fetch(f'''
             SELECT (activity_time AT TIME ZONE 'Asia/Tashkent')::date AS day,
                    COUNT(*) AS total, COUNT(DISTINCT user_id) AS uniq_users
             FROM user_activity
-            WHERE activity_time >= NOW() - INTERVAL '7 days'
+            WHERE activity_time >= NOW() - (($1::int + 1) || ' days')::interval
+              AND (activity_time AT TIME ZONE 'Asia/Tashkent')::date
+                  > (NOW() AT TIME ZONE 'Asia/Tashkent')::date - $1::int
+              {_ODDIY_USER}
             GROUP BY day ORDER BY day
-        ''')
+        ''', kunlar)
 
         # Turlar ro'yxati `core/config.py::ACTIVITY_TYPES` dan keladi va
         # SQL ga PARAMETR bo'lib uzatiladi — satrga yopishtirilmaydi.
-        type_breakdown = await conn.fetch('''
+        # ⚠️ Tur ro'yxati bu yerda FILTRLANMAYDI. Ilgari `= ANY($1)`
+        # turardi va u yig'indini buzardi: ekranda «24 soatda 150
+        # so'rov» yozilib, ustunlar qo'shilganda 142 chiqardi —
+        # `ACTIVITY_TYPES` da yo'q turlar (masalan `start`) jimgina
+        # tushib qolardi. Endi hammasi qaytadi, panel ro'yxatda
+        # yo'qlarini «Boshqa» qatoriga yig'adi (web/api.py::_turlar).
+        type_breakdown = await conn.fetch(f'''
             SELECT activity_type, COUNT(*) AS cnt
             FROM user_activity
             WHERE activity_time >= NOW() - INTERVAL '30 days'
-              AND activity_type = ANY($1)
+              {_ODDIY_USER}
             GROUP BY activity_type ORDER BY cnt DESC
-        ''', list(ACTIVITY_TYPES))
+        ''')
 
         return {
             'total_users': total_users or 0,
             'free_count': (plan_counts or {}).get('free_count', 0) or 0,
             'pro_count': (plan_counts or {}).get('pro_count', 0) or 0,
             'premium_count': (plan_counts or {}).get('premium_count', 0) or 0,
+            'ban_count': (plan_counts or {}).get('ban_count', 0) or 0,
+            'kunlar': kunlar,
             'most_active_30days': dict(most_active_30days) if most_active_30days else None,
             'most_active_today': dict(most_active_today) if most_active_today else None,
             'last_user': dict(last_user) if last_user else None,
@@ -3043,21 +3103,29 @@ async def activity_stats() -> Dict[str, Any]:
 
 @with_db_retry()
 async def daily_report_stats() -> Dict[str, Any]:
-    """Kunlik avtomatik hisobot uchun hamma raqam — bitta so'rovda."""
+    """Kunlik avtomatik hisobot va panel KPI'lari — bitta so'rovda.
+
+    ⚠️ HAR BIR SANOQDAN ADMINLAR CHIQARILADI (`_ODDIY_USER`). Ilgari bu
+    funksiya ularni qo'shib sanardi, `activity_stats()` esa chiqarardi —
+    ya'ni bitta ekranning yuqorisida «Pro obunachilar 2», pastida esa
+    «Pro 1 · Premium 1» turardi va farq admin edi. Qoida oddiy: admin
+    botning mijozi emas, ya'ni HECH QAYERDA sanalmaydi.
+    """
     global pool
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''
+            f'''
             SELECT
               (SELECT COUNT(*) FROM users
-                 WHERE created_at >= NOW() - INTERVAL '24 hours') AS new_users,
-              (SELECT COUNT(*) FROM users WHERE is_active = TRUE) AS total_users,
+                 WHERE created_at >= NOW() - INTERVAL '24 hours'
+                   {_ODDIY_USER}) AS new_users,
+              (SELECT COUNT(*) FROM users
+                 WHERE is_active = TRUE {_ODDIY_USER}) AS total_users,
               (SELECT COUNT(DISTINCT user_id) FROM user_activity
-                 WHERE activity_time >= NOW() - INTERVAL '24 hours') AS active_users,
-              (SELECT COUNT(*) FROM user_activity
-                 WHERE activity_time >= NOW() - INTERVAL '24 hours') AS actions,
+                 WHERE activity_time >= NOW() - INTERVAL '24 hours'
+                   {_ODDIY_USER}) AS active_users,
               (SELECT COUNT(*) FROM star_payments
                  WHERE refunded_at IS NULL
                    AND created_at >= NOW() - INTERVAL '24 hours') AS sales,
@@ -3066,33 +3134,58 @@ async def daily_report_stats() -> Dict[str, Any]:
                    AND created_at >= NOW() - INTERVAL '24 hours') AS stars,
               (SELECT COUNT(*) FROM error_log
                  WHERE created_at >= NOW() - INTERVAL '24 hours') AS errors,
+              -- Pro ta'rifi `list_users()` dagi chip bilan AYNAN bir xil
+              -- (`_PRO_SHART`): bloklangan odam Pro sanog'ida turmaydi.
               (SELECT COUNT(*) FROM users
-                 WHERE plan_type <> 'free' AND is_active = TRUE) AS pro_users,
+                 WHERE is_active = TRUE AND {_PRO_SHART}
+                   {_ODDIY_USER}) AS pro_users,
               -- ⬇️ Uchtasi web paneldagi KPI kartochkalari uchun (REJA
               -- 6.1). Kunlik hisobot ularni o'qimaydi — ortiqcha kalit
               -- unga zarar qilmaydi, lekin ALOHIDA so'rov qilish
               -- kerak bo'lardi va raqamlar bir-biriga mos kelmasligi
               -- mumkin edi (ikki so'rov — ikki lahza).
+              --
+              -- ⚠️ `prev_actions` — AYNAN oldingi 24 soat (48…24 soat
+              -- oldin), ya'ni «kechagiga nisbatan» foizi bir xil
+              -- uzunlikdagi ikki oraliqni solishtiradi. Ikkalasi ham
+              -- aylanma oyna, shuning uchun mintaqa vaqti ularga ta'sir
+              -- qilmaydi — «bugun» tushunchasi bu yerda ishlatilmaydi.
               (SELECT COUNT(*) FROM user_activity
                  WHERE activity_time >= NOW() - INTERVAL '48 hours'
-                   AND activity_time <  NOW() - INTERVAL '24 hours') AS prev_actions,
+                   AND activity_time <  NOW() - INTERVAL '24 hours'
+                   {_ODDIY_USER}) AS prev_actions,
               (SELECT COUNT(DISTINCT user_id) FROM user_activity
-                 WHERE activity_time >= NOW() - INTERVAL '7 days') AS active_7d,
+                 WHERE activity_time >= NOW() - INTERVAL '7 days'
+                   {_ODDIY_USER}) AS active_7d,
+              -- ⚠️ Muddatsiz (cheksiz) Pro bu sanoqqa TUSHMAYDI va bu
+              -- to'g'ri: unda `premium_until IS NULL`, ya'ni tugaydigan
+              -- muddati yo'q. `IS NOT NULL` sharti aynan shuning uchun.
               (SELECT COUNT(*) FROM users
                  WHERE is_active = TRUE AND premium_until IS NOT NULL
                    AND premium_until BETWEEN NOW()
-                                         AND NOW() + INTERVAL '7 days') AS pro_expiring
+                                         AND NOW() + INTERVAL '7 days'
+                   {_ODDIY_USER}) AS pro_expiring
             ''')
-        # ⚠️ Filtr SHU YERDA, LIMIT dan oldin. Filtrsiz ro'yxatga
-        # `start` ham tushardi — u so'rov emas, buyruq — va «eng ko'p
-        # ishlatilgani» ro'yxatining bir o'rnini bekorga egallardi.
-        # Keyin filtrlab tashlasak top-5 goh 4 ta bo'lib qolardi.
-        top = await conn.fetch(
-            '''SELECT activity_type, COUNT(*) AS cnt FROM user_activity
-               WHERE activity_time >= NOW() - INTERVAL '24 hours'
-                 AND activity_type = ANY($1)
-               GROUP BY activity_type ORDER BY cnt DESC LIMIT 5''',
-            list(ACTIVITY_TYPES))
+
+        # ⚠️ TUR KESIMI TO'LIQ QAYTADI — na `LIMIT 5`, na tur filtri.
+        # Ilgari ikkalasi ham bor edi va shuning uchun panelda
+        # «24 soatda 150 so'rov» yozilib, ustunlar qo'shilganda 142
+        # chiqardi: farq `ACTIVITY_TYPES` da yo'q turlar (`start`) va
+        # beshinchidan keyingi turlar edi. Endi `actions` ham SHU
+        # ro'yxatdan hisoblanadi, ya'ni yig'indi ta'rifan jamiga teng.
+        turlar = await conn.fetch(
+            f'''SELECT activity_type, COUNT(*) AS cnt FROM user_activity
+                WHERE activity_time >= NOW() - INTERVAL '24 hours'
+                  {_ODDIY_USER}
+                GROUP BY activity_type ORDER BY cnt DESC''')
+
         out = dict(row) if row else {}
-        out['top_types'] = [(r['activity_type'], r['cnt']) for r in top]
+        kesim = [(r['activity_type'], r['cnt']) for r in turlar]
+        out['types_24h'] = kesim
+        out['actions'] = sum(c for _t, c in kesim)
+        # Kunlik hisobot uchun: eng ko'p ishlatilgan 5 ta AMAL.
+        # ⚠️ Filtr shu yerda, LIMIT dan oldin. Filtrsiz ro'yxatga `start`
+        # ham tushardi — u so'rov emas, buyruq — va «eng ko'p
+        # ishlatilgani» ro'yxatining bir o'rnini bekorga egallardi.
+        out['top_types'] = [(t, c) for t, c in kesim if t in ACTIVITY_TYPES][:5]
         return out

@@ -27,7 +27,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import web
 from web import api, auth
-from core.config import AUDIT_ACTIONS
+from core.config import AUDIT_ACTIONS, AUDIT_ESKI, audit_nomi
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 UTC = datetime.timezone.utc
@@ -94,13 +94,6 @@ def soxta_baza():
         return {"stars_today": 1850, "stars_30d": 24300, "stars_total": 186700,
                 "sales_30d": 17, "refunds": 2, "by_plan": [(30, 12), (7, 5)]}
 
-    async def inactive_users(limit=30):
-        return [{"user_id": 511, "username": "akmal", "plan_type": "free",
-                 "last_seen": datetime.datetime(2026, 8, 20, tzinfo=UTC)}]
-
-    async def count_inactive_users():
-        return 120
-
     for nom, fn in list(locals().items()):
         if nom in ("db", "nom", "fn"):
             continue
@@ -120,6 +113,23 @@ async def main():
     #    ro'yxatni shishiradi va «bor ekan» degan yolg'on tuyg'u beradi.
     olik = set(AUDIT_ACTIONS) - yozilgan
     assert not olik, f"hech qachon yozilmaydigan yorliqlar: {olik}"
+    # ⚠️ `AUDIT_ESKI` — kod endi yozmaydigan, lekin bazada qatori bor
+    # amallar. Ikki ro'yxat KESISHMASLIGI shart: kesishsa, bitta amal
+    # ikki xil nom olishi mumkin bo'lardi va qaysi biri chiqishi
+    # `audit_nomi()` dagi tartibga bog'liq bo'lib qolardi.
+    assert not (set(AUDIT_ESKI) & set(AUDIT_ACTIONS)), (
+        f"ikki ro'yxatda ham bor: {set(AUDIT_ESKI) & set(AUDIT_ACTIONS)}")
+    # Kod YOZADIGAN amal eskilar ro'yxatida turmasin.
+    assert not (set(AUDIT_ESKI) & yozilgan), (
+        f"kod hali yozadigan amal «eski» deb belgilangan: {set(AUDIT_ESKI) & yozilgan}")
+    # Har ikkala ro'yxatda ham nom va ikonka bor.
+    for nom, qiymat in list(AUDIT_ACTIONS.items()) + list(AUDIT_ESKI.items()):
+        assert isinstance(qiymat, tuple) and len(qiymat) == 2 and all(qiymat), nom
+        # ⚠️ Emoji YO'Q: jurnal ikonkalari paneldagi qolgan hamma
+        # ikonka bilan bir uslubda (chiziqli SVG) bo'lishi kerak.
+        assert qiymat[0].isprintable() and qiymat[0][0].isalpha(), (
+            f"{nom}: yorliq emoji bilan boshlanyapti — ikonka `ikonka` "
+            "maydonida bo'lishi kerak")
     # Ro'yxatning ikkinchi nusxasi qaytib kelmasin.
     # ⚠️ Ilgari bu yerda `handlers/admin/journal.py` tekshirilardi —
     # nusxa o'sha yerda tug'ilgandi. Fayl 7-bosqichda o'chdi (ekran
@@ -145,20 +155,27 @@ async def main():
     h = {"Cookie": f"{auth.COOKIE_NAME}={auth.sessiya_yasa(1)}"}
 
     async with TestClient(TestServer(web.build_app())) as c:
-        # 3) To'rttasi ham cookie'siz yopiq.
-        for yol in ("audit", "errors", "revenue", "inactive"):
+        # 3) Uchalasi ham cookie'siz yopiq.
+        for yol in ("audit", "errors", "revenue"):
             r = await c.get("/api/journal/" + yol)
             assert r.status == 401, f"{yol} cookie'siz ochiq: {r.status}"
-        print("[3] jurnalning 4 ta endpointi ham cookie'siz 401 qaytaradi OK")
+        print("[3] jurnalning 3 ta endpointi ham cookie'siz 401 qaytaradi OK")
 
         # 4) Audit: nom almashtiriladi, NOMA'LUM amal esa XOM nomi bilan
         #    ko'rsatiladi — yashirilsa, yozuv umuman yo'qday bo'lardi.
         a = await (await c.get("/api/journal/audit", headers=h)).json()
-        assert a["rows"][0]["amal"] == AUDIT_ACTIONS["ban_user"], a["rows"][0]
+        assert a["rows"][0]["amal"] == AUDIT_ACTIONS["ban_user"][0], a["rows"][0]
+        assert a["rows"][0]["ikonka"] == "ban", a["rows"][0]
         assert a["rows"][0]["admin"] == "@melores"
         assert a["rows"][0]["kimga"] == "@dilshod_a"
         assert a["rows"][1]["amal"] == "bilib_bolmaydigan_amal", "noma'lum amal yashirildi"
+        # Eski amal ham XOM emas, nomi bilan ko'rinadi.
+        assert audit_nomi("referral_campaign")[0] == "Referal kampaniyasi"
         assert a["rows"][1]["kimga"] is None and a["rows"][1]["admin"] == "ID:2001"
+        # ⚠️ Filtr chiplari NOM bilan keladi. Ilgari ular faqat
+        # `admin_id` dan yig'ilardi, ya'ni bitta ekranda bir odam
+        # yuqorida «ID:2001», jadvalda «@melores» bo'lib turardi.
+        assert a["adminlar"] == [{"id": 2001, "nom": "@melores"}], a["adminlar"]
         assert a["sahifalar"] == 3 and a["jami"] == 41, a        # 41 / 20
         print("[4] audit: nomlar almashtiriladi, noma'lum amal yashirilmaydi OK")
 
@@ -196,23 +213,43 @@ async def main():
         api.database_module.revenue_stats = bosh_daromad
         v0 = await (await c.get("/api/journal/revenue", headers=h)).json()
         assert v0["ortacha"] is None, "nolga bo'linib 0 chiqdi"
-        assert 'd.ortacha === null ? "—"' in js, "panel «—» ko'rsatmaydi"
+        # ⚠️ Matn endi lug'atdan (`soz.js::yoq`), qotirilgan emas —
+        # lekin QOIDA o'sha: `null` bo'lsa «0 ⭐» yozilmasin.
+        assert "d.ortacha === null ? S.yoq" in js, "panel «—» ko'rsatmaydi"
+        soz = (ROOT / "web" / "static" / "soz.js").read_text(encoding="utf-8")
+        assert 'yoq: "—"' in soz, "lug'atda «—» belgisi yo'q"
         print("[8] sotuv yo'qda o'rtacha chek «—» bo'ladi, 0 emas OK")
 
-        # 9) Nofaol: bu «14 kun yozmaganlar» EMAS, botni bloklaganlar.
-        i = await (await c.get("/api/journal/inactive", headers=h)).json()
-        assert i["jami"] == 120 and i["rows"][0]["user_id"] == 511
-        # ⚠️ Faqat KO'RINADIGAN matn tekshiriladi: izohlarda «maketda
-        # shunday yozilgandi» deb tushuntirish bor va u to'g'ri joyda.
+        # 9) ⚠️ «Nofaol» RO'YXATI BU EKRANDAN KETDI va bu tekshiruv
+        #    uning ortidan KO'CHDI, o'chirilmadi.
+        #
+        #    Sabab: u botni bloklagan odamlar ro'yxati edi, ya'ni
+        #    FOYDALANUVCHILARNING bir bo'lagi — lekin Jurnalda, alohida
+        #    jadvalda, boshqa ustunlar bilan va qidiruvsiz turardi.
+        #    Bir xil odam ikki ekranda ikki xil ko'rinardi. Endi u
+        #    oddiy filtr: `/api/users?filter=nofaol`.
+        #
+        #    Qoidaning O'ZI esa o'zgarmadi: bu ro'yxat «14 kun
+        #    yozmaganlar» EMAS. Shunday deb atalsa admin ularga xabar
+        #    yuborishga urinadi — holbuki xabar aynan shuning uchun
+        #    yetmagan.
+        assert "/api/journal/inactive" not in (
+            ROOT / "web" / "api.py").read_text(encoding="utf-8"), \
+            "dublikat endpoint qaytib kelgan"
+        assert (await c.get("/api/journal/inactive", headers=h)).status == 404
+
         html = re.sub(r"<!--.*?-->", "",
                       (ROOT / "web" / "static" / "panel.html").read_text(encoding="utf-8"),
                       flags=re.S)
-        assert "14 kundan beri" not in html, (
-            "maketdagi noto'g'ri tushuntirish qolib ketgan — bu ro'yxat "
-            "botni bloklaganlar, yozmaganlar emas")
+        soz = (ROOT / "web" / "static" / "soz.js").read_text(encoding="utf-8")
+        assert "14 kundan beri" not in html and "14 kundan beri" not in soz, (
+            "noto'g'ri tushuntirish qolib ketgan — bu ro'yxat botni "
+            "bloklaganlar, yozmaganlar emas")
+        assert 'nofaol: "Botni bloklaganlar"' in soz, (
+            "filtr nomi ro'yxatning ma'nosini aytmayapti")
         assert "Eslatma yuborish" not in html, (
             "botni bloklagan odamga eslatma yuborib bo'lmaydi")
-        print("[9] nofaol ro'yxati to'g'ri tushuntirilgan OK")
+        print("[9] nofaol ro'yxati Foydalanuvchilar filtriga ko'chdi, nomi to'g'ri OK")
 
     print("\nweb journal: barcha tekshiruvlar o'tdi (9/9).")
 

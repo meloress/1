@@ -143,15 +143,24 @@ async def process_report_message(message: Message, state: FSMContext):
         else:
             await message.answer("❌ Afsus, xabaringizni adminga yuborib bo'lmadi. Iltimos keyinroq urinib ko'ring.")
 
-        # Optionally log this action
+        # Auditga yozuv.
+        #
+        # ⚠️ KIM YOZGANI `target_user_id` USTUNIGA tushadi, tafsilotdagi
+        # JSON ichiga emas. Ilgari uchala ustun ham bo'sh edi va
+        # jurnalda qator «Foydalanuvchi xabari — {"reporter_id": …}»
+        # bo'lib ko'rinardi: kim shikoyat qilgani xom JSON ichida
+        # yashiringan, `users` jadvaliga ulanmagan, ya'ni @username ham
+        # ko'rinmasdi. Endi jurnal uni odam sifatida ko'rsatadi.
+        #
+        # `admin_id` ATAYLAB `None`: bu amalni admin qilgani yo'q.
         try:
-            await database_module.log_admin_action(None, "user_report", None, json.dumps({
-                "reporter_id": reporter.id,
-                "reported_chat_id": reported_chat_id,
-                "text": report_text,
-                "sent_to": sent_to,
-                "failed": failed_to,
-            }, ensure_ascii=False))
+            await database_module.log_admin_action(
+                None, "user_report", reporter.id, json.dumps({
+                    "reported_chat_id": reported_chat_id,
+                    "text": report_text,
+                    "sent_to": sent_to,
+                    "failed": failed_to,
+                }, ensure_ascii=False))
         except Exception:
             logger.exception("log_admin_action (report) failed")
     except Exception:

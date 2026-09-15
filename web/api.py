@@ -21,8 +21,9 @@ from aiohttp import web
 
 from core import config as config_module
 from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS,
-                         GPT_MODEL_DISPLAY_NAME, LIMIT_NOMI, PLAN_LIMITS,
-                         PRO_PLANS, SEGMENT_NOMI, TIMEZONE, daily_limit)
+                         GPT_MODEL_DISPLAY_NAME, LIMIT_IZOHI, LIMIT_NOMI,
+                         PLAN_LIMITS, PRO_PLANS, SEGMENT_NOMI, TARIF_NOMI,
+                         TARIF_RANGI, TIMEZONE, audit_nomi, daily_limit)
 from db import database as database_module
 from web.auth import admin_only
 
@@ -30,6 +31,14 @@ logger = logging.getLogger(__name__)
 
 # Grafikdagi kun yorliqlari. `date.weekday()`: 0 = dushanba.
 HAFTA = ["Dush", "Sesh", "Chor", "Pay", "Jum", "Shan", "Yak"]
+
+# So'rov turlaridan nechtasi alohida ustun bo'ladi; qolgani «Boshqa».
+TUR_KORSAT = 6
+
+# Grafikda tanlanadigan oynalar. Boshqa qiymat 7 ga tushadi — panel
+# tugmasi ham shu ro'yxatdan chiziladi, ya'ni ikki joyda ikki xil
+# variant bo'lishi mumkin emas.
+GRAFIK_KUNLARI = (7, 30, 90)
 
 
 def _foiz(qism: float, butun: float, kasr: int = 0) -> Optional[float]:
@@ -43,65 +52,101 @@ def _foiz(qism: float, butun: float, kasr: int = 0) -> Optional[float]:
     return round(qism / butun * 100, kasr) if kasr else round(qism / butun * 100)
 
 
-def _vaqt(dt: Any) -> str:
-    """Toshkent vaqtida `HH:MM`. Server UTC da ishlaydi."""
-    if not isinstance(dt, datetime):
-        return "—"
-    try:
-        return dt.astimezone(TIMEZONE).strftime("%H:%M")
-    except Exception:
-        return "—"
+def _turlar(kesim: List[tuple], eng_kop: int = TUR_KORSAT) -> List[Dict[str, Any]]:
+    """`[(tur, soni)]` → paneldagi ustunlar. Yig'indi ALBATTA jamiga teng.
 
+    Nom `ACTIVITY_TYPES` dan olinadi — kunlik hisobot ham o'shandan
+    o'qiydi, ya'ni ikki joyda bitta tur ikki xil atalmaydi.
 
-def _turlar(kesim: List[tuple]) -> List[Dict[str, Any]]:
-    """`[(tur, soni)]` → paneldagi ustunlar uchun nomlangan ro'yxat.
-
-    Nom `ACTIVITY_TYPES` dan olinadi — Telegram ekrani ham o'shandan
-    o'qiydi, ya'ni ikki ekranda bitta tur ikki xil atalmaydi.
-
-    ⚠️ Ro'yxatda yo'q tur TASHLAB ketiladi, lekin JIMGINA emas: panelga
-    `text_message` degan xom satr chiqqandan ko'ra tashlagan yaxshi,
-    ammo log'da izi qolmasa yangi tur oylab ko'rinmay yurishi mumkin.
+    ⚠️ HECH NARSA TASHLAB KETILMAYDI. Ilgari ro'yxatda yo'q tur
+    (`start`) jimgina tushib qolardi va beshtadan keyingisi umuman
+    so'ralmasdi — natijada ekranda «24 soatda 150 so'rov» yozilib,
+    ustunlar qo'shilganda 142 chiqardi. Admin buni ko'radi va butun
+    paneldagi raqamlarga ishonmay qoladi, to'g'ri qiladi ham.
+    Nomsiz va ortib qolgan turlar endi «Boshqa» qatoriga yig'iladi.
+    Log'dagi ogohlantirish qoladi: yangi tur `ACTIVITY_TYPES` ga
+    qo'shilmasa, u «Boshqa» ichida oylab ko'rinmay yurishi mumkin.
     """
-    out = []
+    nomli: List[Dict[str, Any]] = []
+    boshqa = 0
     for tur, soni in kesim:
         qiymat = ACTIVITY_TYPES.get(tur)
         if qiymat is None:
             logger.warning(
-                f"[web] '{tur}' ACTIVITY_TYPES da yo'q — statistikada ko'rinmaydi. "
+                f"[web] '{tur}' ACTIVITY_TYPES da yo'q — «Boshqa» ga qo'shildi. "
                 "core/config.py ga qo'shing.")
+            boshqa += soni
             continue
-        out.append({"nom": qiymat[1], "soni": soni})
-    return out
+        nomli.append({"nom": qiymat[1], "soni": soni})
+
+    nomli.sort(key=lambda t: t["soni"], reverse=True)
+    if len(nomli) > eng_kop:
+        boshqa += sum(t["soni"] for t in nomli[eng_kop:])
+        nomli = nomli[:eng_kop]
+    if boshqa:
+        nomli.append({"nom": "Boshqa", "soni": boshqa, "boshqa": True})
+    return nomli
 
 
-def _tarif(st: Dict[str, Any]) -> Dict[str, int]:
+def _tarif(st: Dict[str, Any]) -> Dict[str, Any]:
+    """Tarif taqsimoti: nom, son, foiz — YAGONA ro'yxatdan (`TARIF_NOMI`).
+
+    ⚠️ Segmentlar qo'shilganda `jami` ga TENG bo'ladi: `activity_stats()`
+    to'rt sanoqni kesishmaydigan qilib qaytaradi. Panel ularni bitta
+    doiraga chizadi, ya'ni yig'indi mos kelmasa doira yolg'on ko'rsatadi.
+
+    ⚠️ `premium` — eski, cheksiz limitli tarif; yangi hech narsa uni
+    bermaydi. Bazada qatori bo'lsa ko'rsatiladi, bo'lmasa ro'yxatda ham
+    turmaydi — bo'sh segment adminni «bu nima?» degan savolga soladi.
+    """
+    jami = st.get("total_users", 0) or 0
+    xom = {
+        "pro":     st.get("pro_count", 0) or 0,
+        "premium": st.get("premium_count", 0) or 0,
+        "free":    st.get("free_count", 0) or 0,
+        "ban":     st.get("ban_count", 0) or 0,
+    }
+    # Pro va Bepul doim ko'rinadi (nol bo'lsa ham — «Pro 0» ma'noli
+    # javob), qolgani faqat qatori bo'lsa.
+    korinadi = [k for k in ("pro", "premium", "free", "ban")
+                if xom[k] or k in ("pro", "free")]
     return {
-        "free": st.get("free_count", 0),
-        "pro": st.get("pro_count", 0),
-        "premium": st.get("premium_count", 0),
-        "jami": st.get("total_users", 0),
+        "jami": jami,
+        "qismlar": [{
+            "kalit": k,
+            "nom": TARIF_NOMI.get(k, "Bloklangan"),
+            "soni": xom[k],
+            "rang": TARIF_RANGI.get(k, "#3A3556"),
+            "foiz": _foiz(xom[k], jami, 1),
+        } for k in korinadi],
     }
 
 
 @admin_only
 async def overview(request: web.Request):
     """Boshqaruv ekrani (REJA 6.1)."""
+    try:
+        kun_oynasi = int(request.query.get("kun", 7))
+    except ValueError:
+        kun_oynasi = 7
+    if kun_oynasi not in GRAFIK_KUNLARI:
+        kun_oynasi = 7
+
     kunlik = await database_module.daily_report_stats()
     daromad = await database_module.revenue_stats()
     xatolar = await database_module.recent_errors(limit=4)
     xato_jami = await database_module.error_summary()
     tatil = await database_module.get_maintenance()
-    st = await database_module.activity_stats()
+    st = await database_module.activity_stats(kun_oynasi)
 
     # Kunlik grafik: bazada faqat AMAL BO'LGAN kunlar bor, ya'ni jim
     # kun qatorda umuman yo'q. Uni tashlab ketsak grafik "yaxshi"
-    # ko'rinadi — chunki tushish ko'rinmaydi. Shuning uchun 7 kunning
-    # hammasi to'ldiriladi, bo'sh kun = 0.
+    # ko'rinadi — chunki tushish ko'rinmaydi. Shuning uchun oynaning
+    # hamma kuni to'ldiriladi, bo'sh kun = 0.
     bor = {r["day"]: r for r in st["daily_activity"]}
     bugun = datetime.now(TIMEZONE).date()
     kunlar = []
-    for orqaga in range(6, -1, -1):
+    for orqaga in range(kun_oynasi - 1, -1, -1):
         kun = bugun - timedelta(days=orqaga)
         r = bor.get(kun)
         kunlar.append({
@@ -136,17 +181,27 @@ async def overview(request: web.Request):
             },
         },
         "kunlar": kunlar,
-        # 24 soatlik kesim — kunlik hisobotdagi bilan AYNAN bir xil manba.
-        "turlar": _turlar(kunlik.get("top_types") or []),
+        "kun_oynasi": kun_oynasi,
+        "kun_variantlari": list(GRAFIK_KUNLARI),
+        # 24 soatlik kesim — `actions` KPI si AYNAN shu ro'yxatdan
+        # hisoblanadi (`daily_report_stats`), ya'ni ustunlar yig'indisi
+        # yuqoridagi songa teng bo'lishi ta'rifan kafolatlangan.
+        "turlar": _turlar(kunlik.get("types_24h") or []),
         "tarif": _tarif(st),
         "xatolar": [{
-            "vaqt": _vaqt(x.get("created_at")),
+            "vaqt": _sana(x.get("created_at")),
             "tur": x.get("kind") or "?",
             "matn": (x.get("message") or "")[:120],
             "user": x.get("user_id"),
         } for x in xatolar],
         "xato_soni": xato_jami.get("day") or 0,
         "tatil": bool(tatil.get("active")),
+        # ⚠️ «Bot ishlayapti» BELGISI QOTIRILGAN MATN EMAS. Panel bot
+        # jarayonining ICHIDA ishlaydi, ya'ni bu javobning kelishi
+        # jarayon tirikligining o'zi; qolgan ikkitasi esa haqiqatan
+        # buzilishi mumkin bo'lgan narsa: baza ulanishi va texnik
+        # ta'til. Uchalasidan panel bitta holat chiqaradi.
+        "baza": database_module.pool is not None,
     })
 
 
@@ -172,11 +227,11 @@ async def stats(request: web.Request):
         "kpi": {
             "jami": st["total_users"],
             "yangi": kunlik.get("new_users") or 0,
-            "kunlik_ortacha": round(hafta_jami / 7) if hafta_jami else 0,
+            "kunlik_ortacha": round(hafta_jami / st["kunlar"]) if hafta_jami else 0,
             # ⚠️ Maketda bu joyda «o'rtacha javob vaqti» turardi — bot
             # javob vaqtini HECH QAYERGA yozmaydi, shuning uchun uning
             # o'rnida haqiqiy raqam: guruhdagi (guest) so'rovlar ulushi.
-            "guest_ulush": _foiz(guest, jami_amal),
+            "mehmon_ulush": _foiz(guest, jami_amal),
             "konversiya": _foiz(st["pro_count"] + st["premium_count"],
                                 st["total_users"], 2),
         },
@@ -203,7 +258,12 @@ async def stats(request: web.Request):
 #  FOYDALANUVCHILAR (REJA 6.2)
 # ═══════════════════════════════════════════════════════════════════
 
-TARIFLAR = ("all", "pro", "free", "ban")
+# Filtr kalitlari. `nofaol` — botni BLOKLAGANLAR; u ilgari Jurnal
+# ekranida alohida jadval edi va shu sababli bir xil odamlar ikki
+# ekranda ikki xil ustun bilan ko'rsatilardi. Endi bitta ro'yxat,
+# to'rt filtr o'rniga besh.
+TARIFLAR = ("all", "pro", "free", "ban", "nofaol")
+TARTIBLAR = ("faollik", "yangi")
 SAHIFA = 20
 # Admin bera oladigan muddatlar. Telegram ekranidagi tugmalar bilan
 # AYNAN bir xil (`_premium_duration_keyboard`) — ikki joyda ikki xil
@@ -274,14 +334,29 @@ async def _xabar(user_id: int, matn: str) -> bool:
         return False
 
 
-def _qator(u: Dict[str, Any]) -> Dict[str, Any]:
-    """Jadval qatori. `plan_type` → paneldagi uchta holatdan biri."""
+def _tarif_kaliti(u: Dict[str, Any]) -> str:
+    """Odamning KO'RINADIGAN tarifi: `ban` | `free` | `pro` | `premium`.
+
+    ⚠️ Ilgari bu yerda `free` dan boshqa hamma narsa «pro» ga
+    yopishtirilardi, ya'ni cheksiz limitli `premium` odam jadvalda
+    «Pro» bo'lib ko'rinardi — lekin Boshqaruv ekranidagi doirada
+    ALOHIDA «Premium» segmenti bo'lib turardi. Bitta odam ikki ekranda
+    ikki xil tarifda. Kalit endi `TARIF_NOMI` niki, nomni panel o'sha
+    ro'yxatdan oladi.
+    """
+    if u.get("is_banned"):
+        return "ban"
     tarif = u.get("plan_type") or "free"
+    return tarif if tarif in TARIF_NOMI else "free"
+
+
+def _qator(u: Dict[str, Any]) -> Dict[str, Any]:
+    """Jadval qatori."""
     return {
         "user_id": u["user_id"],
         "username": u.get("username"),
-        "tarif": "ban" if u.get("is_banned") else ("free" if tarif == "free" else "pro"),
-        "plan_type": tarif,
+        "tarif": _tarif_kaliti(u),
+        "plan_type": u.get("plan_type") or "free",
         "premium_until": _sana(u.get("premium_until")),
         "created_at": _sana(u.get("created_at")),
         "last_seen": _sana(u.get("last_seen")),
@@ -289,10 +364,23 @@ def _qator(u: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _sana(dt: Any) -> Optional[str]:
+    """Sana — ISO-8601, Toshkent siljishi bilan (`…T21:34:00+05:00`).
+
+    ⚠️ FORMATLASH BU YERDA EMAS, PANELDA. Ilgari bu funksiya tayyor
+    `«14.09.2026 21:34»` satrini qaytarardi va telefonda u ikki qatorga
+    bo'linib, jadval qatorini ikki barobar baland qilardi. Undan ham
+    yomoni: «2 soat oldin» yoki «Bugun / Kecha» kabi guruhlash ham
+    mumkin emasdi — tayyor satrdan sanani qaytadan ajratib olish
+    kerak bo'lardi. ISO satr esa bir xil ma'lumotni SAQLAYDI va panel
+    uni joyiga qarab uzun, qisqa yoki nisbiy qilib chizadi.
+
+    Siljish ATAYLAB Toshkentniki: panel istalgan mintaqada ochilishi
+    mumkin, sanalar esa botning vaqti bilan aytilishi kerak.
+    """
     if not isinstance(dt, datetime):
         return None
     try:
-        return dt.astimezone(TIMEZONE).strftime("%d.%m.%Y %H:%M")
+        return dt.astimezone(TIMEZONE).isoformat(timespec="seconds")
     except Exception:
         return None
 
@@ -309,14 +397,19 @@ async def users(request: web.Request):
     except ValueError:
         sahifa = 0
 
+    tartib = request.query.get("tartib") or "faollik"
+    if tartib not in TARTIBLAR:
+        tartib = "faollik"
+
     d = await database_module.list_users(
-        q=q, tarif=tarif, limit=SAHIFA, offset=sahifa * SAHIFA)
+        q=q, tarif=tarif, limit=SAHIFA, offset=sahifa * SAHIFA, tartib=tartib)
     return web.json_response({
         "rows": [_qator(u) for u in d["rows"]],
         "jami": d["jami"],
         "sanoq": d["sanoq"],
         "sahifa": sahifa,
         "sahifalar": max(1, -(-d["jami"] // SAHIFA)),
+        "tartib": tartib,
     })
 
 
@@ -331,7 +424,6 @@ async def user(request: web.Request):
     tolovlar = await database_module.get_user_payments(uid, limit=10)
     ref = await database_module.get_referral_progress(uid)
     tarif_nomi = profil.get("plan_type") or "free"
-    pro = tarif_nomi != "free"
 
     # Limitlar `daily_limit()` dan — u limitning YAGONA o'qish nuqtasi,
     # ya'ni admin panelidan o'zgartirilgan qiymat shu zahoti ko'rinadi.
@@ -349,8 +441,8 @@ async def user(request: web.Request):
     return web.json_response({
         "user_id": uid,
         "username": profil.get("username"),
-        "tarif": "ban" if profil.get("is_banned") else ("free" if not pro else "pro"),
-        "plan_type": profil.get("plan_type") or "free",
+        "tarif": _tarif_kaliti(profil),
+        "plan_type": tarif_nomi,
         "bloklangan": bool(profil.get("is_banned")),
         "premium_until": _sana(profil.get("premium_until")),
         "created_at": _sana(profil.get("created_at")),
@@ -541,15 +633,127 @@ JURNAL_SAHIFA = 20
 
 
 def _kim(user_id: Optional[int], username: Optional[str]) -> Optional[str]:
-    """Audit qatoridagi odam: `@nomi` yoki `ID:123`. Yo'q bo'lsa — None."""
+    """Odamning KO'RINADIGAN nomi — panelda YAGONA formatter.
+
+    Tartib: `@username` → `ID:123`. Yo'q bo'lsa `None`.
+
+    ⚠️ Bitta odam bitta joyda bitta nom bilan atalishi kerak. Ilgari
+    jurnalning filtr chiplari `ID:2001717965`, o'sha adminning jadvaldagi
+    qatori esa `@jumayeevou` deb yozilardi — bir ekranda ikki nom, va
+    admin ular boshqa-boshqa odam deb o'ylashi mumkin edi. Sabab oddiy
+    edi: chiplar ro'yxati faqat `admin_id` dan yig'ilardi, username
+    umuman so'ralmasdi.
+    """
     if username:
         return "@" + username
     return f"ID:{user_id}" if user_id else None
 
 
+# Audit tafsilotini odam tiliga o'giradigan qoidalar.
+#
+# ⚠️ Nega o'girish EKRANDA, yozuvda emas: `admin_audit` da ikki yillik
+# qator yotibdi va ular allaqachon `«inf»`, `«7d x1»`, `«free»` bo'lib
+# yozilgan. Yozuvni o'zgartirish faqat YANGI qatorlarga ta'sir qilardi,
+# ya'ni jurnal yarmi odamcha, yarmi texnik bo'lib qolardi — eng yomon
+# variant. O'girish shu yerda bo'lsa, eski qator ham odamcha ko'rinadi.
+#
+# ⚠️ Xom qiymat HECH QACHON YO'QOLMAYDI: qoida mos kelmasa xom satr
+# o'zi chiqadi. Jimgina bo'sh qoldirish — auditda eng yomon xatti-harakat.
+#
+# Bu ro'yxat `core/config.py` da EMAS, chunki uni o'qiydigan ikkinchi
+# ekran yo'q (Telegram jurnali 7-bosqichda o'chdi). Ikkinchi iste'molchi
+# paydo bo'lsa — `AUDIT_ACTIONS` yoniga ko'chiriladi.
+_LIMIT_ASL = "asl qiymat"
+
+
+def _tafsilot(amal: str, xom: Optional[str]) -> Optional[str]:
+    """`«free.points = 500»` → `«Bepul · Kunlik ballar → 500»`."""
+    if not xom:
+        return None
+    t = xom.strip()
+
+    if amal == "set_premium":
+        if t == "inf":
+            return "Muddatsiz"
+        m = re.fullmatch(r"sovga (\d+) kun", t)
+        if m:
+            return f"Sovg'a · {m.group(1)} kun"
+        if t.isdigit():
+            return f"{t} kun"
+
+    elif amal == "set_plan":
+        return TARIF_NOMI.get(t, t)
+
+    elif amal == "limit_change":
+        m = re.fullmatch(r"(\w+)\.(\w+) = (.+)", t)
+        if m:
+            tarif, kalit, qiymat = m.groups()
+            return (f"{TARIF_NOMI.get(tarif, tarif)} · "
+                    f"{LIMIT_NOMI.get(kalit, kalit)} → "
+                    f"{_LIMIT_ASL if qiymat == 'asl' else qiymat}")
+
+    elif amal == "create_promo":
+        m = re.fullmatch(r"(\S+) (\d+)d x(\d+)", t)
+        if m:
+            return f"{m.group(1)} · {m.group(2)} kun · {m.group(3)} marta"
+
+    elif amal == "send_promo":
+        m = re.fullmatch(r"(\S+) -> (\d+) ta", t)
+        if m:
+            return f"{m.group(1)} · {m.group(2)} kishiga yuborildi"
+
+    elif amal == "send_referral":
+        m = re.fullmatch(r"(\d+) ta", t)
+        if m:
+            return f"{m.group(1)} kishiga yuborildi"
+
+    elif amal == "referral_config":
+        m = re.fullmatch(r"(\d+) ta -> (\d+) kun", t)
+        if m:
+            return f"{m.group(1)} do'st → {m.group(2)} kun Pro"
+
+    elif amal == "broadcast":
+        m = re.fullmatch(r"segment=(\S+) yuborildi=(\d+) xato=(\d+)", t)
+        if m:
+            qamrov = SEGMENT_NOMI.get(m.group(1), m.group(1))
+            xato = f" · {m.group(3)} ta yetmadi" if m.group(3) != "0" else ""
+            return f"{qamrov} · {m.group(2)} kishiga yetdi{xato}"
+        m = re.fullmatch(r"rejalashtirildi #(\d+) segment=(\S+)", t)
+        if m:
+            return (f"Rejalashtirildi #{m.group(1)} · "
+                    f"{SEGMENT_NOMI.get(m.group(2), m.group(2))}")
+
+    elif amal == "maintenance":
+        holat = "Yoqildi" if t.startswith("yoqildi") else (
+            "O'chirildi" if t.startswith("o'chirildi") else None)
+        if holat:
+            return holat + (" · matn yangilandi" if "matn" in t else "")
+
+    elif amal == "cancel_broadcast":
+        m = re.fullmatch(r"#(\d+)", t)
+        if m:
+            return f"Tarqatma #{m.group(1)}"
+
+    elif amal == "watch_group":
+        return f"Guruh {t}"
+
+    elif amal == "user_report":
+        # Foydalanuvchi xabari JSON bo'lib yoziladi — jurnalda uning
+        # xom shakli chiqmasin, lekin yo'qolmasin ham.
+        return t[:120]
+
+    return t
+
+
 @admin_only
 async def journal_audit(request: web.Request):
-    """Admin amallari. `?admin=` bilan bitta admin bo'yicha filtr."""
+    """Admin amallari. `?admin=` bilan bitta admin bo'yicha filtr.
+
+    Har qator UCHTA savolga javob beradi: KIM (admin), NIMA (amal +
+    tafsilot), KIMGA (foydalanuvchi). Uchinchisi bo'lmasligi mumkin va
+    bu normal — limit o'zgartirish yoki texnik ta'til hech kimga
+    tegishli emas; panel unday qatorda «—» ko'rsatadi.
+    """
     try:
         sahifa = max(0, int(request.query.get("page", 0)))
     except ValueError:
@@ -564,26 +768,33 @@ async def journal_audit(request: web.Request):
         limit=JURNAL_SAHIFA, offset=sahifa * JURNAL_SAHIFA, admin_id=admin_id)
     jami = await database_module.count_admin_audit(admin_id)
 
-    return web.json_response({
-        "rows": [{
+    tayyor = []
+    adminlar: Dict[int, str] = {}
+    for r in rows:
+        amal = r.get("action") or ""
+        nom, ikonka = audit_nomi(amal)
+        aid = r.get("admin_id")
+        if aid:
+            # Filtr chiplari uchun: nom bilan, quruq ID bilan emas.
+            adminlar.setdefault(aid, _kim(aid, r.get("admin_username")) or f"ID:{aid}")
+        tayyor.append({
             "id": r.get("id"),
             "vaqt": _sana(r.get("action_time")),
-            "admin": _kim(r.get("admin_id"), r.get("admin_username")) or "tizim",
-            "admin_id": r.get("admin_id"),
-            # Nom `AUDIT_ACTIONS` dan. Ro'yxatda bo'lmagan amal XOM
-            # nomi bilan ko'rsatiladi — yashirilsa, audit jurnalida
-            # yozuv umuman yo'qday bo'lib qolardi.
-            "amal": AUDIT_ACTIONS.get(r.get("action") or "", r.get("action") or "—"),
+            "admin": _kim(aid, r.get("admin_username")) or "tizim",
+            "admin_id": aid,
+            "amal": nom,
+            "ikonka": ikonka,
             "kimga": _kim(r.get("target_user_id"), r.get("target_username")),
-            "tafsilot": (r.get("details") or "")[:200] or None,
-        } for r in rows],
+            "kimga_id": r.get("target_user_id"),
+            "tafsilot": _tafsilot(amal, (r.get("details") or "")[:200]),
+        })
+
+    return web.json_response({
+        "rows": tayyor,
         "jami": jami,
         "sahifa": sahifa,
         "sahifalar": max(1, -(-jami // JURNAL_SAHIFA)),
-        # Filtr ro'yxati uchun: jurnalda uchragan adminlar.
-        "adminlar": sorted({
-            r.get("admin_id") for r in rows if r.get("admin_id")
-        }),
+        "adminlar": [{"id": i, "nom": n} for i, n in sorted(adminlar.items())],
     })
 
 
@@ -642,27 +853,6 @@ async def journal_revenue(request: web.Request):
     })
 
 
-@admin_only
-async def journal_inactive(request: web.Request):
-    """⚠️ «Nofaol» = botni BLOKLAGAN yoki o'chirib yuborgan odamlar
-    (`is_active = FALSE`, tarqatma paytida qo'yiladi). Maketda bu
-    kartochka «14 kundan beri yozmaganlar» deb tushuntirilgan edi — bu
-    BOSHQA narsa (`notify_inactive_users()` fon vazifasi) va shu
-    endpoint u haqda hech narsa bilmaydi.
-    """
-    rows = await database_module.inactive_users(limit=JURNAL_SAHIFA)
-    jami = await database_module.count_inactive_users()
-    return web.json_response({
-        "rows": [{
-            "user_id": r.get("user_id"),
-            "username": r.get("username"),
-            "tarif": (r.get("plan_type") or "free"),
-            "last_seen": _sana(r.get("last_seen")),
-        } for r in rows],
-        "jami": jami,
-    })
-
-
 # ═══════════════════════════════════════════════════════════════════
 #  SOZLAMALAR (REJA 6.6)
 # ═══════════════════════════════════════════════════════════════════
@@ -686,6 +876,9 @@ async def limits(request: web.Request):
         "rows": [{
             "kalit": kalit,
             "nom": nom,
+            # Izoh `LIMIT_IZOHI` dan — ball narxlari `MESSAGE_COST_*`
+            # dan yig'iladi, ya'ni narx o'zgarsa matn o'zi to'g'rilanadi.
+            "izoh": LIMIT_IZOHI.get(kalit, ""),
             "tariflar": {
                 tarif: {
                     # ⚠️ Qiymat `daily_limit()` dan EMAS, o'zgartirish va
@@ -1202,7 +1395,31 @@ async def broadcast_cancel(request: web.Request):
     return web.json_response({"ok": True})
 
 
+@admin_only
+async def meta(request: web.Request):
+    """Panel bir marta o'qiydigan ro'yxatlar — YAGONA MANBADAN.
+
+    ⚠️ Bularning hammasi ilgari `panel.js` ichida QO'LDA yozilgan edi
+    (`PLAN = {pro: "Pro", free: "Bepul"}`) va o'sha nusxada `premium`
+    umuman yo'q edi — ya'ni cheksiz tarifdagi odam jadvalda «Pro» bo'lib
+    ko'rinardi. Bu loyihada bir xil xato beshinchi marta takrorlangan
+    joy (`CLAUDE.md`, «Four label maps»), shuning uchun panel endi
+    ro'yxatni O'YLAB TOPMAYDI — shu yerdan oladi.
+
+    Javob o'zgarmas: sessiya boshida bir marta so'raladi.
+    """
+    return web.json_response({
+        "tariflar": TARIF_NOMI,
+        "ranglar": TARIF_RANGI,
+        "limitlar": LIMIT_NOMI,
+        "limit_izohi": LIMIT_IZOHI,
+        "qamrovlar": SEGMENT_NOMI,
+        "grafik_kunlari": list(GRAFIK_KUNLARI),
+    })
+
+
 def register(app: web.Application) -> None:
+    app.router.add_get("/api/meta", meta)
     app.router.add_get("/api/overview", overview)
     app.router.add_get("/api/stats", stats)
     app.router.add_get("/api/users", users)
@@ -1216,7 +1433,6 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/journal/audit", journal_audit)
     app.router.add_get("/api/journal/errors", journal_errors)
     app.router.add_get("/api/journal/revenue", journal_revenue)
-    app.router.add_get("/api/journal/inactive", journal_inactive)
     app.router.add_get("/api/limits", limits)
     app.router.add_post("/api/limits", limit_set)
     app.router.add_get("/api/maintenance", maintenance)

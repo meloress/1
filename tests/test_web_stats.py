@@ -26,6 +26,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import web
 from web import api, auth
+from core.config import TARIF_NOMI
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TASHKENT = datetime.timezone(datetime.timedelta(hours=5))
@@ -39,6 +40,8 @@ SOXTA_ACTIVITY = {
     "free_count": 1187,
     "pro_count": 14,
     "premium_count": 3,
+    "ban_count": 0,
+    "kunlar": 7,
     "most_active_30days": {"user_id": 641382905, "username": "dilshod_a", "activity_count": 312},
     "most_active_today": {"user_id": 641382905, "username": "dilshod_a", "activity_count": 42},
     "last_user": {"user_id": 5, "username": "yangi", "created_at": None},
@@ -59,6 +62,12 @@ SOXTA_KUNLIK = {
     "sales": 2, "stars": 1850, "errors": 11, "pro_users": 14,
     "prev_actions": 300, "active_7d": 103, "pro_expiring": 2,
     "top_types": [("text_message", 200), ("guest_text_message", 90), ("voice_message", 52)],
+    # ⚠️ 24 soatlik TO'LIQ kesim. `actions` (342) shu ro'yxatning
+    # yig'indisi — `daily_report_stats()` uni aynan shundan hisoblaydi.
+    # `start` ro'yxatda ATAYLAB bor: u `ACTIVITY_TYPES` da yo'q va
+    # panelda «Boshqa» qatoriga tushishi kerak.
+    "types_24h": [("text_message", 200), ("guest_text_message", 90),
+                  ("voice_message", 52)],
 }
 
 SOXTA_DAROMAD = {"stars_today": 1850, "stars_30d": 24300, "stars_total": 186700,
@@ -67,8 +76,10 @@ SOXTA_DAROMAD = {"stars_today": 1850, "stars_30d": 24300, "stars_total": 186700,
 
 def soxta_bazani_qoy(modul, **ustidan):
     """Soxta bazani modulga qo'yadi (`web.api` uni shundan o'qiydi)."""
-    async def activity_stats():
-        return dict(SOXTA_ACTIVITY)
+    async def activity_stats(kunlar=7):
+        d = dict(SOXTA_ACTIVITY)
+        d["kunlar"] = kunlar
+        return d
 
     async def daily_report_stats():
         return dict(SOXTA_KUNLIK)
@@ -154,7 +165,10 @@ async def main():
         # 5) Xato matni XOM holda uzatiladi (kesilgan), panel uni
         #    `xavfsiz()` bilan ekranlaydi — ikkalasi ham tekshiriladi.
         x = ov["xatolar"][0]
-        assert x["tur"] == "timeout" and x["vaqt"] == "19:12", x
+        # Vaqt ISO-8601 bo'lib, TOSHKENT siljishi bilan keladi;
+        # formatlash panelda (`sana()` / `nisbiy()`), chunki bitta sana
+        # uch xil joyda uch xil uzunlikda ko'rsatiladi.
+        assert x["tur"] == "timeout" and x["vaqt"] == "2026-09-15T19:12:00+05:00", x
         js = (ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8")
         assert "function xavfsiz(" in js, "panel.js da ekranlash funksiyasi yo'q"
         # `username` `nom` o'zgaruvchisi orqali o'tadi, shuning uchun
@@ -173,22 +187,39 @@ async def main():
                     f"panel.js:{n} — username HTML ga ekranlanmasdan qo'yilgan: {qator.strip()}")
         print("[5] vaqt Toshkentga o'girilgan, begona matn panelda ekranlanadi OK")
 
-        # 6) Turlar nomi `ACTIVITY_TYPES` dan keladi, xom satr emas.
-        #    Jonli bazada bu yerda `start` chiqib ketgan edi — u so'rov
-        #    emas, buyruq, va nomi bo'lmagani uchun xom satr bo'lib
-        #    ekranga tushgandi. Endi ro'yxatda yo'q tur tashlab
-        #    ketiladi (log'ga yozib).
+        # 6) ⭐ USTUNLAR YIG'INDISI = UMUMIY SON.
+        #
+        # ⚠️ Bu tekshiruv aynan jonli shikoyatdan tug'ildi: ekranda
+        # «24 soatdagi so'rovlar 150» yozilib turardi, pastdagi «So'rov
+        # turlari» ustunlari esa qo'shilganda 142 berardi. Ikki sabab
+        # bor edi va ikkalasi ham jimgina ishlardi — `ACTIVITY_TYPES` da
+        # yo'q tur (`start`) tashlab ketilardi, va so'rov `LIMIT 5` edi.
+        # Admin bunday farqni ko'rsa butun paneldagi raqamga ishonmay
+        # qoladi, va haq bo'ladi.
         nomlar = [t["nom"] for t in ov["turlar"]]
-        assert "Matn" in nomlar and "Matn · guest" in nomlar, nomlar
-        assert not any("_message" in n for n in nomlar), f"xom tur nomi chiqib ketdi: {nomlar}"
-        assert api._turlar([("start", 6), ("text_message", 1)]) == [{"nom": "Matn", "soni": 1}], \
-            "ro'yxatda yo'q tur panelga chiqib ketdi"
-        print("[6] turlar ko'rinadigan nom bilan qaytadi, notanishi tashlanadi OK")
+        assert "Matn" in nomlar and "Matn · mehmon" in nomlar, nomlar
+        assert not any("_message" in n for n in nomlar), f"xom tur nomi: {nomlar}"
+        assert sum(t["soni"] for t in ov["turlar"]) == ov["kpi"]["sorovlar"]["qiymat"], (
+            f"ustunlar yig'indisi umumiy songa teng emas: {ov['turlar']}")
+
+        # Ro'yxatda yo'q tur YO'QOLMAYDI — «Boshqa» ga qo'shiladi.
+        b = api._turlar([("start", 6), ("text_message", 1)])
+        assert b == [{"nom": "Matn", "soni": 1},
+                     {"nom": "Boshqa", "soni": 6, "boshqa": True}], b
+        # Ortib qolgani ham «Boshqa» ga: ro'yxat cheksiz uzaymaydi,
+        # lekin yig'indi baribir saqlanadi.
+        kop = [(t, 10) for t in ("text_message", "photo_message", "voice_message",
+                                 "document_message", "location_message",
+                                 "file_task", "research")]
+        c = api._turlar(kop)
+        assert len(c) == api.TUR_KORSAT + 1 and c[-1]["nom"] == "Boshqa", c
+        assert sum(t["soni"] for t in c) == 70, c
+        print("[6] turlar yig'indisi umumiy songa teng, notanishi «Boshqa» ga tushadi OK")
 
         # 7) Statistika ekrani: ulushlar va konversiya.
         jami_amal = sum(c for _t, c in SOXTA_ACTIVITY["type_breakdown"])
         guest = 400 + 57
-        assert st["kpi"]["guest_ulush"] == round(guest / jami_amal * 100)
+        assert st["kpi"]["mehmon_ulush"] == round(guest / jami_amal * 100)
         assert st["kpi"]["konversiya"] == round(17 / 1204 * 100, 2)
         assert st["kpi"]["kunlik_ortacha"] == round((100 + 200 + 342) / 7)
         assert st["top"][0]["ulush"] == 100, "eng faol 100% bo'lishi kerak"
@@ -219,9 +250,19 @@ async def main():
         assert "pool.acquire" not in d, "daily.py ga xom SQL qaytib kelgan"
         assert "daily_report_stats" in d
         assert st["kpi"]["jami"] == SOXTA_ACTIVITY["total_users"]
-        assert st["tarif"]["free"] == SOXTA_ACTIVITY["free_count"]
-        assert st["tarif"]["pro"] == SOXTA_ACTIVITY["pro_count"]
-        assert st["tarif"]["premium"] == SOXTA_ACTIVITY["premium_count"]
+        # ⚠️ Tarif doirasi: segmentlar QO'SHILGANDA jamiga teng. Ilgari
+        # bloklangan odam ham `free_count` ichida turardi, ya'ni doira
+        # jamidan oshib ketishi mumkin edi.
+        q = {x["kalit"]: x["soni"] for x in st["tarif"]["qismlar"]}
+        assert q["free"] == SOXTA_ACTIVITY["free_count"]
+        assert q["premium"] == SOXTA_ACTIVITY["premium_count"]
+        assert sum(q.values()) == st["tarif"]["jami"], st["tarif"]
+        assert q["pro"] == SOXTA_ACTIVITY["pro_count"]
+        # Nom YAGONA ro'yxatdan (`TARIF_NOMI`) keladi — panel o'zi
+        # yozib qo'ymaydi, chunki aynan shu nusxa `premium` ni
+        # tushirib qoldirgan edi.
+        nomlari = {x["kalit"]: x["nom"] for x in st["tarif"]["qismlar"]}
+        assert nomlari == {k: TARIF_NOMI[k] for k in nomlari}, nomlari
         print("[8] panelda xom SQL yo'q, raqamlar yagona manbadan OK")
 
     print("\nweb stats: barcha tekshiruvlar o'tdi (8/8).")

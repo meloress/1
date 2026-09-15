@@ -22,7 +22,10 @@ Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is
 
 Some are structural guards rather than feature tests, and they earn their keep on refactors:
 
-- `test_admin_registry.py` — every admin handler still registered, in order.
+- `test_admin_registry.py` — every admin handler still registered, in order, **and none of
+  the 31 screens that moved to the web panel registered again**. A returning screen fails
+  with the reason ("this was not deleted, it MOVED"), because the failure to avoid is two
+  places editing one setting, not a missing handler.
 - `test_activity_tracking.py` — every activity type the code writes is in `ACTIVITY_TYPES`. It **imports** that dict now (it used to read a handler by file path, which broke whenever code moved).
 - `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
 - `test_url_read.py` — the untrusted-boundary guard on `internet_search(url=…)`: a
@@ -43,7 +46,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
-- `test_admin_extras.py` checks 19-20 — every admin callback handler still starts with `require_admin_or_deny_query`, and the user counts in `activity_stats()` still filter the same set (check 20 asserts the `_ODDIY_USER` constant is the single place that says so, so "one query excludes admins, the other doesn't" is structurally impossible). Both were written after the corresponding bug, and check 19 was verified by deleting the guard and watching it fail.
+- `test_admin_extras.py` checks 12-13 — every admin callback handler still starts with `require_admin_or_deny_query`, and the user counts in `activity_stats()` still filter the same set (check 13 asserts the `_ODDIY_USER` constant is the single place that says so, so "one query excludes admins, the other doesn't" is structurally impossible). Both were written after the corresponding bug, and the guard check was verified by deleting the guard and watching it fail. (They were checks 19-20 until phase 7 cut the file from 20 checks to 13 — renumber this line if it moves again, or the next reader looks for a check that is not there.)
 
 - `test_admin_kod.py` — the `/kod` sending flow, which after phase 7 is the only admin
   path the web tests do not cover. Runs offline. Its sharpest check is that a code whose
@@ -64,14 +67,44 @@ Some are structural guards rather than feature tests, and they earn their keep o
   refreshed — and its check 11 proves the panel goes through the *same* admin-removal
   gate as the bot. `test_web_promo.py` check 6 pins `extend=True` on gifted Pro (without
   it a gift wipes the days the user already had).
+- `test_panel_raqamlar.py` — the one that exists because the numbers on a single screen
+  disagreed with each other. It reads the **text of the SQL**, so it needs no database and
+  still fails the moment a definition is written a second time: that "Pro" means one thing
+  in all three queries, that every per-person count excludes admins, that the request-type
+  bars sum to the request KPI, that a promo code expires at 23:59:59 **Tashkent** rather
+  than at 05:00, and that `set_user_premium()` still defaults to `plan='pro'`. That last
+  one is the sharpest: the default used to be `'premium'`, i.e. the panel's
+  "Pro berish · 7 kun" button quietly handed out the unlimited tier.
+- `test_panel_korinish.py` — the panel's *appearance* rules. No browser is available here,
+  so it checks the rule instead: no `<table>` and no horizontally scrolling list, content
+  padded past the fixed bottom nav **plus** the device inset, every colour token defined in
+  **both** themes (never only inside a media query), and the muted text colours run through
+  an actual WCAG contrast calculation in each theme — the old `--ink-3` scored 3.7:1, which
+  is every hint on every screen failing AA. It also pins that each `fetch` carries the
+  Telegram signature.
 
 Exact token counts need `tiktoken` (`pip install tiktoken`, encoding `o200k_base`). It is **not** in `requirements.txt` — the bot never counts tokens itself, it is a local measuring tool. Do not estimate from character counts; that was 11% off on this prompt.
 
 ## Deploy
 
-The panel needs two environment variables beyond the bot's own: Railway supplies `PORT`,
-and `WEB_APP_URL` is read from the env or derived from `RAILWAY_PUBLIC_DOMAIN` (Settings
-→ Networking → Generate Domain).
+The panel is live at **`https://1-production-666e.up.railway.app`** (first deployed
+2026-09-16, commit `2c292c5`).
+
+⚠️ **Railway does not set `PORT` on this service** — checked with `railway variables`, it
+is simply absent, so `web/__init__.py` falls back to **8080** and the generated domain
+routes to it. An earlier version of this file claimed Railway supplies it; do not "fix"
+the fallback on that assumption. `WEB_APP_URL` is read from the env or derived from
+`RAILWAY_PUBLIC_DOMAIN`, which Railway *does* set once a domain exists (Settings →
+Networking → Generate Domain).
+
+⚠️ `Procfile` declares `worker: python main.py`, and the panel is served from that same
+worker anyway — one process, HTTP and polling together (see the web panel section). Do not
+add a second process type for it.
+
+Verify a deploy landed without opening a browser: `railway status --json` →
+`services[].serviceInstances[].latestDeployment.status` walks BUILDING → DEPLOYING →
+SUCCESS, then `/` answers 200 and any `/api/*` answers **401** without a cookie — that
+401 is the gate working, not a failure.
 
 ⚠️ Since phase 7 this is no longer cosmetic. "Empty means no menu button; the bot is
 unaffected" was true while every admin screen still existed in Telegram — it does not any
@@ -648,6 +681,15 @@ bot running without a panel.
    never cached, so a demoted admin is locked out on their next request rather than at
    the end of the 12-hour session.
 
+⚠️ **The panel also sends `initData` on every request**, in `X-Telegram-Init-Data`, and
+`admin_only` verifies that signature with the bot token **before** it looks at the cookie.
+The header is the stronger proof — only Telegram can produce it — while the cookie is our
+own signature and would stand for 12 hours if stolen. Its age limit is **24 hours**, not
+the 5 minutes `/api/session` uses, and the difference is not laxness: `initData` is issued
+once when the Mini App opens and never refreshes, so a 5-minute rule there would kill the
+panel five minutes in. The cookie stays as the second path because a panel opened in a
+plain browser has no `initData` at all.
+
 The cookie key is a *derivative* of `BOT_TOKEN` (`sha256("webpanel:" + token)`), not the
 token, so a leaked cookie signature cannot be turned back into the bot token.
 
@@ -709,7 +751,7 @@ be coerced to `None` here, for the same reason it could not be on the premium en
 `web/static/panel.js` splits its startup into `qism()`-wrapped blocks. One missing
 element inside a single IIFE used to kill everything after it — navigation included —
 with one line in the console and no visible cause. Buttons inside a list that is redrawn
-after every write (`data-wdel`, `data-addel`, `data-pdel`, `data-bdel`, `data-lsave`) are
+after every write (`data-wdel`, `data-addel`, `data-pdel`, `data-pcopy`, `data-bdel`, `data-uid`) are
 bound once on the **container** via `delegat()`, never on the row: rebinding after each
 redraw stacks listeners and fires one click twice, which on a refund or a gift means
 doing it twice.
@@ -717,10 +759,37 @@ doing it twice.
 The panel's logo is `/static/logo.jpg` **everywhere** it appears (`REJA.md` 3.2.1);
 `tests/test_web_panel.py` check 4 fails on any other image source.
 
-### Four label maps that all rotted the same way
+⚠️ **The panel has no tables and no second screen layout.** Every list is one
+`.rows > .row` structure: on a wide screen a `--ust` grid variable turns it into aligned
+columns, on a phone that variable is off and the row wraps into a card. The tables it
+replaced were wrapped in `overflow-x:auto`, so on a phone the last column — "last seen",
+and the action buttons — was simply off-screen, and nothing said so. If you add a list,
+add it as `.rows`; a `<table>` there is the bug coming back.
 
-`core/config.py` holds four dicts — `ACTIVITY_TYPES`, `AUDIT_ACTIONS`, `LIMIT_NOMI`,
-`SEGMENT_NOMI` — for one reason: the same list kept being hand-written in each new
+⚠️ **The theme comes from Telegram, not from the panel.** `panel.js::tema()` copies
+`tg.colorScheme` onto `data-tema` and subscribes to `themeChanged`; every colour is a
+token defined on bare `:root` and re-defined under `[data-tema="light"]` *and* under
+`prefers-color-scheme: light`, so the browser and the Mini App both get a complete
+palette. This reverses the earlier decision (the panel used to be dark-only and painted
+Telegram's header to match it) — that was fine until someone on a light client opened a
+black page inside a white app. Do not re-introduce a hard-coded colour: the CSS rule is
+that only the brand gradient and the SVG `<defs>` carry literal hex.
+
+⚠️ **Panel strings live in `web/static/soz.js`, lists come from `/api/meta`.** The split
+matters: a string only the panel shows belongs in the dictionary, a list the *bot* also
+uses (tariff, limit, segment names) must come from `core/config.py` over `/api/meta`, or
+it becomes the sixth hand-written copy.
+
+⚠️ **Saving the limits is Telegram's MainButton, not a button per row.** The per-row
+"Saqlash" was cut off at the right edge on a phone and gave that card a horizontal
+scrollbar. The main button appears only when a field actually differs from what was
+loaded, and after a successful save the toast offers **Bekor qilish** for 5 seconds,
+which re-sends the previous values.
+
+### Five label maps that all rotted the same way
+
+`core/config.py` holds five dicts — `ACTIVITY_TYPES`, `AUDIT_ACTIONS`, `LIMIT_NOMI`,
+`SEGMENT_NOMI`, `TARIF_NOMI` — for one reason: the same list kept being hand-written in each new
 screen, and **every single copy drifted**. Found one per phase, always the same way:
 
 - activity type labels were written twice in `handlers/admin/stats.py` and a third time
@@ -732,6 +801,11 @@ screen, and **every single copy drifted**. Found one per phase, always the same 
 - the four daily limits were named in `handlers/admin/journal.py::LIMIT_KEYS` *and* in
   `web/api.py::SANOQ_NOMI`, differently — "Fayl" vs "Fayllar", "Tadqiqot" vs "Chuqur
   tadqiqot". Two screens naming one setting two ways reads as two settings;
+- the **tariff names** lived in `panel.js` as `PLAN = {pro: "Pro", free: "Bepul"}` and that
+  copy had no `premium` at all — so a user on the unlimited `premium` plan showed as "Pro"
+  in the table while the dashboard's distribution ring gave them their own segment. One
+  person, two screens, two tariffs. `TARIF_NOMI` is now the list and the panel reads it
+  from `/api/meta`; its keys are asserted equal to `PLAN_LIMITS`'s;
 - broadcast segment labels sat inline in `handlers/admin/journal.py` as `segment_nom`.
   The first web copy of it invented `"pro"` and `"active"`, **neither of which exists**
   (`_filter_users_by_segment` writes `all` / `free` / `premium` / `pick`), so the panel
@@ -755,7 +829,9 @@ have caught it.
 
 ### Errors reach the admin through one funnel
 
-Every admin action name written to `admin_audit` must appear in **`core/config.py::AUDIT_ACTIONS`** (`action -> label`), which the panel's journal screen reads. An action the code no longer writes must be **removed** from it — `referral_campaign` was, when its flow moved to the panel. Historical rows then show the raw name, which is the deliberate behaviour (`test_web_journal.py` check 4): the live database already holds a dozen legacy actions (`stats_view`, `users_export`, …) that no label covers, and showing the raw string beats hiding the row. It used to be a hand-written `ACTION_LABELS` in `handlers/admin/journal.py` and it had rotted badly: 9 of 16 action names did not match what the code writes (`ban` vs `ban_user`, `refund` vs `refund_stars`, `set_free` vs `set_plan`, `promo_create` vs `create_promo`), so most of the audit screen showed raw technical strings, while 6 labels hung on keys nothing ever writes. `tests/test_web_journal.py` walks the source for `log_admin_action(...)` and web's `_yoz(...)` calls and asserts both directions: every written action has a label, and every label is actually written.
+Every admin action name written to `admin_audit` must appear in **`core/config.py::AUDIT_ACTIONS`** (`action -> (label, icon)`), which the panel's journal screen reads through `audit_nomi()`. The label carries **no emoji** — the icon is a key the panel resolves against its own line-SVG set (`panel.js::IKONKA`), so the journal matches the rest of the UI instead of being the one screen made of emoji; an unknown key draws a dot, so a new action is never invisible.
+
+An action the code no longer writes must be **removed** from `AUDIT_ACTIONS` — `referral_campaign` was, when its flow moved to the panel — and moved to **`AUDIT_ESKI`**, the second dict, which exists only for action names that are in the live database and not in the code. Two dicts, two questions: "what does the code write" and "what is lying in the table". `audit_nomi()` falls through `AUDIT_ACTIONS` → `AUDIT_ESKI` → the raw string, and the raw string is still shown rather than hidden (`test_web_journal.py` check 4): a hidden row reads as no row at all. ⚠️ `AUDIT_ESKI` was written from the names this repo is known to have used; it could **not** be checked against the live table (production reads are blocked in this environment), so an action nobody remembers will still appear raw — which is the safe direction. It used to be a hand-written `ACTION_LABELS` in `handlers/admin/journal.py` and it had rotted badly: 9 of 16 action names did not match what the code writes (`ban` vs `ban_user`, `refund` vs `refund_stars`, `set_free` vs `set_plan`, `promo_create` vs `create_promo`), so most of the audit screen showed raw technical strings, while 6 labels hung on keys nothing ever writes. `tests/test_web_journal.py` walks the source for `log_admin_action(...)` and web's `_yoz(...)` calls and asserts both directions: every written action has a label, and every label is actually written.
 
 `send_error_with_retry()` (`handlers/helpers.py`) is the only path a user-visible failure takes, so that is where `db.log_error()` writes to the `error_log` table — the "⚠️ Xatolar" screen reads it. Adding a second logging site elsewhere splits the picture; pass a `kind` instead (`"timeout"`, `"matn"`, …). The table trims itself on write (`ERROR_LOG_KEEP`).
 

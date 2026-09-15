@@ -28,6 +28,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import web
 from web import api, auth
+from core.config import TARIF_NOMI
 from core.config import DAILY_COUNTERS, LIMIT_NOMI
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -72,10 +73,12 @@ class SoxtaBot:
 def soxta_baza(tolov=None):
     db = api.database_module
 
-    async def list_users(q=None, tarif="all", limit=20, offset=0):
+    async def list_users(q=None, tarif="all", limit=20, offset=0,
+                         tartib="faollik"):
         rows = [dict(PROFIL)] if offset == 0 else []
         return {"rows": rows, "jami": 45,
-                "sanoq": {"all": 45, "pro": 2, "free": 40, "ban": 3}}
+                "sanoq": {"all": 45, "pro": 2, "free": 40, "ban": 3,
+                          "nofaol": 7}}
 
     async def get_full_user_profile(uid):
         return dict(PROFIL) if uid == PROFIL["user_id"] else None
@@ -171,7 +174,12 @@ async def main():
         d = await (await c.get("/api/users?page=0", headers=h)).json()
         assert d["sahifalar"] == 3 and d["sahifa"] == 0, d      # 45 / 20 -> 3
         assert d["sanoq"]["all"] == 45
-        assert d["rows"][0]["tarif"] == "pro", d["rows"][0]
+        # ⚠️ `premium` — ESKI, cheksiz limitli tarif. Ilgari u jadvalda
+        # «pro» ga yopishtirilardi, Boshqaruv ekranidagi doirada esa
+        # alohida segment bo'lib turardi: bitta odam ikki ekranda ikki
+        # xil tarifda. Kalit endi `TARIF_NOMI` niki.
+        assert d["rows"][0]["tarif"] == "premium", d["rows"][0]
+        assert d["rows"][0]["tarif"] in TARIF_NOMI, "kalit yagona ro'yxatda yo'q"
         # Noto'g'ri filtr va sahifa so'rovni YIQITMASLIGI kerak.
         for yomon in ("?filter=hech-narsa", "?page=-5", "?page=abc", "?q=' OR 1=1 --"):
             assert (await c.get("/api/users" + yomon, headers=h)).status == 200, yomon
@@ -179,7 +187,7 @@ async def main():
 
         # 4) Kartochka: limitlar `daily_limit()` dan, yo'q odam — 404.
         p = await (await c.get(f"/api/users/{UID}", headers=h)).json()
-        assert p["tarif"] == "pro" and p["jami_sorov"] == 1847
+        assert p["tarif"] == "premium" and p["jami_sorov"] == 1847
         # ⚠️ Nomlar QO'LDA yozilmaydi. Ilgari shu yerda uchta satr
         # qotirilgandi va u nusxa edi: 6-bosqichda ro'yxat
         # `core/config.py::LIMIT_NOMI` ga ko'chganda test o'zi yiqildi,
