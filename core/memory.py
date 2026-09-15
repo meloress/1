@@ -20,22 +20,30 @@ user_last_action_ts:  Dict[int, float]           = {}
 # TEXT MERGE BUFFER
 # --------------------------------------------------
 # Telegram uzun xabarni (>4096 belgi) bir necha qismga bo'lib yuboradi.
-# Bu bufer o'sha qismlarni chat_id bo'yicha yig'ib turadi va ular BITTA
+# Bu bufer o'sha qismlarni (chat_id, thread_id) bo'yicha yig'ib turadi va ular BITTA
 # so'rov sifatida qayta ishlanishini ta'minlaydi (handlers/messages.py
 # ichidagi handle_text / _process_merged_text bilan birga ishlaydi).
 #
-# Struktura (har bir chat_id uchun):
+# ⚠️ KALIT `chat_id` EMAS, `(chat_id, thread_id)`: mavzular (topic) —
+# AYRIM suhbatlar. Faqat chat bo'yicha yig'ilganda A-mavzuda va
+# B-mavzuda 1.5 soniya ichida yozilgan ikki xabar BITTA so'rovga
+# qo'shilib ketardi va javob faqat oxirgi mavzuga tushardi — ikkinchi
+# mavzu javobsiz qolardi, tarix esa aralashardi. Hech qanday xato
+# otilmasdi. `thread_id = 0` — mavzusiz chat.
+#
+# Struktura (har bir (chat_id, thread_id) uchun):
 # {
 #     "parts":      List[str]       — kelgan xabar qismlari, tartib bilan
 #     "last_message": aiogram.types.Message — javob shu xabarga bog'lanadi
 #     "timer_task": asyncio.Task    — "davomi kelmasa, qayta ishla" taymeri
 #     "created_at": float           — birinchi qism kelgan vaqt (TTL uchun)
 # }
-text_merge_buffers: Dict[int, Dict[str, Any]] = {}
-text_merge_locks:   Dict[int, asyncio.Lock]    = {}
+text_merge_buffers: Dict[tuple, Dict[str, Any]] = {}
+text_merge_locks:   Dict[tuple, asyncio.Lock]    = {}
 
 
-# Shu suhbatda ALLAQACHON yuborilgan rasm havolalari (chat_id -> URL'lar).
+# Shu suhbatda ALLAQACHON yuborilgan rasm havolalari
+# ((chat_id, thread_id) -> URL'lar).
 #
 # ⚠️ NEGA KERAK: foydalanuvchi «tuning qilingani-chi?» deb qayta-qayta
 # so'raganda bot har safar O'SHA to'rt rasmni qaytarardi. Sabab qidiruvda
@@ -46,14 +54,15 @@ text_merge_locks:   Dict[int, asyncio.Lock]    = {}
 # RAM'da: bu suhbat davomidagi holat, bazaga yozishga arzimaydi.
 # /new bilan va chegaradan oshganda tozalanadi.
 SENT_IMAGES_KEEP = 24
-sent_image_urls: Dict[int, List[str]] = {}
+sent_image_urls: Dict[tuple, List[str]] = {}
 
 
-def remember_sent_images(chat_id: int, images: List[dict]) -> None:
+def remember_sent_images(chat_id: int, images: List[dict],
+                         thread_id: int = 0) -> None:
     """Yuborilgan rasm havolalarini eslab qoladi."""
     if not images:
         return
-    ro_yxat = sent_image_urls.setdefault(chat_id, [])
+    ro_yxat = sent_image_urls.setdefault((chat_id, thread_id), [])
     for img in images:
         url = (img or {}).get("url")
         if url and url not in ro_yxat:
@@ -62,18 +71,23 @@ def remember_sent_images(chat_id: int, images: List[dict]) -> None:
         del ro_yxat[:-SENT_IMAGES_KEEP]
 
 
-def recent_sent_images(chat_id: int) -> set:
+def recent_sent_images(chat_id: int, thread_id: int = 0) -> set:
     """Qidiruvdan chiqarib tashlanadigan havolalar."""
-    return set(sent_image_urls.get(chat_id) or ())
+    return set(sent_image_urls.get((chat_id, thread_id)) or ())
 
 
-def forget_sent_images(chat_id: int) -> None:
-    """/new — suhbat tozalansa rasm tarixi ham tozalanadi."""
-    sent_image_urls.pop(chat_id, None)
+def forget_sent_images(chat_id: int, thread_id: int = 0) -> None:
+    """/new — suhbat tozalansa rasm tarixi ham tozalanadi.
+
+    ⚠️ FAQAT SHU MAVZU: `/new` ekranda «bu mavzudagi xotira tozalandi»
+    deydi, shuning uchun qo'shni mavzuning rasm tarixini o'chirish
+    aytilgan gapdan ko'proq narsani o'chirish bo'lardi.
+    """
+    sent_image_urls.pop((chat_id, thread_id), None)
 
 
 # --------------------------------------------------
-# OXIRGI JOYLASHUV (chat_id -> (lat, lon, vaqt))
+# OXIRGI JOYLASHUV ((chat_id, thread_id) -> (lat, lon, vaqt))
 # --------------------------------------------------
 # Foydalanuvchi yuborgan lokatsiya. `find_nearby` tooli AYNAN shu
 # yozuv borligiga qarab biriktiriladi — ya'ni oddiy suhbatda tool
@@ -87,32 +101,34 @@ def forget_sent_images(chat_id: int) -> None:
 # RAM'da: rasm tarixi bilan bir xil sabab — bu suhbat holati, bazaga
 # yozishga arzimaydi va qayta ishga tushganda eskirgani ham yaxshi.
 LOCATION_TTL = 1800
-last_locations: Dict[int, tuple] = {}
+last_locations: Dict[tuple, tuple] = {}
 
 
-def remember_location(chat_id: int, lat: float, lon: float) -> None:
+def remember_location(chat_id: int, lat: float, lon: float,
+                      thread_id: int = 0) -> None:
     """Foydalanuvchi yuborgan joylashuvni eslab qoladi."""
-    last_locations[chat_id] = (float(lat), float(lon), time.time())
+    last_locations[(chat_id, thread_id)] = (float(lat), float(lon), time.time())
 
 
-def recent_location(chat_id: int):
+def recent_location(chat_id: int, thread_id: int = 0):
     """(lat, lon) yoki None — TTL o'tgan bo'lsa None."""
-    yozuv = last_locations.get(chat_id)
+    key = (chat_id, thread_id)
+    yozuv = last_locations.get(key)
     if not yozuv:
         return None
     lat, lon, ts = yozuv
     if time.time() - ts > LOCATION_TTL:
-        last_locations.pop(chat_id, None)
+        last_locations.pop(key, None)
         return None
     return lat, lon
 
 
-def forget_location(chat_id: int) -> None:
-    """/new — suhbat tozalansa joylashuv ham unutiladi."""
-    last_locations.pop(chat_id, None)
+def forget_location(chat_id: int, thread_id: int = 0) -> None:
+    """/new — suhbat tozalansa joylashuv ham unutiladi (faqat shu mavzu)."""
+    last_locations.pop((chat_id, thread_id), None)
 
 
-def get_text_merge_lock(chat_id: int) -> asyncio.Lock:
+def get_text_merge_lock(chat_id: int, thread_id: int = 0) -> asyncio.Lock:
     """Har bir chat uchun alohida asyncio.Lock qaytaradi.
 
     aiogram har bir kelgan update uchun handlerni alohida Task sifatida
@@ -122,26 +138,29 @@ def get_text_merge_lock(chat_id: int) -> asyncio.Lock:
     bufer bir vaqtning o'zida faqat bitta coroutine tomonidan
     o'zgartirilishini kafolatlaydi.
     """
-    lock = text_merge_locks.get(chat_id)
+    key = (chat_id, thread_id)
+    lock = text_merge_locks.get(key)
     if lock is None:
         lock = asyncio.Lock()
-        text_merge_locks[chat_id] = lock
+        text_merge_locks[key] = lock
     return lock
 
 
-def clear_text_merge_buffer(chat_id: int):
-    """Chat uchun bufer va taymerni butunlay bekor qiladi (masalan /new
-    buyrug'i kelganda yoki muvaffaqiyatli qayta ishlangandan keyin)."""
-    buf = text_merge_buffers.pop(chat_id, None)
+def clear_text_merge_buffer(chat_id: int, thread_id: int = 0):
+    """Shu MAVZU uchun bufer va taymerni butunlay bekor qiladi (masalan
+    /new buyrug'i kelganda yoki muvaffaqiyatli qayta ishlangandan keyin)."""
+    buf = text_merge_buffers.pop((chat_id, thread_id), None)
     if buf:
         timer_task = buf.get("timer_task")
         if timer_task and not timer_task.done():
             timer_task.cancel()
 
 def store_failed_request(chat_id: int, user_id: int, prompt: str,
-                         original_text: str, error_message_id: int):
+                         original_text: str, error_message_id: int,
+                         thread_id: int = 0):
     failed_requests[chat_id] = {
         "user_id":         user_id,
+        "thread_id":       thread_id,
         "prompt":          prompt,
         "original_text":   original_text,
         "attempts_manual": 0,
@@ -192,9 +211,9 @@ def cleanup_expired():
     # yoki process qayta ishga tushishi) timer_task bekor qilinmay
     # qolgan bo'lsa, TTL dan keyin buferni majburan tozalaymiz — aks
     # holda foydalanuvchining xabari abadiy javobsiz qolib ketishi mumkin.
-    for cid in [c for c, v in text_merge_buffers.items()
-                if now - v.get("created_at", now) > TEXT_MERGE_BUFFER_TTL]:
-        clear_text_merge_buffer(cid)
+    for kalit in [k for k, v in text_merge_buffers.items()
+                  if now - v.get("created_at", now) > TEXT_MERGE_BUFFER_TTL]:
+        clear_text_merge_buffer(*kalit)
 
 async def start_cleanup_task():
     """main.py da bir marta chaqiriladi. Har CLEANUP_INTERVAL soniyada tozalaydi."""

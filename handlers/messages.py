@@ -36,7 +36,8 @@ from handlers import pro as pro_module
 from services import menu as menu_module
 from services.file_task_quota import DailyQuota
 from core.keyboards import admin_keyboard
-from handlers.helpers import notify_watchers, send_error_with_retry
+from handlers.helpers import (notify_watchers, send_error_with_retry,
+                             mavzu_kwargs)
 from core.memory import (get_text_merge_lock, text_merge_buffers,
                          clear_text_merge_buffer, forget_sent_images,
                          remember_location, forget_location)
@@ -159,12 +160,13 @@ async def busy_handler(message: Message):
     matn = (message.text or "").strip()
     if matn and not matn.startswith("/"):
         chat_id = message.chat.id
-        async with get_text_merge_lock(chat_id):
-            buf = text_merge_buffers.get(chat_id)
+        kalit = (chat_id, _thread_key(message))
+        async with get_text_merge_lock(*kalit):
+            buf = text_merge_buffers.get(kalit)
             if buf is None:
                 buf = {"parts": [], "last_message": message,
                        "timer_task": None, "created_at": time.time()}
-                text_merge_buffers[chat_id] = buf
+                text_merge_buffers[kalit] = buf
             if len(buf["parts"]) >= TEXT_MERGE_MAX_PARTS:
                 javob = ("⚠️ Navbat to'ldi — avvalgi savollarga javob "
                          "berib bo'lgach qayta yozing.")
@@ -1578,8 +1580,8 @@ async def check_and_clear_session(chat_id: int, thread_id: int = 0):
     last_time = chat_last_interaction.get(key, now)
 
     if now - last_time > SESSION_TIMEOUT:
-        forget_sent_images(chat_id)
-        forget_location(chat_id)
+        forget_sent_images(chat_id, thread_id)
+        forget_location(chat_id, thread_id)
         await clear_chat_history(chat_id, thread_id=thread_id)
         try:
             msg = await bot.send_message(
@@ -2097,10 +2099,10 @@ async def handle_text(message: Message, state: FSMContext):
         # uchun, bittasida /new bosgan odam qolganlarini yo'qotsa, bu
         # ma'lumot yo'qotish bo'lardi va bot buni aytmasdi ham.
         thread_id = _thread_key(message)
-        clear_text_merge_buffer(chat_id)
+        clear_text_merge_buffer(chat_id, thread_id)
         clear_pending_file(chat_id, thread_id)
-        forget_sent_images(chat_id)
-        forget_location(chat_id)
+        forget_sent_images(chat_id, thread_id)
+        forget_location(chat_id, thread_id)
         await clear_chat_history(chat_id, thread_id=thread_id)
         chat_last_interaction[(chat_id, thread_id)] = time.time()
         await message.answer(
@@ -2129,12 +2131,13 @@ async def _queue_for_ai(chat_id: int, message: Message, text: str,
     Joylashuv uchun bu ATAYLAB: aks holda u alohida yo'l bo'lib,
     kvota, navbat, oqim va TARIX undan chetlab o'tardi.
     """
-    lock = get_text_merge_lock(chat_id)
+    kalit = (chat_id, _thread_key(message))
+    lock = get_text_merge_lock(*kalit)
     async with lock:
-        buf = text_merge_buffers.get(chat_id)
+        buf = text_merge_buffers.get(kalit)
         if buf is None:
             buf = {"parts": [], "last_message": message, "timer_task": None, "created_at": time.time()}
-            text_merge_buffers[chat_id] = buf
+            text_merge_buffers[kalit] = buf
 
         old_timer = buf.get("timer_task")
         if old_timer and not old_timer.done():
@@ -2150,17 +2153,18 @@ async def _queue_for_ai(chat_id: int, message: Message, text: str,
         # taymer QAYTA BOSHLANADI (core/config.py: TEXT_MERGE_WAIT izohi).
         delay = 0.0 if safety_limit_hit else TEXT_MERGE_WAIT
 
-        buf["timer_task"] = asyncio.create_task(_schedule_merged_processing(chat_id, delay, state))
+        buf["timer_task"] = asyncio.create_task(_schedule_merged_processing(kalit, delay, state))
 
 
-async def _schedule_merged_processing(chat_id: int, delay: float, state: FSMContext):
+async def _schedule_merged_processing(kalit: tuple, delay: float, state: FSMContext):
+    chat_id = kalit[0]
     try:
         if delay > 0:
             await asyncio.sleep(delay)
 
-        lock = get_text_merge_lock(chat_id)
+        lock = get_text_merge_lock(*kalit)
         async with lock:
-            buf = text_merge_buffers.pop(chat_id, None)
+            buf = text_merge_buffers.pop(kalit, None)
 
         if not buf:
             return
@@ -2199,7 +2203,8 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
                 f"📏 Matn juda uzun: {len(merged_text)} belgi "
                 f"(chegara — {MAX_TEXT_LENGTH}).\n\n"
                 "Iltimos, savolni qisqartiring yoki matnni <b>fayl</b> "
-                "qilib yuboring — faylni to'liq o'qiy olaman.")
+                "qilib yuboring — faylni to'liq o'qiy olaman.",
+                **mavzu_kwargs(_thread_key(last_message)))
         except Exception:
             pass
         return
@@ -2312,6 +2317,7 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
                 reason=("⏳ Javob juda uzoq cho'zildi."
                         if isinstance(e, TimeoutError) else None),
                 kind="timeout" if isinstance(e, TimeoutError) else "matn",
+                thread_id=thread_id,
             )
         except Exception:
             pass
@@ -2324,11 +2330,19 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         await state.clear()
         # busy_handler javob ketayotganda kelgan xabarlarni shu buferga
         # yig'adi. Taymeri yo'q, ya'ni uni shu yerda uyg'otish kerak.
-        if (text_merge_buffers.get(chat_id) or {}).get("parts"):
-            logger.info(f"[Navbat] chat={chat_id}: kutib turgan xabar(lar) "
-                        f"qayta ishlanmoqda")
+        #
+        # BITTASI uygotiladi, hammasi emas: navbat CHATDAGI istalgan
+        # mavzudan kelgan bolishi mumkin, lekin "bir vaqtda bitta javob"
+        # qoidasi (GeneratingState) chat boyicha ishlaydi. Uygotilgan
+        # sorovning oz `finally` bloki keyingisini uygotadi, yani navbat
+        # ketma-ket boshaydi.
+        keyingi = next((k for k, v in text_merge_buffers.items()
+                        if k[0] == chat_id and (v or {}).get("parts")), None)
+        if keyingi:
+            logger.info(f"[Navbat] chat={chat_id} mavzu={keyingi[1]}: "
+                        f"kutib turgan xabar(lar) qayta ishlanmoqda")
             asyncio.create_task(
-                _schedule_merged_processing(chat_id, 0.0, state))
+                _schedule_merged_processing(keyingi, 0.0, state))
 
 
 # --------------------------------------------------
@@ -2677,7 +2691,7 @@ async def handle_document(message: Message, state: FSMContext):
             try:
                 await send_error_with_retry(
                     chat_id=chat_id, message_id=message.message_id,
-                    user_id=user_id, prompt=prompt,
+                    user_id=user_id, prompt=prompt, thread_id=thread_id,
                 )
             except Exception:
                 pass
@@ -2722,7 +2736,7 @@ async def handle_location(message: Message, state: FSMContext):
                         message.from_user.username, "location_message")
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
-    remember_location(chat_id, loc.latitude, loc.longitude)
+    remember_location(chat_id, loc.latitude, loc.longitude, thread_id)
     chat_last_interaction[(chat_id, thread_id)] = time.time()
     # ⚠️ JOYLASHUV SUHBATGA XABAR BO'LIB KIRADI, tayyor kartochka bilan
     # javob berilmaydi. Avval shunday edi va u JONLI XATO berdi: kartochka
@@ -2852,7 +2866,7 @@ async def handle_voice(message: Message, state: FSMContext):
             try:
                 await send_error_with_retry(
                     chat_id=chat_id, message_id=message.message_id,
-                    user_id=user_id, prompt=user_text,
+                    user_id=user_id, prompt=user_text, thread_id=thread_id,
                 )
             except Exception:
                 pass

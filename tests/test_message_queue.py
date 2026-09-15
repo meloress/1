@@ -32,11 +32,18 @@ class FakeUser:
     full_name = "Sinov"
 
 
+# Bufer kaliti (chat_id, thread_id) — mavzusiz chat uchun thread_id = 0.
+KALIT = (CHAT, 0)
+
+
 class FakeMessage:
     """busy_handler ishlatadigan minimal Message."""
 
     def __init__(self, text, javoblar):
         self.text = text
+        # _thread_key() shu ikki maydonni o'qiydi.
+        self.is_topic_message = False
+        self.message_thread_id = None
         self.chat = FakeChat()
         self.from_user = FakeUser()
         self._javoblar = javoblar
@@ -47,14 +54,14 @@ class FakeMessage:
 
 
 async def sinov_navbat():
-    text_merge_buffers.pop(CHAT, None)
+    text_merge_buffers.pop(KALIT, None)
     javoblar = []
 
     # Javob ketayotganda kelgan uchta xabar — hammasi navbatga tushadi.
     for t in ["birinchi", "ikkinchi", "uchinchi"]:
         await m.busy_handler(FakeMessage(t, javoblar))
 
-    buf = text_merge_buffers.get(CHAT) or {}
+    buf = text_merge_buffers.get(KALIT) or {}
     check(1, "uchta xabar ham navbatga olindi (yo'qolmadi)",
           buf.get("parts") == ["birinchi", "ikkinchi", "uchinchi"])
     check(2, "har biriga navbat haqida javob berildi",
@@ -63,17 +70,17 @@ async def sinov_navbat():
     # Buyruq navbatga TUSHMAYDI — u AI so'rovi emas.
     await m.busy_handler(FakeMessage("/pro", javoblar))
     check(3, "buyruq navbatga qo'shilmadi",
-          len(text_merge_buffers[CHAT]["parts"]) == 3
+          len(text_merge_buffers[KALIT]["parts"]) == 3
           and "Iltimos kuting" in javoblar[-1])
 
     # Chegara: to'lgan navbat muloyim ogohlantiradi, cheksiz o'smaydi.
-    text_merge_buffers[CHAT]["parts"] = ["x"] * TEXT_MERGE_MAX_PARTS
+    text_merge_buffers[KALIT]["parts"] = ["x"] * TEXT_MERGE_MAX_PARTS
     await m.busy_handler(FakeMessage("ortiqcha", javoblar))
     check(4, "navbat chegarasi ushlanadi",
-          len(text_merge_buffers[CHAT]["parts"]) == TEXT_MERGE_MAX_PARTS
+          len(text_merge_buffers[KALIT]["parts"]) == TEXT_MERGE_MAX_PARTS
           and "to'ldi" in javoblar[-1])
 
-    text_merge_buffers.pop(CHAT, None)
+    text_merge_buffers.pop(KALIT, None)
 
 
 async def sinov_timeout():

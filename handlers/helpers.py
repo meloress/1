@@ -34,9 +34,20 @@ def make_retry_keyboard(chat_id: int, attempts: int = 0):
         [InlineKeyboardButton(text="📨 Adminga xabar", callback_data=f"report:{chat_id}")]
     ])
 
+def mavzu_kwargs(thread_id) -> dict:
+    """Xom `bot.send_*` chaqiruvi uchun mavzu (topic) qo'shimchasi.
+
+    `message.answer()` ga aiogram mavzuni O'ZI qo'shadi, xom
+    `bot.send_*` ga esa qo'shmaydi — shuning uchun mavzudagi suhbatda
+    berilgan xato yoki ogohlantirish chatning ASOSIY oqimiga tushib
+    ketardi. 0/None — mavzusiz chat, hech narsa qo'shilmaydi.
+    """
+    return {"message_thread_id": thread_id} if thread_id else {}
+
+
 async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, prompt: str,
                                 original_text: str = "", reason: str = None,
-                                kind: str = "javob"):
+                                kind: str = "javob", thread_id: int = 0):
     """
     Xatolik yuz berganda ekrandagi kutish xabarini tahrirlaydi,
     'Qayta urinish' tugmasini qo'shib xotiraga saqlaydi.
@@ -62,15 +73,21 @@ async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, pro
         await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=kb)
         error_msg_id = message_id
     except Exception:
-        err_msg = await bot.send_message(chat_id, text, reply_markup=kb)
+        err_msg = await bot.send_message(chat_id, text, reply_markup=kb,
+                                         **mavzu_kwargs(thread_id))
         error_msg_id = err_msg.message_id
 
+    # thread_id YOZUV ICHIDA: "Qayta so'rash" tugmasi bosilganda so'rov
+    # AYNAN o'sha mavzuda qayta ishlanishi kerak — aks holda javob
+    # ekranda mavzuda ko'rinib, tarixga chatning asosiy oqimiga
+    # yozilardi (model o'z javobini keyingi savolda ko'rmaydi).
     store_failed_request(
         chat_id=chat_id,
         user_id=user_id,
         prompt=prompt,
         original_text=original_text,
-        error_message_id=error_msg_id
+        error_message_id=error_msg_id,
+        thread_id=thread_id,
     )
 
 

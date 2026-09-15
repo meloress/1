@@ -141,8 +141,8 @@ check(25, "eslab qoladi", memory.recent_location(-777) == (41.3, 69.2))
 # ⚠️ TTL qisqa va bu ataylab: odam mashinada ketyapti, yarim soatdan
 # keyin u boshqa joyda. Eskirgan koordinata bo'yicha «eng yaqin»
 # aytish — noto'g'ri javobni ishonch bilan aytish.
-lat, lon, ts = memory.last_locations[-777]
-memory.last_locations[-777] = (lat, lon, ts - memory.LOCATION_TTL - 1)
+lat, lon, ts = memory.last_locations[(-777, 0)]
+memory.last_locations[(-777, 0)] = (lat, lon, ts - memory.LOCATION_TTL - 1)
 check(26, "TTL o'tgach unutiladi", memory.recent_location(-777) is None)
 memory.remember_location(-777, 41.3, 69.2)
 memory.forget_location(-777)

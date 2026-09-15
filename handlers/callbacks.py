@@ -9,7 +9,7 @@ from core.memory import (
     clear_failed_request
 )
 from services.ai import get_gpt_reply, safe_update_history
-from handlers.helpers import make_retry_keyboard
+from handlers.helpers import make_retry_keyboard, mavzu_kwargs
 
 from handlers.messages import process_stream_draft
 
@@ -55,9 +55,15 @@ async def handle_retry_callback(query: CallbackQuery):
     except: pass
 
     prompt = fr.get("prompt")
+    # MAVZU (topic): so'rov qaysi mavzuda yiqilgan bo'lsa, o'sha yerda
+    # qayta ishlanadi. Busiz javob ekranda mavzuda ko'rinib, TARIXGA
+    # chatning asosiy oqimiga yozilardi — model keyingi savolda o'z
+    # javobini ko'rmasdi va bu hech qayerda xato bermasdi.
+    thread_id = fr.get("thread_id") or 0
     if not prompt:
         release_ongoing(chat_id)
-        await bot.send_message(chat_id, "⚠️ So'rov topilmadi."); return
+        await bot.send_message(chat_id, "⚠️ So'rov topilmadi.",
+                               **mavzu_kwargs(thread_id)); return
 
     success = False
     for attempt_idx in range(MAX_AUTO_RETRIES):
@@ -68,14 +74,15 @@ async def handle_retry_callback(query: CallbackQuery):
         try:
             fr["attempts_auto"] += 1
 
-            stream_gen = get_gpt_reply(chat_id, prompt)
+            stream_gen = get_gpt_reply(chat_id, prompt, thread_id=thread_id)
 
             reply = await process_stream_draft(query.message, stream_gen)
 
             if not reply:
                 raise ValueError("Bosh javob qaytdi")
 
-            try: await safe_update_history(chat_id, reply, role="assistant")
+            try: await safe_update_history(chat_id, reply, role="assistant",
+                                           thread_id=thread_id)
             except: pass
 
             success = True

@@ -3999,7 +3999,7 @@ async def get_openai_reply(
     # Yaqin atrof: asbob FAQAT chatda yangi (30 daqiqalik) joylashuv
     # turganda biriktiriladi. Oddiy suhbatda sxema umuman yuborilmaydi,
     # ya'ni bu imkoniyat kundalik so'rovlarga 0 token qo'shadi.
-    nearby_coords = recent_location(chat_id)
+    nearby_coords = recent_location(chat_id, thread_id)
     nearby_enabled = nearby_coords is not None
     # 2: birinchi urinish bo'sh chiqsa model radiusni kengaytirib bir
     # marta qayta chaqira oladi ("3 km da yo'q ekan, 10 km ga qaraymiz").
@@ -4371,13 +4371,13 @@ async def get_openai_reply(
                                 image_query(_iq or primary_query),
                                 limit=_n or None,
                                 request=message_text,
-                                skip_urls=recent_sent_images(chat_id))
+                                skip_urls=recent_sent_images(chat_id, thread_id))
                         except Exception as e:
                             logger.warning(f"[IMAGES] qidiruv xatosi: {e}")
                             found = []
                         if found:
                             images_out.extend(found)
-                            remember_sent_images(chat_id, found)
+                            remember_sent_images(chat_id, found, thread_id)
                             tool_output += format_image_catalog(found)
                         else:
                             # ⚠️ JIM QAYTMAYMIZ. Foydalanuvchi «yana rasm

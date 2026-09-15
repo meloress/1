@@ -412,6 +412,31 @@ conversation that asked for it sits in a topic.
 take the others with it. `chat_last_interaction` is keyed by the pair for the same
 reason.
 
+**Every per-conversation RAM record is keyed by the pair too**, and that was not free.
+`core/memory.py` held all of it under `chat_id` alone, which produced three separate
+silent failures: two messages typed in two topics inside the 1.5s debounce window merged
+into **one** request whose answer went to whichever topic sent last (the other got
+nothing, and the histories crossed); `/new` said "this topic's memory is cleared" while
+deleting the neighbouring topic's sent-image list and location; and the "Qayta so'rash"
+retry button read `thread_id` from nowhere, so the re-run answer appeared in the topic on
+screen but was written to history at `thread_id = 0`. So `text_merge_buffers`,
+`text_merge_locks`, `sent_image_urls` and `last_locations` are keyed `(chat_id,
+thread_id)`, and `store_failed_request()` carries `thread_id` **inside the record** —
+`failed_requests` stays keyed by chat because one pending failure per chat was always the
+semantic.
+
+The queue is the one place where the pair is deliberately *not* the whole story.
+`GeneratingState` is aiogram's FSM key (chat + user, no thread), so one answer at a time
+per user still holds; `_process_merged_text`'s `finally` therefore wakes **one** waiting
+buffer from any topic of that chat and lets its own `finally` wake the next. Waking them
+all would start parallel generations under a single-flight guard.
+
+⚠️ A raw `bot.send_*` in the reply path needs `mavzu_kwargs(thread_id)`
+(`handlers/helpers.py`) — aiogram fills the topic in for `message.answer()` and not for
+anything else, so the error message with the retry button and the "matn juda uzun"
+warning both used to land in the chat's main flow. `tests/test_topics.py` checks 21-27
+pin all of the above.
+
 ⛔️ **Turning it on is a @BotFather Mini App toggle, not code.** `getMe` exposes
 `has_topics_enabled` and `allows_users_to_create_topics`; `main.py` reads the first into
 `messages.TOPICS_ENABLED`, which only picks the wording of the "this conversation is

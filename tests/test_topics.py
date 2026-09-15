@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import db.history as h                 # noqa: E402
 import handlers.messages as m          # noqa: E402
 import services.ai as ai               # noqa: E402
+import handlers.helpers as hlp         # noqa: E402
 from aiogram.types import Message      # noqa: E402
 
 
@@ -196,4 +197,108 @@ for _nom, _fn in (("status ko'rsatkichi", m._status_indicator),
 check(20, "draft va status ham _thread_key dan o'qiydi", True)
 
 
-print("\ntopics: barcha tekshiruvlar o'tdi (20/20).")
+# ── 21-22. Debounce buferi HAR MAVZUGA AYRIM ─────────────────────
+# Bufer faqat chat bo'yicha bo'lganda A-mavzuda va B-mavzuda 1.5 soniya
+# ichida yozilgan ikki xabar BITTA so'rovga qo'shilib ketardi va javob
+# faqat oxirgi mavzuga tushardi — ikkinchi mavzu javobsiz qolardi.
+import asyncio                          # noqa: E402
+from core import memory as mem          # noqa: E402
+
+
+class SoxtaChat:
+    id = 500
+    type = "private"
+
+
+class SoxtaUser:
+    id = 500
+    username = "sinov"
+    full_name = "Sinov"
+
+
+class SoxtaMatn:
+    """busy_handler uchun minimal Message."""
+
+    def __init__(self, text, thread_id):
+        self.text = text
+        self.chat = SoxtaChat()
+        self.from_user = SoxtaUser()
+        self.is_topic_message = bool(thread_id)
+        self.message_thread_id = thread_id
+
+    async def answer(self, *a, **kw):
+        return None
+
+
+async def _ikki_mavzu():
+    for t in (10, 20):
+        mem.text_merge_buffers.pop((500, t), None)
+    await m.busy_handler(SoxtaMatn("A-mavzu savoli", 10))
+    await m.busy_handler(SoxtaMatn("B-mavzu savoli", 20))
+
+
+asyncio.run(_ikki_mavzu())
+check(21, "har mavzuning navbati AYRIM buferda",
+      mem.text_merge_buffers[(500, 10)]["parts"] == ["A-mavzu savoli"]
+      and mem.text_merge_buffers[(500, 20)]["parts"] == ["B-mavzu savoli"])
+
+# Navbat uyg'otilganda CHATDAGI istalgan mavzu olinadi, lekin BITTASI:
+# "bir vaqtda bitta javob" qoidasi (GeneratingState) chat bo'yicha
+# ishlaydi, uyg'otilganning o'zi keyingisini uyg'otadi.
+_MERGED = inspect.getsource(m._process_merged_text)
+check(22, "navbatdan bitta mavzu uyg'otiladi",
+      "k[0] == chat_id" in _MERGED
+      and "_schedule_merged_processing(keyingi" in _MERGED)
+for _t in (10, 20):
+    mem.text_merge_buffers.pop((500, _t), None)
+
+
+# ── 23. Rasm tarixi va joylashuv ham mavzu bo'yicha ──────────────
+# `/new` ekranda «bu mavzudagi xotira tozalandi» deydi — qo'shni
+# mavzuning rasmlarini o'chirish aytilgandan ko'p narsani o'chirish edi.
+mem.sent_image_urls.clear()
+mem.last_locations.clear()
+mem.remember_sent_images(1, [{"url": "http://a/1.jpg"}], thread_id=10)
+mem.remember_sent_images(1, [{"url": "http://b/2.jpg"}], thread_id=20)
+mem.remember_location(1, 41.3, 69.2, thread_id=10)
+mem.remember_location(1, 39.6, 66.9, thread_id=20)
+mem.forget_sent_images(1, 10)
+mem.forget_location(1, 10)
+check(23, "/new qo'shni mavzuning rasm/joylashuvini o'chirmaydi",
+      mem.recent_sent_images(1, 10) == set()
+      and mem.recent_sent_images(1, 20) == {"http://b/2.jpg"}
+      and mem.recent_location(1, 10) is None
+      and mem.recent_location(1, 20) == (39.6, 66.9))
+mem.sent_image_urls.clear()
+mem.last_locations.clear()
+
+
+# ── 24-25. «Qayta so'rash» tugmasi mavzuni yo'qotmaydi ───────────
+# Draft `query.message` orqali TO'G'RI mavzuda chiqadi, tarix esa 0 ga
+# yozilardi: javob ekranda bor, model uni keyingi savolda ko'rmaydi.
+import handlers.callbacks as cb         # noqa: E402
+
+mem.failed_requests.clear()
+mem.store_failed_request(chat_id=1, user_id=1, prompt="p",
+                         original_text="p", error_message_id=1, thread_id=33)
+check(24, "xato yozuvi mavzuni saqlaydi",
+      mem.failed_requests[1]["thread_id"] == 33)
+
+_RETRY = inspect.getsource(cb.handle_retry_callback)
+check(25, "retry mavzuni modelga ham, tarixga ham uzatadi",
+      'fr.get("thread_id")' in _RETRY
+      and "get_gpt_reply(chat_id, prompt, thread_id=thread_id)" in _RETRY
+      and _RETRY.count("thread_id=thread_id") >= 2)
+mem.failed_requests.clear()
+
+
+# ── 26-27. Xom `bot.send_*` xabarlari mavzuga tushadi ────────────
+# aiogram mavzuni faqat `message.answer()` ga qo'shadi.
+_XATO = inspect.getsource(hlp.send_error_with_retry)
+check(26, "xato + qayta urinish tugmasi mavzuga yuboriladi",
+      "mavzu_kwargs(thread_id)" in _XATO and "thread_id=thread_id" in _XATO)
+check(27, "«matn juda uzun» ogohlantirishi ham mavzuga",
+      "mavzu_kwargs(_thread_key(last_message))" in _MERGED)
+
+
+print("\ntopics: barcha tekshiruvlar o'tdi (27/27).")
