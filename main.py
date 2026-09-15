@@ -9,7 +9,7 @@ from db import database
 from core import config
 from handlers import admin as admin_module
 from handlers.admin import daily as admin_daily
-from handlers.helpers import ensure_pin_column, notify_inactive_users
+from handlers.helpers import notify_inactive_users
 from handlers import messages as messages_module
 from handlers.messages import (
     handle_start, handle_text, handle_photo, handle_document, handle_voice,
@@ -41,7 +41,6 @@ async def main():
     await create_users_table()
     await create_history_table()
     await ensure_profile_columns()
-    await ensure_pin_column()
     await database.load_watch_cache()
     # Admin panelida sozlangan kunlik limitlar. Bazadan BIR MARTA
     # o'qiladi va xotiraga qo'yiladi — `daily_limit()` har xabarda

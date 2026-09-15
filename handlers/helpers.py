@@ -73,49 +73,6 @@ async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, pro
         error_message_id=error_msg_id
     )
 
-async def ensure_pin_column():
-    # Agar pool hali yaratilmagan bo'lsa, original create_db_pool() ni chaqiramiz
-    if database.pool is None:
-        await database.create_db_pool()
-        
-    async with database.pool.acquire() as conn:
-        try:
-            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_pinned_date DATE")
-            logger.info("Checked/Added last_pinned_date column in users table.")
-        except Exception as e:
-            logger.error(f"Column add error: {e}")
-
-async def process_daily_pin(message) -> None:
-    """
-    Foydalanuvchining kunlik birinchi xabarini pin qiladi.
-
-    MUHIM: `users` jadvali haqiqiy Telegram `user_id` bo'yicha yuritiladi,
-    guruh `chat_id`si bo'yicha emas. Shaxsiy chatlarda chat.id == user.id
-    bo'lgani uchun bu farq sezilmasdi, lekin guruh chatida hech qanday
-    qator topilmay, bot HAR bir xabarda pin qilishga urinib, Telegram
-    API'ni bombardimon qilardi. Shu sababli guruh chatlarida umuman
-    ishlamaydi — faqat shaxsiy chatda ma'no bor.
-    """
-    if message.chat.type != "private":
-        return
-    try:
-        tz = timezone(timedelta(hours=5))
-        today = datetime.now(tz).date()
-        user_id = message.from_user.id
-
-        if database.pool is None:
-            await database.create_db_pool()
-
-        async with database.pool.acquire() as conn:
-            val = await conn.fetchval("SELECT last_pinned_date FROM users WHERE user_id = $1", user_id)
-            if val != today:
-                try:
-                    await bot.pin_chat_message(chat_id=message.chat.id, message_id=message.message_id)
-                    await conn.execute("UPDATE users SET last_pinned_date = $1 WHERE user_id = $2", today, user_id)
-                except Exception as ex:
-                    logger.debug(f"Pin message failed: {ex}")
-    except Exception as e:
-        logger.error(f"Daily pin error: {e}")
 
 def notify_watchers(user_id: int, username: Optional[str], direction: str, *,
                      text: Optional[str] = None,

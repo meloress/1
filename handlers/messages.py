@@ -36,7 +36,7 @@ from handlers import pro as pro_module
 from services import menu as menu_module
 from services.file_task_quota import DailyQuota
 from core.keyboards import admin_keyboard
-from handlers.helpers import process_daily_pin, notify_watchers, send_error_with_retry
+from handlers.helpers import notify_watchers, send_error_with_retry
 from core.memory import (get_text_merge_lock, text_merge_buffers,
                          clear_text_merge_buffer, forget_sent_images,
                          remember_location, forget_location)
@@ -2110,7 +2110,6 @@ async def handle_text(message: Message, state: FSMContext):
         return
 
     track_user_activity(user_id, message.from_user.username, "text_message")
-    asyncio.create_task(process_daily_pin(message))
 
     # Hozirgina izohsiz fayl kelgan bo'lsa, bu xabar — o'sha fayl uchun
     # ko'rsatma. Uni handle_document kutib turibdi, shu yerda to'xtaymiz.
@@ -2449,7 +2448,6 @@ async def handle_photo(message: Message, state: FSMContext):
 
     track_user_activity(user_id, message.from_user.username, "photo_message")
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
-    asyncio.create_task(process_daily_pin(message))
 
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
@@ -2536,7 +2534,6 @@ async def handle_document(message: Message, state: FSMContext):
 
     track_user_activity(user_id, message.from_user.username, "document_message")
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
-    asyncio.create_task(process_daily_pin(message))
 
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
@@ -2747,7 +2744,6 @@ async def handle_voice(message: Message, state: FSMContext):
 
     track_user_activity(user_id, message.from_user.username, "voice_message")
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
-    asyncio.create_task(process_daily_pin(message))
 
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
