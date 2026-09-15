@@ -32,6 +32,7 @@ from handlers.helpers import premium_expiry_watcher, reminder_watcher
 from services import ai as ai_service
 from services import menu as menu_module
 from services import sandbox
+from web import start_web_server
 
 general_router = Router(name="general")
 
@@ -212,6 +213,16 @@ async def main():
     # Admin paneli: kunlik hisobot va rejalashtirilgan tarqatma.
     asyncio.create_task(admin_daily.daily_report_watcher())
     asyncio.create_task(admin_daily.scheduled_broadcast_watcher())
+
+    # Web admin panel (Mini App). Bot jarayonining ICHIDA — limit va
+    # kuzatuv sozlamalari RAM keshida yashaydi, alohida jarayon ularni
+    # yangilay olmasdi (REJA.md 3.1).
+    # ⚠️ Panel ko'tarilmasa ham bot ishlashda davom etadi: port band
+    # bo'lsa yoki fayl yetishmasa, bu yerda to'xtaydi.
+    try:
+        await start_web_server()
+    except Exception:
+        logger.exception("web panel ko'tarilmadi — bot panelsiz davom etadi")
 
     # Referal va sovg'a havolalari (t.me/<username>?start=ref_...) uchun
     # bot username'i kerak — Telegram'dan bir marta so'raymiz.

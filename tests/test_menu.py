@@ -52,10 +52,36 @@ def test_registered():
     # sifatida tekshiriladi.
     registered |= set(re.findall(r'"/(\w+)"', msg_src))
 
-    for c in menu.commands_for(True):
+    # ⚠️ Admin buyruqlari `handlers/admin/__init__.py` da ro'yxatdan
+    # o'tadi, main.py da emas — 7-bosqichda paydo bo'ldi va usiz
+    # menyuda ko'ringan `/xabar` hech qayerga bormagan bo'lardi.
+    adm_src = (ROOT / "handlers" / "admin" / "__init__.py").read_text(encoding="utf-8")
+    registered |= set(re.findall(r'Command\("(\w+)"\)', adm_src))
+
+    for c in menu.commands_for(True, is_admin=True):
         assert c.command in registered, \
             f"/{c.command} menyuda bor, lekin hech qayerda ro'yxatdan o'tmagan"
     print("[3] menyudagi har bir buyruq ro'yxatdan o'tgan OK")
+
+
+def test_admin_commands():
+    """Admin buyruqlari oddiy foydalanuvchiga SIZIB O'TMASIN.
+
+    ⚠️ Pro buyruqlari bilan bir xil xavf, lekin oqibati og'irroq: bepul
+    odam menyudan `/xabar` ni ko'rsa, botning butun bazasiga tarqatma
+    yuboradigan buyruq borligini bilib qoladi. Ishlamaydi
+    (`require_admin_or_deny`), lekin ko'rsatishning o'zi keraksiz.
+    """
+    oddiy = [c.command for c in menu.commands_for(True)]
+    admin = [c.command for c in menu.commands_for(True, is_admin=True)]
+    faqat_admin = {c.command for c in menu.ADMIN_COMMANDS}
+    sizgan = set(oddiy) & faqat_admin
+    assert not sizgan, f"admin buyrug'i oddiy ro'yxatga sizib o'tgan: {sizgan}"
+    assert set(admin) - set(oddiy) == faqat_admin
+    # Tartib: oddiy ro'yxat o'zgarmaydi, admin buyruqlari OXIRIDA —
+    # ko'z o'rgangan joylashuvni buzmaslik uchun.
+    assert admin[:len(oddiy)] == oddiy, admin
+    print(f"[3b] {len(faqat_admin)} ta admin buyrug'i faqat adminda OK")
 
 
 class _FakeBot:
@@ -147,6 +173,7 @@ def test_call_sites():
 async def main():
     test_lists()
     test_registered()
+    test_admin_commands()
     await test_cache()
     test_call_sites()
     print("\nmenyu: barcha tekshiruvlar o'tdi (8/8).")

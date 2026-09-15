@@ -8,7 +8,7 @@ Bitta bo'limga tegishlisi o'sha bo'lim faylida qoladi."""
 import logging
 import html
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ParseMode
@@ -100,6 +100,85 @@ async def _resolve_recipients(raw: str):
             name = f"@{prof['username']}"
         found.append((uid, name, bool(prof and prof.get("is_banned"))))
     return found, missing
+
+# ── Admin o'chirish qoidasi — BITTA darvoza, IKKI chaqiruvchi ──────
+#
+# ⚠️ Bu `handlers/admin/system.py` da edi va web panel ham aynan shu
+# qoidalarga muhtoj: o'zini o'chirmasin, superadminni o'chirmasin,
+# yangi admin uch kun kutsin, oxirgi admin qolmasin. Qoidani web'da
+# QAYTA yozish — panel botdan zaifroq eshik bo'lib qolishi demak, va
+# buni hech narsa ushlamasdi. Shuning uchun darvoza bu yerda:
+# `common.py` — «bir nechta ekran ishlatadigan qo'riqchilar» joyi.
+REMOVE_BLOCK_DAYS = 3
+
+async def _check_can_remove_admin(requester_id: int, target_id: int) -> Optional[str]:
+    """Shared eligibility check for both the inline and text remove-admin flows.
+
+    Returns an error message to show the requester, or None if the removal
+    may proceed.
+    """
+    try:
+        is_super = await database_module.is_superadmin(requester_id)
+    except Exception:
+        logger.exception("DB error checking is_superadmin")
+        is_super = False
+
+    # requester_meta from DB may contain formatted created_at; for time-checking fetch raw created_at directly
+    requester_created_at = None
+    try:
+        async with database_module.pool.acquire() as conn:
+            requester_created_at = await conn.fetchval(
+                'SELECT created_at FROM admins WHERE user_id = $1', requester_id
+            )
+    except Exception:
+        logger.exception("DB error fetching requester created_at")
+
+    if not is_super and requester_created_at is None:
+        return "❌ Bu amal faqat adminlar uchun."
+
+    if target_id == requester_id:
+        return "❗ O'zingizni o'chira olmaysiz."
+
+    try:
+        if await database_module.is_superadmin(target_id):
+            return "❗ Bu foydalanuvchi superadmin. Uni o'chirish faqat DB orqali amalga oshiriladi."
+    except Exception:
+        logger.exception("DB error checking is_superadmin for target")
+        return "❗ Server xatosi. Amal bajarilmadi."
+
+    if not is_super:
+        if isinstance(requester_created_at, datetime):
+            created_at_dt = requester_created_at
+            if created_at_dt.tzinfo is not None:
+                created_utc = created_at_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                created_utc = created_at_dt
+        else:
+            # fallback: deny if we cannot determine created time
+            return "❌ Sizning admin vaqtingizni aniqlab bo'lmadi. Amal bajarilmadi."
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        allowed_after = created_utc + timedelta(days=REMOVE_BLOCK_DAYS)
+        if now < allowed_after:
+            # show allowed time in Tashkent for clarity
+            allowed_after_utc = allowed_after.replace(tzinfo=timezone.utc)
+            allowed_tz = allowed_after_utc.astimezone(TASHKENT_TZ)
+            allowed_str = allowed_tz.strftime("%Y-%m-%d %H:%M:%S %Z")
+            return (
+                f"❗ Siz yangi admin ekansiz — boshqa adminlarni o'chirish huquqi "
+                f"{allowed_str} dan keyin faollashadi."
+            )
+
+    if not await database_module.is_admin(target_id):
+        return "ℹ️ Bu foydalanuvchi admin emas yoki allaqachon o'chirilgan."
+
+    admins = await database_module.get_admins()
+    super_exists = bool(await database_module.get_superadmin_id())
+    if len(admins) <= 1 and not super_exists:
+        return "❗ Bu oxirgi admin. Avval yangi admin qo'shing, keyin o'chiring."
+
+    return None
+
 
 async def _report_delivery(message: Message, sent, failed, missing, banned):
     lines = [f"📨 <b>Yuborish yakunlandi</b>\n"]

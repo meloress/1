@@ -11,7 +11,7 @@ import aiohttp
 from aiogram import Router
 from aiogram.types import (
     Message, FSInputFile, BufferedInputFile,
-    InlineKeyboardMarkup, InlineKeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove,
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -35,7 +35,6 @@ from db.database import (
 from handlers import pro as pro_module
 from services import menu as menu_module
 from services.file_task_quota import DailyQuota
-from core.keyboards import admin_keyboard
 from handlers.helpers import (notify_watchers, send_error_with_retry,
                              mavzu_kwargs)
 from core.memory import (get_text_merge_lock, text_merge_buffers,
@@ -1893,8 +1892,41 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
     try:
         admin_flag = await is_admin(message.from_user.id)
         super_flag = await is_superadmin(message.from_user.id)
+        # Web panel tugmasi — ATAYLAB hamma uchun chaqiriladi, faqat
+        # adminlar uchun emas: bot o'chiq turganda adminlikdan
+        # chiqarilgan odamning tugmasi shu yerda o'zi yo'qoladi.
+        _fire_and_forget(
+            menu_module.sync_menu_button(user_id, admin_flag or super_flag),
+            label="panel tugmasi")
         if admin_flag or super_flag:
-            await message.answer("👋 <b>Admin panelga xush kelibsiz!</b>", reply_markup=admin_keyboard)
+            # ⚠️ «/» ro'yxatiga admin buyruqlari SHU YERDA qo'shiladi, har
+            # xabarda emas: oddiy `sync_commands` chaqiruvi `is_admin` ni
+            # bilmaydi va uni bilish uchun HAR xabarga bitta baza so'rovi
+            # kerak bo'lardi. Adminlar AI handlerlariga umuman tushmaydi
+            # (`non_admin_predicate`), ya'ni ular uchun `/start` —
+            # ro'yxat yangilanadigan yagona joy; bayroq esa shu yerda
+            # allaqachon hisoblangan.
+            #
+            # ⚠️ Chaqiruv `if` ning ICHIDA: tashqarida turganda u har
+            # bir foydalanuvchiga `is_pro=True` berardi va bepul odam
+            # `/kunlik` bilan `/research` ni menyusida ko'rardi.
+            _fire_and_forget(
+                menu_module.sync_commands(user_id, True, True),
+                label="admin menyusi")
+            # ⚠️ `ReplyKeyboardRemove` SHART. Reply-klaviatura 7-bosqichda
+            # olib tashlandi, lekin u adminning telefonida qolib ketadi —
+            # Telegram uni almashtirilgunicha yoki ochiq o'chirilgunicha
+            # ko'rsatib turadi. Tozalanmasa admin ishlamaydigan to'rtta
+            # tugmani bosib, hech qanday javob olmasdi.
+            await message.answer(
+                "👋 <b>Admin panelga xush kelibsiz!</b>\n\n"
+                "Boshqaruv — yuqoridagi ko'k <b>«Panel»</b> tugmasida: "
+                "statistika, foydalanuvchilar, jurnal, limitlar, promokod "
+                "va sozlamalar.\n\n"
+                "Botda qolgani:\n"
+                "├ /xabar — tarqatma (yuborganingiz aynan o'sha holida boradi)\n"
+                "└ /kod — promokod yoki referal taklifini odamga yuborish",
+                reply_markup=ReplyKeyboardRemove())
             return
     except Exception:
         pass

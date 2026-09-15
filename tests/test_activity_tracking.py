@@ -51,10 +51,13 @@ def written_activity_types() -> set:
 
 
 def main():
-    # Statistika `handlers/admin.py` dan `handlers/admin/stats.py` ga
-    # ko'chdi (admin panel fayllarga bo'lindi) — SQL filtri va
-    # `type_labels` o'sha yerda.
-    admin_src = read("handlers", "admin", "stats.py")
+    # ⚠️ MANBA KO'CHDI (3-bosqich). Ilgari SQL filtri va `type_labels`
+    # `handlers/admin/stats.py` da qo'lda ikki marta yozilgan edi va bu
+    # test o'sha faylni MATN sifatida o'qirdi. Web panel qo'shilganda
+    # uchinchi nusxa paydo bo'lardi, shuning uchun ro'yxat
+    # `core/config.py::ACTIVITY_TYPES` ga yig'ildi — endi uni import
+    # qilib o'qiymiz, ya'ni test kodning joylashuviga bog'liq emas.
+    from core.config import ACTIVITY_TYPES
 
     # 1) Kod yozadigan turlar aniqlandimi
     types = written_activity_types()
@@ -75,24 +78,38 @@ def main():
     assert "track_user_activity" not in denied, "limit tugaganda ham yozilyapti"
     print("[2] guest faolligi faqat AI chaqirilganda yoziladi OK")
 
-    # 3) Admin'ning SQL filtri hamma turni o'tkazadimi
-    in_clause = re.search(r"activity_type IN \((.*?)\)", admin_src, re.S)
-    assert in_clause, "turlar bo'yicha so'rov topilmadi"
-    allowed_sql = set(re.findall(r"'([a-z_]+)'", in_clause.group(1)))
-    missing = types - allowed_sql
-    assert not missing, f"SQL filtridan tushib qolgan turlar: {missing}"
-    print(f"[3] SQL filtri {len(allowed_sql)} ta turni o'tkazadi OK")
+    # 3) Kod yozadigan har bir tur ro'yxatda bormi. Ro'yxat bir vaqtda
+    #    SQL filtri ham (`activity_stats()` unga `= ANY($1)` qiladi),
+    #    ko'rinadigan nom ham — ya'ni tushib qolgan tur ikkalasidan
+    #    birdan emas, IKKALASIDAN ham yo'qoladi.
+    missing = types - set(ACTIVITY_TYPES)
+    assert not missing, f"ACTIVITY_TYPES dan tushib qolgan turlar: {missing}"
+    print(f"[3] {len(ACTIVITY_TYPES)} ta tur yagona ro'yxatda, biri ham tushib qolmagan OK")
 
-    # 4) Har bir turning ko'rinadigan nomi bormi (aks holda admin'ga
-    #    'guest_text_message' degan xom satr chiqadi)
-    # Yopuvchi qavs 4 probelda: handler `register_admin_handlers()` ichidan
-    # chiqib, `stats.py` da modul darajasidagi funksiyaga aylandi.
-    labels = re.search(r"type_labels = \{(.*?)\n    \}", admin_src, re.S)
-    assert labels, "type_labels topilmadi"
-    labelled = set(re.findall(r'"([a-z_]+)":', labels.group(1)))
-    missing = types - labelled
-    assert not missing, f"nomi yo'q turlar: {missing}"
-    print(f"[4] {len(labelled)} ta turning ko'rinadigan nomi bor OK")
+    # 4) Har bir yozuvning shakli to'g'rimi: (emoji, nom, ball).
+    #    Nom bo'sh qolsa admin'ga 'guest_text_message' degan xom satr
+    #    chiqardi; ball son bo'lmasa taxminiy xarajat hisoblanmasdi.
+    for tur, qiymat in ACTIVITY_TYPES.items():
+        assert isinstance(qiymat, tuple) and len(qiymat) == 3, (tur, qiymat)
+        emoji, nom, ball = qiymat
+        assert nom and not nom.startswith(tur[:4]), f"{tur}: ko'rinadigan nom yo'q"
+        assert isinstance(ball, int) and ball >= 0, f"{tur}: ball bahosi son emas"
+    # SQL filtri va ko'rinish AYNAN shu dict'dan o'qishi shart — nusxa
+    # paydo bo'lmasin (ilgari stats.py da qo'lda ikki marta yozilgandi).
+    # ⚠️ `handlers/admin/stats.py` ro'yxatdan CHIQDI: 7-bosqichda o'sha
+    # ekran webga ko'chib, fayl o'chirildi. Iste'molchilar endi uchta:
+    # SQL filtri, kunlik hisobot va panel.
+    for fayl in (("db", "database.py"), ("handlers", "admin", "daily.py"),
+                 ("web", "api.py")):
+        assert "ACTIVITY_TYPES" in read(*fayl), f"{fayl[-1]} yagona ro'yxatdan o'qimaydi"
+    # Qo'lda yozilgan nusxalar qaytib kelmasin. `ACTIVITY_LABELS`
+    # aynan shunday nusxa edi va unda `location_message` YO'Q edi —
+    # kunlik hisobot uni xom satr qilib ko'rsatib yurgan.
+    assert "ACTIVITY_LABELS = {" not in read("handlers", "admin", "daily.py"), \
+        "daily.py da turlar ro'yxatining nusxasi qaytib kelgan"
+    assert "type_labels" not in read("web", "api.py"), \
+        "web/api.py da turlar ro'yxatining nusxasi paydo bo'lgan"
+    print(f"[4] {len(ACTIVITY_TYPES)} ta turning nomi va ball bahosi joyida OK")
 
     # 5) Fayl vazifasi faqat fayl CHIQQANDA yoziladi
     logged = []

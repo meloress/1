@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram.enums import ParseMode
 
+from core.config import ACTIVITY_TYPES
 from core.loader import bot
 from db import database as database_module
 
@@ -23,18 +24,12 @@ TASHKENT = timezone(timedelta(hours=5))
 REPORT_HOUR = 9                 # Toshkent vaqti bilan ertalabki hisobot
 CHECK_INTERVAL = 300            # rejalashtirilgan tarqatmani tekshirish oralig'i
 
-ACTIVITY_LABELS = {
-    "text_message": "matn",
-    "photo_message": "rasm",
-    "document_message": "hujjat",
-    "voice_message": "ovoz",
-    "guest_text_message": "guruh matn",
-    "guest_photo_message": "guruh rasm",
-    "guest_document_message": "guruh hujjat",
-    "guest_voice_message": "guruh ovoz",
-    "file_task": "fayl yaratish",
-    "research": "tadqiqot",
-}
+# ⚠️ Bu yerda ILGARI `ACTIVITY_LABELS` degan QO'LDA yozilgan uchinchi
+# nusxa turardi va unda `location_message` YO'Q edi — ya'ni kunlik
+# hisobot joylashuv so'rovini «location_message» degan xom satr qilib
+# ko'rsatardi. Nomlar endi `core/config.py::ACTIVITY_TYPES` da, bitta
+# joyda: SQL filtri, Telegram ekrani, kunlik hisobot va web panel —
+# to'rtalasi ham o'shandan o'qiydi.
 
 
 def build_report(s: dict) -> str:
@@ -65,7 +60,12 @@ def build_report(s: dict) -> str:
         lines.append("")
         lines.append("<b>Eng ko'p ishlatilgani:</b>")
         for tur, cnt in top:
-            lines.append(f"  {ACTIVITY_LABELS.get(tur, tur)} — {cnt}")
+            _emoji, nom, _ball = ACTIVITY_TYPES.get(tur, ("", tur, 0))
+            # `.lower()` — hisobotning o'z uslubi: bu qisqa ro'yxat
+            # bosh harfsiz yozilgan va shunday qolsin. Umumiy ro'yxatda
+            # nomlar bosh harf bilan, chunki u yerda ular jadval
+            # sarlavhasi va ustun yorlig'i bo'lib ham ishlatiladi.
+            lines.append(f"  {nom.lower()} — {cnt}")
     return "\n".join(lines)
 
 

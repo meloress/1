@@ -25,6 +25,16 @@ GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
 GEMINI_TTS_MODEL: str = os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
 GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Kore")
 
+# ── WEB ADMIN PANEL (Mini App) ──────────────────────────────────────
+# Manzil Railway domenidan olinadi (Settings -> Networking -> Generate
+# Domain); `RAILWAY_PUBLIC_DOMAIN` ni Railway o'zi qo'yadi. Bo'sh bo'lsa
+# menyu tugmasi UMUMAN qo'yilmaydi — bot xatosiz ishlashda davom etadi,
+# panel esa shunchaki ochilmaydi.
+# ⚠️ Mini App faqat https bilan ishlaydi.
+WEB_APP_URL: str = os.getenv("WEB_APP_URL") or (
+    f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}"
+    if os.getenv("RAILWAY_PUBLIC_DOMAIN") else "")
+
 _REQUIRED_ENV_VARS = {
     "BOT_TOKEN": BOT_TOKEN,
     "OPENAI_API_KEY": OPENAI_API_KEY,
@@ -782,6 +792,95 @@ MESSAGE_COST_PHOTO: int = 180        # rasm tahlili (vision)
 MESSAGE_COST_DOCUMENT: int = 80      # hujjat (PDF/DOCX) tahlili
 MESSAGE_COST_VOICE: int = 50         # ovozli xabar (STT + GPT + TTS)
 
+# ── FAOLLIK TURLARI — YAGONA MANBA ──────────────────────────────────
+# `user_activity` ga yoziladigan har bir tur: (emoji, nom, ball bahosi).
+#
+# ⚠️ Bu ro'yxat UCH joyni boqadi va shuning uchun shu yerda turadi:
+#   1) SQL filtri — `database.activity_stats()` va `daily_report_stats()`
+#      uni `= ANY($1)` bo'lib uzatadi (qaysi turlar sanaladi),
+#   2) Telegram statistika ekrani (`handlers/admin/stats.py`),
+#   3) kunlik hisobot (`handlers/admin/daily.py`),
+#   4) web paneldagi ustunlar (`web/api.py`).
+# Ilgari bu ro'yxat QO'LDA UCH MARTA yozilgan edi: ikkitasi `stats.py`
+# da yonma-yon (SQL filtri va `type_labels`), uchinchisi `daily.py` da
+# `ACTIVITY_LABELS` nomi bilan. Uchinchisi allaqachon eskirgan edi —
+# unda `location_message` yo'q edi va kunlik hisobot uni xom satr qilib
+# ko'rsatib yurgan. Aynan shu narsa ro'yxatni bitta joyga yig'ish
+# kerakligini ko'rsatdi.
+# `tests/test_activity_tracking.py` shu ro'yxatni kod haqiqatda
+# yozadigan turlar bilan solishtiradi.
+#
+# Ball bahosi 0 bo'lganlar — ball emas, ALOHIDA kunlik sanoqdan
+# yechiladi (fayl, rasm, tadqiqot) yoki umuman yechilmaydi
+# (joylashuv: u savol emas, keyingi matnli so'rov uchun kontekst).
+ACTIVITY_TYPES: Dict[str, tuple] = {
+    "text_message":           ("✉️", "Matn", MESSAGE_COST_TEXT),
+    "photo_message":          ("🖼", "Rasm", MESSAGE_COST_PHOTO),
+    "document_message":       ("📄", "Hujjat", MESSAGE_COST_DOCUMENT),
+    "voice_message":          ("🎤", "Ovoz", MESSAGE_COST_VOICE),
+    "location_message":       ("📍", "Joylashuv", 0),
+    "guest_text_message":     ("✉️", "Matn · guest", MESSAGE_COST_TEXT),
+    "guest_photo_message":    ("🖼", "Rasm · guest", MESSAGE_COST_PHOTO),
+    "guest_document_message": ("📄", "Hujjat · guest", MESSAGE_COST_DOCUMENT),
+    "guest_voice_message":    ("🎤", "Ovoz · guest", MESSAGE_COST_VOICE),
+    "file_task":              ("🛠", "Fayl yaratish", 0),
+    "research":               ("🔎", "Chuqur tadqiqot", 0),
+}
+
+
+# ── AUDIT AMALLARI — YAGONA MANBA ───────────────────────────────────
+# `log_admin_action(admin_id, AMAL, ...)` ga yoziladigan har bir amal va
+# uning odam o'qiydigan nomi. Telegram jurnali ham, web panel ham
+# shundan o'qiydi.
+#
+# ⚠️ ILGARI bu ro'yxat `handlers/admin/journal.py` da `ACTION_LABELS`
+# nomi bilan qo'lda yozilgan edi va JIDDIY ESKIRGANDI: 16 ta amaldan
+# 9 tasining kaliti mos kelmasdi (`ban` yozilgan, kod esa `ban_user`
+# yozadi; `refund` — `refund_stars`; `set_free` — `set_plan`;
+# `promo_create` — `create_promo`), ya'ni audit jurnalida ularning
+# yarmidan ko'pi XOM texnik nom bo'lib chiqib turardi. Yana 6 ta
+# yorliq umuman ishlatilmaydigan kalitga osilgan edi.
+# `tests/test_web_journal.py` endi kod YOZADIGAN amallarni shu ro'yxat
+# bilan solishtiradi — xuddi `ACTIVITY_TYPES` kabi.
+AUDIT_ACTIONS: Dict[str, str] = {
+    "ban_user":          "🚫 Bloklandi",
+    "unban_user":        "✅ Blok olib tashlandi",
+    "set_premium":       "💎 Pro berildi",
+    "set_plan":          "🆓 Tarif o'zgartirildi",
+    "reset_quota":       "🔄 Kvota tiklandi",
+    "refund_stars":      "💸 To'lov qaytarildi",
+    "send_message":      "📨 Xabar yuborildi",
+    "add_admin":         "➕ Admin qo'shildi",
+    "remove_admin":      "➖ Admin o'chirildi",
+    "broadcast":         "📢 Tarqatma",
+    "limit_change":      "🎚 Limit o'zgartirildi",
+    "create_promo":      "🎟 Promokod yaratildi",
+    "revoke_promo":      "🚫 Promokod bekor qilindi",
+    "send_promo":        "🎟 Promokod yuborildi",
+    "send_referral":     "🤝 Referal havolasi yuborildi",
+    "user_report":       "📩 Foydalanuvchi xabari",
+    # ⚠️ `referral_campaign` SHU YERDA EDI va 7-bosqichda olib tashlandi:
+    # uni yozadigan oqim (botdagi referal sharti ekrani) webga ko'chdi va
+    # endi `referral_config` yoziladi. Jonli bazada eski ikkita yozuv
+    # qoldi — ular jurnalda XOM nomi bilan ko'rinadi, va bu ataylab:
+    # o'sha bazada `stats_view`, `users_export` kabi yana 12 ta eski amal
+    # bor, ularning hech qaysisi ro'yxatda emas. Noma'lum amalni
+    # YASHIRMAY, xom nomi bilan ko'rsatish 5-bosqichda tanlangan qoida
+    # (`test_web_journal.py` 4-tekshiruvi) — yashirilsa yozuv umuman
+    # yo'qday bo'lardi. Yozilmaydigan yorliqni saqlash esa ro'yxatni
+    # shishiradi va «bor ekan» degan yolg'on tuyg'u beradi.
+    # ⚠️ Quyidagi oltitasini FAQAT web panel yozadi. Telegram ekranlari bu
+    # amallarni umuman auditga yozmasdi — ya'ni texnik ta'tilni kim yoqqani
+    # va kim kuzatuvga qo'shilgani hech qayerda qolmasdi. Panel yozadi.
+    "maintenance":       "🛠 Texnik ta'til",
+    "watch_add":         "👁 Kuzatuvga qo'shildi",
+    "watch_remove":      "👁 Kuzatuvdan olindi",
+    "watch_group":       "👁 Kuzatuv guruhi o'zgartirildi",
+    "referral_config":   "🤝 Referal sharti o'zgartirildi",
+    "cancel_broadcast":  "🗑 Tarqatma bekor qilindi",
+}
+
+
 # ── Fayl yaratish/tahrirlash uchun ALOHIDA kunlik sanoq ─────────────
 # Nega balldan alohida: bu eng qimmat amal (bitta prezentatsiya uchun GPT
 # 2-3 marta kod yozadi, reasoning tokenlar output narxida hisoblanadi).
@@ -864,6 +963,38 @@ DAILY_COUNTERS: dict[str, tuple[str, str, str]] = {
     "files":    ("daily_files_used",    "daily_files_date",    "files"),
     "images":   ("daily_images_used",   "daily_images_date",   "images"),
     "research": ("daily_research_used", "daily_research_date", "research"),
+}
+
+# Limit kalitining ODAM O'QIYDIGAN nomi — YAGONA ro'yxat.
+#
+# ⚠️ Bu ham ACTIVITY_TYPES / AUDIT_ACTIONS bilan bir xil sabab bo'yicha shu
+# yerda: ro'yxat allaqachon IKKI joyda qo'lda yozilgandi va nomlar ajrala
+# boshlagandi — `handlers/admin/journal.py::LIMIT_KEYS` da «Fayl», web
+# panelning `SANOQ_NOMI` sida esa «Fayllar». Bitta limitni ikki ekran ikki
+# xil atashi adminni «bular boshqa-boshqa sozlama shekilli» deb o'ylatadi.
+#
+# Kalitlar `PLAN_LIMITS` ning kalitlari: "points" + DAILY_COUNTERS dagilar.
+# Tarqatma qamrovining ko'rinadigan nomi — YAGONA ro'yxat.
+#
+# ⚠️ To'rtinchi eskirgan nusxa shu yerdan boshlangandi:
+# `handlers/admin/journal.py` ichida `segment_nom = {"all": "hammaga",
+# "free": "Free", "premium": "Pro"}` degan qator turardi va web panel
+# uchun yozilgan birinchi nusxada «pro» va «active» degan MAVJUD
+# BO'LMAGAN kalitlar bor edi — ya'ni panel `premium` segmentini xom
+# nomi bilan ko'rsatgan bo'lardi. Kalitlar
+# `handlers/admin/broadcast.py::_filter_users_by_segment` dagilar.
+SEGMENT_NOMI: dict[str, str] = {
+    "all":     "Hammaga",
+    "free":    "Faqat bepul",
+    "premium": "Faqat Pro",
+    "pick":    "Tanlangan odamlarga",
+}
+
+LIMIT_NOMI: dict[str, str] = {
+    "points":   "Kunlik ballar",
+    "files":    "Fayl yaratish",
+    "images":   "Rasm chizish",
+    "research": "Chuqur tadqiqot",
 }
 
 

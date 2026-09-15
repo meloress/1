@@ -1,0 +1,237 @@
+"""Web paneldagi Boshqaruv va Statistika raqamlari uchun tekshiruv.
+Ishga tushirish: python tests/test_web_stats.py
+
+Tarmoq va baza kerak emas: `database` chaqiruvlari soxta ma'lumot
+qaytaradi.
+
+Eng muhimi — 8-tekshiruv: 3-bosqichning «tayyor» mezoni *raqamlar
+Telegram paneli bilan bir xil* edi. Bu yerda ikkala ekran ham BITTA
+soxta bazadan o'qiydi va natijalari solishtiriladi. Agar kimdir web
+uchun alohida so'rov yozib qo'ysa, ikki raqam ajraladi va shu test
+yiqiladi — yonma-yon qo'lda solishtirib o'tirmasdan.
+"""
+
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN-FOR-WEB-STATS"
+
+import asyncio
+import datetime
+import pathlib
+import re
+
+from aiohttp.test_utils import TestClient, TestServer
+
+import web
+from web import api, auth
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+TASHKENT = datetime.timezone(datetime.timedelta(hours=5))
+
+# ── Soxta baza ────────────────────────────────────────────────────
+# Kunlar ATAYLAB tirqishli: 7 kunning faqat uchtasida amal bor.
+BUGUN = datetime.datetime.now(TASHKENT).date()
+
+SOXTA_ACTIVITY = {
+    "total_users": 1204,
+    "free_count": 1187,
+    "pro_count": 14,
+    "premium_count": 3,
+    "most_active_30days": {"user_id": 641382905, "username": "dilshod_a", "activity_count": 312},
+    "most_active_today": {"user_id": 641382905, "username": "dilshod_a", "activity_count": 42},
+    "last_user": {"user_id": 5, "username": "yangi", "created_at": None},
+    "daily_activity": [
+        {"day": BUGUN - datetime.timedelta(days=4), "total": 100, "uniq_users": 10},
+        {"day": BUGUN - datetime.timedelta(days=1), "total": 200, "uniq_users": 20},
+        {"day": BUGUN, "total": 342, "uniq_users": 30},
+    ],
+    "type_breakdown": [
+        ("text_message", 1842), ("photo_message", 214),
+        ("guest_text_message", 400), ("voice_message", 143),
+        ("guest_voice_message", 57), ("file_task", 96), ("research", 12),
+    ],
+}
+
+SOXTA_KUNLIK = {
+    "new_users": 9, "total_users": 1204, "active_users": 80, "actions": 342,
+    "sales": 2, "stars": 1850, "errors": 11, "pro_users": 14,
+    "prev_actions": 300, "active_7d": 103, "pro_expiring": 2,
+    "top_types": [("text_message", 200), ("guest_text_message", 90), ("voice_message", 52)],
+}
+
+SOXTA_DAROMAD = {"stars_today": 1850, "stars_30d": 24300, "stars_total": 186700,
+                 "sales_30d": 17, "refunds": 2, "by_plan": [(30, 12)]}
+
+
+def soxta_bazani_qoy(modul, **ustidan):
+    """Soxta bazani modulga qo'yadi (`web.api` uni shundan o'qiydi)."""
+    async def activity_stats():
+        return dict(SOXTA_ACTIVITY)
+
+    async def daily_report_stats():
+        return dict(SOXTA_KUNLIK)
+
+    async def revenue_stats():
+        return dict(SOXTA_DAROMAD)
+
+    async def top_users(days, limit):
+        return [
+            {"user_id": 641382905, "username": "dilshod_a", "activity_count": 312},
+            {"user_id": 512004119, "username": None, "activity_count": 241},
+        ][:limit]
+
+    async def recent_errors(limit=15, offset=0):
+        return [{
+            "id": 1, "kind": "timeout",
+            # ⚠️ Begona matn: xato xabari foydalanuvchi yozganidan
+            # kelib chiqishi mumkin, ya'ni u ishonchsiz.
+            "message": "<script>alert(1)</script> javob kelmadi",
+            "user_id": 641382905,
+            "created_at": datetime.datetime(2026, 9, 15, 14, 12, tzinfo=datetime.timezone.utc),
+        }][:limit]
+
+    async def error_summary():
+        return {"day": 11, "week": 40, "total": 100, "users_day": 5, "kinds": [("timeout", 6)]}
+
+    async def get_maintenance():
+        return {"active": False, "message": "..."}
+
+    joy = modul.database_module
+    for nom, fn in list(locals().items()):
+        if nom in ("modul", "ustidan", "joy", "nom", "fn"):
+            continue
+        setattr(joy, nom, ustidan.get(nom, fn))
+
+
+async def kir(client):
+    """Darvozadan o'tish — endpointlar `@admin_only` bilan yopiq."""
+    async def ha(user_id):
+        return True
+    web.huquq_bormi = ha
+    auth.huquq_bormi = ha
+    return {"Cookie": f"{auth.COOKIE_NAME}={auth.sessiya_yasa(1)}"}
+
+
+async def main():
+    soxta_bazani_qoy(api)
+    async with TestClient(TestServer(web.build_app())) as client:
+        # 1) Darvoza: cookie'siz bironta raqam chiqmasin.
+        for yol in ("/api/overview", "/api/stats"):
+            r = await client.get(yol)
+            assert r.status == 401, f"{yol} cookie'siz ochiq: {r.status}"
+        print("[1] /api/overview va /api/stats cookie'siz 401 qaytaradi OK")
+
+        h = await kir(client)
+        ov = await (await client.get("/api/overview", headers=h)).json()
+        st = await (await client.get("/api/stats", headers=h)).json()
+
+        # 2) Grafik HAR DOIM 7 kun. Bazada faqat amal bo'lgan kunlar
+        #    bor — tirqishlarni tashlab ketsak grafik "yaxshi"
+        #    ko'rinardi, chunki tushish ko'rinmasdi.
+        assert len(ov["kunlar"]) == 7, ov["kunlar"]
+        sonlar = [k["soni"] for k in ov["kunlar"]]
+        assert sonlar.count(0) == 4, f"bo'sh kunlar nol bilan to'ldirilmagan: {sonlar}"
+        assert sonlar[-1] == 342, "oxirgi kun bugungi bo'lishi kerak"
+        kunlar = [k["kun"] for k in ov["kunlar"]]
+        assert kunlar == sorted(kunlar), "kunlar tartibda emas"
+        print("[2] grafik 7 kunni to'liq beradi, jim kun 0 bo'ladi OK")
+
+        # 3) O'zgarish foizi: kecha nol bo'lsa «+100%» YOLG'ON bo'lardi.
+        assert ov["kpi"]["sorovlar"]["ozgarish"] == 14.0, ov["kpi"]["sorovlar"]
+        soxta_bazani_qoy(api, daily_report_stats=_nol_kecha)
+        ov2 = await (await client.get("/api/overview", headers=h)).json()
+        assert ov2["kpi"]["sorovlar"]["ozgarish"] is None, \
+            "kecha ma'lumot yo'qda o'zgarish ko'rsatilyapti"
+        soxta_bazani_qoy(api)
+        print("[3] kecha ma'lumot bo'lmasa o'zgarish foizi ko'rsatilmaydi OK")
+
+        # 4) Nolga bo'lish: «0%» va «ma'lumot yo'q» ajratilgan.
+        assert api._foiz(5, 0) is None and api._foiz(0, 10) == 0
+        print("[4] nolga bo'lish «—» beradi, haqiqiy nol «0%» bo'lib qoladi OK")
+
+        # 5) Xato matni XOM holda uzatiladi (kesilgan), panel uni
+        #    `xavfsiz()` bilan ekranlaydi — ikkalasi ham tekshiriladi.
+        x = ov["xatolar"][0]
+        assert x["tur"] == "timeout" and x["vaqt"] == "19:12", x
+        js = (ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8")
+        assert "function xavfsiz(" in js, "panel.js da ekranlash funksiyasi yo'q"
+        # `username` `nom` o'zgaruvchisi orqali o'tadi, shuning uchun
+        # ro'yxatda o'sha turibdi.
+        for maydon in ("x.matn", "x.tur", "x.user", "nom", "t.nom", "u.izoh"):
+            assert f"xavfsiz({maydon})" in js, f"{maydon} ekranlanmagan — panelga skript kiritilishi mumkin"
+
+        # ⚠️ Qoida so'zma-so'z satr bo'yicha emas, MAZMUNAN tekshiriladi:
+        # `username` HTML yasayotgan qatorga (ya'ni ichida `<` bor
+        # qatorga) `xavfsiz()` siz tushmasligi kerak. Ilgari bu yerda
+        # aniq bir ifoda qidirilardi va `nomi()` yordamchisi qo'shilishi
+        # bilanoq test yolg'ondan yiqildi — kod esa to'g'ri edi.
+        for n, qator in enumerate(js.splitlines(), 1):
+            if ".username" in qator and "<" in qator and "xavfsiz(" not in qator:
+                raise AssertionError(
+                    f"panel.js:{n} — username HTML ga ekranlanmasdan qo'yilgan: {qator.strip()}")
+        print("[5] vaqt Toshkentga o'girilgan, begona matn panelda ekranlanadi OK")
+
+        # 6) Turlar nomi `ACTIVITY_TYPES` dan keladi, xom satr emas.
+        #    Jonli bazada bu yerda `start` chiqib ketgan edi — u so'rov
+        #    emas, buyruq, va nomi bo'lmagani uchun xom satr bo'lib
+        #    ekranga tushgandi. Endi ro'yxatda yo'q tur tashlab
+        #    ketiladi (log'ga yozib).
+        nomlar = [t["nom"] for t in ov["turlar"]]
+        assert "Matn" in nomlar and "Matn · guest" in nomlar, nomlar
+        assert not any("_message" in n for n in nomlar), f"xom tur nomi chiqib ketdi: {nomlar}"
+        assert api._turlar([("start", 6), ("text_message", 1)]) == [{"nom": "Matn", "soni": 1}], \
+            "ro'yxatda yo'q tur panelga chiqib ketdi"
+        print("[6] turlar ko'rinadigan nom bilan qaytadi, notanishi tashlanadi OK")
+
+        # 7) Statistika ekrani: ulushlar va konversiya.
+        jami_amal = sum(c for _t, c in SOXTA_ACTIVITY["type_breakdown"])
+        guest = 400 + 57
+        assert st["kpi"]["guest_ulush"] == round(guest / jami_amal * 100)
+        assert st["kpi"]["konversiya"] == round(17 / 1204 * 100, 2)
+        assert st["kpi"]["kunlik_ortacha"] == round((100 + 200 + 342) / 7)
+        assert st["top"][0]["ulush"] == 100, "eng faol 100% bo'lishi kerak"
+        assert st["top"][1]["username"] is None, "username yo'q foydalanuvchi tushib qolmasin"
+        print("[7] statistika ulushlari va konversiya to'g'ri hisoblanadi OK")
+
+        # 8) ⭐ ASOSIY MEZON: panelda XOM SQL yo'q.
+        #
+        # ⚠️ Bu tekshiruv 7-bosqichda SHAKLINI O'ZGARTIRDI. Ilgari u
+        # Telegram statistika ekrani bilan webning raqamlarini
+        # solishtirardi — «ikki ekran, bitta manba» qoidasi. Ekran endi
+        # BITTA (`handlers/admin/stats.py` o'chirildi), ya'ni
+        # solishtiradigan narsa yo'q.
+        #
+        # Lekin qoidaning O'ZI qolyapti va u muhimroq: `web/api.py` da
+        # SQL yozilmasin. Sabab shu faylning sarlavhasida — hisob-kitob
+        # `db/database.py` da, ikkala tomondan ham YUQORIDA turishi
+        # kerak. Web o'ziga SQL yozgan kunidan boshlab kunlik hisobot
+        # (`daily.py`) va panel bir-biriga mos kelmay qoladi, va buni
+        # hech narsa aytmaydi.
+        src = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        for taqiq in ("pool.acquire", "SELECT ", "INSERT ", "UPDATE ", "DELETE "):
+            assert taqiq not in src, f"web/api.py ga xom SQL kirib qolgan: {taqiq}"
+        assert "activity_stats()" in src, "web statistikani yagona manbadan olmaydi"
+        # Kunlik hisobot ham AYNAN o'sha funksiyalardan o'qiydi — ya'ni
+        # panel va hisobot bir kuni ikki xil raqam ko'rsata olmaydi.
+        d = (ROOT / "handlers" / "admin" / "daily.py").read_text(encoding="utf-8")
+        assert "pool.acquire" not in d, "daily.py ga xom SQL qaytib kelgan"
+        assert "daily_report_stats" in d
+        assert st["kpi"]["jami"] == SOXTA_ACTIVITY["total_users"]
+        assert st["tarif"]["free"] == SOXTA_ACTIVITY["free_count"]
+        assert st["tarif"]["pro"] == SOXTA_ACTIVITY["pro_count"]
+        assert st["tarif"]["premium"] == SOXTA_ACTIVITY["premium_count"]
+        print("[8] panelda xom SQL yo'q, raqamlar yagona manbadan OK")
+
+    print("\nweb stats: barcha tekshiruvlar o'tdi (8/8).")
+
+
+async def _nol_kecha():
+    d = dict(SOXTA_KUNLIK)
+    d["prev_actions"] = 0
+    return d
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

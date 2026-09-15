@@ -23,7 +23,7 @@ Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is
 Some are structural guards rather than feature tests, and they earn their keep on refactors:
 
 - `test_admin_registry.py` — every admin handler still registered, in order.
-- `test_activity_tracking.py` — reads handler source **by file path**, so moving code breaks it.
+- `test_activity_tracking.py` — every activity type the code writes is in `ACTIVITY_TYPES`. It **imports** that dict now (it used to read a handler by file path, which broke whenever code moved).
 - `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
 - `test_url_read.py` — the untrusted-boundary guard on `internet_search(url=…)`: a
   model-written URL must never reach an internal address, and a page that will not open
@@ -43,11 +43,41 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
-- `test_admin_extras.py` checks 19-20 — every admin callback handler still starts with `require_admin_or_deny_query`, and the two user counts in `handle_users_command` still filter the same set. Both were written after the corresponding bug, and check 19 was verified by deleting the guard and watching it fail.
+- `test_admin_extras.py` checks 19-20 — every admin callback handler still starts with `require_admin_or_deny_query`, and the user counts in `activity_stats()` still filter the same set (check 20 asserts the `_ODDIY_USER` constant is the single place that says so, so "one query excludes admins, the other doesn't" is structurally impossible). Both were written after the corresponding bug, and check 19 was verified by deleting the guard and watching it fail.
+
+- `test_admin_kod.py` — the `/kod` sending flow, which after phase 7 is the only admin
+  path the web tests do not cover. Runs offline. Its sharpest check is that a code whose
+  uses are spent or which was revoked never reaches the picker: sending one means handing
+  someone a gift that will not work.
+- `test_web_auth.py` / `test_web_panel.py` / `test_web_stats.py` / `test_web_users.py` /
+  `test_web_journal.py` / `test_web_settings.py` / `test_web_promo.py` — the web panel.
+  All seven run offline (no DB, no network, no browser) by replacing `web.huquq_bormi`
+  and the `database` calls. The ones that earn their keep: `test_web_users.py` check 9
+  proves the refund does **not** touch the database when Telegram refuses,
+  `test_web_stats.py` check 8 proves there is no raw SQL in `web/api.py` or `daily.py`
+  (it used to compare the panel against the Telegram statistics screen, until that screen
+  was deleted — same rule, one surviving consumer), `test_web_journal.py` checks 1-2 compare the
+  audit action names the code actually writes against `AUDIT_ACTIONS` in both directions,
+  **`test_web_settings.py` check 2 is the one that proves the panel is worth having at
+  all** — it changes a limit through the HTTP endpoint and then asserts
+  `config.daily_limit()` returns the new number, i.e. that the bot's RAM cache was
+  refreshed — and its check 11 proves the panel goes through the *same* admin-removal
+  gate as the bot. `test_web_promo.py` check 6 pins `extend=True` on gifted Pro (without
+  it a gift wipes the days the user already had).
 
 Exact token counts need `tiktoken` (`pip install tiktoken`, encoding `o200k_base`). It is **not** in `requirements.txt` — the bot never counts tokens itself, it is a local measuring tool. Do not estimate from character counts; that was 11% off on this prompt.
 
 ## Deploy
+
+The panel needs two environment variables beyond the bot's own: Railway supplies `PORT`,
+and `WEB_APP_URL` is read from the env or derived from `RAILWAY_PUBLIC_DOMAIN` (Settings
+→ Networking → Generate Domain).
+
+⚠️ Since phase 7 this is no longer cosmetic. "Empty means no menu button; the bot is
+unaffected" was true while every admin screen still existed in Telegram — it does not any
+more. With no domain, an admin has **only** `/xabar` and `/kod`: no statistics, no user
+management, no limits, no journal. Deploying without the domain is not a degraded panel,
+it is no panel.
 
 **`git push meloress main` deploys.** The Railway service is connected to GitHub, so a push to `git@github.com:meloress/1.git` (remote `meloress`) triggers the build by itself — no API call, no token. `origin` still points at `afiffamily/1`, where this account has **no write access** (403), so never push there.
 
@@ -138,6 +168,8 @@ The cached prefix is **instructions + the tool schemas**, and OpenAI documents *
 ## Architecture
 
 `BOT_API_103.md` is the long-form companion to this file: everything added with Bot API 10.3 and after, explained in full — including the decisions that were **tried and reverted** (the interim "preparing your file" message, the sources slide). Read it before re-attempting anything in that area; this file only carries the rules.
+
+`REJA.md` is the same thing for the **web admin panel**: the plan, the reasoning behind each architectural decision, what each phase actually changed, and every place the approved mockup had to be departed from because the data does not exist. Read it before touching `web/`.
 
 ### Handler registration order is a safety constraint
 
@@ -512,25 +544,218 @@ to put one, and the caller's DM is only reachable if they have started the bot.
 
 `handlers/guest.py` handles chats outside DMs via `guest_message`. It passes `caller_user_id` as **both** `chat_id` and `user_id`, so a person has one identity and one memory whether they write in a group or in the DM. Quota is charged to that user. Reminders are delivered to the DM regardless of where they were created.
 
-### The admin panel is a package, and its registration order is the contract
+### What is left in the bot, and why each thing stayed
 
-`handlers/admin/` — `common.py` (guards + helpers used by more than one screen), `broadcast.py`, `promo.py`, `users.py`, `stats.py`, `system.py`, `journal.py` (audit / errors / revenue / limits / scheduled broadcasts / inactive users), `menu.py` (the inline menus behind the reply keyboard), `daily.py` (the two background watchers), and `__init__.py`, which does **nothing but register handlers**. It was one 2671-line file with a 2200-line function inside it.
+`handlers/admin/` is now four modules: `common.py` (guards + helpers used by more than
+one *screen*, where "screen" includes the web panel — that is why
+`_check_can_remove_admin()` lives there rather than in `system.py`), `broadcast.py`,
+`promo.py` (sending only), `system.py` (report only), `daily.py` (the two background
+watchers), and `__init__.py`, which does **nothing but register handlers**. It was one
+2671-line file; then twelve screens; now **21 registrations**, down from 57.
 
-The reply keyboard is four buttons; the other ten screens live in inline menus under `👥 Foydalanuvchilar` and `⚙️ Sozlamalar`. Their **text handlers are still registered** — an admin's phone keeps the old keyboard until the next `/start`. A screen takes `Message` and reads the admin's id from `message.from_user`, but in a callback `query.message` is the *bot's* message, so `menu.py` dispatches through `query.message.model_copy(update={"from_user": query.from_user})`; without that swap every button answers "faqat admin uchun". Whether a screen also gets `state` is read from its signature, not a hand-kept list.
+Everything else moved to `web/`. What stayed did so for one reason each, and the reason
+is always *"the bot can do this and a web form cannot"*:
 
-Three things survived the split and must keep surviving:
+- **`/xabar`** — broadcast. `copy_message` forwards the admin's own message verbatim:
+  album, formatting, premium emoji. A message reassembled from a web form loses all of it.
+- **`/kod`** — sending a promo code or a referral invite to named people.
+  `send_promo_gift()` sends a ready button, `send_referral_invite()` builds each person's
+  *own* link. Creating and revoking codes is in the panel; only the sending is here, so
+  there is no second copy of anything.
+- **report** (`report_callback` / `process_report_message`) — started by an ordinary
+  user, who has no panel at all. These two are the **only** handlers here with no admin
+  check, deliberately.
+- **the daily report** (`daily.py`) — push; its whole point is arriving without opening
+  anything.
+- **payments** — in `main.py`, before every router; that ordering is untouchable.
 
-1. **Registration order in `__init__.py` is functional.** FSM states go *after* the button handlers (otherwise an admin stuck in the promo state cannot press anything else), and `waiting_for_button` / `waiting_for_recipients` / `waiting_for_schedule` go *before* `waiting_for_content` (otherwise the button label an admin types is swallowed as "new broadcast content").
-2. **The admin check lives inside each handler, not in a filter** — because `report_callback` and `process_report_message` are deliberately open to ordinary users.
+Three things survived every refactor and must keep surviving:
+
+1. **Registration order in `__init__.py` is functional.** FSM states go *after* the
+   command handlers (otherwise an admin stuck in a state cannot invoke anything else),
+   and `waiting_for_button` / `waiting_for_recipients` / `waiting_for_schedule` go
+   *before* `waiting_for_content` (otherwise the button label an admin types is swallowed
+   as "new broadcast content").
+2. **The admin check lives inside each handler, not in a filter** — because
+   `report_callback` and `process_report_message` are deliberately open to ordinary users.
 3. **`bot` comes from `core.loader`**, not from a closure; no handler touches `dp`.
 
-`tests/test_admin_registry.py` pins the full list — name, kind and order — of every registered handler. It is the safety net for any further reshuffling: it caught all five new registrations the moment they were added. Update the expected list deliberately, never to "make it pass".
+⛔️ **Entry points are commands, not reply-keyboard text.** The four-button reply keyboard
+is gone (`core/keyboards.py` deleted). A handler bound to `F.text == '📢 Xabar yuborish'`
+would now be **dead code that still registers**: the button no longer exists and nobody
+types that string by hand. `tests/test_admin_registry.py` check 3 fails if `F.text ==`
+reappears there.
 
-Anything written to `user_activity` must also appear in the SQL filter and `type_labels` in `handlers/admin/stats.py`, or it silently vanishes from admin statistics. `tests/test_activity_tracking.py` guards this — and note it reads that file **by path**, so moving the code means updating the test.
+⚠️ **Deleting the keyboard does not remove it from anyone's phone.** Telegram keeps a
+`ReplyKeyboardMarkup` on screen until it is replaced or explicitly removed, so `/start`
+sends `ReplyKeyboardRemove()`. Without it, admins would keep tapping four buttons that
+answer nothing — which reads as "the bot broke", not as "this moved to the panel".
 
-The panel spends **zero AI tokens**: no module under `handlers/admin/` calls `services.ai`, and `non_admin_predicate` in `main.py` keeps admins out of the AI handlers entirely.
+⚠️ **The keyboard was also the only *discoverable* entry point**, so removing it without
+a replacement would leave `/xabar` findable only by memory. `services/menu.py::ADMIN_COMMANDS`
+puts both commands in the `/` list, for admins only. Two traps came with that: the
+`_shown` cache compared a single `is_pro` bool with `is`, so an admin-flag change would
+never have been noticed (it is keyed on the `(is_pro, is_admin)` pair now); and the
+`sync_commands(..., True, ...)` call has to sit **inside** the `if admin_flag` branch —
+outside it, every ordinary user got `is_pro=True` and saw `/kunlik` and `/research` in
+their menu. `tests/test_menu.py` check 3b guards the leak.
+
+Anything written to `user_activity` must also appear in **`core/config.py::ACTIVITY_TYPES`**
+— one dict of `type -> (emoji, label, points)` — or it silently vanishes from statistics.
+That list is the SQL filter (`database.activity_stats()` and `daily_report_stats()` pass
+it as `= ANY($1)`), the daily report's labels and the web panel's bar names — three
+consumers now that the Telegram statistics screen is gone. It used to be three
+hand-written copies. `tests/test_activity_tracking.py` guards it by **importing** the
+dict rather than reading a file by path, so moving code no longer breaks it.
+
+The admin path spends **zero AI tokens**: nothing under `handlers/admin/` calls
+`services.ai`, and `non_admin_predicate` in `main.py` keeps admins out of the AI handlers
+entirely.
+
+⚠️ **A test that fails after a deletion is telling you where its rule moved.** Four did,
+and none of them wanted its assertion deleted: a label nothing writes any more
+(`referral_campaign`) had to leave `AUDIT_ACTIONS`; a "both screens call one validator"
+check became "the limits must not migrate into `web/api.py`"; two checks that read a
+deleted file now check the *source* of the keys instead (does `broadcast.py` really write
+this segment; is this limit key really in `PLAN_LIMITS`); and "two screens, same numbers"
+became "no raw SQL in `web/api.py` or `daily.py`". Ask what the check was protecting
+before you change it — it is almost never the screen.
+
+### The web admin panel runs inside the bot process
+
+`web/` is an aiohttp server started from `main()` — not a separate Railway service.
+The reason is RAM caches: `config.apply_limit_overrides()` and
+`database.load_watch_cache()` hold settings in memory, so a second process could write
+a new limit to the database while the bot kept using the old value. One process, one
+`DATABASE_URL`, one token. `aiohttp` is already a dependency (aiogram uses it), so the
+panel added **no** new package.
+
+It must never take the bot down: every route is wrapped by one `@web.middleware`
+`try/except` that turns an unhandled exception into JSON plus a logged traceback, and
+`main()` starts the server inside its own `try/except` so a failure to bind leaves the
+bot running without a panel.
+
+**Three independent auth layers** (`web/auth.py`), and only the last two are gates:
+
+1. The blue menu button is set per chat (`services/menu.py::sync_menu_button()`) so it
+   appears only for admins. This is **decoration** — the URL can be opened by hand.
+2. `POST /api/session` verifies Telegram's `initData` HMAC with
+   `aiogram.utils.web_app.safe_parse_webapp_init_data`, **plus an age check aiogram does
+   not do** (5 minutes) — without it a stolen `initData` would work forever. Success sets
+   a signed `HttpOnly; Secure` cookie holding only `user_id`, an expiry and an HMAC; no
+   session table.
+3. `@admin_only` on every `/api/*` handler re-runs `is_admin()` **on every request**,
+   never cached, so a demoted admin is locked out on their next request rather than at
+   the end of the 12-hour session.
+
+The cookie key is a *derivative* of `BOT_TOKEN` (`sha256("webpanel:" + token)`), not the
+token, so a leaked cookie signature cannot be turned back into the bot token.
+
+⚠️ **`web/api.py` contains no SQL.** Every number it returns comes from a `db/database.py`
+function — that is why `activity_stats()` and `top_users()` were moved there out of
+`handlers/admin/stats.py` before that file was deleted. The second consumer is still
+real: `daily.py` builds the daily report from the same functions, so a query written in
+`api.py` means the panel and the report disagree from the day one of them is edited.
+`tests/test_web_stats.py` check 8 fails on `SELECT`/`INSERT`/`UPDATE`/`DELETE`/`pool.acquire`
+in either file.
+
+⚠️ **Decoration must not depend on the database.** `_kim()` reads the admin's name and
+role for the sidebar card, and both queries sit inside a `try/except`: authorisation
+already happened above, so a one-second database hiccup must not turn a successful login
+into a 500 and lock the admin out of the panel. `tests/test_web_auth.py` check 7 forces
+those calls to raise and still expects `200`.
+
+⚠️ **Refund order is Telegram first, then the database.** The order was copied from
+`handlers/admin/users.py`, which has since been deleted — so `web/api.py::refund` is now
+the only implementation and nothing else encodes the rule. Telegram can refuse a refund
+(window expired, already refunded); the other order takes the plan away from a user whose
+money never came back. `tests/test_web_users.py` check 9 is what holds the order in place.
+If Telegram succeeds and the database write then fails, that is logged as its own loud
+line — the plan is still live on the account.
+
+⚠️ **Model-style input discipline applies to admin input too.** `/api/users?q=` goes to
+Postgres as a parameter, never string-interpolated. The premium endpoint accepts only
+`7 / 30 / 90 / null`; the first version turned an unparseable value into `None`, and
+`None` means *unlimited* there — so `{"kun": "o'ttiz"}` granted lifetime Pro. Anything
+the panel renders through `innerHTML` (error text, usernames) goes through `xavfsiz()`
+in `panel.js` first.
+
+⚠️ **A write endpoint that changes a cached setting must refresh the cache in the same
+request.** Two do: `POST /api/limits` calls `config.apply_limit_overrides()` and
+`POST /api/watch` calls `database.load_watch_cache()`. Both caches exist because they are
+read on the hot path — `daily_limit()` runs on every message and `get_watch_target()` is
+synchronous with no I/O at all — so without the refresh the database holds the new value
+while the bot keeps using the old one, the panel says "saved", and **nothing raises**.
+This is the concrete reason the panel runs in the bot's process; a second process could
+not fix it at all. `tests/test_web_settings.py` checks 2 and 8 are the guard, and check 2
+is the phase's whole acceptance criterion.
+
+⚠️ **"Admin" is two tables, and a screen that reads one of them lies.** `admins` and
+`superadmins` are separate, and `huquq_bormi()` checks both — so any list answering "who
+can open this panel" has to check both too. `get_admins()` reads only the first, and on
+the live database (2026-09-15) that table is **empty** while one superadmin exists: the
+panel would have shown nobody while that person was logged into it. `database.get_panel_admins()`
+is the union (`FULL OUTER JOIN`, one query, `is_super` flag included — which also removed
+a per-row `is_superadmin()` call). Fake data never shows this; reading production does,
+which is why every phase of this panel was checked against the live Postgres read-only.
+
+⚠️ **`None` means two different things in the limits API and they must not be confused.**
+On `POST /api/limits`, `qiymat: null` means *remove the override*, i.e. fall back to
+`PLAN_LIMITS` — it is **not** unlimited (unlimited is what the `premium` plan is for, and
+that plan is deliberately absent from the editable table). So an unparseable value cannot
+be coerced to `None` here, for the same reason it could not be on the premium endpoint.
+`0` is also not unlimited: it means "this plan does not have the feature".
+
+`web/static/panel.js` splits its startup into `qism()`-wrapped blocks. One missing
+element inside a single IIFE used to kill everything after it — navigation included —
+with one line in the console and no visible cause. Buttons inside a list that is redrawn
+after every write (`data-wdel`, `data-addel`, `data-pdel`, `data-bdel`, `data-lsave`) are
+bound once on the **container** via `delegat()`, never on the row: rebinding after each
+redraw stacks listeners and fires one click twice, which on a refund or a gift means
+doing it twice.
+
+The panel's logo is `/static/logo.jpg` **everywhere** it appears (`REJA.md` 3.2.1);
+`tests/test_web_panel.py` check 4 fails on any other image source.
+
+### Four label maps that all rotted the same way
+
+`core/config.py` holds four dicts — `ACTIVITY_TYPES`, `AUDIT_ACTIONS`, `LIMIT_NOMI`,
+`SEGMENT_NOMI` — for one reason: the same list kept being hand-written in each new
+screen, and **every single copy drifted**. Found one per phase, always the same way:
+
+- activity type labels were written twice in `handlers/admin/stats.py` and a third time
+  in `handlers/admin/daily.py` as `ACTIVITY_LABELS`, which was already missing
+  `location_message` — the daily report printed the raw type name;
+- audit action labels lived in `handlers/admin/journal.py` as `ACTION_LABELS` and **9 of
+  16 keys did not match what the code writes** (`ban` vs `ban_user`, `refund` vs
+  `refund_stars`), so most of the audit screen showed technical strings;
+- the four daily limits were named in `handlers/admin/journal.py::LIMIT_KEYS` *and* in
+  `web/api.py::SANOQ_NOMI`, differently — "Fayl" vs "Fayllar", "Tadqiqot" vs "Chuqur
+  tadqiqot". Two screens naming one setting two ways reads as two settings;
+- broadcast segment labels sat inline in `handlers/admin/journal.py` as `segment_nom`.
+  The first web copy of it invented `"pro"` and `"active"`, **neither of which exists**
+  (`_filter_users_by_segment` writes `all` / `free` / `premium` / `pick`), so the panel
+  would have shown `premium` raw. Caught by reading the source that writes the value —
+  not by testing the screen.
+
+All four are now one dict each, read by every consumer. If you add a screen that names
+one of these things, read the dict — do not retype the list. And when you do write a new
+copy anyway, the guard is always the same: walk the source for the calls that *write* the
+values and compare both directions, as `tests/test_web_journal.py` checks 1-2 do.
+
+The same discipline applies to **rules**, not just labels. Three validators are shared by
+the Telegram screen and the panel, and neither may re-implement them:
+`database.clean_promo_spec()` (promo code shape, 1-3650 days, 1-100000 uses, expiry in
+the future — it used to live in the body of `process_promo_create`),
+`database.clean_referral_config()`, and `handlers/admin/common.py::_check_can_remove_admin()`.
+That last one moved out of `system.py` when the panel needed it: written twice, the panel
+would have become a **weaker door than the bot** (removing yourself, removing a
+superadmin, the three-day wait for a new admin, the last-admin guard) and nothing would
+have caught it.
 
 ### Errors reach the admin through one funnel
+
+Every admin action name written to `admin_audit` must appear in **`core/config.py::AUDIT_ACTIONS`** (`action -> label`), which the panel's journal screen reads. An action the code no longer writes must be **removed** from it — `referral_campaign` was, when its flow moved to the panel. Historical rows then show the raw name, which is the deliberate behaviour (`test_web_journal.py` check 4): the live database already holds a dozen legacy actions (`stats_view`, `users_export`, …) that no label covers, and showing the raw string beats hiding the row. It used to be a hand-written `ACTION_LABELS` in `handlers/admin/journal.py` and it had rotted badly: 9 of 16 action names did not match what the code writes (`ban` vs `ban_user`, `refund` vs `refund_stars`, `set_free` vs `set_plan`, `promo_create` vs `create_promo`), so most of the audit screen showed raw technical strings, while 6 labels hung on keys nothing ever writes. `tests/test_web_journal.py` walks the source for `log_admin_action(...)` and web's `_yoz(...)` calls and asserts both directions: every written action has a label, and every label is actually written.
 
 `send_error_with_retry()` (`handlers/helpers.py`) is the only path a user-visible failure takes, so that is where `db.log_error()` writes to the `error_log` table — the "⚠️ Xatolar" screen reads it. Adding a second logging site elsewhere splits the picture; pass a `kind` instead (`"timeout"`, `"matn"`, …). The table trims itself on write (`ERROR_LOG_KEEP`).
 
@@ -646,9 +871,9 @@ answered from a stale position; the real one lives only in the 30-minute RAM rec
 
 `handle_location` must stay registered **before** `capabilities.handle_unsupported`,
 which still matches the other unhandled types; `F.location` was removed from that list.
-And `location_message` had to be added to the SQL filter and `type_labels` in
-`handlers/admin/stats.py`; `tests/test_activity_tracking.py` caught that omission
-immediately.
+And `location_message` had to be added to `ACTIVITY_TYPES` (at the time still two
+hand-written copies in `handlers/admin/stats.py`); `tests/test_activity_tracking.py`
+caught that omission immediately.
 
 ### What the model may claim it can do
 
@@ -834,6 +1059,12 @@ The menu can always be stale — a user can type `/kunlik` without opening it, a
 expiry is only detected on the user's next message. The real check stays in the
 handler. Adding a Pro command = one row in `PRO_COMMANDS`; `tests/test_menu.py`
 asserts every listed command is actually registered.
+
+`sync_menu_button()` in the same file is the blue Mini App button, set per chat the
+same way and for the same reason — and it is decoration too (see the web panel section).
+It is called on `/start` for **everyone**, not just admins, so a demotion that happened
+while the bot was down still removes the button on the next `/start`. With `WEB_APP_URL`
+empty it does nothing at all, so a deployment without a domain behaves exactly as before.
 
 ### Telegram limits worth knowing here
 

@@ -15,7 +15,7 @@ from core.config import (
     MAX_ACTIVE_REMINDERS, REMINDER_MAX_LEN, REMINDER_REPEATS,
     REMINDER_MAX_AHEAD_DAYS,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
-    INACTIVE_STEPS,
+    INACTIVE_STEPS, ACTIVITY_TYPES,
 )
 
 load_dotenv()
@@ -581,6 +581,43 @@ async def get_admins() -> List[Dict[str, Any]]:
                 'created_at': format_dt_for_tashkent(created_raw)
             })
         return result
+
+
+@with_db_retry()
+async def get_panel_admins() -> List[Dict[str, Any]]:
+    """Panelga kira oladigan HAMMA odam — adminlar VA superadminlar.
+
+    ⚠️ `get_admins()` faqat `admins` jadvalini o'qiydi, superadmin esa
+    alohida jadvalda turadi. Jonli bazada (2026-09-15) `admins` BO'SH,
+    superadmin esa bitta — ya'ni `get_admins()` ga tayangan ro'yxat
+    «panelga hech kim kira olmaydi» deb ko'rsatgan bo'lardi, holbuki
+    bitta odam kira oladi. Huquq tekshiruvi (`web.huquq_bormi`)
+    ikkalasini ham ko'radi, shuning uchun ro'yxat ham ko'rishi shart —
+    aks holda ekran «kim kira oladi» degan savolga YOLG'ON javob beradi.
+
+    `username` avval `admins` dan, bo'lmasa `users` dan olinadi: admin
+    qo'shilgandan keyin nomini o'zgartirgan bo'lishi mumkin.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT COALESCE(a.user_id, s.user_id) AS user_id,
+                      COALESCE(a.username, u.username)  AS username,
+                      a.created_at,
+                      (s.user_id IS NOT NULL)           AS is_super
+                 FROM admins a
+                 FULL OUTER JOIN superadmins s ON s.user_id = a.user_id
+                 LEFT JOIN users u ON u.user_id = COALESCE(a.user_id, s.user_id)
+                ORDER BY is_super DESC, user_id''')
+        return [{
+            'user_id': r['user_id'],
+            'username': r['username'],
+            'display_name': f"@{r['username']}" if r['username'] else f"ID:{r['user_id']}",
+            'created_at': format_dt_for_tashkent(r['created_at']) if r['created_at'] else None,
+            'is_super': bool(r['is_super']),
+        } for r in rows]
 
 
 @with_db_retry()
@@ -2143,6 +2180,57 @@ async def clear_referral_config(user_id: int) -> None:
 #  PROMOKODLAR
 # ═══════════════════════════════════════════════════════════════════
 
+# Admin ham xato yozadi, va promokod — pul. `KOD 3000 100000 -` deb
+# qo'yilsa bitta kod bilan 100 000 odam 8 yillik Pro olardi.
+PROMO_KOD_MAX = 32
+PROMO_KUN_MAX = 3650
+PROMO_SONI_MAX = 100000
+
+
+def clean_promo_spec(code, days, max_uses, expires_raw):
+    """Promokod parametrlarini tekshiradi. Sof funksiya — testda tekshiriladi.
+
+    Qaytaradi: `(spec, xato)`. `spec` — `(KOD, kun, soni, expires_at|None)`,
+    `xato` — bo'sh satr yoki sabab.
+
+    ⚠️ Bu tekshiruvlar ILGARI `handlers/admin/promo.py` ichida, handler
+    tanasida yozilgandi. Web panel ham aynan shu qoidalarga muhtoj, va
+    ularni u yerda QAYTA yozish — `ACTION_LABELS` bilan bo'lgan xatoning
+    aynan o'zi: ikki nusxa, ikkalasi ham asta-sekin ajraladi va bir kuni
+    bir ekran qabul qilgan kodni ikkinchisi rad etadi. Shuning uchun
+    qoida `clean_referral_config` yonida, bitta joyda turadi.
+
+    `expires_raw`: `YYYY-MM-DD`, yoki `"-"`/bo'sh — muddatsiz.
+    """
+    kod = str(code or "").strip()
+    if not kod or not kod.replace("_", "").isalnum() or len(kod) > PROMO_KOD_MAX:
+        return None, (f"Kod faqat harf/raqam/pastki chiziqdan iborat va "
+                      f"{PROMO_KOD_MAX} belgidan qisqa bo'lsin.")
+    try:
+        kun, soni = int(days), int(max_uses)
+    except (TypeError, ValueError):
+        return None, "KUN va MAX butun son bo'lishi kerak."
+    if isinstance(days, bool) or isinstance(max_uses, bool):
+        return None, "KUN va MAX butun son bo'lishi kerak."
+    if not 0 < kun <= PROMO_KUN_MAX:
+        return None, f"KUN 1 dan {PROMO_KUN_MAX} gacha bo'lsin."
+    if not 0 < soni <= PROMO_SONI_MAX:
+        return None, f"MAX 1 dan {PROMO_SONI_MAX} gacha bo'lsin."
+
+    expires_at = None
+    xom = str(expires_raw or "").strip()
+    if xom and xom != "-":
+        try:
+            expires_at = datetime.strptime(xom, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None, "MUDDAT formati: YYYY-MM-DD yoki «-»."
+        # Kechagi sana bilan yaratilgan kod — darhol o'lik kod: admin uni
+        # ro'yxatda «Faol» deb ko'radi, foydalanuvchi esa ishlatolmaydi.
+        if expires_at <= datetime.now(timezone.utc):
+            return None, "Muddat kelajakda bo'lishi kerak."
+    return (kod.upper(), kun, soni, expires_at), ""
+
+
 @with_db_retry()
 async def create_promo_code(code: str, days: int, max_uses: int,
                             expires_at, created_by: int) -> bool:
@@ -2746,6 +2834,213 @@ async def mark_broadcast_sent(broadcast_id: int) -> None:
             broadcast_id)
 
 
+# ═══════════════════════════════════════════════════════════════════
+#  STATISTIKA — TELEGRAM EKRANI VA WEB PANEL UCHUN BITTA MANBA
+# ═══════════════════════════════════════════════════════════════════
+# ⚠️ Bu ikki funksiya `handlers/admin/stats.py` dan KO'CHIRILDI (REJA
+# 3.2). Sabab: web panel o'sha raqamlarni ko'rsatadi, va so'rovlar
+# handler ichida qolsa web ularni qayta yozishga majbur bo'lardi —
+# ikki nusxa, bittasi o'zgarganda ikkinchisi jimgina eskirardi va
+# "panelda 100, Telegramda 103" degan holat chiqardi. Endi ikkala
+# ekran ham AYNAN shu satrlardan o'qiydi.
+
+# Adminlar hamma sanoqdan chiqarib tashlanadi — ular bot mijozi emas.
+# ⚠️ Ikkala so'rovda ham BIR XIL bo'lishi shart: ilgari `total_users`
+# ularni chiqarib, tarif sanog'i chiqarmagan va ekranda "jami 100,
+# free+pro+premium = 103" chiqib, admin raqamlarga ishonmay qolgan edi.
+_ODDIY_USER = """
+      AND user_id NOT IN (SELECT user_id FROM admins)
+      AND user_id NOT IN (SELECT user_id FROM superadmins)
+"""
+
+
+@with_db_retry()
+async def top_users(days: int, limit: int) -> List[Dict[str, Any]]:
+    """Eng faol foydalanuvchilar — `days` kun ichida, `limit` tagacha.
+
+    `days` va `limit` SQL ga PARAMETR bo'lib ketadi, satr sifatida
+    yopishtirilmaydi. Hozir ikkalasini ham kod beradi, lekin web
+    panelda ular URL dan kelishi mumkin — o'sha kun uchun qoldirilgan
+    himoya (model chiqargan ma'lumot kabi, bu ham ishonchsiz chegara).
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(f'''
+            SELECT user_id, username, COUNT(*) AS activity_count
+            FROM user_activity
+            WHERE activity_time >= NOW() - ($1 || ' days')::interval
+              {_ODDIY_USER}
+            GROUP BY user_id, username
+            ORDER BY activity_count DESC
+            LIMIT $2
+        ''', str(int(days)), int(limit))
+        return [dict(r) for r in rows]
+
+
+# Tarif filtrlari — UCHALASI KESISHMAYDI, ya'ni pro + free + ban = jami.
+# Bloklangan odam «bepul» sanog'ida ham turgan bo'lsa, chiplardagi
+# sonlar qo'shilganda jamidan oshib ketardi va admin raqamlarga
+# ishonmay qolardi (bu xato bir marta bo'lgan — `_ODDIY_USER` izohiga
+# qarang).
+_TARIF_SHARTI = """
+    CASE $3::text
+      WHEN 'pro'  THEN (is_banned IS NOT TRUE AND COALESCE(plan_type,'free') <> 'free')
+      WHEN 'free' THEN (is_banned IS NOT TRUE AND COALESCE(plan_type,'free') = 'free')
+      WHEN 'ban'  THEN is_banned = TRUE
+      ELSE TRUE
+    END
+"""
+
+
+@with_db_retry()
+async def list_users(q: Optional[str] = None, tarif: str = "all",
+                     limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+    """Web paneldagi foydalanuvchilar jadvali: qidiruv + filtr + sahifa.
+
+    Nega yangi funksiya: `get_all_users()` da na chegara, na filtr bor —
+    u HAMMA qatorni tortadi, `search_users()` esa faqat username
+    bo'yicha qidiradi va sahifalamaydi. Sahifani Python tomonda kesish
+    har bosilganda butun jadvalni o'qish degani.
+
+    ⚠️ `q` — ADMIN yozgan matn, ya'ni ishonchsiz. U SQL ga PARAMETR
+    bo'lib ketadi, satrga yopishtirilmaydi.
+
+    Adminlar ro'yxatda yo'q (`_ODDIY_USER`) — panelning boshqa hamma
+    sanog'i ham ularsiz, ikki xil «jami» ko'rsatish mumkin emas.
+    Adminlar Sozlamalar → Adminlar ekranida boshqariladi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+
+    frag = (q or "").strip().lstrip("@") or None
+    # Faqat raqamdan iborat so'rov — ID bo'lishi mumkin. `int()` ni
+    # ataylab cheklaymiz: BIGINT dan katta son so'rovni yiqitardi.
+    uid = None
+    if frag and frag.isdigit() and len(frag) <= 18:
+        uid = int(frag)
+
+    qidiruv = """
+        AND ($1::text IS NULL
+             OR username ILIKE '%' || $1 || '%'
+             OR ($2::bigint IS NOT NULL AND user_id = $2))
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(f'''
+            SELECT user_id, username, plan_type, is_banned, premium_until,
+                   created_at, last_seen
+            FROM users
+            WHERE is_active = TRUE {_ODDIY_USER} {qidiruv}
+              AND {_TARIF_SHARTI}
+            ORDER BY last_seen DESC NULLS LAST, user_id
+            LIMIT $4 OFFSET $5
+        ''', frag, uid, tarif, int(limit), int(offset))
+
+        jami = await conn.fetchval(f'''
+            SELECT COUNT(*) FROM users
+            WHERE is_active = TRUE {_ODDIY_USER} {qidiruv}
+              AND {_TARIF_SHARTI}
+        ''', frag, uid, tarif)
+
+        # Chip yorliqlaridagi sonlar — qidiruvdan QAT'I NAZAR: ular
+        # «shu toifada nechta bor» degan ma'noni bildiradi.
+        sanoq = await conn.fetchrow(f'''
+            SELECT COUNT(*) AS all,
+                   COUNT(*) FILTER (WHERE is_banned IS NOT TRUE
+                                      AND COALESCE(plan_type,'free') <> 'free') AS pro,
+                   COUNT(*) FILTER (WHERE is_banned IS NOT TRUE
+                                      AND COALESCE(plan_type,'free') = 'free') AS free,
+                   COUNT(*) FILTER (WHERE is_banned = TRUE) AS ban
+            FROM users WHERE is_active = TRUE {_ODDIY_USER}
+        ''')
+        return {
+            "rows": [dict(r) for r in rows],
+            "jami": jami or 0,
+            "sanoq": dict(sanoq) if sanoq else {},
+        }
+
+
+@with_db_retry()
+async def activity_stats() -> Dict[str, Any]:
+    """Statistika ekranining hamma raqami — bitta ulanishda.
+
+    Qaytaradi: `total_users`, tarif sanoqlari, eng faollar, oxirgi
+    foydalanuvchi, 7 kunlik kunlik faollik va 30 kunlik turlar kesimi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        total_users = await conn.fetchval(f'''
+            SELECT COUNT(*) FROM users
+            WHERE is_active = TRUE {_ODDIY_USER}
+        ''')
+
+        plan_counts = await conn.fetchrow(f'''
+            SELECT
+                COUNT(*) FILTER (WHERE plan_type = 'free' OR plan_type IS NULL) AS free_count,
+                COUNT(*) FILTER (WHERE plan_type = 'pro') AS pro_count,
+                COUNT(*) FILTER (WHERE plan_type IS NOT NULL
+                                   AND plan_type NOT IN ('free', 'pro')) AS premium_count
+            FROM users
+            WHERE is_active = TRUE {_ODDIY_USER}
+        ''')
+
+        most_active_30days = await conn.fetchrow(f'''
+            SELECT user_id, username, COUNT(*) AS activity_count
+            FROM user_activity
+            WHERE activity_time >= NOW() - INTERVAL '30 days' {_ODDIY_USER}
+            GROUP BY user_id, username ORDER BY activity_count DESC LIMIT 1
+        ''')
+
+        most_active_today = await conn.fetchrow(f'''
+            SELECT user_id, username, COUNT(*) AS activity_count
+            FROM user_activity
+            WHERE activity_time >= CURRENT_DATE {_ODDIY_USER}
+            GROUP BY user_id, username ORDER BY activity_count DESC LIMIT 1
+        ''')
+
+        last_user = await conn.fetchrow(f'''
+            SELECT user_id, username, created_at FROM users
+            WHERE TRUE {_ODDIY_USER}
+            ORDER BY created_at DESC LIMIT 1
+        ''')
+
+        # Kun chegarasi Toshkent bo'yicha — server UTC da ishlaydi, ya'ni
+        # aks holda "bugun" soat 05:00 da boshlanardi.
+        daily_activity = await conn.fetch('''
+            SELECT (activity_time AT TIME ZONE 'Asia/Tashkent')::date AS day,
+                   COUNT(*) AS total, COUNT(DISTINCT user_id) AS uniq_users
+            FROM user_activity
+            WHERE activity_time >= NOW() - INTERVAL '7 days'
+            GROUP BY day ORDER BY day
+        ''')
+
+        # Turlar ro'yxati `core/config.py::ACTIVITY_TYPES` dan keladi va
+        # SQL ga PARAMETR bo'lib uzatiladi — satrga yopishtirilmaydi.
+        type_breakdown = await conn.fetch('''
+            SELECT activity_type, COUNT(*) AS cnt
+            FROM user_activity
+            WHERE activity_time >= NOW() - INTERVAL '30 days'
+              AND activity_type = ANY($1)
+            GROUP BY activity_type ORDER BY cnt DESC
+        ''', list(ACTIVITY_TYPES))
+
+        return {
+            'total_users': total_users or 0,
+            'free_count': (plan_counts or {}).get('free_count', 0) or 0,
+            'pro_count': (plan_counts or {}).get('pro_count', 0) or 0,
+            'premium_count': (plan_counts or {}).get('premium_count', 0) or 0,
+            'most_active_30days': dict(most_active_30days) if most_active_30days else None,
+            'most_active_today': dict(most_active_today) if most_active_today else None,
+            'last_user': dict(last_user) if last_user else None,
+            'daily_activity': [dict(r) for r in daily_activity],
+            'type_breakdown': [(r['activity_type'], r['cnt']) for r in type_breakdown],
+        }
+
+
 @with_db_retry()
 async def daily_report_stats() -> Dict[str, Any]:
     """Kunlik avtomatik hisobot uchun hamma raqam — bitta so'rovda."""
@@ -2772,12 +3067,32 @@ async def daily_report_stats() -> Dict[str, Any]:
               (SELECT COUNT(*) FROM error_log
                  WHERE created_at >= NOW() - INTERVAL '24 hours') AS errors,
               (SELECT COUNT(*) FROM users
-                 WHERE plan_type <> 'free' AND is_active = TRUE) AS pro_users
+                 WHERE plan_type <> 'free' AND is_active = TRUE) AS pro_users,
+              -- ⬇️ Uchtasi web paneldagi KPI kartochkalari uchun (REJA
+              -- 6.1). Kunlik hisobot ularni o'qimaydi — ortiqcha kalit
+              -- unga zarar qilmaydi, lekin ALOHIDA so'rov qilish
+              -- kerak bo'lardi va raqamlar bir-biriga mos kelmasligi
+              -- mumkin edi (ikki so'rov — ikki lahza).
+              (SELECT COUNT(*) FROM user_activity
+                 WHERE activity_time >= NOW() - INTERVAL '48 hours'
+                   AND activity_time <  NOW() - INTERVAL '24 hours') AS prev_actions,
+              (SELECT COUNT(DISTINCT user_id) FROM user_activity
+                 WHERE activity_time >= NOW() - INTERVAL '7 days') AS active_7d,
+              (SELECT COUNT(*) FROM users
+                 WHERE is_active = TRUE AND premium_until IS NOT NULL
+                   AND premium_until BETWEEN NOW()
+                                         AND NOW() + INTERVAL '7 days') AS pro_expiring
             ''')
+        # ⚠️ Filtr SHU YERDA, LIMIT dan oldin. Filtrsiz ro'yxatga
+        # `start` ham tushardi — u so'rov emas, buyruq — va «eng ko'p
+        # ishlatilgani» ro'yxatining bir o'rnini bekorga egallardi.
+        # Keyin filtrlab tashlasak top-5 goh 4 ta bo'lib qolardi.
         top = await conn.fetch(
             '''SELECT activity_type, COUNT(*) AS cnt FROM user_activity
                WHERE activity_time >= NOW() - INTERVAL '24 hours'
-               GROUP BY activity_type ORDER BY cnt DESC LIMIT 5''')
+                 AND activity_type = ANY($1)
+               GROUP BY activity_type ORDER BY cnt DESC LIMIT 5''',
+            list(ACTIVITY_TYPES))
         out = dict(row) if row else {}
         out['top_types'] = [(r['activity_type'], r['cnt']) for r in top]
         return out

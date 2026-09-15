@@ -1,21 +1,29 @@
-"""Admin panelning yangi bo'limlari: limitlar, hisobot, jurnal, rejali tarqatma.
+"""Limitlar va kunlik hisobot — botda qolgan mantiq.
 
-DB kerak bo'lgan joylar soxta funksiya bilan almashtiriladi — bu yerda
-SQL emas, mantiq tekshiriladi (raqamlar to'g'ri joyga tushishi, limit
-o'zgartirishi haqiqatan ta'sir qilishi, ekran matni buzilmasligi).
+⚠️ Bu faylda ILGARI jurnal ekranlarining (audit, xatolar, daromad,
+limit tugmalari) tekshiruvlari ham bor edi. 7-bosqichda o'sha ekranlar
+webga ko'chdi va bu yerdan o'chirildi — ularning o'rnini
+`tests/test_web_journal.py` va `tests/test_web_settings.py` egalladi.
+Ikki joyda bir xil narsani tekshirish qo'riqchi emas, yuk.
+
+Qolgani ATAYLAB qoldi:
+  * 1-6 — `daily_limit()` limitning YAGONA o'qish nuqtasi ekani. Bu
+    config mantig'i, hech qaysi ekranga tegishli emas: kvota ham,
+    fayl sanoqlari ham, panel ham shundan oladi.
+  * 7-11 — kunlik hisobot matni. Hisobot botda qoladi (REJA 2): u
+    push, ya'ni panelga kirmasdan keladi.
+  * 12-13 — tuzilish qo'riqchilari.
 
 Ishga tushirish:  PYTHONIOENCODING=utf-8 python tests/test_admin_extras.py
 """
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import config  # noqa: E402
-from db import database as db  # noqa: E402
-from handlers.admin import journal, daily  # noqa: E402
+from handlers.admin import daily  # noqa: E402
 
 
 def check(n, nom, shart):
@@ -25,7 +33,7 @@ def check(n, nom, shart):
 
 # ── 1. Limit o'zgartirish HAQIQATAN ta'sir qiladi ────────────────
 # `daily_limit()` — limitning yagona o'qish nuqtasi: kvota ham, admin
-# ekrani ham shundan oladi. Override ishlamasa, panel "o'zgardi" deb
+# paneli ham shundan oladi. Override ishlamasa, panel "o'zgardi" deb
 # ko'rsatib, aslida eski limit ishlab turardi.
 asl_free = config.daily_limit("free", "points")
 config.apply_limit_overrides({"free": {"points": 77}})
@@ -47,8 +55,13 @@ check(5, "yaroqsiz qiymat e'tiborsiz qoldiriladi",
       config.daily_limit("free", "points") == asl_free)
 config.apply_limit_overrides({})
 
-# `premium` cheksiz — u ekranda umuman ko'rsatilmaydi.
-check(6, "cheksiz tarif limit ekranida yo'q", "premium" not in journal.LIMIT_PLANS)
+# `premium` cheksiz — u o'zgartirish jadvalida umuman ko'rsatilmaydi.
+# ⚠️ Manba ko'chdi: ilgari `handlers/admin/journal.py::LIMIT_PLANS` edi,
+# endi web panelning `LIMIT_TARIFLARI` si — jadval faqat o'sha yerda.
+os.environ.setdefault("BOT_TOKEN", "123456:TEST-TOKEN-FOR-ADMIN-EXTRAS")
+from web import api as web_api  # noqa: E402
+check(6, "cheksiz tarif limit jadvalida yo'q",
+      "premium" not in web_api.LIMIT_TARIFLARI)
 
 
 # ── 2. Kunlik hisobot matni ──────────────────────────────────────
@@ -70,97 +83,51 @@ check(10, "xato bo'lsa chiqadi",
 check(11, "bo'sh ma'lumotda ham yiqilmaydi", daily.build_report({}))
 
 
-# ── 3. Jurnal ekranlari (DB soxta) ───────────────────────────────
-async def _sinov_ekranlar():
-    yozuv = {
-        "id": 1, "admin_id": 5, "action": "ban", "target_user_id": 9,
-        "details": "sabab: spam", "action_time": datetime.now(timezone.utc),
-        "admin_username": "boss", "target_username": "spammer",
-    }
-    db.get_admin_audit = lambda *a, **k: _q([yozuv])
-    db.count_admin_audit = lambda *a, **k: _q(1)
-    matn, kb = await journal._render_audit(0)
-    check(12, "audit yozuvi o'qiladigan ko'rinishda",
-          "🚫 Ban" in matn and "@boss" in matn and "@spammer" in matn)
-    check(13, "audit ekranida orqaga tugmasi bor",
-          any("jr:menu" in b.callback_data for row in kb.inline_keyboard for b in row))
-
-    db.recent_errors = lambda *a, **k: _q([{
-        "id": 1, "kind": "timeout", "message": "<script>x</script>",
-        "user_id": 7, "created_at": datetime.now(timezone.utc)}])
-    db.error_summary = lambda *a, **k: _q(
-        {"day": 2, "week": 5, "total": 5, "users_day": 1, "kinds": [("timeout", 5)]})
-    matn, _ = await journal._render_errors(0)
-    # Xato matni foydalanuvchi yozganidan kelib chiqishi mumkin —
-    # HTML qochirilmasa butun xabar Telegram tomonidan rad etiladi.
-    check(14, "xato matni HTML sifatida qochiriladi",
-          "&lt;script&gt;" in matn and "<script>" not in matn)
-
-    db.revenue_stats = lambda *a, **k: _q({
-        "stars_today": 100, "stars_30d": 900, "stars_total": 5000,
-        "sales_30d": 9, "refunds": 1, "by_plan": [(30, 7), (90, 2)]})
-    matn, _ = await journal._render_revenue()
-    check(15, "o'rtacha chek to'g'ri hisoblanadi", "100.0" in matn)
-    check(16, "qaytarilganlar ko'rsatiladi", "Qaytarilgan" in matn)
-
-    db.get_limit_overrides = lambda *a, **k: _q({"free": {"points": 500}})
-    matn, kb = await journal._render_limits()
-    check(17, "o'zgartirilgan limit yulduzcha bilan belgilanadi", "500" in matn and "⭐" in matn)
-    check(18, "har bir limit uchun tugma bor",
-          sum(1 for row in kb.inline_keyboard for b in row
-              if b.callback_data.startswith("jr:lim:")) == 8)
-
-
-def _q(value):
-    async def _inner():
-        return value
-    return _inner()
-
-
-asyncio.run(_sinov_ekranlar())
-
-
-# ── 4. HIMOYA HAMMA JOYDA BIR XIL KO'RINISHDA ────────────────────
+# ── 3. HIMOYA HAMMA JOYDA BIR XIL KO'RINISHDA ────────────────────
 # ⚠️ `remove_admin_callback` da qo'riqchi qatori YO'Q edi. Amalda teshik
 # ham yo'q edi — himoya `_check_can_remove_admin()` ichida, BOSHQACHA
 # yo'l bilan qilingan edi. Lekin yagona joyda boshqacha qilingan himoya
-# xavfli: o'sha funksiya kelajakda o'zgarsa, teshik JIMGINA ochilardi va
-# buni hech kim payqamasdi.
+# xavfli: o'sha funksiya kelajakda o'zgarsa, teshik JIMGINA ochilardi.
+# (O'sha ekran endi webda, qoida esa `common.py` da — ikkala ekran ham
+# aynan o'sha funksiyani chaqiradi.)
 import pathlib  # noqa: E402
 import re  # noqa: E402
 
-ADMIN_DIR = pathlib.Path(__file__).resolve().parent.parent / "handlers" / "admin"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+ADMIN_DIR = ROOT / "handlers" / "admin"
 # ⚠️ Bular ATAYLAB ochiq — oddiy foydalanuvchi ham ishlatadi
 # (CLAUDE.md: admin tekshiruvi filtrda emas, har bir handler ichida).
 OCHIQ = {"report_callback", "process_report_message",
          "require_admin_or_deny_query"}
 
-# `_` bilan boshlanadigan nom — ichki yordamchi, u ro'yxatdan O'TMAYDI va
-# qo'riqlangan handler ichidan chaqiriladi (`_confirm_screen`,
-# `_show_user_payments`, `_do_refund` — uchalasi tekshirildi). Ro'yxatga
-# tushishi mumkin bo'lgan KIRISH nuqtalari `_` siz nomlanadi; agar
-# kimdir `_` li funksiyani register qilsa, buni test_admin_registry
-# ushlaydi.
 qo_riqsiz = []
+topilgan = 0
 for fayl in sorted(ADMIN_DIR.glob("*.py")):
     src = fayl.read_text(encoding="utf-8")
     for m in re.finditer(r"^async def (\w+)\(query: CallbackQuery", src, re.M):
         nom = m.group(1)
         if nom in OCHIQ or nom.startswith("_"):
             continue
+        topilgan += 1
         if "require_admin_or_deny_query" not in src[m.end():m.end() + 700]:
             qo_riqsiz.append(f"{fayl.name}::{nom}")
 
-check(19, f"har bir admin callback qo'riqlangan ({len(OCHIQ)} tasi ataylab ochiq)",
-      not qo_riqsiz)
+check(12, f"har bir admin callback qo'riqlangan ({topilgan} ta tekshirildi)",
+      not qo_riqsiz and topilgan >= 10)
 
-# ── 5. IKKI SO'ROV BIR XIL TO'PLAMNI SANAYDI ─────────────────────
+# ── 4. IKKI SO'ROV BIR XIL TO'PLAMNI SANAYDI ─────────────────────
 # Ekranda "jami 100 user" turib, free + pro + premium = 103 chiqardi:
 # biri adminlarni chiqarardi, ikkinchisi yo'q. Admin raqamlarga
 # ishonmay qo'ysa, butun statistika ekranining ma'nosi qolmaydi.
-_stats = (ADMIN_DIR / "stats.py").read_text(encoding="utf-8")
-_tana = _stats.split("async def handle_users_command")[1].split("async def ")[0]
-check(20, "jami va tarif bo'yicha sanoq bir xil to'plamni sanaydi",
-      _tana.count("NOT IN (SELECT user_id FROM admins)") >= 4)
+#
+# ⚠️ Shart qo'lda takrorlanmaydi — `_ODDIY_USER` o'zgaruvchisida turadi
+# va kerak joyga qo'yiladi, ya'ni "bittasida bor, ikkinchisida yo'q"
+# holati tuzilish jihatidan imkonsiz. Test shu tuzilishni qo'riqlaydi.
+_db = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+_fn = _db.split("async def activity_stats")[1].split("\nasync def ")[0]
+check(13, "jami va tarif bo'yicha sanoq bir xil to'plamni sanaydi",
+      "_ODDIY_USER = " in _db
+      and _db.count("NOT IN (SELECT user_id FROM admins)") == 1
+      and _fn.count("{_ODDIY_USER}") >= 4)
 
-print("\nHammasi o'tdi: 20/20")
+print("\nHammasi o'tdi: 13/13")
