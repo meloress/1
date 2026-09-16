@@ -94,11 +94,11 @@ except ImportError:
     def pick_reasoning_effort(text: str, force_deep: bool = False) -> str:
         return "low"
 
-from core.loader import openai_client, logger
+from core.loader import openai_client, logger, bot
 from core.memory import recent_sent_images, remember_sent_images, recent_location
 from services.places import (find_nearby, format_places, clean_categories,
                              PlacesUnavailable, NEARBY_RADIUS_DEFAULT)
-from db.history import update_chat_history
+from db.history import update_chat_history, get_chat_history
 
 # TPM (daqiqadagi token) limitiga urilganda qancha kutiladi. OpenAI xato
 # matnida odatda "try again in 1-6s" deydi, shuning uchun 6 soniya deyarli
@@ -139,12 +139,123 @@ async def safe_update_history(chat_id: int, content: str, role: str = "user",
     if not content:
         return
     try:
-        await update_chat_history(chat_id, content, role=role,
-                                  thread_id=thread_id)
+        jami = await update_chat_history(chat_id, content, role=role,
+                                         thread_id=thread_id)
     except Exception as e:
         # Xabar HECH QAYERGA saqlanmagani keyingi javoblarda kontekst
         # yo'qolishiga bevosita olib keladi, shuning uchun warning.
         logger.warning(f"[Tarix yozish xatosi] chat={chat_id}, role={role}: {e}")
+        return
+
+    # Mavzuga nom — birinchi javobdan keyin, fon vazifasida. Javob buni
+    # kutib turmaydi.
+    if nomlash_kerakmi(chat_id, thread_id, role, jami):
+        savol = await _mavzu_savoli(chat_id, thread_id)
+        if savol:
+            asyncio.create_task(nomla_mavzu(chat_id, thread_id, savol))
+
+
+# --------------------------------------------------
+# MAVZUGA (TOPIC) NOM QO'YISH
+# --------------------------------------------------
+# ⚠️ BOT MAVZUNING HOZIRGI NOMINI O'QIY OLMAYDI. Bot API'da
+# `getForumTopic` yo'q — faqat `editForumTopic` (u shaxsiy chatda ham
+# ishlaydi, hujjatda ayni shunday yozilgan). Ya'ni bot faqat YOZA oladi,
+# foydalanuvchi qo'ygan nomni ko'rmaydi. Shuning uchun nom FAQAT suhbat
+# boshida qo'yiladi va keyin unga qayta tegilmaydi — aks holda har
+# xabarda odamning o'z nomi ustidan yozilaverardi.
+_MAVZU_NOM_MAX = 48
+
+_MAVZU_NOM_PROMPT = (
+    "Siz suhbatga sarlavha qo'yasiz. Foydalanuvchining birinchi xabari "
+    "berilgan — o'sha suhbat nima haqida ekanini bildiradigan 2-4 so'zli "
+    "sarlavha yozing.\n\n"
+    "QOIDALAR:\n"
+    "- Foydalanuvchi qaysi tilda yozgan bo'lsa, sarlavha ham o'sha tilda.\n"
+    "- Faqat mavzuning o'zi: «Python ro'yxatlari», «Toshkent ob-havosi».\n"
+    "- Tirnoq, nuqta, emoji va «Mavzu:» kabi muqaddima YO'Q.\n"
+    f"- {_MAVZU_NOM_MAX} belgidan oshmasin.\n"
+    "- Faqat sarlavhaning o'zini yozing, boshqa hech nima."
+)
+
+
+def nomlash_kerakmi(chat_id: int, thread_id: int, role: str,
+                    jami: int) -> bool:
+    """Shu yozuvdan keyin mavzuga nom qo'yiladimi?
+
+    Shartlar ataylab qattiq:
+    - `thread_id` 0 dan farqli — ya'ni haqiqatan mavzu ichidamiz
+      (mavzusiz chatda ham, guruh/guest yo'lida ham 0 bo'ladi);
+    - `chat_id` musbat — faqat shaxsiy chat, guruhda botning huquqi yo'q;
+    - yozuv BOTNIKI — savolga emas, tayyor javobdan keyin nomlaymiz;
+    - suhbatda 3 tadan ko'p bo'lmagan qator. Bot javobi juft raqamga
+      tushadi (1-savol, 2-javob), lekin debouncergacha ikkita xabar
+      yetib kelsa 3 bo'ladi. Shu sababli chegara 3 — va aynan shuning
+      uchun bu shart bir suhbatda BIR MARTADAN ortiq bajarilmaydi
+      (keyingi javob eng kamida 4-qator).
+    """
+    return bool(thread_id) and chat_id > 0 and role == "assistant" and jami <= 3
+
+
+def _nom_tozala(matn: str) -> str:
+    """Model javobini Telegram qabul qiladigan nomga aylantiradi."""
+    satr = (matn or "").strip().splitlines()
+    if not satr:
+        return ""
+    nom = satr[0].strip().strip('"\'«»“”').strip()
+    # «Mavzu: ...» kabi muqaddimani prompt taqiqlaydi, lekin taqiq
+    # kafolat emas — model baribir yozsa, kesib tashlaymiz.
+    for old in ("Mavzu:", "Sarlavha:", "Title:"):
+        if nom.lower().startswith(old.lower()):
+            nom = nom[len(old):].strip()
+    return nom[:_MAVZU_NOM_MAX].rstrip(" .,:;-—")
+
+
+async def _mavzu_savoli(chat_id: int, thread_id: int) -> str:
+    """Suhbatdagi birinchi foydalanuvchi xabari — nom shunga qo'yiladi.
+
+    Kesh allaqachon to'la (hozirgina yozdik), shuning uchun bu baza
+    so'rovi emas.
+    """
+    try:
+        tarix = await get_chat_history(chat_id, thread_id=thread_id)
+    except Exception:
+        return ""
+    for q in tarix:
+        if q.get("role") == "user":
+            return (q.get("content") or "").strip()[:800]
+    return ""
+
+
+async def nomla_mavzu(chat_id: int, thread_id: int, savol: str) -> None:
+    """Mavzuga nom qo'yadi. Hech qachon chaqiruvchiga xato qaytarmaydi.
+
+    ⚠️ HISTORY_SUMMARY_MODEL ataylab: bu mini modellar uchun ajratilgan
+    ALOHIDA bepul kvotadan yeydi (katta modellarnikidan ~10 barobar
+    katta). Bitta mavzu uchun umri davomida bitta chaqiruv.
+    """
+    try:
+        resp = await asyncio.wait_for(
+            openai_client.responses.create(
+                model=HISTORY_SUMMARY_MODEL,
+                instructions=_MAVZU_NOM_PROMPT,
+                input=[{"role": "user", "content": savol}],
+                store=False,
+            ),
+            timeout=30,
+        )
+        nom = _nom_tozala(resp.output_text or "")
+        if not nom:
+            return
+        await bot.edit_forum_topic(chat_id=chat_id,
+                                   message_thread_id=thread_id, name=nom)
+        logger.info(f"[MAVZU] chat={chat_id} mavzu={thread_id} -> «{nom}»")
+    except Exception as e:
+        # Nom qo'yilmasligi — bezak yo'qotilishi, javob emas. Telegram
+        # rad etsa (huquq yo'q, mavzu o'chirilgan) qayta urinmaymiz.
+        sabab = str(e) or type(e).__name__
+        logger.info(f"[MAVZU] nom qo'yilmadi chat={chat_id} "
+                    f"mavzu={thread_id}: {sabab}")
 
 _SUMMARY_PROMPT = (
     "Siz suhbat arxivchisisiz. Quyida bitta suhbatning ESKI qismi "

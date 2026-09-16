@@ -146,8 +146,14 @@ async def init_db():
 # XABAR QO'SHISH
 # --------------------------------------------------
 async def update_chat_history(chat_id: int, content: str, role: str = "user",
-                              thread_id: int = 0):
-    """Xabarni keshga va bazaga yozadi, eskisini qirqadi."""
+                              thread_id: int = 0) -> int:
+    """Xabarni keshga va bazaga yozadi, eskisini qirqadi.
+
+    Shu suhbatdagi JAMI qator sonini qaytaradi. Son baribir hisoblanardi
+    (qirqish chegaralari uchun), chaqiruvchi esa undan «bu suhbatning
+    boshimi?» degan savolga javob oladi — mavzuga nom qo'yish aynan
+    shunga qarab ishlaydi. Qo'shimcha so'rov yo'q.
+    """
     key = (chat_id, thread_id)
     if key not in _cache:
         _cache[key] = await _load_from_db(chat_id, thread_id=thread_id)
@@ -178,13 +184,15 @@ async def update_chat_history(chat_id: int, content: str, role: str = "user",
             f"qattiq chegaradan oshdi, xulosasiz qirqilmoqda "
             f"(xulosa yozuvchi ishlamayaptimi?)")
         await _hard_trim(chat_id, thread_id)
-        return
+        return jami
 
     # Siqish faqat to'plam yig'ilganda: 81-chi xabardan boshlab HAR
     # safar model chaqirilsa, bu bitta xabarning narxini ikki barobar
     # qilardi. Fon vazifasi — foydalanuvchi javobini kutib turmasin.
     if jami >= _STORE_LIMIT + HISTORY_SUMMARY_BATCH:
         asyncio.create_task(_compress_old(chat_id, thread_id))
+
+    return jami
 
 
 async def _hard_trim(chat_id: int, thread_id: int = 0) -> None:

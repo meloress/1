@@ -511,10 +511,31 @@ is what happens when a BotFather toggle is trusted without a live test. The spec
 thing to verify is that `sendRichMessageDraft` works inside a topic, since the whole
 streaming animation and the stop button are built on it.
 
-Topic creation, renaming and deletion are left to Telegram's own UI on purpose. There is
+Topic creation and deletion are left to Telegram's own UI on purpose. There is
 no `forum_topic_deleted` update, but nothing needs one: nobody can send into a deleted
 topic, so its rows just become unreachable. A `/suhbatlar` list was considered and
 dropped — the native topic tabs already are that list.
+
+**The bot does name a topic, once.** `editForumTopic` is allowed in a private chat (the
+Bot API says so explicitly), so after the first exchange `safe_update_history()` fires a
+background task that asks `HISTORY_SUMMARY_MODEL` for a 2-4 word title and renames the
+topic. It costs one mini-model call per topic lifetime — the mini bucket, not the big one.
+
+⛔️ **It must stay "once", and the reason is that the bot cannot read the name it is
+overwriting.** There is no `getForumTopic` in the Bot API: `editForumTopic` is write-only.
+Rename on every message and the title the *user* typed is destroyed on their next
+question. `nomlash_kerakmi()` is the whole guard — private chat, real topic, the
+assistant's own write, and at most 3 rows in the conversation. A bot reply always lands on
+an even row (question 1, answer 2), so `<= 3` fires exactly once; the 3 is there for the
+case where two messages arrive before the debounce window closes. `update_chat_history()`
+returns that row count, which it was computing anyway for the trim limits, so the check
+costs no extra query. `tests/test_topic_nom.py` check 3 is the one holding the line: it
+runs two full exchanges and asserts Telegram was called once.
+
+One consequence is deliberate: `/new` empties the topic's history, so the next exchange
+starts from row 1 and the topic is renamed again. That is the right behaviour — the
+conversation genuinely changed — but it does mean a hand-typed name does not survive
+`/new`.
 
 ### Inline mode must stay OFF — it breaks guest mode
 
