@@ -19,10 +19,16 @@ from handlers import capabilities as cap
 from core.config import BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
 
 
+class FakeUser:
+    def __init__(self, uid=777):
+        self.id = uid
+
+
 class FakeMessage:
     """send_rich() va edit_text() ni kuzatadigan soxta xabar."""
     def __init__(self, edit_ok=True):
         self.edit_ok = edit_ok
+        self.from_user = FakeUser()
         self.sent = []      # (matn, klaviatura)
         self.edited = []
 
@@ -38,9 +44,12 @@ class FakeMessage:
 
 
 class FakeQuery:
-    def __init__(self, data, message):
+    def __init__(self, data, message, is_pro=False):
         self.data = data
         self.message = message
+        # ⚠️ Tugmani BOSGAN odam — `message.from_user` emas. Guruhda u
+        # botning o'zi bo'lardi va tarif har doim noto'g'ri chiqardi.
+        self.from_user = FakeUser()
         self.answered = False
 
     async def answer(self, *a, **k):
@@ -49,6 +58,19 @@ class FakeQuery:
 
 def _all_buttons(kb):
     return [b for row in kb.inline_keyboard for b in row]
+
+
+# Baza yo'q: tarif o'qishni soxtalashtiramiz. `_tarif` ning o'z
+# try/except'i ham False qaytarardi, lekin u har chaqiruvda bazaga
+# ulanmoqchi bo'lib testni sekinlashtirardi.
+_PRO_BAYROQ = {"qiymat": False}
+
+
+async def _soxta_tarif(_user_id):
+    return _PRO_BAYROQ["qiymat"]
+
+
+cap._tarif = _soxta_tarif
 
 
 async def main():
@@ -79,7 +101,7 @@ async def main():
     with_example = [k for k, s in cap.SECTIONS.items() if s["example"]]
     assert len(with_example) >= 4, with_example
     for key in with_example:
-        body = cap._section_text(key)
+        body = cap._section_text(key, False)
         assert f"<code>{cap.SECTIONS[key]['example']}</code>" in body, key
     print(f"[3] {len(with_example)} ta bo'limda nusxalanadigan misol bor OK")
 
@@ -163,10 +185,97 @@ async def main():
     for key in cap.SECTIONS:
         eid = CUSTOM_EMOJI.get(cap.SECTIONS[key]["emoji"][0])
         assert eid, f"{key}: emoji kaliti CUSTOM_EMOJI'da yo'q"
-        assert eid in cap._section_text(key), key
+        assert eid in cap._section_text(key, False), key
     print("[11] sarlavha va tugma bir xil emojida OK")
 
-    print("\ncapabilities: barcha tekshiruvlar o'tdi (11/11).")
+    # ═══════════════════════════════════════════════════════════════
+    # 12) TABIIY SAVOL EKRANGA BORADI, AI GA EMAS
+    # ═══════════════════════════════════════════════════════════════
+    # Bu tekshiruvning sababi jonli shikoyat: «funksiyalaringni to'liq
+    # aytib o't» savoliga model har safar CHALA ro'yxat berardi — u
+    # faqat o'sha so'rovga biriktirilgan asboblarni ko'radi, ya'ni
+    # /research, /kunlik, guruh rejimi va mavzular haqida bilmaydi.
+    savol = [
+        "nima qila olasan",
+        "Nimalar qila olasan?",
+        "imkoniyatlaringni ayt",
+        "funksiyalaringni to'liq aytib o't",
+        "o‘zingdagi barcha funksiyalarni to‘liq aytib o‘t",
+        "что ты умеешь",
+        "what can you do",
+    ]
+    for t in savol:
+        assert cap.imkoniyat_savolimi(t), f"tanilmadi: {t!r}"
+
+    # ⚠️ TESKARI TOMON MUHIMROQ: topshiriqni ekran bilan javob berish
+    # ishni BAJARMASLIK bo'lardi.
+    savol_emas = [
+        "imkoniyatlaringdan foydalanib menga Toshkent haqida 7 slaydlik "
+        "prezentatsiya yasab ber, ichida rasmlar ham bo'lsin",
+        "salom",
+        "dollar kursi qancha",
+        "",
+    ]
+    for t in savol_emas:
+        assert not cap.imkoniyat_savolimi(t), f"noto'g'ri tanildi: {t!r}"
+    print(f"[12] {len(savol)} ta savol tanildi, {len(savol_emas)} ta "
+          f"topshiriq tanilmadi OK")
+
+    # ── 12b) handle_text AI ga bormasdan OLDIN tekshiradi ──────────
+    import inspect
+    from handlers import messages as msg_module
+    src = inspect.getsource(msg_module.handle_text)
+    assert "imkoniyat_savolimi" in src, (
+        "handle_text savolni tekshirmasa, u baribir modelga ketadi")
+    assert src.index("imkoniyat_savolimi") < src.index("_queue_for_ai"), (
+        "tekshiruv _queue_for_ai dan KEYIN tursa hech qachon ishlamaydi")
+    print("[12b] handle_text savolni AI ga yubormaydi OK")
+
+    # ═══════════════════════════════════════════════════════════════
+    # 13) EKRAN TARIFNI AYTADI
+    # ═══════════════════════════════════════════════════════════════
+    # Ilgari ekran tarifni umuman bilmasdi: bepul odam «rasm chizish,
+    # eslatmalar» ro'yxatini o'qib O'ZIDA ishlaydi deb o'ylardi.
+    bepul = cap._menu_text(False)
+    pro = cap._menu_text(True)
+    assert bepul != pro, "bosh ekran ikki tarifda bir xil — tarif aytilmagan"
+    assert "Bepul" in bepul and "/pro" in bepul, bepul
+    assert "Pro" in pro and "/pro" not in pro, pro
+
+    p_bepul = cap._section_text("pro", False)
+    p_pro = cap._section_text("pro", True)
+    assert "yopiq" in p_bepul, "bepul odamga Pro bo'limi ochiq ko'rinyapti"
+    assert "yopiq" not in p_pro and "ochiq" in p_pro, p_pro
+    print("[13] ekran tarifga qarab boshqacha gapiradi OK")
+
+    # ── 13b) Har bir bo'lim IKKALA tarifda ham yiqilmasdan chiziladi ─
+    # `body`/`note` endi funksiya bo'lishi mumkin — biri unutilsa
+    # TypeError faqat jonli chatda chiqardi.
+    for key in cap.SECTIONS:
+        for flag in (False, True):
+            body = cap._section_text(key, flag)
+            assert cap.SECTIONS[key]["title"] in body, (key, flag)
+    print(f"[13b] {len(cap.SECTIONS)} ta bo'lim ikkala tarifda ham chizildi OK")
+
+    # ── 13c) Bosh ekrandagi raqam ro'yxatdan olinadi ────────────────
+    # Qo'lda yozilgan raqam ro'yxat o'zgarganda jimgina yolg'on aytardi.
+    assert str(len(cap._PRO_QULF)) in bepul, bepul
+    print(f"[13c] «yana {len(cap._PRO_QULF)} ta imkoniyat» raqami "
+          f"ro'yxatdan olinadi OK")
+
+    # ═══════════════════════════════════════════════════════════════
+    # 14) YANGI BO'LIMLAR — eng ko'p yo'qotilgan imkoniyatlar
+    # ═══════════════════════════════════════════════════════════════
+    # Bularning hammasi kodda ISHLAYDI, lekin ekranda aytilmagani uchun
+    # foydalanuvchilar mavjudligini ham bilmasdi.
+    for key, kalit_soz in (("guruh", "@uzchatgptaibot"),
+                           ("joy", "Joylashuv"),
+                           ("chat", "Mavzular")):
+        assert key in cap.SECTIONS, f"'{key}' bo'limi yo'q"
+        assert kalit_soz in cap._section_text(key, False), (key, kalit_soz)
+    print("[14] guruh rejimi, joylashuv va mavzular ekranda bor OK")
+
+    print("\ncapabilities: barcha tekshiruvlar o'tdi (16/16).")
 
 
 if __name__ == "__main__":

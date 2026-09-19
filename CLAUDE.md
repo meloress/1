@@ -1007,6 +1007,33 @@ perfectly normal thing for a user to ask about and `strip_internal_names()` woul
 those answers. Cost: **+69 tokens** per round (`tiktoken`; the first draft was +89 and was
 trimmed without losing a rule). Checks 12-15 pin all of it.
 
+⛔️ **"What can you do?" must never be answered by the model.** The manifest lists
+*tools*, so the model cannot see `/research`, `/kunlik`, group (guest) mode, topics, or
+the user's plan — asked to list its abilities it filled the gap with the generic
+chatbot answer (translate, write code, do maths), and the expensive features nobody
+discovers stayed undiscovered. `handlers/capabilities.py::imkoniyat_savolimi()` catches
+the question in `handle_text` **before** the AI call and opens the existing `/help`
+screen instead: no tokens, and the list is complete by construction. Rule (3) of the
+manifest is the fallback for a phrasing the patterns miss — it now points at `/help`
+rather than asking the model to compose a list.
+
+The phrases are deliberately specific (`imkoniyatlaringni`, not `imkoniyatlaring`): the
+`-dan` form starts a real task — *"imkoniyatlaringdan foydalanib prezentatsiya yasab
+ber"* — and answering that with a help screen means not doing the work. The 120-character
+cap is the second guard. A miss is only the old behaviour, so the failure direction is
+safe.
+
+⚠️ **The screen states the reader's own plan.** It used to say "3 on free, 20 on Pro"
+everywhere, which a free user reads as *their* number, and the Pro section listed image
+generation and reminders with no indication they were locked — so people asked for them
+and were refused. `body` and `note` may now be a callable taking `is_pro`, and
+`database.pro_tarifmi()` supplies it: display only, never a gate, and its condition is
+copied from `check_and_consume_quota()` (plan ≠ free **and** not expired) because a
+screen that says "open" while the bot says "no" is the worst kind of complaint.
+`tests/test_capabilities.py` checks 12-14 hold all of it, including that every section
+renders under **both** plans — a forgotten callable would otherwise raise only in a live
+chat.
+
 ### The model can draw a real button, not describe one
 
 `[tugma: Label | https://…]` becomes `<tg-button type="url">` inside a

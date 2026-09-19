@@ -1331,6 +1331,45 @@ async def advance_scheduled_task(task_id: int, run_at: datetime,
 
 
 @with_db_retry()
+@with_db_retry()
+async def pro_tarifmi(user_id: int) -> bool:
+    """Shu odamda Pro imkoniyatlari ochiqmi — FAQAT ko'rsatish uchun.
+
+    ⚠️ Bu DARVOZA EMAS. Haqiqiy tekshiruv `check_and_consume_quota()`
+    ichida qoladi; bu yerda hech narsa sarflanmaydi va hech narsa
+    o'zgarmaydi, shuning uchun `/help` ekranini ochish kvotaga tegmaydi.
+
+    Shart o'sha funksiyadagi bilan bir xil bo'lishi SHART: tarif 'free'
+    emas VA muddati o'tmagan. Ikki joyda ikki xil shart bo'lsa, ekran
+    "Pro ochiq" deb turar, bot esa rad etardi — bu shikoyatning eng
+    yomon turi, chunki foydalanuvchi o'zini aldangandek his qiladi.
+
+    Admin ham True oladi: unga hamma narsa ochiq, va o'z ekranida
+    "yopiq" ko'rish xatoga o'xshaydi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT u.plan_type, u.premium_until,
+                   EXISTS(SELECT 1 FROM admins WHERE user_id = $1) AS is_admin,
+                   EXISTS(SELECT 1 FROM superadmins WHERE user_id = $1) AS is_super
+            FROM users u WHERE u.user_id = $1
+            """, user_id)
+
+    if row is None:
+        return False
+    if row['is_admin'] or row['is_super']:
+        return True
+    if (row['plan_type'] or 'free') == 'free':
+        return False
+    muddat = row['premium_until']
+    return muddat is None or muddat > datetime.now(timezone.utc)
+
+
 async def get_full_user_profile(user_id: int) -> Optional[Dict[str, Any]]:
     global pool
     if pool is None:
