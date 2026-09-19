@@ -83,8 +83,14 @@ check(4, "bepulda ular 'qila olaman' ro'yxatiga TUSHMAYDI",
 guest = manifest(file_task_enabled=False, image_enabled=False,
                  reminder_enabled=False, memory_enabled=False,
                  nearby_enabled=False, edit_enabled=False)
-check(5, "guest rejimda faqat qidiruv qoladi, fayl tool'i sababi bilan chiqadi",
-      guest.split("NOT available")[0].strip().endswith("internet_search.")
+# ⚠️ `open_capabilities` guest rejimda HAM qoladi va bu ataylab: «sen
+# nima qila olasan» savoli guruhda ham beriladi, va aynan guruhda
+# modelning o'z bilimi eng chalasi bo'ladi (fayl, rasm, xotira, eslatma
+# — hammasi o'chiq).
+check(5, "guest rejimda qidiruv va imkoniyatlar eshigi qoladi, "
+         "fayl tool'i sababi bilan chiqadi",
+      guest.split("NOT available")[0].strip().endswith(
+          "internet_search, open_capabilities.")
       and "start_file_task (not available in this chat type)" in guest)
 
 # ── 6. RO'YXAT SXEMADAN OLINADI (qo'lda yozilmagan) ───────────────

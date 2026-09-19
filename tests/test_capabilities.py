@@ -188,48 +188,68 @@ async def main():
         assert eid in cap._section_text(key, False), key
     print("[11] sarlavha va tugma bir xil emojida OK")
 
-    # ═══════════════════════════════════════════════════════════════
-    # 12) TABIIY SAVOL EKRANGA BORADI, AI GA EMAS
-    # ═══════════════════════════════════════════════════════════════
-    # Bu tekshiruvning sababi jonli shikoyat: «funksiyalaringni to'liq
-    # aytib o't» savoliga model har safar CHALA ro'yxat berardi — u
-    # faqat o'sha so'rovga biriktirilgan asboblarni ko'radi, ya'ni
-    # /research, /kunlik, guruh rejimi va mavzular haqida bilmaydi.
-    savol = [
-        "nima qila olasan",
-        "Nimalar qila olasan?",
-        "imkoniyatlaringni ayt",
-        "funksiyalaringni to'liq aytib o't",
-        "o‘zingdagi barcha funksiyalarni to‘liq aytib o‘t",
-        "что ты умеешь",
-        "what can you do",
-    ]
-    for t in savol:
-        assert cap.imkoniyat_savolimi(t), f"tanilmadi: {t!r}"
-
-    # ⚠️ TESKARI TOMON MUHIMROQ: topshiriqni ekran bilan javob berish
-    # ishni BAJARMASLIK bo'lardi.
-    savol_emas = [
-        "imkoniyatlaringdan foydalanib menga Toshkent haqida 7 slaydlik "
-        "prezentatsiya yasab ber, ichida rasmlar ham bo'lsin",
-        "salom",
-        "dollar kursi qancha",
-        "",
-    ]
-    for t in savol_emas:
-        assert not cap.imkoniyat_savolimi(t), f"noto'g'ri tanildi: {t!r}"
-    print(f"[12] {len(savol)} ta savol tanildi, {len(savol_emas)} ta "
-          f"topshiriq tanilmadi OK")
-
-    # ── 12b) handle_text AI ga bormasdan OLDIN tekshiradi ──────────
     import inspect
-    from handlers import messages as msg_module
-    src = inspect.getsource(msg_module.handle_text)
-    assert "imkoniyat_savolimi" in src, (
-        "handle_text savolni tekshirmasa, u baribir modelga ketadi")
-    assert src.index("imkoniyat_savolimi") < src.index("_queue_for_ai"), (
-        "tekshiruv _queue_for_ai dan KEYIN tursa hech qachon ishlamaydi")
-    print("[12b] handle_text savolni AI ga yubormaydi OK")
+    # ═══════════════════════════════════════════════════════════════
+    # 12) MODEL IMKONIYATLARNI SHU DICTDAN O'QIYDI
+    # ═══════════════════════════════════════════════════════════════
+    # Jonli shikoyat: «funksiyalaringni to'liq aytib o't» savoliga model
+    # har safar chala ro'yxat berardi — tarjima, kod, matematika, ya'ni
+    # har qanday chatbotda bor narsalar. Sababi: model FAQAT o'sha
+    # so'rovga biriktirilgan asboblarni ko'radi, /research, /kunlik,
+    # guruh rejimi va mavzular esa asbob emas.
+    #
+    # Yechim ro'yxatni ikkinchi marta yozish EMAS (CLAUDE.md, «Five
+    # label maps»: ikki nusxaning biri ALBATTA eskiradi) — model ham,
+    # ekran ham AYNAN shu SECTIONS dan o'qiydi.
+    import services.ai as ai_module
+
+    matn = cap.model_uchun(False)
+    for key, sec in cap.SECTIONS.items():
+        assert sec["title"] in matn, f"'{key}' modelga berilmayapti"
+    assert "<" not in matn and ">" not in matn, (
+        "HTML teglari modelga ketyapti — token yeydi va javobga "
+        "sirqib chiqishi mumkin")
+    print(f"[12] {len(cap.SECTIONS)} ta bo'lim modelga to'liq beriladi OK")
+
+    # ── 12b) Tarif modelga AYTILADI ────────────────────────────────
+    # Aks holda model bepul odamga «rasm chizib beraman» deb va'da
+    # berardi — bu va'da bajarilmaydi va shikoyatga aylanadi.
+    bepul_matn = cap.model_uchun(False)
+    pro_matn = cap.model_uchun(True)
+    assert bepul_matn != pro_matn
+    assert "ISHLAMAYDI" in bepul_matn, bepul_matn[:300]
+    assert "ISHLAMAYDI" not in pro_matn, pro_matn[:300]
+    print("[12b] modelga foydalanuvchining tarifi aytiladi OK")
+
+    # ── 12c) Eshik asbobi bor, arzon va ro'yxatdan o'tgan ──────────
+    from core.config import INTERNAL_TOOL_NAMES
+    eshik = ai_module._IMKONIYAT_TOOL
+    assert eshik["name"] == "open_capabilities"
+    assert eshik["parameters"]["properties"] == {}, (
+        "eshik argumentsiz bo'lishi kerak — har raundda to'lanadi")
+    # ⚠️ Nom INTERNAL_TOOL_NAMES da bo'lmasa strip_internal_names() uni
+    # tozalamaydi va model asbob nomini foydalanuvchiga aytib qo'yadi.
+    assert "open_capabilities" in INTERNAL_TOOL_NAMES
+    # Eshik qimmat matndan sezilarli arzon bo'lishi SHART — butun
+    # ikki bosqichli naqshning ma'nosi shunda.
+    assert len(eshik["description"]) < len(matn) / 3, (
+        len(eshik["description"]), len(matn))
+    print(f"[12c] eshik argumentsiz, {len(eshik['description'])} belgi "
+          f"({len(matn)} belgilik matn o'rniga) OK")
+
+    # ── 12d) Dispatch bo'sh `else` dan YUQORIDA ────────────────────
+    # `else` shoxi noma'lum nomni VEB QIDIRUVGA yuboradi — ya'ni eshik
+    # pastda qolsa, «nima qila olasan» DuckDuckGo so'roviga aylanardi.
+    src = inspect.getsource(ai_module.get_openai_reply)
+    assert '"open_capabilities"' in src, "eshik uchun dispatch shoxi yo'q"
+    assert src.index('"open_capabilities"') < src.index(
+        "            else:\n                search_ran = True"), (
+        "eshik bo\'sh `else` dan keyin tursa, chaqiruv veb qidiruvga ketadi")
+    # Bir martadan ortiq chaqirilmasin: matn o'zgarmas, ikkinchi chaqiruv
+    # bekorga ~2000 token yeydi.
+    assert "imkoniyat_rounds < 1" in src, (
+        "chegara yo'q — model bir xil matnni qayta-qayta yuklab olishi mumkin")
+    print("[12d] eshik `else` dan yuqorida va bir martaga cheklangan OK")
 
     # ═══════════════════════════════════════════════════════════════
     # 13) EKRAN TARIFNI AYTADI

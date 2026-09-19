@@ -18,6 +18,8 @@ bosilsa nusxalanadi). Ro'yxatni o'qish emas, birinchi muvaffaqiyatli
 natijani ko'rish ishonch tug'diradi.
 """
 
+import re
+
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from core.config import (
@@ -320,60 +322,54 @@ def _section_text(key: str, is_pro: bool) -> str:
     return "\n".join(parts)
 
 
-# ── «Nima qila olasan?» — tabiiy savolni tanish ─────────────────────
-# ⚠️ NEGA KOD, MODEL EMAS. Bu savol ilgari AI ga ketardi va javob HAR
-# SAFAR boshqacha, har safar chala chiqardi: model faqat o'sha so'rovga
-# biriktirilgan ASBOBLARNI ko'radi (`_capability_manifest`), ya'ni
-# /research, /kunlik, guruh rejimi, mavzular va hatto tarif haqida
-# umuman bilmaydi. Bo'shliqni "har qanday chatbotda bor" ro'yxati bilan
-# to'ldirardi — foydalanuvchi eng qimmat imkoniyatlarni bilmay qolardi.
+# ── Model uchun: bot nima qila oladi ────────────────────────────────
+# ⚠️ NEGA MANBA SHU DICT. Model imkoniyatlar ro'yxatini O'ZI tuzsa,
+# u faqat o'sha so'rovga biriktirilgan ASBOBLARNI ko'radi
+# (`services/ai.py::_capability_manifest`) — ya'ni /research, /kunlik,
+# guruh rejimi, mavzular va tarif haqida bilmaydi. Natijada javob har
+# qanday chatbotda bor narsalar ro'yxatiga aylanardi.
 #
-# Bu yo'l HECH QANDAY AI tokeni sarflamaydi va javob doim to'liq.
-# Naqsh o'tkazib yuborsa — eski xatti-harakat qoladi, ya'ni yomonlashmaydi.
-_SAVOL_MAX = 120          # undan uzuni — savol emas, ish topshirig'i
-
-_SAVOL_IBORALARI = (
-    # ⚠️ IBORALAR ATAYLAB ANIQ, bitta so'z emas. «imkoniyatlaring» ni
-    # yolg'iz qo'ysak, «imkoniyatlaringdan foydalanib menga prezentatsiya
-    # yasab ber» ham tanilardi — ya'ni ish bajarilmay, o'rniga yordam
-    # ekrani chiqardi. Shuning uchun `-ni` shakli olingan (`-dan` emas)
-    # va fe'llar to'liq yozilgan.
-    # o'zbekcha
-    "nima qila ola", "nimalar qila ola", "nima ish qila ola",
-    "qila olishingni", "qila olishingizni",
-    "funksiyalaringni", "imkoniyatlaringni",
-    "funksiyalaring nima", "imkoniyatlaring nima",
-    "barcha funksiya", "hamma funksiya", "barcha imkoniyat",
-    "hamma imkoniyat", "qanday funksiya", "qanaqa funksiya",
-    "qanday imkoniyat", "qanaqa imkoniyat",
-    "nimalarni bilasan", "nima bila olasan", "qanday yordam bera",
-    # ruscha
-    "что ты умеешь", "что умеешь", "твои возможности",
-    "что ты можешь", "что можешь", "какие функции",
-    # inglizcha
-    "what can you do", "your capabilities", "your features",
-    "what do you do", "list your functions", "all your functions",
-)
-
-# Bir xil ko'rinadigan, lekin turli kodli apostroflar — o'zbek matnida
-# hammasi uchraydi va biri bilan yozilgan naqsh boshqasini topmaydi.
-_APOSTROF = str.maketrans({"‘": "'", "’": "'",
-                           "ʻ": "'", "ʼ": "'", "`": "'"})
+# Ikkinchi nusxa yozish esa bu loyihada besh marta zarar keltirgan
+# (CLAUDE.md, "Five label maps"): ro'yxat ikki joyda bo'lsa, biri
+# ALBATTA eskiradi. Shuning uchun ekran ham, model ham AYNAN shu
+# `SECTIONS` dan o'qiydi.
+_TEG_RE = re.compile(r"<[^>]+>")
 
 
-def imkoniyat_savolimi(matn: str) -> bool:
-    """Bu xabar «nima qila olasan?» savolimi?
+def model_uchun(is_pro: bool) -> str:
+    """Modelga beriladigan to'liq imkoniyatlar matni.
 
-    Uzunlik chegarasi MUHIM: «imkoniyatlaringdan foydalanib menga PDF
-    yasab ber» — bu savol emas, topshiriq, va uni ekran bilan javob
-    berish ishni BAJARMASLIK bo'lardi.
+    HTML teglari olib tashlanadi: model uchun ular ma'nosiz, lekin
+    tokenni yeydi va javobga sirqib chiqishi mumkin.
     """
-    if not matn:
-        return False
-    t = matn.translate(_APOSTROF).lower().strip()
-    if len(t) > _SAVOL_MAX:
-        return False
-    return any(ibora in t for ibora in _SAVOL_IBORALARI)
+    qismlar = [
+        "[BOT IMKONIYATLARI — TO'LIQ VA ANIQ RO'YXAT]",
+        "Tarif: " + ("Pro — hamma narsa ochiq."
+                     if is_pro else
+                     "Bepul. Quyida «Pro» deb belgilangan imkoniyatlar bu "
+                     "odamda HOZIR ISHLAMAYDI — ularni ochiq deb aytmang, "
+                     "lekin /pro da ochilishini ayting."),
+        "",
+    ]
+    for kalit, s in SECTIONS.items():
+        tana = _TEG_RE.sub("", _matn(s["body"], is_pro))
+        qismlar.append(f"## {s['title']}")
+        qismlar.append(tana.strip())
+        izoh = _TEG_RE.sub("", _matn(s["note"], is_pro))
+        if izoh:
+            qismlar.append(izoh.strip())
+        if s["example"]:
+            qismlar.append(f"Misol so'rov: {s['example']}")
+        qismlar.append("")
+    qismlar.append(
+        "QANDAY JAVOB BERASIZ: odam nimani so'ragan bo'lsa O'SHANI "
+        "tushuntiring — bitta imkoniyat haqida so'rasa, faqat o'sha "
+        "haqida, qanday ishlashini va qanday boshlashini aniq ayting. "
+        "Hammasini so'rasa — guruhlab, qisqa qilib sanang. Bu matnni "
+        "so'zma-so'z ko'chirmang, o'z so'zlaringiz bilan yozing. "
+        "Ro'yxatda YO'Q narsani qo'shmang."
+    )
+    return "\n".join(qismlar)
 
 
 def menu_button():

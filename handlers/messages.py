@@ -2152,16 +2152,6 @@ async def handle_text(message: Message, state: FSMContext):
         logger.info(f"[Hujjat] ko'rsatma alohida xabardan olindi: chat={chat_id}")
         return
 
-    # «Nima qila olasan?» — tayyor ekran, AI ga umuman bormaydi.
-    # Sabab handlers/capabilities.py da: modelda imkoniyatlarning
-    # yarmi haqida ma'lumot yo'q, shuning uchun uning ro'yxati har
-    # safar chala chiqadi. Kutilgan fayl ko'rsatmasidan KEYIN turadi —
-    # fayl uchun yozilgan matn ekran bilan yutilmasin.
-    from handlers.capabilities import imkoniyat_savolimi, handle_help
-    if imkoniyat_savolimi(text_str):
-        await handle_help(message)
-        return
-
     await _queue_for_ai(chat_id, message, message.text, state)
 
 

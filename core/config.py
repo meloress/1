@@ -499,6 +499,7 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "start_file_task": "fayl yaratishni boshlash",
     "open_memory": "xotirani ochish",
     "open_reminder": "eslatmani ochish",
+    "open_capabilities": "bot imkoniyatlarini ko'rish",
 }
 
 

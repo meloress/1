@@ -1007,21 +1007,32 @@ perfectly normal thing for a user to ask about and `strip_internal_names()` woul
 those answers. Cost: **+69 tokens** per round (`tiktoken`; the first draft was +89 and was
 trimmed without losing a rule). Checks 12-15 pin all of it.
 
-⛔️ **"What can you do?" must never be answered by the model.** The manifest lists
-*tools*, so the model cannot see `/research`, `/kunlik`, group (guest) mode, topics, or
-the user's plan — asked to list its abilities it filled the gap with the generic
-chatbot answer (translate, write code, do maths), and the expensive features nobody
-discovers stayed undiscovered. `handlers/capabilities.py::imkoniyat_savolimi()` catches
-the question in `handle_text` **before** the AI call and opens the existing `/help`
-screen instead: no tokens, and the list is complete by construction. Rule (3) of the
-manifest is the fallback for a phrasing the patterns miss — it now points at `/help`
-rather than asking the model to compose a list.
+⛔️ **The model cannot see the bot's features, only this request's tools** — so an
+answer to "what can you do?" written from the manifest is always wrong. Asked to list
+its abilities it produced the generic chatbot answer (translate, write code, do maths)
+and never mentioned `/research`, `/kunlik`, group mode, topics, nearby search or the
+reader's own plan, because none of those is a tool. The expensive features nobody
+discovers stayed undiscovered.
 
-The phrases are deliberately specific (`imkoniyatlaringni`, not `imkoniyatlaring`): the
-`-dan` form starts a real task — *"imkoniyatlaringdan foydalanib prezentatsiya yasab
-ber"* — and answering that with a help screen means not doing the work. The 120-character
-cap is the second guard. A miss is only the old behaviour, so the failure direction is
-safe.
+`open_capabilities` is the fix and it is a **door** (`start_file_task`, `open_memory`,
+`open_reminder` are the same pattern): **211 tokens** per round measured with `tiktoken`,
+and on call it returns the full feature text — **1 767 tokens**, paid only when someone
+actually asks. It is attached on every request including guest, because the question is
+asked in groups too and that is exactly where the model's own knowledge is thinnest
+(files, images, memory and reminders are all off there). `imkoniyat_rounds < 1` caps it
+at one call: the text never changes, so a second call is 1 767 tokens for nothing.
+
+⚠️ **The text comes from `handlers/capabilities.py::SECTIONS`, the same dict `/help`
+renders** — `model_uchun(is_pro)` strips the HTML and adds the reader's plan. A second
+hand-written list is the mistake this repo has made five times (see "Five label maps");
+here it would also mean the screen and the model describing the same bot differently.
+
+A first attempt intercepted the question in `handle_text` with a phrase list and opened
+`/help` directly. It cost no tokens and was **the wrong shape**: it answered "list
+everything" and nothing else, so "lokatsiya yuborsam nima bo'ladi?" still reached a model
+that did not know the answer, and no follow-up question worked. The door makes the model
+*knowledgeable* instead of routing around it. `/help` stays as the command and the
+`/start` button — it has buttons and copyable examples, which a chat reply does not.
 
 ⚠️ **The screen states the reader's own plan.** It used to say "3 on free, 20 on Pro"
 everywhere, which a free user reads as *their* number, and the Pro section listed image
@@ -1030,9 +1041,10 @@ and were refused. `body` and `note` may now be a callable taking `is_pro`, and
 `database.pro_tarifmi()` supplies it: display only, never a gate, and its condition is
 copied from `check_and_consume_quota()` (plan ≠ free **and** not expired) because a
 screen that says "open" while the bot says "no" is the worst kind of complaint.
-`tests/test_capabilities.py` checks 12-14 hold all of it, including that every section
-renders under **both** plans — a forgotten callable would otherwise raise only in a live
-chat.
+`tests/test_capabilities.py` checks 12-14 hold all of it, including that the door sits
+above the bare `else` (below it, "nima qila olasan" becomes a DuckDuckGo query) and that
+every section renders under **both** plans — a forgotten callable would otherwise raise
+only in a live chat.
 
 ### The model can draw a real button, not describe one
 
