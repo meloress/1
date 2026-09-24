@@ -9,10 +9,12 @@ qaytadan chaqiradi — 12 soatlik cookie adminlikdan chiqarilgan odamni
 o'sha muddat davomida ichkarida ushlab turmasligi kerak.
 """
 
+import asyncio
 import functools
 import hashlib
 import hmac
 import logging
+import os
 import time
 from typing import Optional
 
@@ -45,9 +47,42 @@ INIT_DATA_MAX_AGE = 5 * 60       # qayta ishlatishga qarshi: 5 daqiqa
 INIT_DATA_HEADER = "X-Telegram-Init-Data"
 INIT_DATA_SOROV_MAX_AGE = 24 * 3600
 SESSION_RATE_LIMIT = 10          # bitta IP — daqiqasiga 10 ta urinish
+# Bitta ADMIN — daqiqasiga nechta yozuv.
+#
+# ⚠️ BU SON ODAMNI EMAS, SKRIPTNI to'xtatish uchun. Admin allaqachon
+# imzo va huquq tekshiruvidan o'tgan, ya'ni bu chegara asosiy himoya
+# emas — u o'g'irlangan sessiya yoki adashgan sikl minglab yozuv
+# qilishini cheklaydi. Shuning uchun u haqiqiy foydalanishga YAQIN
+# qilib tanlanmaydi: yaqin qo'yilgan chegara qonuniy portlashda ham
+# ishlab ketadi va admin uni e'tiborsiz qoldirishni o'rganadi —
+# o'shanda haqiqiysi ham o'tib ketadi.
+#
+# Odam sekundiga ikkita yozuvni davomiy qila olmaydi; skript esa
+# yuzlabini qiladi. O'lchov: test to'plamining eng og'ir fayli bir
+# necha soniyada 31 ta yozuv qiladi — ya'ni 30 juda tor edi.
+YOZUV_RATE_LIMIT = 120
 
-# ponytail: IP -> [vaqt, ...] RAM'da. Bitta jarayon, bitta admin — Redis
-# ortiqcha. Kerak bo'lsa: bazaga jadval yoki nginx darajasida chegara.
+# ⚠️ XOM XFF TEKSHIRUVI — VAQTINCHA. `True` bo'lsa har `/api/session`
+# so'rovida xom `X-Forwarded-For` va TCP peer manzili logga yoziladi.
+# Railway proksisi haqiqiy IP ni qaysi pozitsiyaga qo'yishini aniqlash
+# uchun kerak — bu hujjatlashtirilmagan va faqat jonli tekshiruv aytadi.
+# ⛔️ Aniqlangach `False` ga qaytaring: bu qator IP manzillarni logga
+# yozadi, ya'ni kerak bo'lmaganda yozilmasligi kerak.
+XFF_TEKSHIR = os.getenv("XFF_TEKSHIR", "") == "1"
+
+# Haqiqiy klient IP si XFF ning O'NGDAN nechanchisi. Izohni
+# `_klient_ip()` da o'qing.
+ISHONCHLI_PROKSI = 1
+
+# ponytail: kalit -> [vaqt, ...] RAM'da. Bitta jarayon, bir necha admin
+# — Redis ortiqcha. Kerak bo'lsa: bazaga jadval yoki nginx darajasida.
+#
+# ⚠️ HAJMI CHEGARALANGAN. Ilgari bu dict HECH QACHON tozalanmasdi:
+# har yangi kalit abadiy qolardi, ya'ni soxta `X-Forwarded-For` bilan
+# uni cheksiz o'stirish mumkin edi — xotira orqali DoS. Endi muddati
+# o'tgani o'chiriladi va umumiy soni `CHASTOTA_MAX` bilan cheklangan.
+CHASTOTA_OYNA = 60               # soniya
+CHASTOTA_MAX = 2000              # kuzatiladigan kalitlar soni
 _urinishlar: dict[str, list[float]] = {}
 
 
@@ -116,13 +151,163 @@ def imzodan_user_id(request: web.Request) -> Optional[int]:
     return data.user.id if data.user else None
 
 
-def chastota_oshdimi(ip: str) -> bool:
-    """Daqiqada `SESSION_RATE_LIMIT` dan ko'p urinish bo'ldimi."""
+def _klient_ip(request: web.Request) -> str:
+    """Haqiqiy klient IP si.
+
+    ⛔️ XFF NING BIRINCHI QIYMATI EMAS. Ilgari shunday edi va bu
+    chegarani BEKOR qilardi: `X-Forwarded-For` ni mijozning O'ZI
+    yozadi, ya'ni har so'rovda boshqa qiymat yuborib cheksiz urinish
+    mumkin edi — hamda har bir soxta qiymat `_urinishlar` da abadiy
+    kalit qoldirardi.
+
+    Proksi haqiqiy IP ni ro'yxatning OXIRIGA qo'shadi, ya'ni ishonch
+    o'ngdan chapga kamayadi: eng o'ngdagi — bizga eng yaqin proksi
+    yozgan qiymat, eng chapdagi — mijozning o'zi yozgani.
+    `ISHONCHLI_PROKSI` — o'ngdan nechanchisini olish (1 = eng o'ngdagi).
+
+    ⚠️ Bu son Railway'ning necha qavat proksisi borligiga bog'liq va
+    hujjatlashtirilmagan. `XFF_TEKSHIR=1` bilan deploy qilib logdagi
+    `[XFF]` qatorlariga qarang, keyin shu sonni to'g'rilang.
+    """
+    xom = request.headers.get("X-Forwarded-For", "")
+    qismlar = [q.strip() for q in xom.split(",") if q.strip()]
+    if len(qismlar) >= ISHONCHLI_PROKSI:
+        return qismlar[-ISHONCHLI_PROKSI]
+    # XFF yo'q yoki kutilganidan qisqa — TCP peer o'zi. Proksi ortida
+    # bu proksining manzili bo'ladi, ya'ni chegara hammaga umumiy
+    # bo'lib qoladi; bu XAVFSIZ tomonga xato (ochiq qoldirishdan ko'ra).
+    return request.remote or "?"
+
+
+def _chastota_tozala() -> None:
+    """Muddati o'tgan va ortiqcha kalitlarni olib tashlaydi."""
     hozir = time.time()
-    tarix = [t for t in _urinishlar.get(ip, []) if hozir - t < 60]
+    for k in [k for k, v in _urinishlar.items()
+              if not v or hozir - v[-1] > CHASTOTA_OYNA]:
+        _urinishlar.pop(k, None)
+    if len(_urinishlar) > CHASTOTA_MAX:
+        # Eng eski faollikdagilari birinchi ketadi.
+        tartib = sorted(_urinishlar.items(), key=lambda kv: kv[1][-1])
+        for k, _v in tartib[:len(_urinishlar) - CHASTOTA_MAX]:
+            _urinishlar.pop(k, None)
+
+
+def chastota_oshdimi(kalit: str, chegara: int = SESSION_RATE_LIMIT) -> bool:
+    """`CHASTOTA_OYNA` ichida `chegara` dan ko'p urinish bo'ldimi.
+
+    `kalit` — kirish yo'lida IP, yozish yo'lida `admin:<user_id>`.
+    Autentifikatsiyadan o'tgan admin uchun IP ma'nosiz: u mobil
+    internetda har necha daqiqada IP almashtiradi.
+    """
+    hozir = time.time()
+    _chastota_tozala()
+    tarix = [t for t in _urinishlar.get(kalit, []) if hozir - t < CHASTOTA_OYNA]
     tarix.append(hozir)
-    _urinishlar[ip] = tarix
-    return len(tarix) > SESSION_RATE_LIMIT
+    _urinishlar[kalit] = tarix
+    return len(tarix) > chegara
+
+
+# ══ TAKRORIY SO'ROV (idempotentlik) ══════════════════════════
+# NEGA: tugmani o'chirish (panel.js) ikki bosishni EKRANDA to'xtatadi,
+# lekin server uchun bu himoya emas — sekin tarmoq, sahifa yangilanishi
+# yoki oddiygina ikkinchi ilova oynasi baribir ikkita so'rov yuboradi.
+# `set_user_premium(..., extend=True)` esa kunlarni QO'SHADI, ya'ni
+# ikkinchi so'rov jimgina 30 kunni 60 ga aylantirardi.
+#
+# ⭐ KALIT MAZMUNDAN OLINADI, tasodifiy EMAS. Tasodifiy UUID ikki
+# bosishdan saqlamaydi: ikki bosish ikki xil UUID beradi va ikkala
+# so'rov ham «yangi» bo'lib ko'rinadi. Bir xil yo'lga bir xil tana =
+# bir xil kalit — mana shu ikki bosishni haqiqatan to'xtatadi.
+#
+# Oyna ATAYLAB qisqa: 10 soniya ikki bosish uchun yetarlicha uzun,
+# «shu odamga yana 30 kun qo'shay» degan ATAYLAB takror uchun esa
+# yetarlicha qisqa. Ataylab takror kerak bo'lsa mijoz o'zining
+# `Idempotency-Key` sarlavhasini yuboradi va mazmun hash'i o'rniga
+# o'sha ishlatiladi.
+#
+# ponytail: kalitlar RAM'da — panel bot jarayonining ICHIDA ishlaydi
+# (REJA 3.1), ya'ni ikkinchi jarayon yo'q va bo'lishish muammosi ham
+# yo'q. Cheklov ochiq: deploy paytida kalitlar yo'qoladi, ya'ni o'sha
+# bir necha soniyada ikki bosish himoyasiz qoladi. Kerak bo'lsa keyingi
+# qadam — `idempotency` jadvali (DB sxemasi o'zgaradi).
+BIR_MARTA_OYNA = 10          # soniya
+BIR_MARTA_MAX = 500          # kalitlar chegarasi — cheksiz o'smasin
+
+_natijalar: dict[str, tuple] = {}      # kalit -> (vaqt, status, tana, tur)
+_qulflar: dict[str, asyncio.Lock] = {}
+
+
+def _bir_marta_kalit(request: web.Request, tana: bytes) -> str:
+    """`user_id + yo'l + (sarlavha yoki tana hash'i)`.
+
+    `user_id` kalit ichida: ikki admin bir vaqtda bir xil amalni
+    qilsa, ular BOSHQA-BOSHQA amal — biri ikkinchisiniki bilan
+    almashtirilmasligi kerak.
+    """
+    ustun = request.headers.get("Idempotency-Key", "")[:128]
+    # ⚠️ `path_qs`, `path` EMAS. `/api/export?tur=users` va
+    # `?tur=payments` bitta yo'lda, tanasi esa ikkalasida ham `{}` —
+    # `path` bilan ular BITTA amal bo'lib ko'rinardi va ikkinchi
+    # eksport jimgina birinchisining javobini qaytarardi.
+    asos = f'{request.get("user_id")}|{request.path_qs}|{ustun}'.encode()
+    return hashlib.sha256(asos + tana).hexdigest()
+
+
+def _bir_marta_tozala() -> None:
+    """Muddati o'tganini va ortiqchasini olib tashlaydi."""
+    hozir = time.time()
+    eski = [k for k, v in _natijalar.items() if hozir - v[0] > BIR_MARTA_OYNA]
+    if len(_natijalar) - len(eski) > BIR_MARTA_MAX:
+        qolgan = sorted(((v[0], k) for k, v in _natijalar.items()
+                         if k not in set(eski)))
+        eski += [k for _v, k in qolgan[:len(qolgan) - BIR_MARTA_MAX]]
+    for k in eski:
+        _natijalar.pop(k, None)
+        # ⚠️ BAND qulf O'CHIRILMAYDI. O'chirilsa, kutib turgan ikkinchi
+        # so'rov yangi qulf olib, birinchisi bilan YONMA-YON ishga
+        # tushardi — ya'ni butun himoya bekor bo'lardi.
+        q = _qulflar.get(k)
+        if q is not None and not q.locked():
+            _qulflar.pop(k, None)
+
+
+def bir_marta(handler):
+    """Bir xil amalni `BIR_MARTA_OYNA` ichida BIR MARTA bajaradi.
+
+    ⚠️ `@admin_only` DAN PASTGA qo'yiladi: kalitga `request["user_id"]`
+    kiradi, uni esa `admin_only` o'rnatadi.
+    """
+    @functools.wraps(handler)
+    async def wrapper(request: web.Request):
+        # ⚠️ `read()` tanani KESHLAYDI, ya'ni handler ichidagi
+        # `request.json()` shundan keyin ham ishlaydi.
+        tana = await request.read()
+        kalit = _bir_marta_kalit(request, tana)
+        _bir_marta_tozala()
+
+        # ⭐ QULF — ishning YARMI SHU YERDA. Haqiqiy ikki bosishda
+        # ikkinchi so'rov birinchisi HALI TUGAMASDAN keladi, ya'ni
+        # «natijani keyin saqlash» o'z-o'zicha hech narsa bermaydi.
+        # Ikkinchi so'rov shu yerda kutadi va tayyor javobni oladi.
+        qulf = _qulflar.setdefault(kalit, asyncio.Lock())
+        async with qulf:
+            oldin = _natijalar.get(kalit)
+            if oldin and time.time() - oldin[0] < BIR_MARTA_OYNA:
+                logger.info(f"[web] takroriy so'rov yutildi: {request.path}")
+                return web.Response(status=oldin[1], body=oldin[2],
+                                    content_type=oldin[3])
+            javob = await handler(request)
+            # ⚠️ FAQAT 2xx keshlanadi. Xato javob keshlansa, admin
+            # sababni tuzatib 10 soniya ichida qayta bosganda O'SHA
+            # ESKI xatoni ko'rardi — holbuki amal umuman bajarilmagan,
+            # ya'ni takrorlashdan hech qanday zarar yo'q. Keshning
+            # vazifasi «ikki marta BAJARILMASIN», «ikki marta
+            # URINILMASIN» emas.
+            if 200 <= javob.status < 300:
+                _natijalar[kalit] = (time.time(), javob.status,
+                                     javob.body, javob.content_type)
+            return javob
+    return wrapper
 
 
 def admin_only(handler):
@@ -144,6 +329,18 @@ def admin_only(handler):
         if not await huquq_bormi(user_id):
             return web.json_response({"error": "admin emas"}, status=403)
         request["user_id"] = user_id
+
+        # ⚠️ Tezlik chegarasi FAQAT yozish so'rovlarida va IP emas,
+        # ADMIN bo'yicha: bu yerga kelgan odam allaqachon imzo va huquq
+        # tekshiruvidan o'tgan, ya'ni uni IP bilan emas, o'zi bilan
+        # sanash to'g'ri — mobil internetda IP baribir almashib turadi.
+        # O'qish so'rovlari chegaralanmaydi: ekranni ochish o'zi bir
+        # nechta GET yuboradi va admin uni tez-tez yangilashi normal.
+        if request.method != "GET" and chastota_oshdimi(
+                f"admin:{user_id}", YOZUV_RATE_LIMIT):
+            logger.warning(f"[web] {user_id} yozuv chegarasidan oshdi")
+            return web.json_response(
+                {"error": "Juda ko'p amal — bir daqiqa kuting."}, status=429)
         return await handler(request)
     return wrapper
 

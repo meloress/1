@@ -124,6 +124,17 @@
 }
 
 *{box-sizing:border-box}
+/* ⚠️ `touch-action:manipulation` — ikki marta bosishda ZOOM bo'lmasin.
+   U TUGMAGA emas, `html`/`body` ga qo'yiladi: shikoyat aynan MATN va
+   BO'SH JOY ustida edi, ya'ni faqat bosiladigan elementlarni yopish
+   yetarli emas. Yon foyda: double-tap kutishi yo'qoladi, bosish ~300 ms
+   tezroq sezinadi.
+
+   ⛔️ Viewport'ga `user-scalable=no` QO'SHILMAYDI: iOS 10 dan beri u
+   e'tiborga olinmaydi, olinganda ham ko'rish qobiliyati past odam uchun
+   zoom'ni butunlay o'ldirardi. Barmoq bilan kattalashtirish ISHLAYDI —
+   faqat tasodifan ikki bosish endi kattalashtirmaydi. */
+html,body{touch-action:manipulation}
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0;
@@ -137,15 +148,41 @@ body{
   font:400 var(--f-l)/1.5 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing:antialiased;
   overflow-x:hidden;       /* §2.1: gorizontal siljish hech qayerda yo'q */
+  /* Ro'yxat oxiriga yetganda siljish Telegram OYNASIGA o'tmaydi —
+     usiz pastga tortish Mini App'ni sura boshlardi. */
+  overscroll-behavior-y:contain;
 }
 h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
 a{color:inherit}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-input,textarea,select{font:inherit}
+/* ⚠️ 16px — iOS CHEGARASI. Undan kichik shriftli maydonga fokus
+   berilganda WKWebView butun sahifani MAJBURAN kattalashtiradi va
+   ortga qaytarmaydi. `max()` shuning uchun: dizayn tokeni o'ssa o'zi
+   ergashadi, kichrayganda 16 dan pastga tushmaydi.
+   `transform: scale()` hiylasi ATAYLAB ishlatilmadi — u fokus halqasini
+   va bosish maydonini ham siljitadi. Maydon biroz kattaroq ko'rinadi. */
+input,textarea,select{font:inherit;font-size:max(16px,var(--f-m))}
 :focus-visible{outline:2px solid var(--azure);outline-offset:2px;border-radius:var(--r-s)}
 [hidden]{display:none!important}
 img{max-width:100%}
 .num{font-variant-numeric:tabular-nums}
+
+/* ══ HOVER — FAQAT HAQIQIY KURSOR BILAN ══════════════════════ */
+/* ⚠️ Telefonda `:hover` bosilgandan KEYIN ham qolib ketadi: barmoq
+   uzilgach brauzer hover holatini tozalamaydi, va ro'yxatdagi qator
+   rangli bo'lib turib qoladi — odam uni «tanlangan» deb o'qiydi.
+   `pointer:fine` sensorli ekranni ham, sensorli noutbukni ham to'g'ri
+   ajratadi. Ichkarida faqat KO'CHIRILGAN qoidalar turadi — hech narsa
+   qo'shilmadi va o'zgartirilmadi.
+
+   ⚠️ Yangi `:hover` yozilsa SHU BLOK ichiga yozilsin. */
+@media (hover:hover) and (pointer:fine){
+  .nav button:hover{background:var(--panel-2);color:var(--ink)}
+  .who .out:hover{color:var(--bad);background:var(--panel-2)}
+  .row.bosiladi:hover{background:var(--panel-2)}
+  .btn:hover{border-color:var(--violet)}
+  .subtabs button:hover{color:var(--ink-2)}
+}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
@@ -173,7 +210,6 @@ img{max-width:100%}
   transition:background .14s,color .14s;
 }
 .nav button svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.nav button:hover{background:var(--panel-2);color:var(--ink)}
 .nav button[aria-current="true"]{background:var(--tanlangan);color:var(--ink);box-shadow:inset 2px 0 0 0 var(--violet)}
 .nav .count{margin-left:auto;font-size:var(--f-xs);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);padding:3px 6px;border-radius:5px}
 
@@ -183,7 +219,6 @@ img{max-width:100%}
 .who b{display:block;font-size:var(--f-m);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who span{font-size:var(--f-xs);color:var(--ok)}
 .who .out{margin-left:auto;flex:none;padding:6px;border-radius:var(--r-s);color:var(--ink-3)}
-.who .out:hover{color:var(--bad);background:var(--panel-2)}
 .who .out svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;display:block}
 
 /* ══ SARLAVHA QATORI ═══════════════════════════════════════════════
@@ -263,7 +298,6 @@ section[data-screen].on{display:flex;animation:rise .2s ease-out}
 .row .t b{display:block;font-size:var(--f-m);font-weight:500;overflow-wrap:anywhere}
 .row .t span{font-size:var(--f-s);color:var(--ink-3);overflow-wrap:anywhere}
 .row.bosiladi{cursor:pointer}
-.row.bosiladi:hover{background:var(--panel-2)}
 .rows.zich .row{padding:9px 0}
 
 /* Sarlavha qatori — faqat keng ekranda. */
@@ -314,7 +348,6 @@ section[data-screen].on{display:flex;animation:rise .2s ease-out}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 14px;
   border-radius:var(--r-s);font-size:var(--f-m);font-weight:500;border:1px solid var(--line);
   background:var(--panel-2);transition:border-color .15s,transform .05s;white-space:nowrap}
-.btn:hover{border-color:var(--violet)}
 .btn:active{transform:translateY(1px)}
 .btn:disabled{opacity:.45;cursor:default}
 /* §4 Promo: gradient ustidagi matn OQ. Ilgari u to'q edi va
@@ -328,7 +361,7 @@ section[data-screen].on{display:flex;animation:rise .2s ease-out}
 .field{display:flex;align-items:center;gap:var(--s-2);background:var(--panel-2);
   border:1px solid var(--line);border-radius:var(--r-s);padding:0 12px;min-width:0;flex:1 1 100%}
 .field svg{width:15px;height:15px;stroke:var(--ink-3);fill:none;stroke-width:1.7;flex:none}
-.field input{background:none;border:0;outline:none;color:var(--ink);font-size:var(--f-m);
+.field input{background:none;border:0;outline:none;color:var(--ink);font-size:max(16px,var(--f-m));
   padding:9px 0;width:100%;min-width:0}
 .field input::placeholder{color:var(--ink-3)}
 
@@ -351,7 +384,7 @@ section[data-screen].on{display:flex;animation:rise .2s ease-out}
 /* ══ KIRITISH MAYDONLARI ═══════════════════════════════════════════ */
 .kiritish{
   background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-s);
-  color:var(--ink);font-size:var(--f-m);padding:9px 11px;outline:none;width:100%;min-width:0;
+  color:var(--ink);font-size:max(16px,var(--f-m));padding:9px 11px;outline:none;width:100%;min-width:0;
 }
 .kiritish:focus{border-color:var(--violet)}
 .kiritish::placeholder{color:var(--ink-3)}
@@ -414,7 +447,6 @@ textarea.kiritish{resize:vertical;line-height:1.6}
   scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .subtabs::-webkit-scrollbar{display:none}
 .subtabs button{padding:9px 13px;font-size:var(--f-m);color:var(--ink-3);border-bottom:2px solid transparent;white-space:nowrap}
-.subtabs button:hover{color:var(--ink-2)}
 .subtabs button[aria-current="true"]{color:var(--ink);border-bottom-color:var(--violet);font-weight:600}
 .pane{display:none}.pane.on{display:block}
 
@@ -447,6 +479,13 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 .skelet i:nth-child(2){width:78%}
 .skelet i:nth-child(3){width:56%}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+/* KPI raqami uchun skelet. ⚠️ Statik «—» YETARLI EMAS: u
+   «hali kelmadi» va «yiqildi» ni farqlamaydi, ya'ni panel yiqilganda
+   jimgina eski ko'rinishda turaveradi. Balandlik `em` da — raqam
+   kelganda karta balandligi SAKRAMASIN. */
+.skelet-kpi{display:inline-block;width:2.6em;height:.66em;border-radius:6px;
+  background:var(--panel-2);animation:pulse 1.2s ease-in-out infinite;
+  vertical-align:middle}
 .holat-bosh{display:flex;flex-direction:column;align-items:flex-start;gap:10px;
   padding:18px 0;color:var(--ink-3);font-size:var(--f-m)}
 

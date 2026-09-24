@@ -54,6 +54,7 @@
     if (!tg) { tema(); return; }
     tg.ready();
     tg.expand();
+    kengaytir();
     tema();
     tg.onEvent("themeChanged", tema);
     // Pastga tortish oynani yopib yuboradi — ro'yxatni aylantirayotgan
@@ -65,6 +66,29 @@
       try { tg.onEvent("safeAreaChanged", olcham); } catch (e) {}
       try { tg.onEvent("contentSafeAreaChanged", olcham); } catch (e) {}
     }
+  }
+
+  /* ══ KOMPYUTERDA TO'LIQ EKRAN ═══════════════════════════
+     ⚠️ `expand()` faqat TELEFONDA ishlaydi — u Mini App'ni oynaning
+     to'liq balandligiga yoyadi. Desktop va brauzerda esa Telegram
+     panelni tor oynada ochadi va `expand()` unga umuman ta'sir
+     qilmaydi, shuning uchun 1240px gacha moslashadigan maket telefon
+     ko'rinishida qolib ketardi.
+
+     ⚠️ «web» DEGAN PLATFORMA QIYMATI YO'Q. Telegram Web ikkita:
+     `weba` (Web A) va `webk` (Web K). «web» deb yozilsa shart hech
+     qachon bajarilmaydi va bag jimgina qoladi.
+
+     Uchta himoya: metod bor-yo'qligi, mijoz versiyasi (Bot API 8.0)
+     va try/catch. Eski mijozda uchinchisi ham kerak — `isVersionAtLeast`
+     ba'zi qurilishlarda metod bo'lmasa ham `true` qaytaradi. */
+  var KENG_EKRAN = ["tdesktop", "macos", "weba", "webk"];
+
+  function kengaytir() {
+    if (KENG_EKRAN.indexOf(tg.platform) < 0) return;
+    if (typeof tg.requestFullscreen !== "function") return;
+    if (typeof tg.isVersionAtLeast !== "function" || !tg.isVersionAtLeast("8.0")) return;
+    try { tg.requestFullscreen(); } catch (e) {}
   }
 
   /* Oyna balandligi va XAVFSIZ CHEKKALAR.
@@ -430,6 +454,17 @@
     el.innerHTML = '<div class="skelet">' + s + "</div>";
   }
 
+  /* KPI raqamlarini yuklanish holatiga qo'yadi.
+     ⚠️ JONLI BAG: `/api/overview` 500 qaytarganda ekranda beshta
+     statik «—» qolardi va hech narsa «yuklanmadi» demasdi — admin
+     panel ishlayapti deb o'ylab, sababni faqat serverdan topgan edi. */
+  function kpiSkelet(idlar) {
+    idlar.forEach(function (id) {
+      var el = $(id);
+      if (el) el.innerHTML = '<span class="skelet-kpi"></span>';
+    });
+  }
+
   function boshHolat(matn) {
     return '<div class="holat-bosh"><span>' + xavfsiz(matn) + "</span></div>";
   }
@@ -646,6 +681,7 @@
 
   /* ══ BOSHQARUV ══════════════════════════════════════════════════ */
   async function boshqaruv() {
+    kpiSkelet(["k-sorov", "k-faol", "k-pro", "k-pul", "k-token"]);
     var d = await ol("/api/overview?kun=" + kunOynasi);
     var k = d.kpi;
 
@@ -739,6 +775,7 @@
 
   /* ══ STATISTIKA ═════════════════════════════════════════════════ */
   async function statistika() {
+    kpiSkelet(["s-jami", "s-ortacha", "s-mehmon", "s-konv"]);
     var d = await ol("/api/stats");
     $("s-jami").textContent = son(d.kpi.jami);
     $("s-jami-d").innerHTML = '<b class="up">+' + son(d.kpi.yangi) + "</b> so'nggi 24 soatda";
@@ -992,13 +1029,11 @@
      Fayl brauzerga emas, TELEGRAM CHATIGA keladi — sabab api.py da:
      Mini App webview'ida `blob:` yuklab olish jim yiqiladi. */
   async function eksport(tur, tugma) {
-    if (tugma.disabled) return;
-    tugma.disabled = true;
-    var eski = tugma.innerHTML;
-    tugma.textContent = "Tayyorlanmoqda…";
-    var j = await so_rov("/api/export?tur=" + encodeURIComponent(tur), {});
-    tugma.disabled = false;
-    tugma.innerHTML = eski;
+    // Tugmani o'chirish/tiklash endi `so_rov()` ning ishi — bu yerda
+    // alohida nusxa turgan edi va qolgan 12 ta yozish amali undan
+    // foydalanmasdi.
+    var j = await so_rov("/api/export?tur=" + encodeURIComponent(tur),
+                         {}, null, tugma);
     toast(j.ok ? son(j.d.qator) + " qator — fayl Telegramga yuborildi" : j.xato);
   }
 
@@ -1051,14 +1086,19 @@
      faqat «Panelni qayta oching» degan matn qolardi — ya'ni admin
      butun Mini App'ni yopib ochishga majbur bo'lardi. */
   function xatoQatori(nom) {
-    var joy = document.querySelector('section[data-screen="' + nom + '"] .card');
+    // ⭐ EKRANNING ENG TEPASIGA, birinchi `.card` ichiga EMAS.
+    // Oltita ekranda birinchi `.card` KPI qatoridan keyin turadi
+    // (`dash` da 1277 belgi keyin), ya'ni telefonda xato xabari
+    // ekrandan pastda qolardi. `users` va `profil` da `.card` allaqachon
+    // birinchi element edi — ular uchun hech narsa o'zgarmaydi.
+    var joy = document.querySelector('section[data-screen="' + nom + '"]');
     if (!joy || joy.querySelector(".yuklanmadi")) return;
     var el = xatoHolat(function () {
       el.remove();
       ekranYukla(nom);
     });
-    el.classList.add("yuklanmadi");
-    joy.appendChild(el);
+    el.classList.add("yuklanmadi", "card");
+    joy.insertBefore(el, joy.firstChild);
   }
 
   /* ══ FOYDALANUVCHILAR ═══════════════════════════════════════════ */
@@ -1233,8 +1273,8 @@
     });
   }
 
-  async function amal(yol, tana, muvaffaqiyat) {
-    var j = await so_rov(yol, tana);
+  async function amal(yol, tana, muvaffaqiyat, tugma) {
+    var j = await so_rov(yol, tana, null, tugma);
     if (!j.ok) { natija(j.xato, true); return false; }
     natija(muvaffaqiyat + (j.d.xabar_yetdi === false ? S.natija.xabarYetmadi : ""));
     toast(muvaffaqiyat);
@@ -1251,9 +1291,10 @@
     jadvalQayta();
   }
 
-  async function qaytarish(payment_id) {
+  async function qaytarish(payment_id, tugma) {
     if (!await tasdiq(S.savol.refund)) return;
-    if (await amal("/api/payments/" + payment_id + "/refund", null, S.natija.refund)) await qayta();
+    if (await amal("/api/payments/" + payment_id + "/refund", null,
+                   S.natija.refund, tugma)) await qayta();
   }
 
   function amallar() {
@@ -1268,20 +1309,20 @@
       var kun = b.dataset.kun === "inf" ? null : Number(b.dataset.kun);
       $("a-kunlar").hidden = true;
       if (await amal("/api/users/" + uOchiq.user_id + "/premium", { kun: kun },
-                     S.natija.pro)) await qayta();
+                     S.natija.pro, b)) await qayta();
     });
 
     $("a-free").addEventListener("click", async function () {
       if (!uOchiq) return;
       if (!await tasdiq(S.savol.free)) return;
       if (await amal("/api/users/" + uOchiq.user_id + "/plan", { tarif: "free" },
-                     S.natija.free)) await qayta();
+                     S.natija.free, this)) await qayta();
     });
 
     $("a-quota").addEventListener("click", async function () {
       if (!uOchiq) return;
       if (await amal("/api/users/" + uOchiq.user_id + "/quota", null,
-                     S.natija.kvota)) await qayta();
+                     S.natija.kvota, this)) await qayta();
     });
 
     $("a-ban").addEventListener("click", async function () {
@@ -1289,7 +1330,7 @@
       var bloklansinmi = uOchiq.tarif !== "ban";
       if (!await tasdiq(bloklansinmi ? S.savol.ban : S.savol.unban)) return;
       if (await amal("/api/users/" + uOchiq.user_id + "/ban", { ban: bloklansinmi },
-                     bloklansinmi ? S.natija.ban : S.natija.unban)) await qayta();
+                     bloklansinmi ? S.natija.ban : S.natija.unban, this)) await qayta();
     });
 
     $("a-msg").addEventListener("click", function () {
@@ -1304,12 +1345,12 @@
       var matn = $("a-matn").value.trim();
       if (!matn) return natija("Matn bo'sh.", true);
       if (await amal("/api/users/" + uOchiq.user_id + "/message", { matn: matn },
-                     S.natija.xabar)) {
+                     S.natija.xabar, this)) {
         $("a-matn").value = "";
         $("a-xabar").hidden = true;
       }
     });
-    delegat("u-tolovlar", "data-refund", function (id) { qaytarish(Number(id)); });
+    delegat("u-tolovlar", "data-refund", function (id, b) { qaytarish(Number(id), b); });
   }
 
   function jadval() {
@@ -1352,23 +1393,46 @@
     el.className = "natija" + (yomonmi ? " yomon" : "");
   }
 
-  async function so_rov(yol, tana, usul) {
+  /* `tugma` — ixtiyoriy. Berilsa so'rov davomida O'CHIRILADI va
+     `finally` da tiklanadi.
+
+     ⚠️ Bu YAGONA himoya emas. Server tomonida ham `@bir_marta`
+     turadi (`web/auth.py`): sekin tarmoqda yoki ikkinchi ilova
+     oynasida tugma baribir ikki marta bosiladi, va o'shanda
+     `set_user_premium(..., extend=True)` kunlarni IKKI MARTA
+     qo'shardi. Ekran himoyasi buni ko'rinmas qiladi, server himoyasi
+     esa bo'lmasligini kafolatlaydi — ikkalasi ham kerak.
+
+     ⚠️ Matn faqat MATNLI tugmada almashadi: kalitcha (`.switch`)
+     va ikonka tugmasida matn yo'q, u yerda «Bajarilmoqda…» maketni
+     buzardi. */
+  async function so_rov(yol, tana, usul, tugma) {
+    var eski = null;
+    if (tugma) {
+      eski = tugma.innerHTML;
+      tugma.disabled = true;
+      if (tugma.textContent.trim()) tugma.textContent = S.bajarilmoqda;
+    }
     var cfg = {
       method: usul || "POST",
       headers: imzo({ "Content-Type": "application/json" })
     };
     if (cfg.method !== "DELETE") cfg.body = JSON.stringify(tana || {});
-    var r;
     try {
-      r = await fetch(yol, cfg);
-    } catch (e) {
-      titroq("xato");
-      return { ok: false, d: {}, xato: S.kirish.ulanmadi[1] };
+      var r;
+      try {
+        r = await fetch(yol, cfg);
+      } catch (e) {
+        titroq("xato");
+        return { ok: false, d: {}, xato: S.kirish.ulanmadi[1] };
+      }
+      var d = {};
+      try { d = await r.json(); } catch (e) {}
+      titroq(r.ok ? "ok" : "xato");
+      return { ok: r.ok, d: d, xato: d.error || (S.natija.bajarilmadi + " (" + r.status + ")") };
+    } finally {
+      if (tugma) { tugma.disabled = false; tugma.innerHTML = eski; }
     }
-    var d = {};
-    try { d = await r.json(); } catch (e) {}
-    titroq(r.ok ? "ok" : "xato");
-    return { ok: r.ok, d: d, xato: d.error || (S.natija.bajarilmadi + " (" + r.status + ")") };
   }
 
   /* ══ LIMITLAR ═══════════════════════════════════════════════════ */
@@ -1708,7 +1772,7 @@
       var sw = $("maintSw");
       var yoq = sw.getAttribute("aria-pressed") !== "true";
       if (yoq && !await tasdiq(S.savol.tatil)) return;
-      var j = await so_rov("/api/maintenance", { active: yoq });
+      var j = await so_rov("/api/maintenance", { active: yoq }, null, sw);
       if (!j.ok) return natijaChiz("m-natija", j.xato, true);
       // Kalitchani javobdan keyin qo'yamiz: so'rov yiqilsa ekranda
       // «yoqilgan» turib, aslida o'chiq qolib ketardi.
@@ -1727,7 +1791,7 @@
     $("m-saqla").addEventListener("click", async function () {
       var matn = $("m-textarea").value.trim();
       if (!matn) return natijaChiz("m-natija", "Matn bo'sh.", true);
-      var j = await so_rov("/api/maintenance", { matn: matn });
+      var j = await so_rov("/api/maintenance", { matn: matn }, null, this);
       if (!j.ok) return natijaChiz("m-natija", j.xato, true);
       $("m-matn").textContent = j.d.matn;
       $("m-forma").hidden = true;
@@ -1744,7 +1808,9 @@
       $("w-guruh-forma").hidden = true;
     });
     $("w-guruh-saqla").addEventListener("click", async function () {
-      var j = await so_rov("/api/watch", { amal: "group", guruh: $("w-guruh-input").value.trim() });
+      var j = await so_rov("/api/watch",
+                           { amal: "group", guruh: $("w-guruh-input").value.trim() },
+                           null, this);
       if (!j.ok) return natijaChiz("w-natija", j.xato, true);
       $("w-guruh-forma").hidden = true;
       $("w-guruh-input").value = "";
@@ -1756,15 +1822,15 @@
     $("w-qosh").addEventListener("click", async function () {
       var kim = $("w-kim").value.trim();
       if (!kim) return natijaChiz("w-natija", "ID yoki @username yozing.", true);
-      var j = await so_rov("/api/watch", { amal: "add", kim: kim });
+      var j = await so_rov("/api/watch", { amal: "add", kim: kim }, null, this);
       if (!j.ok) return natijaChiz("w-natija", j.xato, true);
       $("w-kim").value = "";
       natijaChiz("w-natija", S.natija.kuzatuvQosh);
       await kuzatuv();
     });
-    delegat("w-rows", "data-wdel", async function (uid) {
+    delegat("w-rows", "data-wdel", async function (uid, b) {
       if (!await tasdiq(S.savol.kuzatuvOl)) return;
-      var j = await so_rov("/api/watch", { amal: "remove", kim: uid });
+      var j = await so_rov("/api/watch", { amal: "remove", kim: uid }, null, b);
       if (!j.ok) return natijaChiz("w-natija", j.xato, true);
       natijaChiz("w-natija", S.natija.kuzatuvOl);
       await kuzatuv();
@@ -1774,15 +1840,15 @@
       var kim = $("ad-kim").value.trim();
       if (!kim) return natijaChiz("ad-natija", "Sonli ID yozing.", true);
       if (!await tasdiq(S.savol.adminQosh)) return;
-      var j = await so_rov("/api/admins", { amal: "add", kim: kim });
+      var j = await so_rov("/api/admins", { amal: "add", kim: kim }, null, this);
       if (!j.ok) return natijaChiz("ad-natija", j.xato, true);
       $("ad-kim").value = "";
       natijaChiz("ad-natija", S.natija.adminQosh);
       await adminlar();
     });
-    delegat("ad-rows", "data-addel", async function (uid) {
+    delegat("ad-rows", "data-addel", async function (uid, b) {
       if (!await tasdiq(S.savol.adminOl)) return;
-      var j = await so_rov("/api/admins", { amal: "remove", kim: uid });
+      var j = await so_rov("/api/admins", { amal: "remove", kim: uid }, null, b);
       if (!j.ok) return natijaChiz("ad-natija", j.xato, true);
       natijaChiz("ad-natija", S.natija.adminOl);
       await adminlar();
@@ -1803,7 +1869,7 @@
         kun: $("p-kun").value.trim(),
         max: $("p-max").value.trim(),
         muddat: $("p-muddat").value.trim()
-      });
+      }, null, this);
       if (!j.ok) return natijaChiz("p-natija", j.xato, true);
       ["p-kod", "p-kun", "p-max", "p-muddat"].forEach(function (id) { $(id).value = ""; });
       $("p-forma").hidden = true;
@@ -1824,9 +1890,9 @@
       } catch (e) { toast(kod); }
     });
 
-    delegat("p-rows", "data-pdel", async function (kod) {
+    delegat("p-rows", "data-pdel", async function (kod, b) {
       if (!await tasdiq(kod + S.kod.toxtatSavol)) return;
-      var j = await so_rov("/api/promo", { amal: "revoke", kod: kod });
+      var j = await so_rov("/api/promo", { amal: "revoke", kod: kod }, null, b);
       if (!j.ok) return natijaChiz("p-natija2", j.xato, true);
       natijaChiz("p-natija2", kod + " to'xtatildi.");
       toast(S.saqlandi);
@@ -1837,7 +1903,9 @@
       var kimlar = $("g-kimlar").value.trim();
       if (!kimlar) return natijaChiz("g-natija", "Kimga? ID yoki @username yozing.", true);
       if (!await tasdiq(S.savol.sovga)) return;
-      var j = await so_rov("/api/giveaway", { kimlar: kimlar, kun: $("g-kun").value.trim() });
+      var j = await so_rov("/api/giveaway",
+                           { kimlar: kimlar, kun: $("g-kun").value.trim() },
+                           null, this);
       if (!j.ok) return natijaChiz("g-natija", j.xato, true);
       var d = j.d, q = [];
       if (d.berildi.length) q.push(d.berildi.length + " tasiga berildi");
@@ -1854,7 +1922,7 @@
       var j = await so_rov("/api/referral", {
         required: $("r-required").value.trim(),
         reward_days: $("r-days").value.trim()
-      });
+      }, null, this);
       if (!j.ok) return natijaChiz("r-natija", j.xato, true);
       natijaChiz("r-natija", j.d.required + " ta do'st → " + j.d.reward_days + " kun Pro.");
       toast(S.saqlandi);
@@ -1863,9 +1931,9 @@
   }
 
   function tarqatmaHodisalari() {
-    delegat("b-rows", "data-bdel", async function (bid) {
+    delegat("b-rows", "data-bdel", async function (bid, b) {
       if (!await tasdiq(S.savol.tarqatma)) return;
-      var j = await so_rov("/api/broadcasts/" + bid, null, "DELETE");
+      var j = await so_rov("/api/broadcasts/" + bid, null, "DELETE", b);
       if (!j.ok) return natijaChiz("b-natija", j.xato, true);
       natijaChiz("b-natija", S.bekorQilindi);
       await tarqatmalar();

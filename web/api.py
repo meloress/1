@@ -27,7 +27,7 @@ from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS,
                          TOKEN_KUNLIK_GRANT,
                          TARIF_RANGI, TIMEZONE, audit_nomi, daily_limit)
 from db import database as database_module
-from web.auth import admin_only
+from web.auth import admin_only, bir_marta
 
 logger = logging.getLogger(__name__)
 
@@ -532,6 +532,7 @@ async def user(request: web.Request):
 
 
 @admin_only
+@bir_marta
 async def premium(request: web.Request):
     """Pro berish. `kun: null` — cheksiz."""
     uid = _target(request)
@@ -559,6 +560,7 @@ async def premium(request: web.Request):
 
 
 @admin_only
+@bir_marta
 async def plan(request: web.Request):
     """Tarifni o'zgartirish. Hozircha faqat `free` ga tushirish."""
     uid = _target(request)
@@ -591,6 +593,7 @@ async def quota(request: web.Request):
 
 
 @admin_only
+@bir_marta
 async def ban(request: web.Request):
     """Bloklash / ochish."""
     uid = _target(request)
@@ -612,6 +615,7 @@ async def ban(request: web.Request):
 
 
 @admin_only
+@bir_marta
 async def message(request: web.Request):
     """Adminning foydalanuvchiga yozgan xabari."""
     uid = _target(request)
@@ -636,6 +640,12 @@ async def message(request: web.Request):
 
 
 @admin_only
+# ⛔️ `@bir_marta` ATAYLAB YO'Q. Bu endpointda takrorlanishdan
+# himoya 10 soniyalik keshdan KUCHLIROQ va DOIMIY: `refunded_at`
+# ustuni (atomik yozuv, `db/database.py`), undan oldingi 409
+# tekshiruvi va Telegram'ning o'z rad javobi. Kesh bularning ustiga
+# hech narsa qo'shmaydi, buning o'rniga 409 («allaqachon qaytarilgan»)
+# javobini 200 bilan YASHIRARDI — pul yo'lida bu noto'g'ri savdo.
 async def refund(request: web.Request):
     """To'lovni qaytarish.
 
@@ -672,7 +682,14 @@ async def refund(request: web.Request):
         return web.json_response({"error": "Telegram bilan bog'lanib bo'lmadi"}, status=502)
 
     try:
-        await database_module.mark_payment_refunded(tolov["charge_id"], request["user_id"])
+        # ⭐ NATIJA TEKSHIRILADI. Bazadagi yozuv atomik:
+        # `… WHERE charge_id = $1 AND refunded_at IS NULL RETURNING`
+        # (db/database.py). Ya'ni poygada faqat BITTASI yutadi va
+        # qolgani `False` oladi. Ilgari natija e'tiborsiz qolardi —
+        # natijada yutqazgan so'rov ham auditga yozib, foydalanuvchiga
+        # IKKINCHI «pulingiz qaytarildi» xabarini yuborardi.
+        belgilandi = await database_module.mark_payment_refunded(
+            tolov["charge_id"], request["user_id"])
     except Exception:
         # Pul QAYTARILDI, lekin baza yozilmadi. Bu holat log'da ANIQ
         # qolishi shart: tarif hali ham foydalanuvchida turadi.
@@ -681,6 +698,11 @@ async def refund(request: web.Request):
         return web.json_response(
             {"error": "Pul qaytarildi, lekin bazada belgilanmadi. Log'ni tekshiring."},
             status=500)
+
+    if not belgilandi:
+        # Boshqa so'rov ulgurdi. Pul bir marta qaytgan, ya'ni bu xato
+        # emas — lekin audit va xabar TAKRORLANMAYDI.
+        return web.json_response({"ok": True, "takror": True})
 
     await _yoz(request, "refund_stars", tolov.get("beneficiary_id"), tolov["charge_id"])
     await _xabar(tolov["payer_id"], (
@@ -956,6 +978,7 @@ def _csv(sarlavhalar: tuple, qatorlar: List[tuple]) -> str:
 
 
 @admin_only
+@bir_marta
 async def eksport(request: web.Request):
     """CSV yuklab olish: foydalanuvchilar, to'lovlar yoki audit.
 
@@ -1502,6 +1525,7 @@ async def giveaway(request: web.Request):
 
 
 @admin_only
+@bir_marta
 async def giveaway_set(request: web.Request):
     """Bir yoki bir nechta odamga bepul Pro.
 

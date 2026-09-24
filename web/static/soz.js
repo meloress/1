@@ -28,6 +28,7 @@ window.SOZ = {
   /* ── Umumiy holatlar ───────────────────────────────────────── */
   yoq: "—",
   yuklanmoqda: "Yuklanmoqda…",
+  bajarilmoqda: "Bajarilmoqda…",
   yangilandi: "Yangilandi",
   qaytaUrinish: "Qayta urinish",
   yuklanmadi: "Ma'lumot yuklanmadi.",

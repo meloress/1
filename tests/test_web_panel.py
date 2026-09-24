@@ -189,6 +189,48 @@ def test_darvoza():
     print("[8] panel ma'lumoti faqat kirishdan keyin ko'rsatiladi OK")
 
 
+
+def test_kesh_buzish():
+    """Deploydan keyin admin ESKI JS bilan qolib ketmasin.
+
+    ⚠️ Versiya QO'LDA yozilmaydi — uni backend HTML'ni berayotganda
+    har faylning O'Z hash'idan qo'yadi. Qo'lda yozilgan raqam bir
+    marta unutiladi, va o'shanda kesh buzish BORDAY ko'rinib aslida
+    ishlamaydi: bu bag bo'lmaganidan ham yomon holat.
+
+    Manba HTML o'zgarmaydi (6-band aynan shu satrlarni tekshiradi) —
+    `?v=` faqat javobda paydo bo'ladi.
+    """
+    import web as web_paket
+
+    chiqdi = web_paket._versiyala(HTML)
+    assert "/static/panel.css?v=" in chiqdi, "CSS versiyasiz beriladi"
+    assert "/static/panel.js?v=" in chiqdi, "JS versiyasiz beriladi"
+    assert "/static/soz.js?v=" in chiqdi, "soz.js versiyasiz beriladi"
+
+    # ⚠️ LOGOTIPGA TEGILMAYDI: `REJA.md` 3.2.1 ga ko'ra uning
+    # manzili bitta va o'zgarmas, 4-band esa aynan shu satrni qidiradi.
+    assert "/static/logo.jpg?v=" not in chiqdi, "logotip manzili o'zgartirilgan"
+
+    # ⭐ ENG MUHIMI: hash FAYL MAZMUNIGA ergashadi. Aks holda `?v=`
+    # bor-u, deploydan keyin ham o'sha qiymat qoladi — ya'ni bezak.
+    import hashlib
+    yol = STATIC / "panel.css"
+    asl = yol.read_bytes()
+    oldin = chiqdi
+    try:
+        yol.write_bytes(asl + b"\n/* sinov */\n")
+        keyin = web_paket._versiyala(HTML)
+    finally:
+        yol.write_bytes(asl)
+    assert oldin != keyin, (
+        "fayl o'zgardi, versiya esa o'sha-o'sha — kesh buzish ishlamaydi")
+
+    # Fayl yo'q bo'lsa panel YIQILMAYDI, shunchaki versiyasiz beriladi.
+    assert web_paket._versiyala('<link href="/static/yoq.css">')
+
+    print("[9] CSS/JS havolalariga fayl hash'i qo'shiladi OK")
+
 if __name__ == "__main__":
     test_ekranlar()
     test_telefonda_qamrov()
@@ -198,4 +240,5 @@ if __name__ == "__main__":
     test_fayllar_ulangan()
     test_telegram_ulanishi()
     test_darvoza()
-    print("\nweb panel: barcha tekshiruvlar o'tdi (8/8).")
+    test_kesh_buzish()
+    print("\nweb panel: barcha tekshiruvlar o'tdi (9/9).")

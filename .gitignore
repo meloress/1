@@ -7,3 +7,15 @@ ffmpeg.exe
 # Suhbat tarixi bazasi — ish paytida REAL foydalanuvchi xabarlari bilan
 # to'ladi, shuning uchun hech qachon git'ga tushmasligi kerak.
 chat_history.db
+
+# Ish jarayonidagi fayllar — repoga tegishli emas, lekin diskda
+# turishi kerak. Usiz `git status` doim ifloslangan ko'rinadi va
+# o'sha shovqin ichida HAQIQIY o'zgarish ko'zdan qochadi.
+dep_id.txt
+output/
+tools_make_doc.py
+Bot_toliq_hujjat.pdf
+# ⚠️ Ildizdagi nusxa. Panel ishlatadigan fayl — `web/static/logo.jpg`
+# va u GIT'DA. Bu ikkisi baytma-bayt bir xil, ya'ni ildizdagisi qo'l
+# ostida turgan nusxa, xolos. `web/static/` dagisini o'chirmang.
+/logo.jpg

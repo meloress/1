@@ -217,7 +217,74 @@ def main() -> None:
     assert ishlatilgan <= borlar, f"lug'atda yo'q bo'sh holat: {ishlatilgan - borlar}"
     print("[10] skelet, bo'sh holat, xato + «Qayta urinish», «Yangilandi» bor OK")
 
-    print("\npanel ko'rinishi: barcha tekshiruvlar o'tdi (10/10).")
+    # ── 11) SENSORLI EKRAN QOIDALARI ─────────────────────
+    # Uchalasi ham JONLI SHIKOYATDAN keyin yozilgan va uchalasi ham
+    # ko'zga tashlanmay yo'qolib ketishi mumkin: hech narsa yiqilmaydi,
+    # panel shunchaki «g'alati» bo'lib qoladi.
+
+    # ⛔️ `user-scalable=no` QO'SHILMASIN — iOS uni e'tiborga olmaydi,
+    # olganda ham ko'zi ojiz odam uchun zoom'ni butunlay o'ldirardi.
+    # To'g'ri yechim `touch-action`, va u TUGMAGA emas, `html`/`body`
+    # ga: shikoyat aynan MATN va BO'SH JOY ustida edi.
+    assert "user-scalable" not in HTML, "viewport zoom'ni o'chirgan"
+    assert re.search(r"html,\s*body\{[^}]*touch-action:\s*manipulation", CSS_SOF), (
+        "touch-action html/body da emas — matn ustida double-tap zoom qoladi")
+
+    # iOS fokusda zoom: 16px dan kichik maydon butun sahifani
+    # kattalashtiradi va ORTGA QAYTARMAYDI.
+    for sel in ("input,textarea,select{", ".field input{", ".kiritish{"):
+        assert "max(16px" in _blok(sel), f"{sel} — iOS fokusda zoom qiladi"
+
+    # Telefonda `:hover` bosilgandan KEYIN ham qolib ketadi — qator
+    # rangli bo'lib turadi va odam uni «tanlangan» deb o'qiydi.
+    tashqarida = re.findall(r"^[^@\s][^\r\n]*:hover", CSS_SOF, re.M)
+    assert not tashqarida, f"hover media query TASHQARISIDA: {tashqarida}"
+    assert "@media (hover:hover) and (pointer:fine)" in CSS_SOF, "hover bloki yo'q"
+
+    # Ro'yxat oxirida siljish Telegram OYNASIGA o'tmasin.
+    assert "overscroll-behavior-y:contain" in CSS_SOF, "overscroll ochiq"
+    print("[11] touch-action, 16px input, hover media, overscroll OK")
+
+    # ── 12) KOMPYUTERDA TO'LIQ EKRAN ─────────────────────
+    # ⚠️ «web» DEGAN PLATFORMA QIYMATI YO'Q — Telegram Web ikkita:
+    # `weba` va `webk`. «web» deb yozilsa shart HECH QACHON bajarilmaydi
+    # va bag jimgina qoladi — buni faqat shunday tekshiruv tutadi.
+    m = re.search(r"KENG_EKRAN = (\[[^\]]*\])", JS)
+    assert m, "KENG_EKRAN ro'yxati yo'q"
+    assert set(re.findall(r'"(\w+)"', m.group(1))) == {
+        "tdesktop", "macos", "weba", "webk"}, m.group(1)
+    assert "requestFullscreen" in JS and 'isVersionAtLeast("8.0")' in JS, (
+        "to'liq ekran versiya tekshiruvisiz chaqirilyapti")
+    print("[12] desktop/web mijozda to'liq ekran so'raladi OK")
+
+    # ── 13) ⭐ XATO HOLATI KO'RINADIGAN JOYDA ─────────────
+    # JONLI BAG: `/api/overview` 500 qaytarganda ekranda beshta statik
+    # «—» qolardi va hech narsa «yuklanmadi» demasdi. Ikki sabab bor
+    # edi va ikkalasi ham shu yerda qo'riqlanadi.
+
+    # (a) Xato xabari BIRINCHI `.card` ichiga emas, `section` tepasiga.
+    # Oltita ekranda birinchi `.card` KPI qatoridan KEYIN turadi, ya'ni
+    # telefonda xabar ekrandan pastda qolardi.
+    i = JS.index("function xatoQatori(")
+    tana = JS[i:i + 700]
+    # `"] .card` — aynan «section ichidagi birinchi .card ni top» degan
+    # selektor. Element o'ziga `card` sinfini olishi mumkin, bu boshqa narsa.
+    assert '"] .card' not in tana, (
+        "xato xabari yana birinchi .card ichiga qo'yilyapti — u KPI "
+        "qatoridan keyin turadi va telefonda ko'rinmaydi")
+    assert "insertBefore" in tana or "prepend" in tana, (
+        "xato xabari ekran TEPASIGA qo'yilmayapti")
+
+    # (b) KPI raqamlari yuklanishdan oldin skelet ko'rsatadi — statik
+    # «—» «hali kelmadi» va «yiqildi» ni FARQLAMAYDI.
+    assert "function kpiSkelet(" in JS and ".skelet-kpi" in CSS_SOF, (
+        "KPI skeleti yo'q")
+    for ekran in ("boshqaruv", "statistika"):
+        j = JS.index(f"async function {ekran}()")
+        assert "kpiSkelet(" in JS[j:j + 300], f"{ekran}: KPI skeleti chaqirilmagan"
+    print("[13] xato xabari ekran tepasida, KPI skeleti bor OK")
+
+    print("\npanel ko'rinishi: barcha tekshiruvlar o'tdi (13/13).")
 
 
 if __name__ == "__main__":
