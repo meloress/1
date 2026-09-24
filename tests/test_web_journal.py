@@ -388,7 +388,23 @@ async def main():
         api._hujjat = asl_hujjat
         print("[16] eksport: noma'lum tur 400, fayl so'ragan adminga ketadi OK")
 
-    print("\nweb journal: barcha tekshiruvlar o'tdi (16/16).")
+    # ── 17) ⭐ INTERVAL ARGUMENTI SATR BO'LISHI SHART ────────────
+    # `NOW() - ($N || ' days')::interval` ifodasida asyncpg $N ni
+    # `text` deb biladi. int berilsa DataError tashlaydi — jonli botda
+    # butun jurnal ekrani ham, ogohlantirish kuzatuvchisi ham har 15
+    # daqiqada aynan shu bitta satrda o'lgan edi.
+    #
+    # Testlar uni KO'RMAGAN: bu yerda baza soxta, ya'ni asyncpg turni
+    # umuman tekshirmaydi. Shuning uchun qoida MANBA MATNIDAN o'qiladi.
+    db_matn = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+    for nom in ("_jurnal_filtri", "_audit_filtri"):
+        i = db_matn.index("def " + nom + "(")
+        tana = db_matn[i:i + 1500]
+        assert "args.append(str(int(kun)))" in tana, (
+            nom + ": interval argumenti satr emas — asyncpg DataError beradi")
+    print("[17] jurnal filtrida interval argumenti SATR OK")
+
+    print("\nweb journal: barcha tekshiruvlar o'tdi (17/17).")
 
 
 if __name__ == "__main__":

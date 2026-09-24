@@ -16,7 +16,14 @@ python services/sandbox_helpers/deck.py   # PPTX maketlarini tekshirish
 python tests/test_tts_lang.py --live  # jonli TTS sintezi bilan
 ```
 
-No test framework, no linter, no build step. Each `tests/test_*.py` is a standalone `assert`-based script with numbered `print("[N] ... OK")` lines and a final summary. New tests follow that shape. On Windows, prefix with `PYTHONIOENCODING=utf-8` — some tests print emoji and the console codepage will otherwise raise `UnicodeEncodeError` (a false failure, not a real one).
+```bash
+node --check web/static/panel.js        # panel JS sintaksisi
+python -m compileall -q .               # butun daraxt kompilyatsiyasi
+```
+
+No test framework, no linter, no build step — but the panel's JavaScript has no test that
+parses it, so `node --check` is the only thing standing between a typo and a blank screen
+for every admin. Run it after every `panel.js` / `soz.js` edit. Each `tests/test_*.py` is a standalone `assert`-based script with numbered `print("[N] ... OK")` lines and a final summary. New tests follow that shape. On Windows, prefix with `PYTHONIOENCODING=utf-8` — some tests print emoji and the console codepage will otherwise raise `UnicodeEncodeError` (a false failure, not a real one).
 
 Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is the slow one.
 
@@ -116,6 +123,13 @@ more. With no domain, an admin has **only** `/xabar` and `/kod`: no statistics, 
 management, no limits, no journal. Deploying without the domain is not a degraded panel,
 it is no panel.
 
+⚠️ **`ssh-agent` is not running in this environment**, so a plain `git push` can fail
+with `Permission denied (publickey)` even though the key is right there in `~/.ssh/`. The
+key is loaded explicitly instead:
+`GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" git push meloress main`.
+It failed exactly once mid-session after several successful pushes, so do not read a
+failure as "the key is wrong" — try the explicit form first.
+
 **`git push meloress main` deploys.** The Railway service is connected to GitHub, so a push to `git@github.com:meloress/1.git` (remote `meloress`) triggers the build by itself — no API call, no token. `origin` still points at `afiffamily/1`, where this account has **no write access** (403), so never push there.
 
 Both the account and the remote moved on 2026-09-08; the GraphQL path below is history, kept only in case the GitHub connection is removed again.
@@ -171,9 +185,9 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 | | tokens |
 |---|---|
 | `instructions` (prompt + concise + image note) | 5 521 |
-| tool schemas (Pro, all three doors closed) | 2 393 |
-| capability manifest | 405 |
-| **fixed total per round** | **8 319** |
+| tool schemas (Pro, all four doors closed) | 2 603 |
+| capability manifest | 461 |
+| **fixed total per round** | **8 585** |
 | history | 0 → ~8 200, then capped by the summary (~300) |
 | median user message | ~10 |
 | median reply | ~70 |
@@ -234,6 +248,12 @@ Drafts are private-chat-only (API limit); `sendRichMessage` is not. `process_str
 `get_openai_reply()` streams from the Responses API and runs a tool loop with **per-tool round budgets** (`MAX_SEARCH_ROUNDS`, `MAX_FILE_ROUNDS`, `MAX_IMAGE_ROUNDS`, `MAX_MEMORY_ROUNDS`, `MAX_REMINDER_ROUNDS`, `MAX_NEARBY_ROUNDS`, plus `MAX_TOTAL_ROUNDS`). When a budget is spent the tool is dropped from `active_tools`, forcing the model to answer.
 
 Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `edit_image`, `update_memory`, `manage_reminder`, `find_nearby`. Three of them are reached through a cheap door (`start_file_task`, `open_memory`, `open_reminder`) — see below.
+
+⚠️ **`open_capabilities` is a fourth door of a different kind**: it attaches nothing, it
+*returns* the answer (the bot's feature list plus the reader's plan) and the model writes
+from that. Same economics — 211 tokens every round, 1 767 only when called — but it does
+not turn a mode on, so it has no `_mode` flag and it caps itself at one call. See "What
+the model may claim it can do".
 
 **Three tools are attached in two steps, and that is a token decision.** A cheap
 "door" is always attached; the expensive real schema arrives only on the round after the
@@ -377,7 +397,7 @@ The prompt also carries a phishing/social-engineering section that fixes the *sh
 
 ### The prompt is sent whole on every round, so duplication is expensive
 
-The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 521 tokens, tool schemas 2 393, capability manifest 405.
+The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 521 tokens, tool schemas 2 603, capability manifest 461.
 
 `STRICT_MATH_RULES` used to be appended after the whole prompt and was a near-verbatim copy of the template's own `MATH, PHYSICS & CHEMISTRY` section — nine rules stated twice, side by side in one string, 274 tokens per round. It is gone; the two phrases that were unique to it ("This is a hard requirement", "There are no other acceptable delimiters") were folded into the section that remains. `CONCISE_INSTRUCTION` likewise lost the three sentences that repeated `OUTPUT CONTRACT` rule 4.
 
@@ -889,6 +909,25 @@ same. What that percentage actually tells you is whether the request prefix is s
 stable through the day; if it falls, something per-user has leaked into the cached prefix.
 `tests/test_web_stats.py` checks 9-9d pin the arithmetic, the empty-database case, and
 that the write stays off the reply path.
+
+⚠️ **Two asyncpg type rules broke this panel live, and no offline test could
+see either.** Both endpoints came back 500 while every test passed, because the
+fake database has no types at all.
+
+- `NOW() - ($N || ' days')::interval` makes asyncpg infer `$N` as **text**, so an
+  `int` raises `DataError`. Everything else in `db/database.py` already passed
+  `str(...)` (`str(within_days)`, `str(int(days))`); the two new journal filters
+  did not, and took the audit screen, the error screen **and** `alert_watcher()`
+  down with them — the watcher retried every 15 minutes, forever.
+- `SUM()` over a **BIGINT** column returns `NUMERIC`, which asyncpg gives back as
+  `Decimal`, which `json_response` cannot serialise. `user_history`'s columns are
+  BIGINT, so every token query needs `::bigint`. This one did not appear on
+  deploy: the table was still empty, `SUM` returned `NULL`, and the screen only
+  died once the first real request had been logged.
+
+`test_web_stats.py` check 9e and `test_web_journal.py` check 17 read the **source
+text** for both rules — the same approach as `test_panel_raqamlar.py`, and the only
+one available without a database.
 
 ### Five label maps that all rotted the same way
 

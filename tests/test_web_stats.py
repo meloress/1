@@ -324,7 +324,25 @@ async def main():
         assert "except Exception" in tana, "token yozuvi xatosi yutilmaydi"
         print("[9d] token yozuvi fon vazifasida va xatosi yutiladi OK")
 
-    print("\nweb stats: barcha tekshiruvlar o'tdi (12/12).")
+        # ── 9e) ⭐ SUM() BIGINT ustida — natija ::bigint ga
+        # o'tkazilishi SHART. Postgres SUM(BIGINT) dan NUMERIC
+        # qaytaradi, asyncpg uni `Decimal` qiladi, `Decimal` esa JSON
+        # ga serializatsiya QILINMAYDI — butun Boshqaruv ekrani 500
+        # bo'lib yiqiladi.
+        #
+        # Bu JONLI xato edi va testlar uni KO'RMAGAN: bu yerda baza
+        # soxta va int qaytaradi. Shuning uchun tekshiruv SQL MATNINI
+        # o'qiydi — `test_panel_raqamlar.py` dagi qoida bilan bir xil.
+        db_matn = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+        i = db_matn.index("async def token_stats")
+        tana = db_matn[i:db_matn.index("\n@with_db_retry", i)]
+        tana = tana[tana.index("pool.acquire"):]        # izohlar emas, SQL
+        xom = [q.strip() for q in tana.split("\n")
+               if "SUM(" in q and "::bigint" not in q]
+        assert not xom, f"token_stats da ::bigint siz SUM(): {xom}"
+        print("[9e] token_stats: hamma SUM() ::bigint ga o'tkazilgan OK")
+
+    print("\nweb stats: barcha tekshiruvlar o'tdi (13/13).")
 
 
 async def _nol_kecha():

@@ -1406,7 +1406,7 @@ async def get_full_user_profile(user_id: int) -> Optional[Dict[str, Any]]:
         )
         
         total_tokens = await conn.fetchval(
-            'SELECT SUM(tokens_used) FROM user_history WHERE user_id = $1', user_id
+            'SELECT SUM(tokens_used)::bigint FROM user_history WHERE user_id = $1', user_id
         )
 
         # ANIQLIK UCHUN MUHIM: agar foydalanuvchining oxirgi kredit
@@ -2732,7 +2732,12 @@ def _jurnal_filtri(ustunlar: tuple, q: Optional[str], kun: Optional[int],
     args = list(boshlangich)
 
     if kun:
-        args.append(int(kun))
+        # ⚠️ SATR, int EMAS. `($N || ' days')` ifodasida asyncpg $N ni
+        # `text` deb biladi va int berilsa DataError tashlaydi. Butun
+        # jurnal ekrani va ogohlantirish kuzatuvchisi shu bitta satrda
+        # yiqilgan edi — testlarda baza soxta bo'lgani uchun ko'rinmay
+        # qolgan. Faylning qolgan joylari ham shunday (`str(within_days)`).
+        args.append(str(int(kun)))
         shartlar.append(f"created_at >= NOW() - (${len(args)} || ' days')::interval")
 
     frag = (q or "").strip()[:64]
@@ -2824,6 +2829,12 @@ async def token_stats(kunlar: int = 30) -> Dict[str, Any]:
     ⚠️ KUN TOSHKENT BO'YICHA. `created_at` ustuni TIMESTAMP (mintaqasiz)
     va NOW() dan to'ladi, ya'ni UTC. Kesim UTC bo'yicha olinsa, «bugun»
     soat 05:00 da almashardi va admin ertalab kechagi raqamni ko'rardi.
+
+    ⛔️ Har bir SUM() `::bigint` ga o'tkaziladi. Postgres'da SUM(BIGINT)
+    NUMERIC qaytaradi, asyncpg uni `Decimal` qiladi, va `Decimal` JSON
+    ga serializatsiya QILINMAYDI — ya'ni butun Boshqaruv ekrani 500
+    bilan yiqiladi. Jadval bo'sh ekan SUM NULL qaytargani uchun bu
+    deployda emas, birinchi foydalanuvchi kelganda chiqdi.
     """
     global pool
     if pool is None:
@@ -2833,15 +2844,15 @@ async def token_stats(kunlar: int = 30) -> Dict[str, Any]:
         qator = await conn.fetch(
             f'''SELECT ((created_at AT TIME ZONE 'UTC')
                           AT TIME ZONE 'Asia/Tashkent')::date AS kun,
-                       COALESCE(SUM(kirish), 0)  AS kirish,
-                       COALESCE(SUM(chiqish), 0) AS chiqish,
-                       COALESCE(SUM(keshdan), 0) AS keshdan,
+                       COALESCE(SUM(kirish), 0)::bigint  AS kirish,
+                       COALESCE(SUM(chiqish), 0)::bigint AS chiqish,
+                       COALESCE(SUM(keshdan), 0)::bigint AS keshdan,
                        COUNT(*) AS raund
                 FROM user_history
                 WHERE created_at >= NOW() - INTERVAL '{kunlar} days'
                 GROUP BY 1 ORDER BY 1''')
         eng = await conn.fetch(
-            '''SELECT user_id, COALESCE(SUM(kirish + chiqish), 0) AS jami,
+            '''SELECT user_id, COALESCE(SUM(kirish + chiqish), 0)::bigint AS jami,
                       COUNT(*) AS raund
                FROM user_history
                WHERE created_at >= NOW() - INTERVAL '7 days'
@@ -2907,7 +2918,7 @@ def _audit_filtri(admin_id: Optional[int], q: Optional[str],
         args.append(admin_id)
         shartlar.append(f"a.admin_id = ${len(args)}")
     if kun:
-        args.append(int(kun))
+        args.append(str(int(kun)))          # SATR — `_jurnal_filtri` ga qarang
         shartlar.append(
             f"a.action_time >= NOW() - (${len(args)} || ' days')::interval")
     frag = (q or "").strip()[:64]
