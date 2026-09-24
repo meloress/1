@@ -26,7 +26,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import web
 from web import api, auth
-from core.config import TARIF_NOMI
+from core.config import TARIF_NOMI, TOKEN_KUNLIK_GRANT
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TASHKENT = datetime.timezone(datetime.timedelta(hours=5))
@@ -86,6 +86,19 @@ def soxta_bazani_qoy(modul, **ustidan):
 
     async def revenue_stats():
         return dict(SOXTA_DAROMAD)
+
+    # ⚠️ Token hisobi: bugun grantning 74% i yeyilgan, kecha OSHGAN.
+    # Ikkala holat ham panelda boshqacha ko'rinishi kerak.
+    async def token_stats(kunlar=30):
+        import datetime as _dt
+        from web.api import TIMEZONE as _TZ
+        bugun = _dt.datetime.now(_TZ).date()
+        return {"kunlik": [
+            {"kun": bugun, "kirish": 1_600_000, "chiqish": 240_000,
+             "keshdan": 976_000, "raund": 1180},
+            {"kun": bugun - _dt.timedelta(days=1), "kirish": 2_400_000,
+             "chiqish": 210_000, "keshdan": 1_200_000, "raund": 1610},
+        ], "eng_qimmat": []}
 
     async def top_users(days, limit):
         return [
@@ -265,7 +278,53 @@ async def main():
         assert nomlari == {k: TARIF_NOMI[k] for k in nomlari}, nomlari
         print("[8] panelda xom SQL yo'q, raqamlar yagona manbadan OK")
 
-    print("\nweb stats: barcha tekshiruvlar o'tdi (8/8).")
+        # ═══════════════════════════════════════════════════════════════
+        # 9) TOKEN SARFI — ENG QIMMAT XAVF ENDI KO'RINADI
+        # ═══════════════════════════════════════════════════════════════
+        # NEGA BOR: bot kunlik BEPUL grant ustida ishlaydi va uning qanchasi
+        # yeyilgani faqat Railway logida bor edi. Ya'ni pul ketayotganini
+        # hech kim ko'rmasdi.
+        t = ov["kpi"]["token"]
+        assert t["bugun"] == 1_840_000, t          # kirish + chiqish
+        assert t["grant"] == TOKEN_KUNLIK_GRANT, t
+        assert t["foiz"] == 74, t
+        assert t["oshgan"] is False, t
+        # ⚠️ Keshlangan ulush KVOTANI KAMAYTIRMAYDI (OpenAI, 2026-09-09) —
+        # u faqat so'rov boshi kun bo'yi bir xil qolayotganini ko'rsatadi.
+        # Shuning uchun u `bugun` dan CHIQARILMAYDI.
+        assert t["keshdan"] == 61, t
+        print(f"[9] token kartasi: {t['foiz']}% · keshdan {t['keshdan']}% OK")
+
+        # ── 9b) Kecha grantdan oshgani alohida aytiladi ────────────────
+        # Oshgan token baribir ISHLAYDI, faqat pulli bo'ladi — shuning
+        # uchun bu «bloklandi» emas, ogohlantirish.
+        assert t["kecha"] == 2_610_000 and t["kecha_oshgan"] is True, t
+        js_matn = (ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8")
+        assert "kecha oshgan" in js_matn, "panel kechagi oshishni aytmaydi"
+        assert "grantdan oshdi" in js_matn, "panel bugungi oshishni aytmaydi"
+        print("[9b] grantdan oshish panelda aytiladi OK")
+
+        # ── 9c) Hisob BO'SH bazada ham yiqilmaydi ──────────────────────
+        # Yangi bot: hali bironta qator yo'q. Nolga bo'linish yoki KeyError
+        # butun Boshqaruv ekranini o'ldirardi.
+        bosh = api._token_kpi({"kunlik": [], "eng_qimmat": []})
+        assert bosh["bugun"] == 0 and bosh["foiz"] == 0, bosh
+        assert bosh["keshdan"] is None, "kirish 0 da keshdan ulushi bo'lmaydi"
+        assert bosh["oshgan"] is False, bosh
+        print("[9c] bo'sh bazada token kartasi yiqilmaydi OK")
+
+        # ── 9d) Yozish javobni KUTTIRMAYDI va yiqilmaydi ───────────────
+        # ⚠️ Hisob javobdan muhimroq emas: baza yiqilsa ham foydalanuvchi
+        # javobini olishi kerak.
+        ai_matn = (ROOT / "services" / "ai.py").read_text(encoding="utf-8")
+        assert "asyncio.create_task(_token_saqla(" in ai_matn, (
+            "token yozuvi javob yo'lida kutilyapti")
+        i = ai_matn.index("async def _token_saqla")
+        tana = ai_matn[i:i + 600]
+        assert "except Exception" in tana, "token yozuvi xatosi yutilmaydi"
+        print("[9d] token yozuvi fon vazifasida va xatosi yutiladi OK")
+
+    print("\nweb stats: barcha tekshiruvlar o'tdi (12/12).")
 
 
 async def _nol_kecha():

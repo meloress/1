@@ -491,63 +491,45 @@
     }).join("");
   }
 
-  /* ══ GRAFIK ═════════════════════════════════════════════════════ */
-  var DAYS = [], MAX = 100, kunOynasi = 7;
+  /* Token sarfi: bugungi raqam va kunlik grantga nisbatan chiziq.
+     ⚠️ Grant CHEKLOV EMAS — undan oshgan token baribir ishlaydi,
+     faqat pulli bo'ladi. Shuning uchun matn «bloklandi» demaydi. */
+  function tokenChiz(t) {
+    if (!t || !$("k-token")) return;
+    $("k-token").textContent = million(t.bugun);
+    var bar = $("k-token-bar");
+    bar.style.width = Math.min(100, t.foiz) + "%";
+    bar.className = t.oshgan ? "over" : (t.foiz >= 80 ? "warn" : "");
+
+    var qism = [t.foiz + "% · " + million(t.grant) + " dan"];
+    if (t.keshdan !== null && t.keshdan !== undefined) {
+      qism.push("keshdan " + t.keshdan + "%");
+    }
+    // Kecha grantdan oshgan bo'lsa buni AYTAMIZ: oshgan qismi pulli.
+    if (t.kecha_oshgan) qism.push("kecha oshgan");
+    $("k-token-d").innerHTML = t.oshgan
+      ? '<b class="down">grantdan oshdi</b> · ' + xavfsiz(qism.join(" · "))
+      : xavfsiz(qism.join(" · "));
+  }
+
+  /* 1 840 000 -> «1.84M». Uzun raqam telefonda kartochkadan chiqib
+     ketardi va uni bir qarashda o'qib ham bo'lmasdi. */
+  function million(n) {
+    n = Number(n) || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return Math.round(n / 1e3) + "K";
+    return son(n);
+  }
+
+  /* ══ GRAFIK ═════════════════════════════════════════════════════
+     ⚠️ FABRIKA, bitta nusxa EMAS. Ilgari grafik qattiq id'larga
+     ("line", "dots", "tip"…) bog'langan edi, ya'ni ikkinchi grafik
+     uchun butun funksiyani nusxalash kerak bo'lardi — va o'sha nusxa
+     albatta eskirardi (bu loyihada besh marta ro'y bergan).
+     `chizuvchi(prefiks)` har bir grafikka o'z holatini beradi, kod esa
+     bitta joyda qoladi. HTML tomonda id'lar prefiks bilan: "d-line",
+     "d-dots" va hokazo. */
   var W = 640, PAD_L = 44, PAD_R = 12, TOP = 18, BASE = 158;
-
-  function x(i) {
-    var n = DAYS.length > 1 ? DAYS.length - 1 : 1;
-    return PAD_L + i * (W - PAD_L - PAD_R) / n;
-  }
-  /* ⚠️ Y O'QI NOLDAN. Ilgari shkala eng kichik qiymatdan boshlanardi
-     (ekranda 44 dan) va shuning uchun 176→132 kabi oddiy tebranish
-     chuqur qulashdek ko'rinardi (§4). Noldan boshlangan shkala
-     nisbatni to'g'ri ko'rsatadi. */
-  function y(v) { return BASE - (v / MAX) * (BASE - TOP); }
-
-  function grafik(kunlar) {
-    DAYS = kunlar;
-    var eng = Math.max.apply(null, DAYS.map(function (p) { return p.soni; }));
-    MAX = pogona(eng);
-
-    var line = "", dots = "", labels = "", ylab = "", setka = "";
-    var kop = DAYS.length > 14 ? Math.ceil(DAYS.length / 7) : 1;
-    DAYS.forEach(function (p, i) {
-      line += (i ? " L" : "M") + x(i).toFixed(1) + " " + y(p.soni).toFixed(1);
-      // Uzun oynada har bir nuqtaga doira chizilsa chiziq ko'rinmay
-      // qoladi — faqat oxirgisi belgilanadi.
-      if (DAYS.length <= 14 || i === DAYS.length - 1) {
-        dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.soni).toFixed(1) + '" r="' +
-                (i === DAYS.length - 1 ? 4.5 : 3) + '" fill="' +
-                (i === DAYS.length - 1 ? "#2BB3FF" : "var(--panel)") + '" stroke="#7B5CFF" stroke-width="2"/>';
-      }
-      if (i % kop === 0 || i === DAYS.length - 1) {
-        // ⚠️ 7 kunlik oynada hafta kuni («Dush») ma'noli, 30 yoki 90
-        // kunlikda esa u to'rt marta takrorlanadi va o'qni o'qib
-        // bo'lmay qoladi — u yerda sana yoziladi.
-        var yorliq = DAYS.length <= 7 ? p.nom
-          : (p.kun || "").slice(8, 10) + "." + (p.kun || "").slice(5, 7);
-        labels += '<text x="' + x(i).toFixed(1) + '" y="176" text-anchor="middle">' +
-                  xavfsiz(yorliq) + "</text>";
-      }
-    });
-    [1, 0.75, 0.5, 0.25, 0].forEach(function (ulush) {
-      var yy = y(MAX * ulush);
-      setka += '<line class="setka" x1="' + PAD_L + '" y1="' + yy.toFixed(1) +
-               '" x2="' + W + '" y2="' + yy.toFixed(1) + '"/>';
-      ylab += '<text x="0" y="' + (yy + 4).toFixed(1) + '">' + son(Math.round(MAX * ulush)) + "</text>";
-    });
-    var area = line + " L" + x(DAYS.length - 1).toFixed(1) + " " + BASE +
-               " L" + x(0).toFixed(1) + " " + BASE + " Z";
-    $("line").setAttribute("d", line);
-    $("area").setAttribute("d", area);
-    $("dots").innerHTML = dots;
-    $("xlab").innerHTML = labels;
-    $("ylab").innerHTML = ylab;
-    $("setka").innerHTML = setka;
-    $("chart-svg").setAttribute("aria-label",
-      "So'rovlar oqimi: " + DAYS.map(function (p) { return p.nom + " " + p.soni; }).join(", "));
-  }
 
   /* Yuqori chegara — 4 ga bo'linadigan "chiroyli" son, eng kamida 4.
      Nolga bo'lish va tekis nol grafik shu yerda to'xtaydi. */
@@ -558,33 +540,108 @@
     return Math.max(4, Math.ceil(q / 4) * 4);
   }
 
+  function chizuvchi(prefiks, sarlavha, izoh) {
+    var DAYS = [], MAX = 100;
+    function el(nom) { return $(prefiks + nom); }
+
+    function x(i) {
+      var n = DAYS.length > 1 ? DAYS.length - 1 : 1;
+      return PAD_L + i * (W - PAD_L - PAD_R) / n;
+    }
+    /* ⚠️ Y O'QI NOLDAN. Ilgari shkala eng kichik qiymatdan boshlanardi
+       (ekranda 44 dan) va shuning uchun 176→132 kabi oddiy tebranish
+       chuqur qulashdek ko'rinardi (§4). Noldan boshlangan shkala
+       nisbatni to'g'ri ko'rsatadi. */
+    function y(v) { return BASE - (v / MAX) * (BASE - TOP); }
+
+    function chiz(kunlar) {
+      DAYS = kunlar || [];
+      var eng = DAYS.length
+        ? Math.max.apply(null, DAYS.map(function (p) { return p.soni; })) : 0;
+      MAX = pogona(eng);
+
+      var line = "", dots = "", labels = "", ylab = "", setka = "";
+      var kop = DAYS.length > 14 ? Math.ceil(DAYS.length / 7) : 1;
+      DAYS.forEach(function (p, i) {
+        line += (i ? " L" : "M") + x(i).toFixed(1) + " " + y(p.soni).toFixed(1);
+        // Uzun oynada har bir nuqtaga doira chizilsa chiziq ko'rinmay
+        // qoladi — faqat oxirgisi belgilanadi.
+        if (DAYS.length <= 14 || i === DAYS.length - 1) {
+          dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.soni).toFixed(1) + '" r="' +
+                  (i === DAYS.length - 1 ? 4.5 : 3) + '" fill="' +
+                  (i === DAYS.length - 1 ? "#2BB3FF" : "var(--panel)") + '" stroke="#7B5CFF" stroke-width="2"/>';
+        }
+        if (i % kop === 0 || i === DAYS.length - 1) {
+          // ⚠️ 7 kunlik oynada hafta kuni («Dush») ma'noli, 30 yoki 90
+          // kunlikda esa u to'rt marta takrorlanadi va o'qni o'qib
+          // bo'lmay qoladi — u yerda sana yoziladi.
+          var yorliq = DAYS.length <= 7 ? p.nom
+            : (p.kun || "").slice(8, 10) + "." + (p.kun || "").slice(5, 7);
+          labels += '<text x="' + x(i).toFixed(1) + '" y="176" text-anchor="middle">' +
+                    xavfsiz(yorliq) + "</text>";
+        }
+      });
+      [1, 0.75, 0.5, 0.25, 0].forEach(function (ulush) {
+        var yy = y(MAX * ulush);
+        setka += '<line class="setka" x1="' + PAD_L + '" y1="' + yy.toFixed(1) +
+                 '" x2="' + W + '" y2="' + yy.toFixed(1) + '"/>';
+        ylab += '<text x="0" y="' + (yy + 4).toFixed(1) + '">' + son(Math.round(MAX * ulush)) + "</text>";
+      });
+      var area = line + " L" + x(Math.max(0, DAYS.length - 1)).toFixed(1) + " " + BASE +
+                 " L" + x(0).toFixed(1) + " " + BASE + " Z";
+      el("line").setAttribute("d", line);
+      el("area").setAttribute("d", area);
+      el("dots").innerHTML = dots;
+      el("xlab").innerHTML = labels;
+      el("ylab").innerHTML = ylab;
+      el("setka").innerHTML = setka;
+      el("svg").setAttribute("aria-label",
+        sarlavha + ": " + DAYS.map(function (p) { return p.nom + " " + p.soni; }).join(", "));
+    }
+
+    function hodisalar() {
+      var hit = el("hit"), tip = el("tip"), cross = el("cross"), box = el("box");
+      if (!hit || !box) return;
+      function nearest(clientX) {
+        var r = box.getBoundingClientRect();
+        var vx = (clientX - r.left) / r.width * W;
+        var best = 0, bd = 1e9;
+        DAYS.forEach(function (p, i) { var d = Math.abs(x(i) - vx); if (d < bd) { bd = d; best = i; } });
+        return best;
+      }
+      function move(e) {
+        if (!DAYS.length) return;
+        var cx = e.touches ? e.touches[0].clientX : e.clientX;
+        var i = nearest(cx), r = box.getBoundingClientRect();
+        cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", ".55");
+        tip.style.opacity = "1";
+        tip.style.left = (x(i) / W * r.width) + "px";
+        tip.style.top = (y(DAYS[i].soni) / 210 * r.height) + "px";
+        tip.innerHTML = xavfsiz(kunNomi(DAYS[i].kun + "T12:00:00+05:00")) +
+                        " · " + izoh(DAYS[i]);
+      }
+      function leave() { tip.style.opacity = "0"; cross.setAttribute("opacity", "0"); }
+      hit.addEventListener("mousemove", move);
+      hit.addEventListener("mouseleave", leave);
+      hit.addEventListener("touchstart", move, { passive: true });
+      hit.addEventListener("touchmove", move, { passive: true });
+      hit.addEventListener("touchend", leave);
+    }
+
+    return { chiz: chiz, hodisalar: hodisalar };
+  }
+
+  var kunOynasi = 7;
+  var sorovGrafigi = chizuvchi("chart-", "So'rovlar oqimi", function (p) {
+    return "<b>" + son(p.soni) + "</b> so'rov · " + son(p.kishi) + " kishi";
+  });
+  var daromadGrafigi = chizuvchi("dchart-", "Daromad oqimi", function (p) {
+    return "<b>" + son(p.soni) + "</b> ⭐ · " + son(p.kishi) + " sotuv";
+  });
+  function grafik(kunlar) { sorovGrafigi.chiz(kunlar); }
   function grafikHodisalari() {
-    var hit = $("hit"), tip = $("tip"), cross = $("cross"), box = $("chart");
-    function nearest(clientX) {
-      var r = box.getBoundingClientRect();
-      var vx = (clientX - r.left) / r.width * W;
-      var best = 0, bd = 1e9;
-      DAYS.forEach(function (p, i) { var d = Math.abs(x(i) - vx); if (d < bd) { bd = d; best = i; } });
-      return best;
-    }
-    function move(e) {
-      if (!DAYS.length) return;
-      var cx = e.touches ? e.touches[0].clientX : e.clientX;
-      var i = nearest(cx), r = box.getBoundingClientRect();
-      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", ".55");
-      tip.style.opacity = "1";
-      tip.style.left = (x(i) / W * r.width) + "px";
-      tip.style.top = (y(DAYS[i].soni) / 210 * r.height) + "px";
-      tip.innerHTML = xavfsiz(kunNomi(DAYS[i].kun + "T12:00:00+05:00")) +
-                      " · <b>" + son(DAYS[i].soni) + "</b> so'rov · " +
-                      son(DAYS[i].kishi) + " kishi";
-    }
-    function leave() { tip.style.opacity = "0"; cross.setAttribute("opacity", "0"); }
-    hit.addEventListener("mousemove", move);
-    hit.addEventListener("mouseleave", leave);
-    hit.addEventListener("touchstart", move, { passive: true });
-    hit.addEventListener("touchmove", move, { passive: true });
-    hit.addEventListener("touchend", leave);
+    sorovGrafigi.hodisalar();
+    daromadGrafigi.hodisalar();
   }
 
   /* ══ BOSHQARUV ══════════════════════════════════════════════════ */
@@ -611,6 +668,8 @@
 
     $("k-pul").textContent = son(k.daromad.bugun) + " ⭐";
     $("k-pul-d").textContent = "30 kunda " + son(k.daromad.oy) + " ⭐";
+
+    tokenChiz(k.token);
 
     kunChiplari(d.kun_variantlari, d.kun_oynasi);
     grafik(d.kunlar);
@@ -708,6 +767,17 @@
              xavfsiz(u.izoh) + '</span></div><b class="num">' +
              foiz(u.foiz, u.foiz !== null && u.foiz % 1 ? 1 : 0) + "</b></div>";
     }).join("");
+    // «Kim aybdor» emas, «qayerga ketyapti» — shuning uchun ID, va
+    // bosilganda o'sha odamning profiliga o'tadi.
+    $("s-token").innerHTML = (d.eng_qimmat || []).length
+      ? d.eng_qimmat.map(function (u) {
+          return '<div class="row" data-uid="' + xavfsiz(u.user_id) + '">' +
+            '<div class="t"><b>ID ' + xavfsiz(u.user_id) + "</b></div>" +
+            '<span class="num">' + million(u.token) + "</span>" +
+            '<span class="num hint">' + son(u.raund) + " raund</span></div>";
+        }).join("")
+      : boshHolat(S.bosh.token || "Hali token sarfi yozilmagan");
+
     ustunlarChiz("s-turlar", d.turlar);
     yangilandiBelgisi();
   }
@@ -751,11 +821,71 @@
   var jSahifa = { audit: 0, errors: 0 }, jSahifalar = { audit: 1, errors: 1 };
   var jAdmin = null;
 
+  /* ══ JURNAL FILTRI ══════════════════════════════════════════════
+     Ikkala jurnal (audit va xatolar) bir xil ishlaydi, shuning uchun
+     holat ham, chiplar ham bitta joyda. Ikkinchi nusxa yozilsa, biri
+     sahifani nolga qaytarishni unutar va admin qidiruvdan keyin bo'sh
+     sahifada qolardi. */
+  var jFiltr = { audit: { q: "", kun: 0 }, errors: { q: "", kun: 0 } };
+  var JURNAL_KUNLAR = [
+    { kun: 0, nom: "Hammasi" }, { kun: 1, nom: "Bugun" },
+    { kun: 7, nom: "7 kun" }, { kun: 30, nom: "30 kun" },
+    { kun: 90, nom: "90 kun" }
+  ];
+
+  /* So'rov qatoriga filtrni qo'shadi. Bo'sh qiymat UMUMAN yuborilmaydi —
+     server tomonda "kun=0" baribir tashlanardi, lekin bo'sh parametr
+     URL'ni o'qishni qiyinlashtiradi. */
+  function jFiltrQator(qaysi) {
+    var f = jFiltr[qaysi], s = "";
+    if (f.q) s += "&q=" + encodeURIComponent(f.q);
+    if (f.kun) s += "&kun=" + f.kun;
+    return s;
+  }
+
+  function jKunChiplari(qaysi, idKonteyner) {
+    var box = $(idKonteyner);
+    if (!box) return;
+    box.innerHTML = JURNAL_KUNLAR.map(function (v) {
+      return '<button class="chip' + (jFiltr[qaysi].kun === v.kun ? " on" : "") +
+             '" data-jkun="' + qaysi + ":" + v.kun + '">' + v.nom + "</button>";
+    }).join("");
+  }
+
+  /* Qidiruv har bosilgan harfda so'rov yubormaydi: 300 ms kutadi.
+     Usiz «@nodira» yozish sakkizta so'rov degani edi. */
+  function jQidiruvUlash(qaysi, idInput, idKonteyner, qayta) {
+    var inp = $(idInput);
+    if (!inp) return;
+    var t = null;
+    inp.addEventListener("input", function () {
+      clearTimeout(t);
+      t = setTimeout(function () {
+        jFiltr[qaysi].q = inp.value.trim();
+        jSahifa[qaysi] = 0;          // ⚠️ yangi filtr — birinchi sahifadan
+        qayta();
+      }, 300);
+    });
+    jKunChiplari(qaysi, idKonteyner);
+  }
+
+  function jKunTanlandi(qiymat) {
+    var p = String(qiymat).split(":");
+    var qaysi = p[0], kun = Number(p[1]);
+    jFiltr[qaysi].kun = kun;
+    jSahifa[qaysi] = 0;              // ⚠️ yangi filtr — birinchi sahifadan
+    jKunChiplari(qaysi, qaysi === "audit" ? "j-audit-kun" : "j-xato-kun");
+    titroq("light");
+    jurnalQayta(qaysi);
+  }
+
   async function jurnalAudit() {
     var d = await ol("/api/journal/audit?page=" + jSahifa.audit +
-                     (jAdmin ? "&admin=" + jAdmin : ""));
+                     (jAdmin ? "&admin=" + jAdmin : "") + jFiltrQator("audit"));
     jSahifalar.audit = d.sahifalar;
-    $("j-audit-soni").textContent = "jami " + son(d.jami) + " ta";
+    var fa = jFiltr.audit;
+    $("j-audit-soni").textContent =
+      ((fa.q || fa.kun) ? "topildi " : "jami ") + son(d.jami) + " ta";
 
     // ⚠️ SANA BO'YICHA GURUHLASH (§4). Ilgari har qatorda to'liq sana
     // turardi («14.09.2026 21:34») va telefonda u ikki qatorga
@@ -806,7 +936,8 @@
   }
 
   async function jurnalXatolar() {
-    var d = await ol("/api/journal/errors?page=" + jSahifa.errors);
+    var d = await ol("/api/journal/errors?page=" + jSahifa.errors +
+                     jFiltrQator("errors"));
     jSahifalar.errors = d.sahifalar;
     var x = d.xulosa;
     $("j-xato-soni").textContent = "bugun " + son(x.kun) + " · hafta " + son(x.hafta);
@@ -824,7 +955,10 @@
         "</span></div></div>";
     });
     $("j-xatolar").innerHTML = d.rows.length ? h : boshHolat(S.bosh.xato);
-    $("j-xato-holat").textContent = "jami " + son(x.jami) +
+    // Filtr yoqilganda «jami» — topilgan son, butun jadvalniki emas.
+    var f = jFiltr.errors, filtrli = !!(f.q || f.kun);
+    $("j-xato-holat").textContent =
+      (filtrli ? "topildi " + son(d.jami) + " ta" : "jami " + son(x.jami)) +
       " · sahifa " + (jSahifa.errors + 1) + "/" + d.sahifalar;
   }
 
@@ -837,6 +971,7 @@
     // Sotuv bo'lmasa o'rtacha chek YO'Q — «0 ⭐» yolg'on bo'lardi.
     $("j-ortacha").textContent = d.ortacha === null ? S.yoq : son(d.ortacha) + " ⭐";
     $("j-jami").textContent = son(d.jami) + " ⭐";
+    daromadGrafigi.chiz(d.kunlik || []);
     ustunlarChiz("j-tariflar", d.tariflar.map(function (t) {
       return { nom: t.nom, soni: t.soni };
     }));
@@ -853,7 +988,35 @@
     yangilandiBelgisi();
   }
 
+  /* ══ CSV EKSPORT ════════════════════════════════════════════════
+     Fayl brauzerga emas, TELEGRAM CHATIGA keladi — sabab api.py da:
+     Mini App webview'ida `blob:` yuklab olish jim yiqiladi. */
+  async function eksport(tur, tugma) {
+    if (tugma.disabled) return;
+    tugma.disabled = true;
+    var eski = tugma.innerHTML;
+    tugma.textContent = "Tayyorlanmoqda…";
+    var j = await so_rov("/api/export?tur=" + encodeURIComponent(tur), {});
+    tugma.disabled = false;
+    tugma.innerHTML = eski;
+    toast(j.ok ? son(j.d.qator) + " qator — fayl Telegramga yuborildi" : j.xato);
+  }
+
   function jurnalNav() {
+    // Qidiruv va sana chiplari. Chiplar har chizishda qayta yasaladi,
+    // shuning uchun tinglovchi KONTEYNERDA — qatorda emas (aks holda
+    // bitta bosish ikki marta ishlardi).
+    document.querySelectorAll("[data-eksport]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        eksport(b.dataset.eksport, b);
+      });
+    });
+
+    jQidiruvUlash("audit", "j-audit-q", "j-audit-kun", jurnalAudit);
+    jQidiruvUlash("errors", "j-xato-q", "j-xato-kun", jurnalXatolar);
+    delegat("j-audit-kun", "data-jkun", jKunTanlandi);
+    delegat("j-xato-kun", "data-jkun", jKunTanlandi);
+
     document.querySelectorAll("[data-jnav]").forEach(function (b) {
       b.addEventListener("click", function () {
         var q = b.dataset.jnav.split(":");
@@ -1150,6 +1313,10 @@
   }
 
   function jadval() {
+    delegat("s-token", "data-uid", function (uid) {
+      kartochka(Number(uid)).then(function () { go("profil"); })
+        .catch(function (e) { console.error("[panel] profil:", e); });
+    });
     delegat("urows", "data-uid", function (uid) {
       titroq("light");
       kartochka(Number(uid)).catch(function (e) {

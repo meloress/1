@@ -10,6 +10,7 @@ Har endpoint `@admin_only` bilan boshlanadi (REJA 4.3 — huquq HAR
 so'rovda qayta tekshiriladi).
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -23,6 +24,7 @@ from core import config as config_module
 from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS,
                          GPT_MODEL_DISPLAY_NAME, LIMIT_IZOHI, LIMIT_NOMI,
                          PLAN_LIMITS, PRO_PLANS, SEGMENT_NOMI, TARIF_NOMI,
+                         TOKEN_KUNLIK_GRANT,
                          TARIF_RANGI, TIMEZONE, audit_nomi, daily_limit)
 from db import database as database_module
 from web.auth import admin_only
@@ -122,6 +124,38 @@ def _tarif(st: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _token_kpi(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Bugungi token sarfi — kunlik grantga nisbatan.
+
+    ⚠️ Grant CHEKLOV EMAS, o'lchov: undan oshgan token baribir ishlaydi,
+    faqat pulli bo'ladi. Shuning uchun panel «bloklandi» demaydi,
+    «oshgan» deydi.
+
+    ⚠️ «Keshdan» ulushi kvotani KAMAYTIRMAYDI (OpenAI tasdiqlagan,
+    2026-09-09) — u faqat so'rov boshi kun bo'yi bir xil qolayotganini
+    ko'rsatadi. Tushib ketsa, prefiks har xabarda o'zgarib turibdi.
+    """
+    qatorlar = d.get("kunlik") or []
+    bugun = datetime.now(TIMEZONE).date()
+    xarita = {r["kun"]: r for r in qatorlar}
+    b = xarita.get(bugun) or {}
+    k = xarita.get(bugun - timedelta(days=1)) or {}
+
+    jami = (b.get("kirish") or 0) + (b.get("chiqish") or 0)
+    kecha = (k.get("kirish") or 0) + (k.get("chiqish") or 0)
+    kirish = b.get("kirish") or 0
+    return {
+        "bugun": jami,
+        "kecha": kecha,
+        "grant": TOKEN_KUNLIK_GRANT,
+        "foiz": round(jami / TOKEN_KUNLIK_GRANT * 100) if TOKEN_KUNLIK_GRANT else 0,
+        "oshgan": jami > TOKEN_KUNLIK_GRANT,
+        "kecha_oshgan": kecha > TOKEN_KUNLIK_GRANT,
+        "keshdan": round((b.get("keshdan") or 0) / kirish * 100) if kirish else None,
+        "raund": b.get("raund") or 0,
+    }
+
+
 @admin_only
 async def overview(request: web.Request):
     """Boshqaruv ekrani (REJA 6.1)."""
@@ -132,29 +166,27 @@ async def overview(request: web.Request):
     if kun_oynasi not in GRAFIK_KUNLARI:
         kun_oynasi = 7
 
-    kunlik = await database_module.daily_report_stats()
-    daromad = await database_module.revenue_stats()
-    xatolar = await database_module.recent_errors(limit=4)
-    xato_jami = await database_module.error_summary()
-    tatil = await database_module.get_maintenance()
-    st = await database_module.activity_stats(kun_oynasi)
+    # ⚠️ PARALLEL, ketma-ket EMAS. Oltitasi bir-biriga bog'liq emas va
+    # bittasi ham yozmaydi, ya'ni tartibning ma'nosi yo'q edi — lekin
+    # ketma-ket yozilgani uchun ekran olti marta bazaga borib kelardi.
+    # Bu eng ko'p ochiladigan ekran, shuning uchun farq sezilarli.
+    #
+    # ⛔️ Bu naqshni YOZADIGAN endpointga ko'chirmang: `refund` da
+    # Telegram baribir bazadan OLDIN turishi shart, `watch_set` da esa
+    # kesh yangilanishi yozuvdan keyin bo'lishi kerak.
+    (kunlik, daromad, xatolar, xato_jami,
+     tatil, st, token) = await asyncio.gather(
+        database_module.daily_report_stats(),
+        database_module.revenue_stats(),
+        database_module.recent_errors(limit=4),
+        database_module.error_summary(),
+        database_module.get_maintenance(),
+        database_module.activity_stats(kun_oynasi),
+        database_module.token_stats(2),
+    )
 
-    # Kunlik grafik: bazada faqat AMAL BO'LGAN kunlar bor, ya'ni jim
-    # kun qatorda umuman yo'q. Uni tashlab ketsak grafik "yaxshi"
-    # ko'rinadi — chunki tushish ko'rinmaydi. Shuning uchun oynaning
-    # hamma kuni to'ldiriladi, bo'sh kun = 0.
-    bor = {r["day"]: r for r in st["daily_activity"]}
-    bugun = datetime.now(TIMEZONE).date()
-    kunlar = []
-    for orqaga in range(kun_oynasi - 1, -1, -1):
-        kun = bugun - timedelta(days=orqaga)
-        r = bor.get(kun)
-        kunlar.append({
-            "kun": kun.isoformat(),
-            "nom": HAFTA[kun.weekday()],
-            "soni": (r or {}).get("total", 0),
-            "kishi": (r or {}).get("uniq_users", 0),
-        })
+    kunlar = _kun_qatori(st["daily_activity"], kun_oynasi,
+                         kalit="day", soni="total", kishi="uniq_users")
 
     amallar = kunlik.get("actions") or 0
     oldingi = kunlik.get("prev_actions") or 0
@@ -166,6 +198,7 @@ async def overview(request: web.Request):
                 # yolg'on bo'lardi — o'zgarish ko'rsatilmaydi.
                 "ozgarish": _foiz(amallar - oldingi, oldingi, 1) if oldingi else None,
             },
+            "token": _token_kpi(token),
             "faol": {
                 "qiymat": kunlik.get("active_7d") or 0,
                 "jami": st["total_users"],
@@ -208,9 +241,12 @@ async def overview(request: web.Request):
 @admin_only
 async def stats(request: web.Request):
     """Statistika ekrani (REJA 6.3)."""
-    st = await database_module.activity_stats()
-    top = await database_module.top_users(7, 10)
-    kunlik = await database_module.daily_report_stats()
+    st, top, kunlik, token = await asyncio.gather(   # parallel — overview'dagi izohga qarang
+        database_module.activity_stats(),
+        database_module.top_users(7, 10),
+        database_module.daily_report_stats(),
+        database_module.token_stats(7),
+    )
 
     kesim = st["type_breakdown"]
     jami_amal = sum(soni for _t, soni in kesim) or 0
@@ -251,6 +287,17 @@ async def stats(request: web.Request):
             {"nom": "Fayl yaratilgan", "izoh": "PPTX, PDF, XLSX", "foiz": _foiz(fayl, jami_amal, 1)},
             {"nom": "Chuqur tadqiqot", "izoh": "/research", "foiz": _foiz(tadqiqot, jami_amal, 1)},
         ],
+        # Kim qancha token yeyayotgani. `user_history` ni tanlashning
+        # BONUSI shu: kunlik yig'indi jadvalida bu ma'lumot bo'lmasdi.
+        #
+        # ⚠️ Username YO'Q: bu ro'yxat «kim aybdor» degani emas, «qayerga
+        # ketyapti» degani — ID yetarli, va profilga o'tish uchun ham
+        # ID kerak.
+        "eng_qimmat": [{
+            "user_id": r["user_id"],
+            "token": r["jami"],
+            "raund": r["raund"],
+        } for r in (token.get("eng_qimmat") or [])],
     })
 
 
@@ -263,6 +310,21 @@ async def stats(request: web.Request):
 # ekranda ikki xil ustun bilan ko'rsatilardi. Endi bitta ro'yxat,
 # to'rt filtr o'rniga besh.
 TARIFLAR = ("all", "pro", "free", "ban", "nofaol")
+# Jurnal filtri uchun ruxsat etilgan oynalar. Ro'yxatdan tashqari
+# qiymat «hammasi» ga tushadi — admin kiritishi ham tekshiriladi.
+JURNAL_KUNLARI = (1, 7, 30, 90)
+
+
+def _jurnal_filtr(request: web.Request) -> tuple:
+    """(q, kun) — jurnal ekranlari uchun umumiy o'qish."""
+    q = (request.query.get("q") or "").strip()[:64] or None
+    try:
+        kun = int(request.query.get("kun", 0))
+    except ValueError:
+        kun = 0
+    return q, (kun if kun in JURNAL_KUNLARI else None)
+
+
 TARTIBLAR = ("faollik", "yangi")
 SAHIFA = 20
 # Admin bera oladigan muddatlar. Telegram ekranidagi tugmalar bilan
@@ -421,8 +483,12 @@ async def user(request: web.Request):
     if not profil:
         return web.json_response({"error": "topilmadi"}, status=404)
 
-    tolovlar = await database_module.get_user_payments(uid, limit=10)
-    ref = await database_module.get_referral_progress(uid)
+    # Profil yuqorida ALOHIDA olinadi: topilmasa qolgan ikkitasi
+    # umuman keraksiz. Qolgan ikkitasi esa parallel.
+    tolovlar, ref = await asyncio.gather(
+        database_module.get_user_payments(uid, limit=10),
+        database_module.get_referral_progress(uid),
+    )
     tarif_nomi = profil.get("plan_type") or "free"
 
     # Limitlar `daily_limit()` dan — u limitning YAGONA o'qish nuqtasi,
@@ -764,9 +830,13 @@ async def journal_audit(request: web.Request):
     except ValueError:
         admin_id = None
 
-    rows = await database_module.get_admin_audit(
-        limit=JURNAL_SAHIFA, offset=sahifa * JURNAL_SAHIFA, admin_id=admin_id)
-    jami = await database_module.count_admin_audit(admin_id)
+    q, kun = _jurnal_filtr(request)
+    rows, jami = await asyncio.gather(
+        database_module.get_admin_audit(
+            limit=JURNAL_SAHIFA, offset=sahifa * JURNAL_SAHIFA,
+            admin_id=admin_id, q=q, kun=kun),
+        database_module.count_admin_audit(admin_id, q=q, kun=kun),
+    )
 
     tayyor = []
     adminlar: Dict[int, str] = {}
@@ -804,10 +874,16 @@ async def journal_errors(request: web.Request):
         sahifa = max(0, int(request.query.get("page", 0)))
     except ValueError:
         sahifa = 0
-    rows = await database_module.recent_errors(
-        limit=JURNAL_SAHIFA, offset=sahifa * JURNAL_SAHIFA)
-    xulosa = await database_module.error_summary()
-    jami = xulosa.get("total") or 0
+    q, kun = _jurnal_filtr(request)
+    rows, xulosa, jami = await asyncio.gather(
+        database_module.recent_errors(
+            limit=JURNAL_SAHIFA, offset=sahifa * JURNAL_SAHIFA, q=q, kun=kun),
+        database_module.error_summary(),
+        # ⚠️ Sanoq FILTR bilan. `xulosa["total"]` butun jadvalning soni,
+        # ya'ni qidiruv yoqilganda sahifalar soni yolg'on chiqardi va
+        # admin bo'sh sahifalarni varaqlardi.
+        database_module.count_errors(q=q, kun=kun),
+    )
     return web.json_response({
         "rows": [{
             "id": r.get("id"),
@@ -819,13 +895,170 @@ async def journal_errors(request: web.Request):
         "xulosa": {
             "kun": xulosa.get("day") or 0,
             "hafta": xulosa.get("week") or 0,
-            "jami": jami,
+            "jami": xulosa.get("total") or 0,
             "odamlar": xulosa.get("users_day") or 0,
             "turlar": [{"nom": k, "soni": n} for k, n in (xulosa.get("kinds") or [])],
         },
+        # Filtrga tushgan son — `xulosa.jami` butun jadvalniki.
+        "jami": jami,
         "sahifa": sahifa,
         "sahifalar": max(1, -(-jami // JURNAL_SAHIFA)),
     })
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CSV EKSPORT
+# ═══════════════════════════════════════════════════════════════════
+EKSPORT_MAX = 5000          # bitta faylga sig'adigan qator soni
+
+# Nima eksport qilinadi: kalit -> (fayl nomi, sarlavhalar).
+# ⚠️ RO'YXAT QATTIQ: `?tur=` dan kelgan qiymat FAQAT shu kalitlardan
+# biri bo'lishi mumkin. Aks holda admin kiritgan matn fayl nomiga
+# tushib, `Content-Disposition` sarlavhasini buzardi.
+EKSPORT_TURLARI = {
+    "users": ("foydalanuvchilar",
+              ("user_id", "username", "tarif", "muddat", "bloklangan",
+               "ro'yxatdan", "oxirgi_faollik")),
+    "payments": ("tolovlar",
+                 ("id", "sana", "tolovchi", "oluvchi", "yulduz", "kun",
+                  "qaytarilgan")),
+    "audit": ("audit",
+              ("id", "vaqt", "admin_id", "admin", "amal", "kimga_id",
+               "kimga", "tafsilot")),
+}
+
+
+def _csv_katak(qiymat: Any) -> str:
+    """Bitta katak — CSV qoidalari bo'yicha.
+
+    ⛔️ FORMULA IN'EKSIYASI. Excel `=`, `+`, `-`, `@` bilan boshlangan
+    katakni FORMULA deb o'qiydi, ya'ni username `=HYPERLINK(...)` bo'lsa
+    faylni ochgan odamning mashinasida ishga tushardi. Bo'sh joy
+    qo'shish buni to'xtatadi va ko'rinishga deyarli ta'sir qilmaydi.
+    """
+    if qiymat is None:
+        return ""
+    matn = str(qiymat)
+    if matn[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        matn = "'" + matn
+    if any(c in matn for c in ',";\n\r'):
+        matn = '"' + matn.replace('"', '""') + '"'
+    return matn
+
+
+def _csv(sarlavhalar: tuple, qatorlar: List[tuple]) -> str:
+    # ⚠️ BOM (﻿) ATAYLAB: usiz Excel faylni ANSI deb o'qiydi va
+    # o'zbekcha «o'», «g'» hamda @username'lardagi harflar buziladi.
+    # LibreOffice va Google Sheets BOM bilan ham to'g'ri ochadi.
+    satrlar = [";".join(sarlavhalar)]
+    satrlar += [";".join(_csv_katak(k) for k in q) for q in qatorlar]
+    return "﻿" + "\r\n".join(satrlar) + "\r\n"
+
+
+@admin_only
+async def eksport(request: web.Request):
+    """CSV yuklab olish: foydalanuvchilar, to'lovlar yoki audit.
+
+    ⚠️ Har eksport AUDITGA yoziladi. Bu ma'lumotni panel ichida
+    ko'rishdan boshqacha: fayl chiqib ketadi va qayerda tugashini
+    biz boshqarmaymiz, shuning uchun kim qachon nimani olganini
+    bilish shart.
+    """
+    tur = request.query.get("tur") or "users"
+    if tur not in EKSPORT_TURLARI:
+        return web.json_response({"error": "noma'lum tur"}, status=400)
+    nom, sarlavhalar = EKSPORT_TURLARI[tur]
+
+    if tur == "users":
+        d = await database_module.list_users(limit=EKSPORT_MAX, offset=0)
+        qatorlar = [(
+            u.get("user_id"),
+            f"@{u['username']}" if u.get("username") else "",
+            TARIF_NOMI.get(u.get("plan_type") or "free", u.get("plan_type")),
+            _sana(u.get("premium_until")),
+            "ha" if u.get("is_banned") else "",
+            _sana(u.get("created_at")),
+            _sana(u.get("last_seen")),
+        ) for u in d["rows"]]
+    elif tur == "payments":
+        rows = await database_module.all_payments(limit=EKSPORT_MAX)
+        qatorlar = [(
+            r.get("id"), _sana(r.get("created_at")),
+            r.get("payer_id"), r.get("beneficiary_id"),
+            r.get("stars"), r.get("days"),
+            _sana(r.get("refunded_at")),
+        ) for r in rows]
+    else:
+        rows = await database_module.get_admin_audit(limit=EKSPORT_MAX, offset=0)
+        qatorlar = []
+        for r in rows:
+            amal = r.get("action") or ""
+            qatorlar.append((
+                r.get("id"), _sana(r.get("action_time")),
+                r.get("admin_id"),
+                _kim(r.get("admin_id"), r.get("admin_username")) or "tizim",
+                audit_nomi(amal)[0],
+                r.get("target_user_id"),
+                _kim(r.get("target_user_id"), r.get("target_username")) or "",
+                _tafsilot(amal, (r.get("details") or "")[:200]),
+            ))
+
+    sana = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
+    fayl = f"{nom}-{sana}.csv"
+    baytlar = _csv(sarlavhalar, qatorlar).encode("utf-8")
+
+    # ⚠️ FAYL BRAUZERGA EMAS, TELEGRAMGA. Panel — Mini App, ya'ni
+    # Telegram webview'i: `blob:` havolasi bilan yuklab olish u yerda
+    # jim yiqiladi (Android'da ayniqsa) va admin hech narsa ko'rmaydi.
+    # Hujjat sifatida yuborilgan fayl esa har doim keladi, chatda
+    # qoladi va uni boshqa joyga uzatish ham oson.
+    yetdi = await _hujjat(request["user_id"], baytlar, fayl,
+                          f"📊 <b>{nom}</b> · {len(qatorlar)} qator")
+    await _yoz(request, "export", None, f"{tur} · {len(qatorlar)} qator")
+    if not yetdi:
+        return web.json_response(
+            {"error": "fayl yuborilmadi — botni bloklagan bo'lishingiz mumkin"},
+            status=502)
+    return web.json_response({"ok": True, "qator": len(qatorlar), "fayl": fayl})
+
+
+async def _hujjat(uid: int, baytlar: bytes, nom: str, izoh: str) -> bool:
+    """Faylni Telegram hujjati qilib yuboradi. Xato = False, hech qachon
+    istisno tashlamaydi — eksport yiqilsa ham panel ishlayveradi."""
+    try:
+        from aiogram.types import BufferedInputFile
+        from core.loader import bot
+        await bot.send_document(
+            uid, BufferedInputFile(baytlar, filename=nom),
+            caption=izoh, parse_mode="HTML")
+        return True
+    except Exception as e:
+        logger.warning(f"[Panel] eksport yuborilmadi uid={uid}: {e}")
+        return False
+
+
+def _kun_qatori(rows: List[Dict[str, Any]], kunlar: int,
+                *, kalit: str = "kun", soni: str = "soni",
+                kishi: str = "kishi") -> List[Dict[str, Any]]:
+    """Bo'sh kunlarni 0 bilan to'ldirilgan kunlik qator.
+
+    ⚠️ Bu ikkita grafik uchun UMUMIY. Ikkinchi nusxa yozilsa, biri
+    bo'sh kunni tashlab ketadigan bo'lib qolar va o'sha grafik
+    tushishni ko'rsatmay, tekis chiziq chizardi.
+    """
+    bor = {r[kalit]: r for r in rows}
+    bugun = datetime.now(TIMEZONE).date()
+    out = []
+    for orqaga in range(kunlar - 1, -1, -1):
+        kun = bugun - timedelta(days=orqaga)
+        r = bor.get(kun) or {}
+        out.append({
+            "kun": kun.isoformat(),
+            "nom": HAFTA[kun.weekday()],
+            "soni": r.get(soni, 0) or 0,
+            "kishi": r.get(kishi, 0) or 0,
+        })
+    return out
 
 
 @admin_only
@@ -850,6 +1083,13 @@ async def journal_revenue(request: web.Request):
             "nom": nomlar.get(kun, f"{kun} kun"),
             "soni": soni,
         } for kun, soni in (d.get("by_plan") or [])],
+        # Kunlik grafik. Bazada FAQAT sotuv bo'lgan kun bor, ya'ni jim
+        # kun qatorda umuman yo'q — uni tashlab ketsak grafik «yaxshi»
+        # ko'rinadi, chunki tushish ko'rinmaydi. Shuning uchun 30 kunning
+        # hammasi to'ldiriladi, sotuvsiz kun = 0. Bu `overview` dagi
+        # so'rovlar grafigi bilan AYNAN bir xil qoida.
+        "kunlik": _kun_qatori(d.get("daily") or [], 30,
+                              soni="stars", kishi="soni"),
     })
 
 
@@ -999,13 +1239,17 @@ async def maintenance_set(request: web.Request):
 @admin_only
 async def watch(request: web.Request):
     """Kuzatuv guruhi va ro'yxati."""
+    guruh, ruyxat = await asyncio.gather(
+        database_module.get_watch_group_id(),
+        database_module.get_watchlist(),
+    )
     return web.json_response({
-        "guruh": await database_module.get_watch_group_id(),
+        "guruh": guruh,
         "rows": [{
             "user_id": r.get("user_id"),
             "username": r.get("username"),
             "added_at": _sana(r.get("added_at")),
-        } for r in await database_module.get_watchlist()],
+        } for r in ruyxat],
     })
 
 
@@ -1433,6 +1677,7 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/journal/audit", journal_audit)
     app.router.add_get("/api/journal/errors", journal_errors)
     app.router.add_get("/api/journal/revenue", journal_revenue)
+    app.router.add_post("/api/export", eksport)
     app.router.add_get("/api/limits", limits)
     app.router.add_post("/api/limits", limit_set)
     app.router.add_get("/api/maintenance", maintenance)

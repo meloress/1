@@ -853,6 +853,27 @@ async def create_history_table():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+        # Token hisobi uchun qo'shimcha ustunlar. Jadval o'zi ANCHADAN
+        # beri bor edi, lekin unga HECH KIM yozmasdi — ya'ni kunlik
+        # bepul grant qancha yeyilayotganini faqat Railway logidan
+        # bilish mumkin edi. Endi shu yerga yoziladi.
+        #
+        # ⚠️ Keshlangan ulush ALOHIDA saqlanadi. OpenAI tasdiqlagan
+        # (2026-09-09): keshdan kelgan token ham grantdan AYNAN
+        # shunchalik yeydi. Ya'ni bu raqam kvotani kamaytirmaydi, lekin
+        # so'rov boshi kun bo'yi bir xil qolayotganini ko'rsatadi —
+        # tushib ketsa, demak prefiks har xabarda o'zgarib turibdi.
+        for ustun in ("kirish BIGINT DEFAULT 0",
+                      "chiqish BIGINT DEFAULT 0",
+                      "keshdan BIGINT DEFAULT 0",
+                      "model VARCHAR(60)"):
+            await conn.execute(
+                f"ALTER TABLE user_history ADD COLUMN IF NOT EXISTS {ustun}")
+        # Kunlik yig'indi shu indeks ustida ishlaydi. Usiz har ochilishda
+        # butun jadval o'qilardi.
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_history_kun "
+            "ON user_history (created_at)")
 
 @with_db_retry()
 async def get_superadmin_id() -> Optional[int]:
@@ -1885,6 +1906,25 @@ async def get_payment_by_id(payment_id: int) -> Optional[Dict[str, Any]]:
 
 
 @with_db_retry()
+async def all_payments(limit: int = 5000) -> List[Dict[str, Any]]:
+    """Hamma to'lovlar — CSV eksporti uchun.
+
+    ⚠️ `limit` MAJBURIY chegara, bezak emas: jadval o'sib ketsa bitta
+    so'rov butun xotirani yeb qo'yardi. Eksport «hammasi» degani emas,
+    «oxirgi N tasi» degani va panel buni aytadi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT id, created_at, payer_id, beneficiary_id, stars, days,
+                      refunded_at
+               FROM star_payments ORDER BY id DESC LIMIT $1''', limit)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
 async def get_user_payments(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
     """Foydalanuvchining to'lovlari — u to'lovchi YOKI oluvchi bo'lgan."""
     global pool
@@ -1976,8 +2016,31 @@ async def revenue_stats() -> Dict[str, Any]:
             '''SELECT days, COUNT(*) AS cnt FROM star_payments
                WHERE refunded_at IS NULL GROUP BY days ORDER BY days'''
         )
+        # Kunlik qator — daromad grafigi uchun.
+        #
+        # ⚠️ KUN TOSHKENT BO'YICHA kesiladi, UTC bo'yicha emas: yuqoridagi
+        # `stars_today` ham shunday hisoblanadi, ikki xil kesim bo'lsa
+        # grafikning oxirgi ustuni «Bugun» KPI si bilan to'g'ri
+        # kelmasdi — bir ekranda ikki xil raqam.
+        #
+        # ⚠️ Qaytarilgan to'lov bu yerda ham chiqarib tashlanadi
+        # (`refunded_at IS NULL`), aks holda grafik brutto ko'rsatib,
+        # KPI netto ko'rsatardi.
+        kunlik = await conn.fetch(
+            '''SELECT (created_at AT TIME ZONE 'Asia/Tashkent')::date AS kun,
+                      COALESCE(SUM(stars), 0) AS stars,
+                      COUNT(*) AS soni
+               FROM star_payments
+               WHERE refunded_at IS NULL
+                 AND created_at >= NOW() - INTERVAL '30 days'
+               GROUP BY 1 ORDER BY 1'''
+        )
         result = dict(row) if row else {}
         result['by_plan'] = [(r['days'], r['cnt']) for r in by_plan]
+        result['daily'] = [
+            {'kun': r['kun'], 'stars': r['stars'], 'soni': r['soni']}
+            for r in kunlik
+        ]
         return result
 
 
@@ -2653,16 +2716,157 @@ async def log_error(kind: str, message: str, user_id: Optional[int] = None) -> N
         logger.exception("log_error yozib bo'lmadi")
 
 
+# ⚠️ FILTR BITTA JOYDA QURILADI. Ro'yxat va SANOQ bir xil shartni
+# ishlatishi SHART — aks holda panel «142 tadan 1-20» deb yozib, sahifa
+# oxiriga yetganda bo'sh ro'yxat chiqarardi va buni hech narsa
+# ko'rsatmasdi. Shu sababli ikkalasi ham shu yordamchidan o'tadi.
+#
+# ⚠️ Qiymatlar HAR DOIM parametr ($1, $2…), hech qachon satrga qo'shib
+# yozilmaydi. Bu admin kiritgan matn bo'lsa ham shunday: admin kiritishi
+# ham ishonchsiz chegara (CLAUDE.md, «Model output is an untrusted
+# boundary» bo'limidagi qoidaning aynan o'zi).
+def _jurnal_filtri(ustunlar: tuple, q: Optional[str], kun: Optional[int],
+                   boshlangich: list) -> tuple:
+    """(shartlar_satri, argumentlar). `boshlangich` — allaqachon bor args."""
+    shartlar: List[str] = []
+    args = list(boshlangich)
+
+    if kun:
+        args.append(int(kun))
+        shartlar.append(f"created_at >= NOW() - (${len(args)} || ' days')::interval")
+
+    frag = (q or "").strip()[:64]
+    if len(frag) >= 2:
+        args.append(f"%{frag}%")
+        n = len(args)
+        shartlar.append("(" + " OR ".join(f"{u} ILIKE ${n}" for u in ustunlar) + ")")
+
+    return (" WHERE " + " AND ".join(shartlar) if shartlar else ""), args
+
+
 @with_db_retry()
-async def recent_errors(limit: int = 15, offset: int = 0) -> List[Dict[str, Any]]:
+async def recent_errors(limit: int = 15, offset: int = 0, *,
+                        q: Optional[str] = None,
+                        kun: Optional[int] = None) -> List[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    shart, args = _jurnal_filtri(("kind", "message"), q, kun, [limit, offset])
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f'''SELECT id, kind, message, user_id, created_at FROM error_log
+                {shart}
+                ORDER BY id DESC LIMIT $1 OFFSET $2''', *args)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def count_errors(q: Optional[str] = None,
+                       kun: Optional[int] = None) -> int:
+    """Filtrga tushgan xatolar soni — ro'yxat bilan AYNAN bir shartda."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    shart, args = _jurnal_filtri(("kind", "message"), q, kun, [])
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            f"SELECT COUNT(*) FROM error_log{shart}", *args) or 0
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  TOKEN HISOBI
+# ═══════════════════════════════════════════════════════════════════
+# NEGA: bot kunlik BEPUL grant ustida ishlaydi va uning qanchasi
+# yeyilgani hech qayerda ko'rinmasdi — faqat Railway logidagi [TOKEN]
+# qatorlarida. Ya'ni eng qimmat xavf eng ko'rinmas joyda turardi.
+#
+# ⚠️ YOZISH JAVOBNI KUTTIRMAYDI va HECH QACHON yiqilmaydi: hisob
+# javobdan muhimroq emas. Xato bo'lsa jim o'tadi, logda iz qoladi.
+TOKEN_SAQLASH_KUN = 90          # undan eskisi qirqiladi
+
+
+@with_db_retry()
+async def token_yoz(user_id: Optional[int], model: str, kirish: int,
+                    chiqish: int, keshdan: int = 0) -> None:
+    """Bitta model chaqiruvining sarfini yozadi."""
     global pool
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            '''SELECT id, kind, message, user_id, created_at FROM error_log
-               ORDER BY id DESC LIMIT $1 OFFSET $2''', limit, offset)
-        return [dict(r) for r in rows]
+        await conn.execute(
+            '''INSERT INTO user_history
+                   (user_id, tokens_used, kirish, chiqish, keshdan, model)
+               VALUES ($1, $2, $3, $4, $5, $6)''',
+            user_id, (kirish or 0) + (chiqish or 0),
+            kirish or 0, chiqish or 0, keshdan or 0, (model or "")[:60])
+
+
+@with_db_retry()
+async def token_tozala() -> int:
+    """Eski qatorlarni o'chiradi. Qaytadi: o'chirilgan soni."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        holat = await conn.execute(
+            "DELETE FROM user_history WHERE created_at < NOW() - "
+            f"INTERVAL '{int(TOKEN_SAQLASH_KUN)} days'")
+    try:
+        return int(str(holat).rsplit(" ", 1)[-1])
+    except (ValueError, IndexError):
+        return 0
+
+
+@with_db_retry()
+async def token_stats(kunlar: int = 30) -> Dict[str, Any]:
+    """Panel uchun: bugun, kecha va kunlik qator.
+
+    ⚠️ KUN TOSHKENT BO'YICHA. `created_at` ustuni TIMESTAMP (mintaqasiz)
+    va NOW() dan to'ladi, ya'ni UTC. Kesim UTC bo'yicha olinsa, «bugun»
+    soat 05:00 da almashardi va admin ertalab kechagi raqamni ko'rardi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    kunlar = max(1, min(int(kunlar), 365))
+    async with pool.acquire() as conn:
+        qator = await conn.fetch(
+            f'''SELECT ((created_at AT TIME ZONE 'UTC')
+                          AT TIME ZONE 'Asia/Tashkent')::date AS kun,
+                       COALESCE(SUM(kirish), 0)  AS kirish,
+                       COALESCE(SUM(chiqish), 0) AS chiqish,
+                       COALESCE(SUM(keshdan), 0) AS keshdan,
+                       COUNT(*) AS raund
+                FROM user_history
+                WHERE created_at >= NOW() - INTERVAL '{kunlar} days'
+                GROUP BY 1 ORDER BY 1''')
+        eng = await conn.fetch(
+            '''SELECT user_id, COALESCE(SUM(kirish + chiqish), 0) AS jami,
+                      COUNT(*) AS raund
+               FROM user_history
+               WHERE created_at >= NOW() - INTERVAL '7 days'
+                 AND user_id IS NOT NULL
+               GROUP BY user_id ORDER BY jami DESC LIMIT 10''')
+    return {
+        "kunlik": [dict(r) for r in qator],
+        "eng_qimmat": [dict(r) for r in eng],
+    }
+
+
+@with_db_retry()
+async def last_activity_at() -> Optional[datetime]:
+    """Oxirgi foydalanuvchi amali qachon bo'lgan.
+
+    «Bot jim» ogohlantirishi uchun: polling yiqilsa ham, OpenAI yiqilsa
+    ham, baza yozilmay qolsa ham natija bitta — yangi qator paydo
+    bo'lmaydi. Shu sababli bu YAGONA raqam uchala buzilishni ham
+    ko'rsatadi, va u indeksdan bitta qator o'qiydi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval("SELECT MAX(activity_time) FROM user_activity")
 
 
 @with_db_retry()
@@ -2688,38 +2892,72 @@ async def error_summary() -> Dict[str, Any]:
         return out
 
 
+# Audit ustunlari: qidiruv amal nomi, tafsilot va IKKALA tomonning
+# username'i bo'yicha ishlaydi. «Kim nima qilgan» ham, «kimga qilingan»
+# ham bitta qidiruv maydonidan topilishi kerak.
+_AUDIT_QIDIRUV = ("a.action", "a.details", "u.username", "t.username")
+
+
+def _audit_filtri(admin_id: Optional[int], q: Optional[str],
+                  kun: Optional[int], boshlangich: list) -> tuple:
+    """Audit uchun filtr — `created_at` emas, `action_time` ustunida."""
+    shartlar: List[str] = []
+    args = list(boshlangich)
+    if admin_id is not None:
+        args.append(admin_id)
+        shartlar.append(f"a.admin_id = ${len(args)}")
+    if kun:
+        args.append(int(kun))
+        shartlar.append(
+            f"a.action_time >= NOW() - (${len(args)} || ' days')::interval")
+    frag = (q or "").strip()[:64]
+    if len(frag) >= 2:
+        args.append(f"%{frag}%")
+        n = len(args)
+        shartlar.append(
+            "(" + " OR ".join(f"{u} ILIKE ${n}" for u in _AUDIT_QIDIRUV) + ")")
+    return (" WHERE " + " AND ".join(shartlar) if shartlar else ""), args
+
+
+# Sanoq ham AYNAN shu JOIN'lardan o'tishi shart: qidiruv `u.username` va
+# `t.username` ga tegadi, ya'ni JOIN'siz sanoq boshqa raqam berardi.
+_AUDIT_FROM = '''FROM admin_audit a
+                LEFT JOIN users u ON u.user_id = a.admin_id
+                LEFT JOIN users t ON t.user_id = a.target_user_id'''
+
+
 @with_db_retry()
 async def get_admin_audit(limit: int = 10, offset: int = 0,
-                          admin_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Audit jurnali sahifasi. `admin_id` berilsa — faqat o'sha admin."""
+                          admin_id: Optional[int] = None, *,
+                          q: Optional[str] = None,
+                          kun: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Audit jurnali sahifasi: admin, matn va sana oralig'i bo'yicha."""
     global pool
     if pool is None:
         await create_db_pool()
-    shart = "WHERE a.admin_id = $3" if admin_id is not None else ""
-    args = [limit, offset] + ([admin_id] if admin_id is not None else [])
+    shart, args = _audit_filtri(admin_id, q, kun, [limit, offset])
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             f'''SELECT a.id, a.admin_id, a.action, a.target_user_id, a.details,
                        a.action_time, u.username AS admin_username,
                        t.username AS target_username
-                FROM admin_audit a
-                LEFT JOIN users u ON u.user_id = a.admin_id
-                LEFT JOIN users t ON t.user_id = a.target_user_id
+                {_AUDIT_FROM}
                 {shart}
                 ORDER BY a.id DESC LIMIT $1 OFFSET $2''', *args)
         return [dict(r) for r in rows]
 
 
 @with_db_retry()
-async def count_admin_audit(admin_id: Optional[int] = None) -> int:
+async def count_admin_audit(admin_id: Optional[int] = None, *,
+                            q: Optional[str] = None,
+                            kun: Optional[int] = None) -> int:
     global pool
     if pool is None:
         await create_db_pool()
+    shart, args = _audit_filtri(admin_id, q, kun, [])
     async with pool.acquire() as conn:
-        if admin_id is None:
-            return await conn.fetchval('SELECT COUNT(*) FROM admin_audit') or 0
         return await conn.fetchval(
-            'SELECT COUNT(*) FROM admin_audit WHERE admin_id = $1', admin_id) or 0
+            f"SELECT COUNT(*) {_AUDIT_FROM}{shart}", *args) or 0
 
 
 @with_db_retry()

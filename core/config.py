@@ -876,6 +876,7 @@ AUDIT_ACTIONS: Dict[str, tuple[str, str]] = {
     # amallarni umuman auditga yozmasdi — ya'ni texnik ta'tilni kim yoqqani
     # va kim kuzatuvga qo'shilgani hech qayerda qolmasdi. Panel yozadi.
     "maintenance":       ("Texnik ta'til",              "tatil"),
+    "export":            ("Ma'lumot eksporti",         "yuklash"),
     "watch_add":         ("Kuzatuvga qo'shildi",        "kuzatuv"),
     "watch_remove":      ("Kuzatuvdan olindi",          "kuzatuv_ol"),
     "watch_group":       ("Kuzatuv guruhi o'zgartirildi", "kuzatuv"),
@@ -1248,6 +1249,12 @@ SEARCH_IMAGE_PICK_TIMEOUT = 25
 # barobar kattaroq (tests/test_free_models.py dagi ro'yxatga qarang).
 # Xulosa yozish — sof mexanik ish, unga kuchli model kerak emas, va
 # uni katta chelakdan yechish javoblar uchun qolgan joyni yeb qo'yardi.
+# OpenAI'ning kunlik bepul granti (ma'lumot almashish rejimi).
+# ⚠️ FAQAT KO'RSATISH uchun: hech narsani cheklamaydi, panel «bugun
+# grantning qanchasi yeyildi» deb ko'rsatishi uchun kerak. Grant
+# o'zgarsa shu yerni yangilang — panel o'zi bilib ololmaydi.
+TOKEN_KUNLIK_GRANT: int = 2_500_000
+
 HISTORY_SUMMARY_MODEL: str = "gpt-5.4-mini"
 # Xulosa o'zi ham har raundda yuboriladi, ya'ni u CHEKSIZ o'SMASLIGI
 # kerak. 1200 belgi ~300 token — 20 ta xabarning xom holati ~2000

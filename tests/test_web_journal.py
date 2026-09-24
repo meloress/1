@@ -27,6 +27,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import web
 from web import api, auth
+from web.api import TIMEZONE as TASHKENT
 from core.config import AUDIT_ACTIONS, AUDIT_ESKI, audit_nomi
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -62,7 +63,14 @@ def yozilgan_amallar() -> set:
 def soxta_baza():
     db = api.database_module
 
-    async def get_admin_audit(limit=10, offset=0, admin_id=None):
+    # ⚠️ `q` va `kun` — ro'yxat ham, SANOQ ham ularni olishi shart.
+    # Soxta baza ularni yozib boradi: 12-tekshiruv ikkalasiga bir xil
+    # filtr yetib borganini tasdiqlaydi (aks holda panel «topildi 41 ta»
+    # deb yozib, bitta qator ko'rsatardi).
+    korilgan = {"audit": [], "xato": []}
+
+    async def get_admin_audit(limit=10, offset=0, admin_id=None, q=None, kun=None):
+        korilgan["audit"].append(("rows", q, kun))
         if offset:
             return []
         qatorlar = [{
@@ -77,14 +85,20 @@ def soxta_baza():
         }]
         return [q for q in qatorlar if admin_id is None or q["admin_id"] == admin_id]
 
-    async def count_admin_audit(admin_id=None):
+    async def count_admin_audit(admin_id=None, q=None, kun=None):
+        korilgan["audit"].append(("count", q, kun))
         return 41 if admin_id is None else 2
 
-    async def recent_errors(limit=15, offset=0):
+    async def recent_errors(limit=15, offset=0, q=None, kun=None):
+        korilgan["xato"].append(("rows", q, kun))
         if offset:
             return []
         return [{"id": 3, "kind": "timeout", "message": "<script>x</script> javob kelmadi",
                  "user_id": 641, "created_at": datetime.datetime(2026, 9, 15, 14, 12, tzinfo=UTC)}]
+
+    async def count_errors(q=None, kun=None):
+        korilgan["xato"].append(("count", q, kun))
+        return 45 if not (q or kun) else 1
 
     async def error_summary():
         return {"day": 11, "week": 40, "total": 45, "users_day": 5,
@@ -92,7 +106,9 @@ def soxta_baza():
 
     async def revenue_stats():
         return {"stars_today": 1850, "stars_30d": 24300, "stars_total": 186700,
-                "sales_30d": 17, "refunds": 2, "by_plan": [(30, 12), (7, 5)]}
+                "sales_30d": 17, "refunds": 2, "by_plan": [(30, 12), (7, 5)],
+                "daily": [{"kun": datetime.date(2026, 9, 15), "stars": 1850,
+                           "soni": 2}]}
 
     for nom, fn in list(locals().items()):
         if nom in ("db", "nom", "fn"):
@@ -251,7 +267,128 @@ async def main():
             "botni bloklagan odamga eslatma yuborib bo'lmaydi")
         print("[9] nofaol ro'yxati Foydalanuvchilar filtriga ko'chdi, nomi to'g'ri OK")
 
-    print("\nweb journal: barcha tekshiruvlar o'tdi (9/9).")
+        # ═══════════════════════════════════════════════════════════════
+        # 10) QIDIRUV VA SANOQ BIR XIL FILTRDA
+        # ═══════════════════════════════════════════════════════════════
+        # ⚠️ BUZILISHI JIM: ro'yxat filtrlangan, sanoq esa butun jadvalniki
+        # bo'lsa, panel «topildi 41 ta» deb yozadi, 5 sahifa chizadi va
+        # 2-sahifadan boshlab bo'sh ekran ko'rsatadi. Hech qanday xato yo'q.
+        db = api.database_module
+        db.korilgan["audit"].clear()
+        a = await (await c.get("/api/journal/audit?q=ban&kun=7", headers=h)).json()
+        filtrlar = {(q, kun) for _kim, q, kun in db.korilgan["audit"]}
+        assert filtrlar == {("ban", 7)}, db.korilgan["audit"]
+        assert {kim for kim, _q, _k in db.korilgan["audit"]} == {"rows", "count"}, (
+            "ro'yxat va sanoq ikkalasi ham chaqirilishi kerak")
+        print("[10] audit: qidiruv va sana ro'yxatga ham, sanoqqa ham yetadi OK")
+
+        db.korilgan["xato"].clear()
+        x = await (await c.get("/api/journal/errors?q=timeout&kun=30", headers=h)).json()
+        filtrlar = {(q, kun) for _kim, q, kun in db.korilgan["xato"]}
+        assert filtrlar == {("timeout", 30)}, db.korilgan["xato"]
+        # Filtrlangan son — `xulosa.jami` (butun jadval) dan ALOHIDA.
+        assert x["jami"] == 1 and x["xulosa"]["jami"] == 45, x
+        assert x["sahifalar"] == 1, x
+        print("[11] xatolar: filtrlangan sanoq umumiy sanoqdan ajratilgan OK")
+
+        # ── 12) Buzuq filtr yiqitmaydi va e'tiborsiz qoldiriladi ───────
+        # `kun=abc` yoki `kun=5` (ro'yxatda yo'q) — «hammasi» ga tushadi.
+        # Bu admin kiritishi ham ishonchsiz chegara degan qoidaning davomi.
+        db.korilgan["xato"].clear()
+        x = await (await c.get("/api/journal/errors?kun=abc&q=a", headers=h)).json()
+        filtrlar = {(q, kun) for _kim, q, kun in db.korilgan["xato"]}
+        # q="a" bitta belgi — bazada u e'tiborsiz qoladi (>=2 shart), lekin
+        # endpoint uni baribir uzatadi; muhimi — `kun` None bo'lishi.
+        assert all(kun is None for _q, kun in filtrlar), filtrlar
+        x = await (await c.get("/api/journal/errors?kun=5", headers=h)).json()
+        filtrlar = {kun for _kim, _q, kun in db.korilgan["xato"]}
+        assert None in filtrlar, filtrlar
+        print("[12] buzuq yoki ruxsatsiz `kun` e'tiborsiz qoldiriladi OK")
+
+        # ── 13) Daromad grafigi: 30 kunning HAMMASI qaytadi ────────────
+        # ⚠️ Bazada faqat sotuv bo'lgan kun bor. Bo'sh kunlar to'ldirilmasa
+        # grafik tushishni ko'rsatmay, tekis chiziq chizardi — ya'ni yomon
+        # kun yaxshi ko'rinardi.
+        #
+        # 8-tekshiruv `revenue_stats` ni bo'sh versiyaga almashtirgan,
+        # shuning uchun bu yerda BIR sotuvli versiyani qaytaramiz —
+        # aks holda «hammasi nol» ni «to'ldirildi» deb o'qib ketardik.
+        kecha = (datetime.datetime.now(TASHKENT).date()
+                 - datetime.timedelta(days=1))
+
+        async def bitta_sotuv():
+            return {"stars_today": 0, "stars_30d": 500, "stars_total": 500,
+                    "sales_30d": 1, "refunds": 0, "by_plan": [(30, 1)],
+                    "daily": [{"kun": kecha, "stars": 500, "soni": 1}]}
+        api.database_module.revenue_stats = bitta_sotuv
+
+        r = await (await c.get("/api/journal/revenue", headers=h)).json()
+        assert len(r["kunlik"]) == 30, len(r["kunlik"])
+        nolmas = [k for k in r["kunlik"] if k["soni"]]
+        assert len(nolmas) == 1 and nolmas[0]["soni"] == 500, r["kunlik"]
+        assert nolmas[0]["kun"] == kecha.isoformat(), nolmas[0]
+        assert r["kunlik"][-1]["soni"] == 0, "bugun sotuv yo'q edi"
+        print("[13] daromad grafigi 30 kunlik, bo'sh kunlar 0 bilan OK")
+
+        # ═══════════════════════════════════════════════════════════
+        # 14) CSV FORMULA IN'EKSIYASI
+        # ═══════════════════════════════════════════════════════════
+        # ⛔️ BU XAVFSIZLIK TEKSHIRUVI, ko'rinish emas. Excel `=`, `+`,
+        # `-`, `@` bilan boshlangan katakni FORMULA deb bajaradi. Ya'ni
+        # o'zini `=HYPERLINK(...)` deb nomlagan foydalanuvchi eksport
+        # faylini ochgan ADMIN mashinasida kod ishga tushira olardi.
+        # Foydalanuvchi nomi — bizning matnimiz emas, ishonchsiz chegara.
+        yomon = "=HYPERLINK(\"http://x\",\"bos\")"
+        # Natija tirnoqqa o'ralgan (ichida `"` bor), lekin `=` dan
+        # OLDIN apostrof turishi shart — formula shunda bajarilmaydi.
+        assert "'=HYPERLINK" in api._csv_katak(yomon), api._csv_katak(yomon)
+        for belgi in ("+", "-", "@"):
+            assert api._csv_katak(belgi + "zarar").startswith("'" + belgi)
+        # Oddiy matn tegilmaydi, ajratuvchi va tirnoq esa ekranlanadi.
+        assert api._csv_katak("melores") == "melores"
+        assert api._csv_katak('a;b') == '"a;b"'
+        assert api._csv_katak('de"mo') == '"de""mo"'
+        assert api._csv_katak(None) == ""
+        print("[14] CSV formula in'eksiyasi zararsizlantiriladi OK")
+
+        # ── 15) BOM bor — Excel o'zbekcha harfni buzmasin ──────────
+        matn = api._csv(("a", "b"), [(1, "o'zbek")])
+        assert matn.startswith("\ufeff"), "BOM yo'q — Excel ANSI deb o'qiydi"
+        assert matn.endswith("\r\n") and "\r\n" in matn.strip()
+        print("[15] CSV BOM va CRLF bilan yoziladi OK")
+
+        # ── 16) Eksport: noma'lum tur rad etiladi, fayl ADMINGA ketadi ─
+        ketgan = {}
+
+        async def soxta_hujjat(uid, baytlar, nom, izoh):
+            ketgan.update(uid=uid, nom=nom, baytlar=baytlar)
+            return True
+        asl_hujjat = api._hujjat
+        api._hujjat = soxta_hujjat
+
+        async def soxta_tolovlar(limit=5000):
+            return [{"id": 1, "created_at": datetime.datetime(2026, 9, 1, tzinfo=UTC),
+                     "payer_id": 7, "beneficiary_id": 7, "stars": 500,
+                     "days": 30, "refunded_at": None}]
+        api.database_module.all_payments = soxta_tolovlar
+
+        r = await c.post("/api/export?tur=boshqa", headers=h)
+        assert r.status == 400, r.status
+
+        r = await c.post("/api/export?tur=payments", headers=h)
+        assert r.status == 200, r.status
+        d = await r.json()
+        assert d["ok"] and d["qator"] == 1, d
+        # ⚠️ Fayl SO'RAGAN ADMINGA ketadi — `_target` dan olingan
+        # foydalanuvchiga emas. Aks holda eksport boshqa odamga yuborish
+        # yo'liga aylanardi.
+        assert ketgan["uid"] == 1, ketgan
+        assert ketgan["nom"].startswith("tolovlar-") and ketgan["nom"].endswith(".csv")
+        assert b"tolovchi" in ketgan["baytlar"]
+        api._hujjat = asl_hujjat
+        print("[16] eksport: noma'lum tur 400, fayl so'ragan adminga ketadi OK")
+
+    print("\nweb journal: barcha tekshiruvlar o'tdi (16/16).")
 
 
 if __name__ == "__main__":

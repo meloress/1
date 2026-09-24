@@ -213,6 +213,10 @@ async def main():
     # Admin paneli: kunlik hisobot va rejalashtirilgan tarqatma.
     asyncio.create_task(admin_daily.daily_report_watcher())
     asyncio.create_task(admin_daily.scheduled_broadcast_watcher())
+    # Ogohlantirishlar: panel tortib olish rejimida, kunlik
+    # hisobot esa ertalab keladi — bu ikkalasining orasidagi
+    # oynani yopadi (xatolar to'lqini va «bot jim»).
+    asyncio.create_task(admin_daily.alert_watcher())
 
     # Web admin panel (Mini App). Bot jarayonining ICHIDA — limit va
     # kuzatuv sozlamalari RAM keshida yashaydi, alohida jarayon ularni

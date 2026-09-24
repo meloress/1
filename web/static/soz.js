@@ -38,6 +38,7 @@ window.SOZ = {
 
   /* Bo'sh holatlar — har biri «nega bo'sh» ni ham aytadi. */
   bosh: {
+    token:     "Hali token sarfi yozilmagan.",
     xato:      "Bugun xato qayd etilmagan.",
     amal:      "Bu davrda amal qayd etilmagan.",
     audit:     "Hali admin amali yo'q.",

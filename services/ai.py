@@ -2200,7 +2200,7 @@ async def _open_response_stream(stack: AsyncExitStack, candidate_models: List[st
     raise last_err
 
 
-def _log_token_usage(resp, model: str, raund) -> None:
+def _log_token_usage(resp, model: str, raund, user_id=None) -> None:
     """Bitta chaqiruvning token sarfini logga yozadi — keshi bilan birga.
 
     ⚠️ NEGA KERAK: kunlik bepul grant qancha yeyilayotganini boshqa
@@ -2226,8 +2226,22 @@ def _log_token_usage(resp, model: str, raund) -> None:
             f"[TOKEN] {model} raund={raund} kirish={kirish} "
             f"(keshdan {keshdan} = {ulush}) chiqish={chiqish} "
             f"jami={kirish + chiqish}")
+        # ⚠️ BAZAGA HAM — log yetarli emas edi. Railway logi oqim, ya'ni
+        # «bugun grantning qanchasi yeyildi» degan savolga javob
+        # bermaydi; panel esa aynan shuni ko'rsatishi kerak. Fon
+        # vazifasi: javob bu yozuvni KUTMAYDI.
+        asyncio.create_task(_token_saqla(user_id, model, kirish, chiqish, keshdan))
     except Exception:
         pass
+
+
+async def _token_saqla(user_id, model, kirish, chiqish, keshdan) -> None:
+    """Hech qachon yiqilmaydi: hisob javobdan muhimroq emas."""
+    try:
+        from db.database import token_yoz
+        await token_yoz(user_id, model, kirish, chiqish, keshdan)
+    except Exception as e:
+        logger.debug(f"[TOKEN] bazaga yozilmadi: {e}")
 
 
 async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *,
@@ -2336,7 +2350,7 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
                     elif nomi == "edit_image":
                         edit_calls.append(event.item)
             _log_token_usage(await stream.get_final_response(),
-                             _resolved_model, "vision")
+                             _resolved_model, "vision", user_id)
     except Exception as e:
         logger.error(f"Vision API xatosi: {e}")
         raise
@@ -4304,7 +4318,7 @@ async def get_openai_reply(
 
                     final_response = await stream.get_final_response()
                     _log_token_usage(final_response, resolved_model,
-                                     total_rounds + 1)
+                                     total_rounds + 1, user_id)
                 break
             except RateLimitError as e:
                 if _urinish or _matn_ketdi:

@@ -126,6 +126,15 @@
             <p class="v" id="k-pul">—</p>
             <p class="d" id="k-pul-d">&nbsp;</p>
           </div>
+          <div class="kpi">
+            <p class="k">Token sarfi</p>
+            <p class="v" id="k-token">—</p>
+            <p class="d" id="k-token-d">&nbsp;</p>
+            <!-- Kunlik grantga nisbatan to'lish chizig'i. Grant
+                 CHEKLOV emas: undan oshgan token baribir ishlaydi,
+                 faqat pulli bo'ladi. -->
+            <div class="progress" aria-hidden="true"><i id="k-token-bar"></i></div>
+          </div>
         </div>
 
         <div class="grid2">
@@ -141,21 +150,21 @@
                    emas. -->
               <div class="chips" id="chart-kunlar"></div>
             </header>
-            <div class="chart" id="chart">
+            <div class="chart" id="chart-box">
               <svg viewBox="0 0 640 210" role="img" id="chart-svg" aria-label="So'rovlar oqimi">
-                <g id="setka"></g>
+                <g id="chart-setka"></g>
                 <!-- Y o'qi yorliqlari: JS to'ldiradi. NOLDAN boshlanadi
                      — §4: aks holda 88 dan boshlangan shkala kichik
                      tebranishni chuqur tushishdek ko'rsatadi. -->
-                <g id="ylab"></g>
-                <path id="area" fill="url(#areaFill)" d=""/>
-                <path id="line" fill="none" stroke="url(#areaLine)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d=""/>
-                <g id="dots"></g>
-                <line id="cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
-                <g id="xlab"></g>
-                <rect id="hit" x="0" y="0" width="640" height="180" fill="transparent"/>
+                <g id="chart-ylab"></g>
+                <path id="chart-area" fill="url(#areaFill)" d=""/>
+                <path id="chart-line" fill="none" stroke="url(#areaLine)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d=""/>
+                <g id="chart-dots"></g>
+                <line id="chart-cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
+                <g id="chart-xlab"></g>
+                <rect id="chart-hit" x="0" y="0" width="640" height="180" fill="transparent"/>
               </svg>
-              <div class="tip" id="tip"></div>
+              <div class="tip" id="chart-tip"></div>
             </div>
           </div>
 
@@ -229,6 +238,7 @@
         <div class="card">
           <header>
             <h2>Foydalanuvchilar</h2>
+            <button class="btn sm" data-eksport="users" title="CSV yuklab olish"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>CSV</button>
           </header>
           <!-- ⚠️ Qidiruv maydoni sarlavha qatoridan PASTGA tushdi:
                u yerda `width:190px` bilan turardi va telefonda
@@ -332,6 +342,12 @@
           <div class="card">
             <header><h2>Faol foydalanuvchilar · 7 kun</h2></header>
             <div class="rows ustunli zich" id="s-top" style="--ust:1fr 70px 1fr"></div>
+          <div class="card">
+            <header><h2>Eng ko'p token &middot; 7 kun</h2>
+              <span class="hint">grant sarfi qayerga ketyapti</span>
+            </header>
+            <div class="rows ustunli zich" id="s-token" style="--ust:1fr 90px 80px"></div>
+          </div>
           </div>
 
           <div class="card">
@@ -457,9 +473,15 @@
           <div class="card">
             <header>
               <h2>Admin amallari</h2>
+              <button class="btn sm" data-eksport="audit" title="CSV yuklab olish"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>CSV</button>
               <div class="spacer"></div>
               <span class="hint" id="j-audit-soni">—</span>
             </header>
+            <div class="field" style="margin-bottom:var(--s-2)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input id="j-audit-q" type="search" placeholder="Amal, tafsilot yoki @username" aria-label="Audit jurnalida qidirish">
+            </div>
+            <div class="chips" id="j-audit-kun" style="margin-bottom:var(--s-2)"></div>
             <div class="chips" id="j-adminlar" style="margin-bottom:var(--s-3)"></div>
             <div class="rows" id="j-audit"></div>
             <div class="row" style="border-top:1px solid var(--line-soft);margin-top:4px">
@@ -478,6 +500,11 @@
               <div class="spacer"></div>
               <span class="hint" id="j-xato-soni">—</span>
             </header>
+            <div class="field" style="margin-bottom:var(--s-2)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input id="j-xato-q" type="search" placeholder="Xato turi yoki matni" aria-label="Xatolar jurnalida qidirish">
+            </div>
+            <div class="chips" id="j-xato-kun" style="margin-bottom:var(--s-3)"></div>
             <div class="bars" id="j-xato-turlar" style="margin-bottom:var(--s-4)"></div>
             <div class="rows" id="j-xatolar"></div>
             <div class="row" style="border-top:1px solid var(--line-soft);margin-top:4px">
@@ -495,6 +522,24 @@
             <div class="kpi"><p class="k">Bugun</p><p class="v" id="j-bugun">—</p><p class="d">so'nggi 24 soat</p></div>
             <div class="kpi"><p class="k">O'rtacha chek</p><p class="v" id="j-ortacha">—</p><p class="d">30 kunlik sotuvlar bo'yicha</p></div>
             <div class="kpi"><p class="k">Jami</p><p class="v" id="j-jami">—</p><p class="d">boshidan beri</p></div>
+          </div>
+          <div class="card">
+            <header><h2>Daromad oqimi &middot; 30 kun</h2>
+              <button class="btn sm" data-eksport="payments" title="CSV yuklab olish"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>CSV</button>
+            </header>
+            <div class="chart" id="dchart-box">
+              <svg viewBox="0 0 640 210" role="img" id="dchart-svg" aria-label="Daromad oqimi">
+                <g id="dchart-setka"></g>
+                <g id="dchart-ylab"></g>
+                <path id="dchart-area" fill="url(#areaFill)" d=""/>
+                <path id="dchart-line" fill="none" stroke="url(#areaLine)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d=""/>
+                <g id="dchart-dots"></g>
+                <line id="dchart-cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
+                <g id="dchart-xlab"></g>
+                <rect id="dchart-hit" x="0" y="0" width="640" height="180" fill="transparent"/>
+              </svg>
+              <div class="tip" id="dchart-tip"></div>
+            </div>
           </div>
           <div class="card">
             <header><h2>Tariflar bo'yicha sotuv</h2></header>

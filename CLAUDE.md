@@ -75,6 +75,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
   than at 05:00, and that `set_user_premium()` still defaults to `plan='pro'`. That last
   one is the sharpest: the default used to be `'premium'`, i.e. the panel's
   "Pro berish · 7 kun" button quietly handed out the unlimited tier.
+- `test_ogohlantirish.py` — the two alerts (error surge, silent bot). Its sharpest
+  checks are that one outage produces **one** message (a repeating alert is an
+  ignored alert), that night-time silence is not reported, and that an empty
+  `user_activity` table is not read as "silent forever". Runs offline.
 - `test_panel_korinish.py` — the panel's *appearance* rules. No browser is available here,
   so it checks the rule instead: no `<table>` and no horizontally scrolling list, content
   padded past the fixed bottom nav **plus** the device inset, every colour token defined in
@@ -190,7 +194,7 @@ but not the quota.
 
 The input:output ratio is about 100:1, so `max_tokens` and stop sequences save nothing — output is already tiny. And a searched request runs **~1.7 rounds**, each re-sending the whole prefix, so every token removed from the prefix is saved that many times over.
 
-`_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round; the cached share is visible in the Railway log even though it does not reduce the quota.
+`_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round and **also writes the round to `user_history`**, which is what the panel's token card reads — see the web-panel section. The cached share is visible in both even though it does not reduce the quota.
 
 Measure before optimising. The bot's own Postgres answers most questions — how many requests a day, how long replies are, how often a tool actually fires. Two guesses were wrong that way: model routing looked like a big win until `pick_reasoning_effort` turned out to classify only 3-4% of real messages as trivial (and length is a terrible proxy: "Manga Toshkent … kontrakt narxlarini ber" is 66 characters and needs a full web search), and trimming fetched page text looked worth 10% until a live search measured 1 877 tokens, not 4 000.
 
@@ -806,6 +810,85 @@ it becomes the sixth hand-written copy.
 scrollbar. The main button appears only when a field actually differs from what was
 loaded, and after a successful save the toast offers **Bekor qilish** for 5 seconds,
 which re-sends the previous values.
+
+### The panel's second pass: speed, filters, export, alerts
+
+⚠️ **Read endpoints run their queries in parallel, write endpoints must not.**
+`overview` made **six** sequential round trips to Postgres on the most-opened screen;
+`stats`, `user`, `journal_errors` and `watch` were the same shape. They are
+`asyncio.gather` now. ⛔️ Do not copy the pattern into a write endpoint: `refund` needs
+Telegram **before** the database, `watch_set` needs the cache refresh **after** the write,
+and `user` still fetches the profile first because a missing profile makes the other two
+queries pointless.
+
+⚠️ **`_kun_qatori()` fills the empty days, and both charts go through it.** The database
+only holds days where something happened, so a silent day is simply absent — and a chart
+that skips it looks *better* than reality, because the dip never appears. The requests
+chart and the revenue chart share the one helper (field names are parameters); a second
+copy is how one of them would quietly start drawing a flat line. `panel.js::chizuvchi(prefix)`
+is the same decision on the front end: the chart used to be bolted to fixed element ids
+(`line`, `dots`, `tip`), so a second chart meant copying the whole function. Ids are
+prefixed now (`chart-…`, `dchart-…`) and the code is one factory.
+
+⚠️ **A filtered list and its count must be built from one filter.** `_jurnal_filtri()` /
+`_audit_filtri()` return `(where, args)` and both the page query and the `COUNT(*)` use
+it. Written twice, the panel says "found 41" over a filtered list, draws five pages, and
+shows an empty screen from page two on — with nothing raising. The audit count also has
+to carry the same `LEFT JOIN`s, because the search touches `u.username` and `t.username`.
+`test_web_journal.py` checks 10-12 pin all of it, including that a malformed `kun` is
+ignored rather than trusted — admin input is an untrusted boundary too.
+
+⛔️ **CSV export escapes formulas, and that is a security control, not formatting.**
+Excel executes a cell that starts with `=`, `+`, `-` or `@`, so a user who names
+themselves `=HYPERLINK(…)` would be running code on the admin's machine the moment the
+export is opened. `_csv_katak()` prefixes an apostrophe. The file also carries a BOM or
+Excel reads it as ANSI and mangles every `o'` and `g'`. `test_web_journal.py` check 14 is
+the guard.
+
+⚠️ **The export arrives as a Telegram document, not a browser download.** The panel is a
+Mini App, i.e. a Telegram webview, and a `blob:` download fails silently there — the admin
+taps the button and nothing happens. `_hujjat()` sends the bytes to the **requesting
+admin** (`request["user_id"]`, never a `_target`), which also means the file lands in a
+chat where it can be forwarded. Every export writes an `export` row to the audit log:
+data leaving the system is different from data looked at inside it.
+
+⚠️ **Alerts exist because the panel is pull-only.** Nothing tells an admin anything until
+they open it, and the daily report arrives in the morning — so a bot that died in the
+evening was discovered the next day. `admin_daily.alert_watcher()` closes that window with
+**exactly two** conditions: an error surge, and silence. Adding a third needs a good
+reason; an alert that fires often is an alert nobody reads, and then the real one is
+missed too.
+
+Three details are load-bearing. The repeat flag lives in RAM (`_ogoh_holat`) and clears
+when the condition does, so one outage is one message and a recovery re-arms it. Silence
+between 02:00 and 08:00 Tashkent is **not** reported, or every night would produce a false
+alarm. And `last_activity_at()` returning `None` (an empty table, a fresh bot) is not
+"silent forever" — it is ignored. `tests/test_ogohlantirish.py` checks 2, 4 and 8 hold
+those three.
+
+⚠️ **Token spend is written to the database now, not only to the log.** The bot runs on
+a free daily grant and the panel could not say how much of it was gone — `[TOKEN]` lines
+existed only in the Railway log, which is a stream, not an answer to "how much today".
+`_log_token_usage()` still logs, and additionally fires `_token_saqla()` as a background
+task: the reply never waits on it and a database failure is swallowed, because accounting
+is not more important than the answer.
+
+The rows go into **`user_history`**, a table that already existed and that **nothing had
+ever written to** — so no new table, and the per-user column comes free, which is what
+makes "who is burning the grant" answerable at all. `token_stats()` cuts days by
+**Tashkent**, not UTC (`created_at` is a naive UTC timestamp), or "today" would roll over
+at 05:00 and the morning number would be yesterday's. `TOKEN_SAQLASH_KUN` (90) is trimmed
+once a day inside `daily_report_watcher` — a table nothing trimmed would grow forever at
+~2 400 rows a day.
+
+⚠️ **The grant is a measurement, not a limit**, and the panel says so: tokens past it
+still work, they are simply billable. So the card reads "grantdan oshdi", never
+"blocked". And the cached share is displayed **beside** the total, never subtracted from
+it — OpenAI confirmed (2026-09-09) that cached input counts against the quota exactly the
+same. What that percentage actually tells you is whether the request prefix is still
+stable through the day; if it falls, something per-user has leaked into the cached prefix.
+`tests/test_web_stats.py` checks 9-9d pin the arithmetic, the empty-database case, and
+that the write stays off the reply path.
 
 ### Five label maps that all rotted the same way
 

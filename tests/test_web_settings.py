@@ -360,7 +360,7 @@ async def main():
                 marshrutlar.add(n.args[1].id)
         qoriqsiz = sorted(m for m in marshrutlar if not dekorator.get(m))
         assert not qoriqsiz, f"@admin_only yo'q: {qoriqsiz}"
-        assert len(marshrutlar) == 30, f"marshrutlar soni kutilgandan boshqa ({len(marshrutlar)} ta)"
+        assert len(marshrutlar) == 31, f"marshrutlar soni kutilgandan boshqa ({len(marshrutlar)} ta)"
         print(f"[13] {len(marshrutlar)} ta marshrutning hammasi @admin_only bilan OK")
 
     config.apply_limit_overrides({})
