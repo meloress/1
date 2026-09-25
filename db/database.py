@@ -497,6 +497,14 @@ async def create_users_table():
                 PRIMARY KEY (owner_id, chat_id, message_id)
             );
         ''')
+        # Pauza SABABI: 'egasi' (egasi o'zi yozdi — suhbat uning qo'lida) yoki
+        # 'uzatish' (bot savolni egasiga uzatdi — suhbatdosh javob kutyapti).
+        # Faqat 'uzatish' da suhbatdoshga bir marta "bandman" va egasiga eslatma.
+        await conn.execute('''
+            ALTER TABLE biznes_chat
+                ADD COLUMN IF NOT EXISTS pauza_sababi   TEXT,
+                ADD COLUMN IF NOT EXISTS band_yuborildi BOOLEAN NOT NULL DEFAULT FALSE
+        ''')
         # Avtomat javob oxiridagi «🤖 avtojavob» belgisi (standart — yoqilgan).
         await conn.execute(
             "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS "
@@ -1456,24 +1464,62 @@ async def biznes_chat_holati(owner_id: int, chat_id: int) -> Dict[str, Any]:
         await create_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT ochirilgan, COALESCE(pauza_gacha > NOW(), FALSE) AS pauza '
-            'FROM biznes_chat WHERE owner_id = $1 AND chat_id = $2',
+            'SELECT ochirilgan, COALESCE(pauza_gacha > NOW(), FALSE) AS pauza, '
+            'pauza_sababi FROM biznes_chat WHERE owner_id = $1 AND chat_id = $2',
             owner_id, chat_id)
-    return {"ochirilgan": bool(row and row['ochirilgan']),
-            "pauza": bool(row and row['pauza'])}
+    pauza = bool(row and row['pauza'])
+    return {"ochirilgan": bool(row and row['ochirilgan']), "pauza": pauza,
+            "uzatish": pauza and row['pauza_sababi'] == 'uzatish'}
 
 
 @with_db_retry()
-async def biznes_pauza(owner_id: int, chat_id: int, soat: int) -> None:
+async def biznes_pauza(owner_id: int, chat_id: int, soat: int,
+                       sabab: str = "egasi") -> None:
+    """`sabab` — 'egasi' | 'uzatish'. Yangi pauza "bandman" bayrog'ini
+    tushiradi: har uzatishga bitta."""
     global pool
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'INSERT INTO biznes_chat (owner_id, chat_id, pauza_gacha) '
-            'VALUES ($1, $2, NOW() + make_interval(hours => $3::int)) '
-            'ON CONFLICT (owner_id, chat_id) DO UPDATE SET '
-            'pauza_gacha = EXCLUDED.pauza_gacha', owner_id, chat_id, soat)
+            'INSERT INTO biznes_chat (owner_id, chat_id, pauza_gacha, pauza_sababi, '
+            'band_yuborildi) VALUES ($1, $2, NOW() + make_interval(hours => $3::int), '
+            '$4, FALSE) ON CONFLICT (owner_id, chat_id) DO UPDATE SET '
+            'pauza_gacha = EXCLUDED.pauza_gacha, pauza_sababi = EXCLUDED.pauza_sababi, '
+            'band_yuborildi = FALSE', owner_id, chat_id, soat, sabab)
+
+
+@with_db_retry()
+async def biznes_band_ol(owner_id: int, chat_id: int) -> bool:
+    """Uzatish pauzasida "bandman" xabarini yuborish huquqi — ATOMIK, bir
+    pauzaga bir marta (ikki parallel xabar ikkita "bandman" yubormasin)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            "UPDATE biznes_chat SET band_yuborildi = TRUE "
+            "WHERE owner_id = $1 AND chat_id = $2 AND pauza_sababi = 'uzatish' "
+            "AND NOT band_yuborildi AND pauza_gacha > NOW() RETURNING 1",
+            owner_id, chat_id))
+
+
+@with_db_retry()
+async def biznes_kutayotgan_tanlov(owner_id: int, chat_id: int) -> Optional[Dict[str, Any]]:
+    """Shu chatdagi hal qilinmagan `[tanlov:]` (eslatmada tugmalari qayta)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, variantlar FROM biznes_loyiha WHERE owner_id = $1 "
+            "AND chat_id = $2 AND holat = 'kutmoqda' AND variantlar IS NOT NULL "
+            "AND yaratilgan > NOW() - make_interval(hours => $3::int) "
+            "ORDER BY id DESC LIMIT 1", owner_id, chat_id, BIZNES_LOYIHA_TTL_SOAT)
+    if not row:
+        return None
+    v = row['variantlar']
+    return {"id": row['id'], "variantlar": json.loads(v) if isinstance(v, str) else list(v)}
 
 
 @with_db_retry()

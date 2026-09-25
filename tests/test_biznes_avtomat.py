@@ -217,7 +217,7 @@ async def chat_holati(owner, chat):
             if (owner, chat) in pauza else False}
 
 
-async def soxta_pauza(owner, chat, s):
+async def soxta_pauza(owner, chat, s, sabab="egasi"):
     q.append(("pauza", chat, s))
     pauza[(owner, chat)] = holat["soat"].replace(hour=(holat["soat"].hour + s) % 24) \
         if holat["soat"].hour + s < 24 else soat(23, 59)

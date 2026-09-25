@@ -855,6 +855,9 @@ BIZNES_REJIMLAR = ("buyruq", "yordamchi", "kuzatuv", "avtomat")
 BIZNES_AVTOMAT_OCHIQ = True
 # Uzatishdan yoki egasi o'zi yozgandan keyin bot shu chatda jim turadi.
 BIZNES_PAUZA_SOAT = 3
+# Uzatish pauzasida suhbatdosh yana yozsa — egasiga eslatma, bitta chatga
+# shu oraliqda ko'pi bilan bittasi (ketma-ket 4 xabar = 4 bildirishnoma emas).
+BIZNES_ESLATMA_DAQIQA = 5
 # 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
 # ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
 # javob bermagan bo'lsa — egasiga bitta xabar.

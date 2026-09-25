@@ -36,7 +36,8 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX,
                          BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
-                         BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR, BIZNES_TUNGI_SOAT,
+                         BIZNES_ESLATMA_DAQIQA, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
+                         BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
                          BTN_PRIMARY, BTN_SUCCESS, TEXT_MERGE_WAIT, message_cost)
 from core.loader import bot, logger
@@ -829,6 +830,8 @@ async def _loyiha(buf: dict) -> None:
 
         # Faqat egasi biladigan savol — soxta javob o'rniga egasiga tanlov.
         _, savol, variantlar = tanlov_ajrat(loyiha)
+        variantlar = [alifboga_mosla(v, matn) for v in variantlar]
+        loyiha = alifboga_mosla(loyiha, matn)
         if savol is not None:
             loyiha = variantlar[0] if variantlar else ""
         lid = await database.biznes_loyiha_yarat(
@@ -854,7 +857,53 @@ async def _loyiha(buf: dict) -> None:
 # ⛔️ Mijozga hech qachon: texnik xato matni, `[egasiga:]` markeri,
 # limit yoki pauza haqida xabar. Bular faqat EGASIGA.
 
-NEYTRAL_JAVOB = "Hozir aniqlashtirib javob beraman."
+# Shaxsiy suhbatga ham mos (do'stga "aniqlashtirib javob beraman" g'alati).
+NEYTRAL_JAVOB = "Keyinroq yozaman."
+# Uzatish pauzasida suhbatdosh yana yozsa — BIR marta (`biznes_band_ol`).
+# Hech narsa va'da qilmaydi: vaqt ham, javob ham.
+BAND_JAVOB = "Hozir bandman, bo'shashim bilan yozaman."
+
+# ── Alifbo: suhbatdosh lotinda yozsa, javob ham lotinda ─────────────
+# Jonli sinovda model "кейин aytaman" yozdi — bitta gapda ikki alifbo.
+# Prompt qoidasi kafolat emas, shuning uchun KOD o'giradi (o'zbek kirill →
+# lotin). Suhbatdosh kirillda yozgan bo'lsa — tegilmaydi (rus yoki kirill
+# o'zbek yozuvchi: uning alifbosi shu).
+_KIRILL_RE = re.compile(r"[\u0400-\u04FF]")
+_UZ_LOTIN = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "ғ": "g'", "д": "d", "ж": "j",
+    "з": "z", "и": "i", "й": "y", "к": "k", "қ": "q", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ў": "o'", "ф": "f", "х": "x", "ҳ": "h", "ц": "s", "ч": "ch", "ш": "sh",
+    "щ": "sh", "ъ": "'", "ь": "", "ы": "i", "э": "e", "ё": "yo", "ю": "yu",
+    "я": "ya", "е": "e",
+}
+_UNLI = set("аеёиоуўэюяaeiou")
+
+
+def uz_lotinga(matn: str) -> str:
+    """O'zbek kirill → lotin. Sof funksiya. `е` so'z boshida va unlidan /
+    `ъ` dan keyin — "ye" (ер → yer, мае → maye), aks holda "e"."""
+    chiqish = []
+    for i, h in enumerate(matn):
+        kichik = h.lower()
+        if kichik not in _UZ_LOTIN:
+            chiqish.append(h)
+            continue
+        oldingi = matn[i - 1].lower() if i else " "
+        lot = ("ye" if kichik == "е" and (not oldingi.isalpha() or oldingi in _UNLI
+                                          or oldingi == "ъ") else _UZ_LOTIN[kichik])
+        if h != kichik and lot:
+            # Katta harf: "Ш" → "Sh"; butun so'z katta bo'lsa ham "Sh" — yetarli.
+            lot = lot[0].upper() + lot[1:]
+        chiqish.append(lot)
+    return "".join(chiqish)
+
+
+def alifboga_mosla(javob: str, suhbatdosh: str) -> str:
+    """Suhbatdosh lotinda (kirillsiz) yozgan, javobda kirill bor — o'giradi."""
+    if not javob or _KIRILL_RE.search(suhbatdosh or "") or not _KIRILL_RE.search(javob):
+        return javob
+    return uz_lotinga(javob)
 
 _VAQT_RE = re.compile(r"^\s*(\d{1,2})(?::(\d{2}))?\s*[-–—]\s*(\d{1,2})(?::(\d{2}))?\s*$")
 
@@ -907,7 +956,8 @@ async def _toxtash_sababi(ul: dict, chat_id: int) -> str | None:
     if holat["ochirilgan"]:
         return "chatda o'chirilgan"
     if holat["pauza"]:
-        return "pauza"
+        # 'pauza_uzatish' — bot savolni egasiga uzatgan, suhbatdosh kutyapti.
+        return "pauza_uzatish" if holat.get("uzatish") else "pauza"
     return None
 
 
@@ -949,6 +999,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             olchov.qosh(natija="jim")
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
             logger.info(f"[BIZNES] avtomat jim chat={chat_id}: {sabab}")
+            if sabab == "pauza_uzatish":
+                await _pauza_paytida(message, matn, ul)
             return
         sanoq = await database.check_and_consume_daily(egasi, "biznes")
         olchov.belgi("sanoq")
@@ -1016,6 +1068,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             uzat = "model javob yozmadi"
         if uzat is not None:
             toza = toza or NEYTRAL_JAVOB
+        toza = alifboga_mosla(toza, matn)
+        variantlar = [alifboga_mosla(v, matn) for v in variantlar]
         try:
             _bot_yubordi(await _qayta_429(lambda: bot.send_message(
                 chat_id, business_connection_id=conn_id,
@@ -1032,7 +1086,7 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             pass
         await safe_update_history(chat_id, toza, role="assistant", thread_id=thread)
         if uzat is not None:
-            await database.biznes_pauza(egasi, chat_id, BIZNES_PAUZA_SOAT)
+            await database.biznes_pauza(egasi, chat_id, BIZNES_PAUZA_SOAT, "uzatish")
         olchov.belgi("tarix")
 
     olchov.qosh(natija="tanlov" if savol is not None
@@ -1050,6 +1104,48 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
         track_user_activity(egasi, None, "biznes_avtojavob")
     logger.info(f"[BIZNES] avtojavob egasi={egasi} chat={chat_id} "
                 f"uzatildi={uzat is not None}")
+
+
+# Egasiga eslatma vaqti (monotonic, soniya) — chat bo'yicha.
+# ponytail: RAM — deploy'dan keyin birinchi xabarda yana bitta eslatma.
+_eslatilgan: dict = {}
+
+
+async def _pauza_paytida(message: Message, matn: str, ul: dict) -> None:
+    """Uzatish pauzasida suhbatdosh yana yozdi. Jonli sinovda u 4 marta
+    yozdi va javobsiz qoldi, egasi esa bilmadi. Endi:
+      1) suhbatdoshga BIR marta "bandman" (hech narsa va'da qilmaydi);
+      2) egasiga eslatma — chatga `BIZNES_ESLATMA_DAQIQA` da bittadan,
+         kutayotgan `[tanlov:]` tugmalari bilan.
+    Bot savollarga (masalan "kimsan sen") JAVOB BERMAYDI — suhbat egasida.
+    """
+    egasi, dm, chat_id = ul["owner_id"], ul["owner_chat"], message.chat.id
+    try:
+        if await database.biznes_band_ol(egasi, chat_id):
+            _bot_yubordi(await _qayta_429(lambda: bot.send_message(
+                chat_id, business_connection_id=message.business_connection_id,
+                **avto_matn(BAND_JAVOB, ul.get("avto_belgi", True)))))
+            await safe_update_history(chat_id, BAND_JAVOB, role="assistant",
+                                      thread_id=biznes_thread(egasi))
+    except Exception as e:
+        logger.warning(f"[BIZNES] «bandman» yuborilmadi chat={chat_id}: {e}")
+
+    kalit, hozir = (egasi, chat_id), time.monotonic()
+    if hozir - _eslatilgan.get(kalit, float("-inf")) < BIZNES_ESLATMA_DAQIQA * 60:
+        return
+    _eslatilgan[kalit] = hozir
+    try:
+        tanlov = await database.biznes_kutayotgan_tanlov(egasi, chat_id)
+    except Exception as e:
+        logger.warning(f"[BIZNES] kutayotgan tanlov o'qilmadi: {e}")
+        tanlov = None
+    u = message.from_user
+    matni = (f"🔔 <b>{escape(u.full_name if u else 'Suhbatdosh')}</b> yana yozdi — "
+             f"javobingizni kutyapti:\n<blockquote>{escape(matn[:800])}</blockquote>")
+    if tanlov:
+        matni += "\nTayyor javoblardan birini bosing yoki o'zingiz yozing."
+    await _egasiga(dm, matni, kb=_tanlov_kb(tanlov["id"], tanlov["variantlar"])
+                   if tanlov else None)
 
 
 async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> None:

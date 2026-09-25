@@ -145,7 +145,7 @@ async def eskirt(owner, chat):
     q.append(("eskirt", chat))
 
 
-async def pauza(owner, chat, soat):
+async def pauza(owner, chat, soat, sabab="egasi"):
     q.append(("pauza", chat))
 
 
