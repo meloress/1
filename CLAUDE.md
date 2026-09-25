@@ -51,6 +51,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_voice_status.py` — the TTS status indicator cleans up on every exit path
   (draft emptied, group message deleted, and both still done when the body raises). An
   abandoned draft hangs on screen and kills the next animation.
+- `test_biznes.py` / `test_biznes_yordamchi.py` / `test_biznes_avtomat.py` /
+  `test_biznes_hisobot.py` / `test_biznes_uslub.py` — Telegram Business, one per phase,
+  all offline. The loop guard (`biznes_kimdan` order), the atomic draft claim, "nothing
+  technical reaches the customer", and "the customer path never gets the assistant prompt".
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.
@@ -777,6 +781,35 @@ around every business model call and written to `user_history.manba`. A ContextV
 parameter: the call is three functions deep, and `asyncio.create_task` in `_log_token_usage`
 copies the context, so the background write still sees it. SQL stays in `db/database.py`
 (`biznes_panel_stats`, `::bigint` on both sums).
+
+### Telegram Business: writing like the owner (phase 5)
+
+⛔️ **The customer path does not use the assistant prompt.** With `biznes_yoriqnoma` set,
+`get_openai_reply` / `get_vision_reply` send `services.ai.BIZNES_INSTRUCTIONS` (**293
+tokens**) instead of `build_system_prompt()` (5 521): drafts written with the ChatGPT prompt
+read like an assistant ("Qanday yordam bera olaman?", markdown) and nothing like the owner.
+The role instruction and the "always use internet_search" time line are skipped there too.
+`BIZNES_INSTRUCTIONS` is identical for every owner, so it stays cacheable; everything
+per-owner is in the `developer` message. `test_biznes_uslub.py` checks 1-4.
+
+**Where the style comes from.** `biznes_namuna` holds what the owner typed **themselves** in
+business chats (plus the text they replaced a draft with). `chat_messages` cannot be used
+for this: there `assistant` is the owner *and* what the bot sent for them, so the bot would
+learn from itself. Commands, the bot's own echoes and customer text never become samples
+(check 11); a sample with a card/passport number is dropped (`clean_biznes_namuna`), because
+samples go into prompts for **other** customers. `uslub_bloki()` sends the owner's own rules
+(`uslub_egasi`, from «Uslubim») > the learned description (`uslub`) > the last
+`BIZNES_NAMUNA_KORSAT` samples > the last `BIZNES_TAHRIR_KORSAT` edit pairs from
+`biznes_loyiha` (`tahrirlandi`) — at most **~760 tokens**, so a draft is still ~4 400 tokens
+cheaper than before. `.javob` uses the same path; `.en`/`.tarjima`/`.xulosa` do not.
+
+The description is one mini-model call (`biznes_uslub_organ`) after
+`BIZNES_USLUB_ORGAN[0]` (10) samples, then every `[1]` (30), counted by
+`biznes_profil.namuna_jami`, which only grows (the sample table is trimmed). ⚠️ A failed call
+still advances `uslub_jami` and keeps the old text, or every owner message during an OpenAI
+outage would start a new call (check 14). `_organmoqda` makes two concurrent triggers one call.
+Style lookup is decoration: `_uslub()` swallows DB errors, so a draft is written without style
+rather than not at all.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

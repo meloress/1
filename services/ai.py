@@ -850,6 +850,73 @@ _EGASIGA_RE = re.compile(r"\[\s*egasiga\s*:\s*([^\]\n]{0,300})\]", re.I)
 _EGASIGA_BUZUQ_RE = re.compile(r"\[\s*egasiga\b[^\n]*", re.I)
 
 
+# ── Business mijoz yo'lining O'Z prompti (5-bosqich) ─────────────────
+# ⛔️ Mijozga javob ChatGPT-yordamchi prompti (`build_system_prompt`,
+# ~5 500 token) bilan yozilganda u yordamchi bo'lib chiqardi: uzun,
+# markdown, "Qanday yordam bera olaman?". Egasi nomidan yozadigan matn
+# ODAMNIKI bo'lishi kerak. Matn HAMMA egalar uchun bir xil — prompt keshi
+# ishlaydi; egasiga xos narsa (bilim, uslub, namunalar) `developer`
+# xabarda (`handlers/biznes.py::mijoz_yoriqnomasi`).
+BIZNES_INSTRUCTIONS = (
+    "Sen Telegram akkaunt egasining O'ZISAN va uning nomidan suhbatdoshiga "
+    "(odatda mijoz) yozasan. Sen yordamchi, bot yoki sun'iy intellekt "
+    "EMASSAN: o'zingni hech qachon shunday atama, «Qanday yordam bera "
+    "olaman?», «Albatta!», «Savolingiz uchun rahmat» kabi yordamchi "
+    "iboralarini ishlatma.\n"
+    "Oddiy messenjer xabari yoz: markdown, sarlavha, ro'yxat, qalin matn, "
+    "jadval va havola bezagi YO'Q. Odam telefonda qanday yozsa, shunday.\n"
+    "Egasining uslubiga to'liq moslash: xabar uzunligi, salomlashishi, "
+    "sen/siz, emoji, katta-kichik harf, tinish belgilari, sevimli iboralari, "
+    "alifbosi (lotin/kirill) va til aralashtirishi. Egasining o'z qoidalari "
+    "o'rganilgan tavsifdan, tavsif namunalardan ustun. Namunalardan faqat "
+    "USLUBni ol — ulardagi narx, ism, sana, manzil va va'dalarni boshqa "
+    "suhbatga ko'chirma.\n"
+    "Suhbatdosh qaysi tilda yozgan bo'lsa, o'sha tilda javob ber."
+)
+
+
+_BIZNES_USLUB_PROMPT = (
+    "Senga bir odamning Telegram'da mijozlariga O'ZI yozgan xabarlari va "
+    "u bot qoralamasini qanday tuzatgani berilgan. Uning YOZISH USLUBINI "
+    "5-8 ta qisqa qatorda o'zbek tilida tasvirla: sen/siz; salomlashish va "
+    "xayrlashish; odatiy uzunlik; emoji (qaysilari, qanchalik tez-tez); "
+    "katta harf va tinish belgilari; alifbo va til aralashtirishi; tez-tez "
+    "ishlatadigan iboralari (so'zma-so'z, qo'shtirnoqda); ohangi. "
+    "Tuzatishlar eng muhim signal: bot nimani noto'g'ri qilgan bo'lsa, "
+    "shuni qoida qilib yoz. Fakt, narx, ism, raqam YOZMA — faqat uslub. "
+    "Faqat ro'yxatni qaytar, muqaddimasiz."
+)
+
+
+async def biznes_uslub_organ(namunalar: List[str], tahrirlar: List[tuple],
+                             egasi: Optional[int] = None) -> str:
+    """Egasining uslub tavsifi — BITTA mini chaqiruv. Xato yoki bo'sh
+    natija — "" (chaqiruvchi eski tavsifni saqlab qoladi).
+
+    ⚠️ `HISTORY_SUMMARY_MODEL`: mini modellar byudjeti ~10 baravar katta
+    (test_free_models.py) va bu mexanik ish.
+    """
+    qism = ["EGASINING XABARLARI:"] + [f"- {m[:300]}" for m in namunalar]
+    if tahrirlar:
+        qism.append("\nTUZATISHLAR (bot yozgan → egasi yuborgan):")
+        qism += [f"- Bot: {a[:300]}\n  Egasi: {b[:300]}" for a, b in tahrirlar]
+    try:
+        resp = await asyncio.wait_for(
+            openai_client.responses.create(
+                model=HISTORY_SUMMARY_MODEL,
+                instructions=_BIZNES_USLUB_PROMPT,
+                input=[{"role": "user", "content": "\n".join(qism)[:20000]}],
+                store=False,
+            ),
+            timeout=60,
+        )
+        _log_token_usage(resp, HISTORY_SUMMARY_MODEL, "biznes-uslub", egasi)
+        return (resp.output_text or "").strip()[:1200]
+    except Exception as e:
+        logger.warning(f"[BIZNES] uslub o'rganilmadi: {str(e) or type(e).__name__}")
+        return ""
+
+
 def egasiga_ajrat(text: str) -> tuple:
     """(mijozga_ketadigan_matn, sabab | None). Sabab bo'sh bo'lsa "—"."""
     sabablar = [m.strip() or "—" for m in _EGASIGA_RE.findall(text or "")]
@@ -2337,7 +2404,8 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     # model=None → build_request_params tarifga qarab o'zi tanlaydi. Ilgari
     # bu yerda default GPT_MODEL edi va Pro foydalanuvchi rasm yuborsa ham
     # bepul modelga tushib qolardi.
-    system_prompt = f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}"
+    system_prompt = (BIZNES_INSTRUCTIONS if biznes_yoriqnoma is not None
+                     else f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}")
 
     messages: list = []
 
@@ -4106,13 +4174,16 @@ async def get_openai_reply(
     # hamma uchun buzardi.
     biznes_yoriqnoma: Optional[str] = None,
 ):
-    if biznes_yoriqnoma is not None:
+    biznes = biznes_yoriqnoma is not None
+    if biznes:
         tools_enabled = False
     # ⚠️ IMAGE_CAPABILITY_NOTE ataylab FAQAT shu yo'lda. get_vision_reply()
     # bir raundli va unda qidiruv tooli YO'Q — u yerda "rasm yubora olaman"
-    # deyish bajarilmaydigan va'da bo'lardi.
-    system_prompt = (f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}\n\n"
-                     f"{IMAGE_CAPABILITY_NOTE}")
+    # deyish bajarilmaydigan va'da bo'lardi. Business mijoz yo'lida esa
+    # yordamchi prompti umuman yo'q — `BIZNES_INSTRUCTIONS` izohi.
+    system_prompt = BIZNES_INSTRUCTIONS if biznes else (
+        f"{build_system_prompt()}\n\n{CONCISE_INSTRUCTION}\n\n"
+        f"{IMAGE_CAPABILITY_NOTE}")
 
     messages: list = []
 
@@ -4128,6 +4199,11 @@ async def get_openai_reply(
             f"Real vaqt ma'lumotlari uchun DOIM 'internet_search' asbobini ishlat — "
             f"o'z bilimingdan javob to'qima!"
         )
+        if biznes:
+            # Tool'siz yo'lda "internet_search ishlat" — bajarib bo'lmaydigan
+            # buyruq; sana esa ("ertaga olib kelamiz") kerak.
+            time_msg = (f"[TIZIM MA'LUMOTI] Hozir: "
+                        f"{now_tashkent.strftime('%Y-%m-%d %H:%M')} (Toshkent).")
         messages.append({"role": "developer", "content": time_msg})
     except Exception:
         pass
@@ -4155,7 +4231,7 @@ async def get_openai_reply(
             messages.append({"role": m["role"], "content": m["content"]})
 
     role = detect_role_from_text(message_text)
-    r_instr = role_instruction(role)
+    r_instr = None if biznes else role_instruction(role)
     if r_instr:
         messages.append({"role": "developer", "content": f"ROLE_INSTRUCTION: {r_instr}"})
 

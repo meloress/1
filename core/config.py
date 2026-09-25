@@ -866,6 +866,17 @@ BIZNES_TUNGI_SOAT = (22, 8)
 # Telegram 24 soatdan eski chatga bot javobini rad etadi — undan eski
 # loyihani yuborish tugmasi baribir ishlamasdi.
 BIZNES_LOYIHA_TTL_SOAT = 24
+# Egasining uslubi (5-bosqich). Namuna — egasi mijozga O'ZI yozgan xabar.
+# Bazada egasiga oxirgi MAX tasi; modelga oxirgi KORSAT tasi va oxirgi
+# TAHRIR ta tuzatish (bot yozgan → egasi yuborgan) ketadi.
+BIZNES_NAMUNA_MAX = 200
+BIZNES_NAMUNA_KORSAT = 25
+BIZNES_TAHRIR_KORSAT = 5
+# Uslub tavsifi birinchi marta shuncha namunadan keyin, so'ng har
+# shuncha yangi namunada qayta yoziladi (mini model, bitta chaqiruv).
+BIZNES_USLUB_ORGAN = (10, 30)
+# Egasining o'zi yozgan uslub qoidalari chegarasi.
+BIZNES_USLUB_MAX = 1500
 
 
 # ── AUDIT AMALLARI — YAGONA MANBA ───────────────────────────────────

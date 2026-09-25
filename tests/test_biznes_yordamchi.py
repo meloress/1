@@ -212,6 +212,17 @@ database.biznes_loyiha_band = soxta_band
 database.biznes_loyiha_yakun = soxta_yakun
 database.biznes_loyiha_yarat = soxta_yarat
 database.biznes_loyiha_eskirt = soxta_eskirt
+# Uslub (5-bosqich) — test_biznes_uslub.py da; bu yerda bo'sh.
+database.biznes_uslub_ol = lambda *a, **k: bilim_uslub()
+database.biznes_namuna_qosh = lambda *a, **k: namuna_qosh()
+
+
+async def bilim_uslub():
+    return {}
+
+
+async def namuna_qosh():
+    return 0, 0
 
 UL = {"owner_id": EGASI, "owner_chat": DM, "yoqilgan": True, "rejim": "yordamchi",
       "huquqlar": {"can_reply": True, "can_read_messages": True}}

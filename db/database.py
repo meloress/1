@@ -18,6 +18,8 @@ from core.config import (
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     INACTIVE_STEPS, ACTIVITY_TYPES,
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
+    BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT,
+    BIZNES_USLUB_MAX,
 )
 
 load_dotenv()
@@ -463,6 +465,31 @@ async def create_users_table():
                 yaratilgan  TIMESTAMP NOT NULL DEFAULT NOW()
             );
         ''')
+        # Egasining uslubi (5-bosqich). `uslub` — mini model yozgan tavsif,
+        # `uslub_egasi` — egasining o'z qoidalari (ustun turadi).
+        # `namuna_jami` faqat o'sadi (jadval kesiladi, sanoq esa yo'q) —
+        # qayta o'rganish vaqti `uslub_jami` bilan farqidan aniqlanadi.
+        await conn.execute('''
+            ALTER TABLE biznes_profil
+                ADD COLUMN IF NOT EXISTS uslub       TEXT,
+                ADD COLUMN IF NOT EXISTS uslub_egasi TEXT,
+                ADD COLUMN IF NOT EXISTS namuna_jami INT NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS uslub_jami  INT NOT NULL DEFAULT 0
+        ''')
+        # Egasi mijozga O'ZI yozgan xabarlar — uslub namunalari. Chat tarixi
+        # (`chat_messages`) yetmaydi: u yerda `assistant` — egasi ham, bot
+        # uning nomidan yuborgani ham, ya'ni bot o'zidan o'rganib qolardi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_namuna (
+                id         BIGSERIAL PRIMARY KEY,
+                owner_id   BIGINT NOT NULL,
+                matn       TEXT NOT NULL,
+                yaratilgan TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        ''')
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_biznes_namuna_egasi "
+            "ON biznes_namuna (owner_id, id DESC)")
         # Avtomat rejim: ish vaqti (NULL = doim) — egasi darajasida.
         await conn.execute(
             "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS ish_vaqti TEXT")
@@ -1101,6 +1128,116 @@ async def biznes_bilim_yoz(owner_id: int, bilim: str) -> None:
             'INSERT INTO biznes_profil (owner_id, bilim) VALUES ($1, $2) '
             'ON CONFLICT (owner_id) DO UPDATE SET bilim = EXCLUDED.bilim, '
             'yangilangan = NOW()', owner_id, bilim)
+
+
+def clean_biznes_namuna(matn: str) -> Optional[str]:
+    """Namuna bo'la oladimi — sof funksiya. Karta raqami bor xabar
+    O'TMAYDI: namunalar boshqa mijozlarga ketadigan promptga qo'shiladi,
+    egasi bir mijozga yuborgan kartasi boshqasining javobiga ko'chmasin."""
+    matn = str(matn or "").strip()
+    if not 2 <= len(matn) <= 1000 or _BILIM_SIR_RE.search(matn):
+        return None
+    return matn
+
+
+@with_db_retry()
+async def biznes_namuna_qosh(owner_id: int, matn: str) -> tuple:
+    """`clean_biznes_namuna()` dan O'TGAN matn. Qaytadi: (namuna_jami,
+    uslub_jami) — chaqiruvchi qayta o'rganish vaqtini hal qiladi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                'INSERT INTO biznes_namuna (owner_id, matn) VALUES ($1, $2)',
+                owner_id, matn)
+            await conn.execute(
+                'DELETE FROM biznes_namuna WHERE owner_id = $1 AND id NOT IN ('
+                'SELECT id FROM biznes_namuna WHERE owner_id = $1 '
+                'ORDER BY id DESC LIMIT $2)', owner_id, BIZNES_NAMUNA_MAX)
+            r = await conn.fetchrow(
+                "INSERT INTO biznes_profil (owner_id, bilim, namuna_jami) "
+                "VALUES ($1, '', 1) ON CONFLICT (owner_id) DO UPDATE SET "
+                "namuna_jami = biznes_profil.namuna_jami + 1 "
+                "RETURNING namuna_jami, uslub_jami", owner_id)
+    return r['namuna_jami'], r['uslub_jami']
+
+
+@with_db_retry()
+async def biznes_uslub_ol(owner_id: int, namuna: int = BIZNES_NAMUNA_KORSAT) -> dict:
+    """Uslub tavsifi, egasining qoidalari, oxirgi `namuna` ta xabari va
+    oxirgi tuzatishlari (eskidan yangiga)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        p = await conn.fetchrow(
+            'SELECT uslub, uslub_egasi, namuna_jami FROM biznes_profil '
+            'WHERE owner_id = $1', owner_id)
+        nam = await conn.fetch(
+            'SELECT matn FROM biznes_namuna WHERE owner_id = $1 '
+            'ORDER BY id DESC LIMIT $2', owner_id, namuna)
+        tah = await conn.fetch(
+            "SELECT loyiha, yakuniy FROM biznes_loyiha WHERE owner_id = $1 "
+            "AND holat = 'tahrirlandi' AND yakuniy IS NOT NULL "
+            "ORDER BY id DESC LIMIT $2", owner_id, BIZNES_TAHRIR_KORSAT)
+    return {
+        "uslub": p['uslub'] if p else None,
+        "uslub_egasi": p['uslub_egasi'] if p else None,
+        "jami": p['namuna_jami'] if p else 0,
+        "namunalar": [r['matn'] for r in reversed(nam)],
+        "tahrirlar": [(r['loyiha'], r['yakuniy']) for r in reversed(tah)],
+    }
+
+
+@with_db_retry()
+async def biznes_uslub_yoz(owner_id: int, uslub: Optional[str], jami: int) -> None:
+    """Model yozgan tavsif; `jami` — qaysi namuna sanog'ida o'rganildi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO biznes_profil (owner_id, bilim, uslub, uslub_jami) "
+            "VALUES ($1, '', $2, $3) ON CONFLICT (owner_id) DO UPDATE SET "
+            "uslub = EXCLUDED.uslub, uslub_jami = EXCLUDED.uslub_jami",
+            owner_id, uslub, jami)
+
+
+def clean_uslub_egasi(matn: str) -> tuple:
+    """(toza, xato) — `clean_biznes_bilim` qoidasi, o'z chegarasi bilan."""
+    toza, xato = clean_biznes_bilim(matn)
+    if not xato and len(toza) > BIZNES_USLUB_MAX:
+        return "", f"juda uzun ({len(toza)} belgi, chegara {BIZNES_USLUB_MAX})"
+    return toza, xato
+
+
+@with_db_retry()
+async def biznes_uslub_egasi_yoz(owner_id: int, matn: Optional[str]) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO biznes_profil (owner_id, bilim, uslub_egasi) "
+            "VALUES ($1, '', $2) ON CONFLICT (owner_id) DO UPDATE SET "
+            "uslub_egasi = EXCLUDED.uslub_egasi", owner_id, matn)
+
+
+@with_db_retry()
+async def biznes_namunalar_ochir(owner_id: int) -> None:
+    """Namunalar va o'rganilgan tavsif o'chadi; egasining qoidalari va
+    tuzatish tarixi (loyihalar) qoladi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute('DELETE FROM biznes_namuna WHERE owner_id = $1', owner_id)
+            await conn.execute(
+                'UPDATE biznes_profil SET uslub = NULL, namuna_jami = 0, '
+                'uslub_jami = 0 WHERE owner_id = $1', owner_id)
 
 
 @with_db_retry()

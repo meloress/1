@@ -144,6 +144,8 @@ async def main():
     # yozgan narxlar ro'yxati GPT'ga savol bo'lib ketardi.
     dp.message.register(biznes_module.process_bilim,
                         biznes_module.BiznesStates.bilim)
+    dp.message.register(biznes_module.process_uslub,
+                        biznes_module.BiznesStates.uslub)
     dp.message.register(biznes_module.process_tahrir,
                         biznes_module.BiznesStates.tahrir)
     dp.message.register(biznes_module.process_vaqt,
