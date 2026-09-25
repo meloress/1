@@ -28,6 +28,7 @@ from db.database import ensure_profile_columns
 from handlers.guest import router as guest_router
 from handlers.biznes import router as biznes_router
 from handlers import biznes as biznes_module
+from handlers import biznes_uslub as biznes_uslub_module
 from handlers import pro as pro_module
 from handlers import digest as digest_module
 from handlers.helpers import premium_expiry_watcher, reminder_watcher
@@ -144,8 +145,8 @@ async def main():
     # yozgan narxlar ro'yxati GPT'ga savol bo'lib ketardi.
     dp.message.register(biznes_module.process_bilim,
                         biznes_module.BiznesStates.bilim)
-    dp.message.register(biznes_module.process_uslub,
-                        biznes_module.BiznesStates.uslub)
+    dp.message.register(biznes_uslub_module.process_uslub,
+                        biznes_uslub_module.UslubStates.qoidalar)
     dp.message.register(biznes_module.process_tahrir,
                         biznes_module.BiznesStates.tahrir)
     dp.message.register(biznes_module.process_vaqt,

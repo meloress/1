@@ -875,48 +875,6 @@ BIZNES_INSTRUCTIONS = (
 )
 
 
-_BIZNES_USLUB_PROMPT = (
-    "Senga bir odamning Telegram'da mijozlariga O'ZI yozgan xabarlari va "
-    "u bot qoralamasini qanday tuzatgani berilgan. Uning YOZISH USLUBINI "
-    "5-8 ta qisqa qatorda o'zbek tilida tasvirla: sen/siz; salomlashish va "
-    "xayrlashish; odatiy uzunlik; emoji (qaysilari, qanchalik tez-tez); "
-    "katta harf va tinish belgilari; alifbo va til aralashtirishi; tez-tez "
-    "ishlatadigan iboralari (so'zma-so'z, qo'shtirnoqda); ohangi. "
-    "Tuzatishlar eng muhim signal: bot nimani noto'g'ri qilgan bo'lsa, "
-    "shuni qoida qilib yoz. Fakt, narx, ism, raqam YOZMA — faqat uslub. "
-    "Faqat ro'yxatni qaytar, muqaddimasiz."
-)
-
-
-async def biznes_uslub_organ(namunalar: List[str], tahrirlar: List[tuple],
-                             egasi: Optional[int] = None) -> str:
-    """Egasining uslub tavsifi — BITTA mini chaqiruv. Xato yoki bo'sh
-    natija — "" (chaqiruvchi eski tavsifni saqlab qoladi).
-
-    ⚠️ `HISTORY_SUMMARY_MODEL`: mini modellar byudjeti ~10 baravar katta
-    (test_free_models.py) va bu mexanik ish.
-    """
-    qism = ["EGASINING XABARLARI:"] + [f"- {m[:300]}" for m in namunalar]
-    if tahrirlar:
-        qism.append("\nTUZATISHLAR (bot yozgan → egasi yuborgan):")
-        qism += [f"- Bot: {a[:300]}\n  Egasi: {b[:300]}" for a, b in tahrirlar]
-    try:
-        resp = await asyncio.wait_for(
-            openai_client.responses.create(
-                model=HISTORY_SUMMARY_MODEL,
-                instructions=_BIZNES_USLUB_PROMPT,
-                input=[{"role": "user", "content": "\n".join(qism)[:20000]}],
-                store=False,
-            ),
-            timeout=60,
-        )
-        _log_token_usage(resp, HISTORY_SUMMARY_MODEL, "biznes-uslub", egasi)
-        return (resp.output_text or "").strip()[:1200]
-    except Exception as e:
-        logger.warning(f"[BIZNES] uslub o'rganilmadi: {str(e) or type(e).__name__}")
-        return ""
-
-
 def egasiga_ajrat(text: str) -> tuple:
     """(mijozga_ketadigan_matn, sabab | None). Sabab bo'sh bo'lsa "—"."""
     sabablar = [m.strip() or "—" for m in _EGASIGA_RE.findall(text or "")]
