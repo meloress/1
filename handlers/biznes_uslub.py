@@ -25,6 +25,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from core.config import (BIZNES_NAMUNA_MAX, BIZNES_USLUB_ORGAN, BTN_DANGER,
                          BTN_PRIMARY)
+from core import olchov
 from core.loader import logger, openai_client
 from db import database
 from handlers import pro as pro_module
@@ -127,6 +128,7 @@ def organish_kerakmi(jami: int, uslub_jami: int) -> bool:
 _organmoqda: set = set()
 
 
+@olchov.oqim("uslub_organ")
 async def organ(egasi: int) -> str | None:
     """Uslub tavsifini qayta yozadi.
 

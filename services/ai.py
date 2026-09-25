@@ -95,6 +95,7 @@ except ImportError:
     def pick_reasoning_effort(text: str, force_deep: bool = False) -> str:
         return "low"
 
+from core import olchov
 from core.loader import openai_client, logger, bot
 from core.memory import recent_sent_images, remember_sent_images, recent_location
 from services.places import (find_nearby, format_places, clean_categories,
@@ -2319,6 +2320,7 @@ def _log_token_usage(resp, model: str, raund, user_id=None) -> None:
         tafsilot = getattr(u, "input_tokens_details", None)
         keshdan = getattr(tafsilot, "cached_tokens", 0) or 0
         ulush = f"{keshdan * 100 // kirish}%" if kirish else "—"
+        olchov.token(kirish, keshdan, chiqish, model)
         logger.info(
             f"[TOKEN] {model} raund={raund} kirish={kirish} "
             f"(keshdan {keshdan} = {ulush}) chiqish={chiqish} "

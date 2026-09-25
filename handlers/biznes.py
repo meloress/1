@@ -39,6 +39,7 @@ from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX,
                          BTN_DANGER,
                          BTN_PRIMARY, BTN_SUCCESS, TEXT_MERGE_WAIT, message_cost)
 from core.loader import bot, logger
+from core import olchov
 from core.csv_fayl import csv_matn
 from core.memory import get_text_merge_lock, text_merge_buffers
 from db import database
@@ -318,18 +319,31 @@ async def ulanish_yangilandi(conn: BusinessConnection):
 
 
 @router.business_message()
+@olchov.oqim("xabar")
 async def biznes_xabar(message: Message):
+    # O'lchov (AUDIT.md): `olchov.*` faqat vaqt/son yozadi, xulqqa tegmaydi.
+    olchov.yangi_sorov()
     ul = await _ulanish(message.business_connection_id)
+    olchov.belgi("ulanish")
     if not ul or not ul["yoqilgan"]:
+        olchov.qosh(natija="ulanmagan")
         return
     kim = biznes_kimdan(message, ul)
+    olchov.qosh(kim=kim, rejim=ul["rejim"], egasi=ul["owner_id"], chat=message.chat.id,
+                turi=("ovoz" if getattr(message, "voice", None)
+                      else "rasm" if getattr(message, "photo", None)
+                      else "matn" if getattr(message, "text", None) else "boshqa"),
+                belgi_soni=len(getattr(message, "text", None)
+                               or getattr(message, "caption", None) or ""))
     if kim == "bot":
+        olchov.qosh(natija="bot")
         return
     matn = message.text or message.caption or ""
     egasi = ul["owner_id"]
     if kim == "egasi":
         buyruq = buyruq_ajrat(matn)
         if buyruq:
+            olchov.qosh(natija="buyruq")
             await _bajar(message, ul, *buyruq)
             return
         # Egasi mijozga O'ZI javob berdi — kutayotgan loyiha endi o'rinsiz:
@@ -340,11 +354,16 @@ async def biznes_xabar(message: Message):
         # BIZNES_PAUZA_SOAT jim turadi (REJA.md 3-bosqich, 4-qadam).
         elif ul["rejim"] == "avtomat":
             await database.biznes_pauza(egasi, message.chat.id, BIZNES_PAUZA_SOAT)
+        olchov.belgi("egasi_holati")
     if not (ul["huquqlar"].get("can_read_messages")
             and await database.pro_tarifmi(egasi)):
+        olchov.belgi("pro")
+        olchov.qosh(natija="oqishsiz_yoki_bepul")
         return
+    olchov.belgi("pro")
     if kim == "egasi" and matn:
         await biznes_uslub.namuna_saqla(egasi, matn)
+        olchov.belgi("namuna")
     if kim == "mijoz":
         # Kartoteka (4.3) va hisobot/ogohlantirishdagi ism uchun. Hisob
         # yuritish — javob yo'lidan muhimroq emas: xatosi yutiladi.
@@ -355,6 +374,7 @@ async def biznes_xabar(message: Message):
                 u.username if u else None)
         except Exception as e:
             logger.debug(f"[BIZNES] kartoteka yozilmadi: {e}")
+        olchov.belgi("kartoteka")
     avtomat = kim == "mijoz" and ul["rejim"] == "avtomat"
     # Ovoz va rasm — faqat avtomatda (REJA.md 3-bosqich 6-7): boshqa
     # rejimlarda STT/vision egasiga hech narsa bermasdan pul yeyardi.
@@ -373,6 +393,7 @@ async def biznes_xabar(message: Message):
             # Tarix javobdan KEYIN yoziladi (`_loyiha`): model xabarni
             # oxirgi `user` sifatida oladi, oldin yozilsa ikki marta ko'rardi.
             await _navbatga(message, matn, biznes_thread(egasi))
+            olchov.qosh(natija="navbatga")
             return
         await _bir_marta(egasi, "can_reply", ul["owner_chat"],
                          f"⚠️ «{REJIM_NOMI[ul['rejim']][0]}» rejimi uchun «Xabarlarga "
@@ -381,6 +402,8 @@ async def biznes_xabar(message: Message):
     await safe_update_history(
         message.chat.id, matn, role="user" if kim == "mijoz" else "assistant",
         thread_id=biznes_thread(egasi))
+    olchov.belgi("tarix")
+    olchov.qosh(natija="tarix")
 
 
 # ── Buyruqni bajarish ────────────────────────────────────────────────
@@ -450,10 +473,13 @@ async def _model(prompt: str, chat_id: int, thread: int, egasi: int,
 async def _model_ichki(prompt: str, chat_id: int, thread: int, egasi: int,
                        **kw) -> str:
     parts: list[str] = []
+    t0 = time.perf_counter()
     async for chunk in get_gpt_reply(chat_id, prompt, user_id=egasi, is_pro=True,
                                      tools_enabled=False, thread_id=thread, **kw):
         if not chunk or chunk.startswith("[STATUS]"):
             continue
+        if not parts:
+            olchov.qosh(ttft_ms=round((time.perf_counter() - t0) * 1000))
         if "[CLEAR_TEXT]" in chunk:
             parts.clear()
             chunk = chunk.replace("[CLEAR_TEXT]", "")
@@ -462,8 +488,10 @@ async def _model_ichki(prompt: str, chat_id: int, thread: int, egasi: int,
     return _toza("".join(parts))
 
 
+@olchov.oqim("buyruq")
 async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
     egasi, dm = ul["owner_id"], ul["owner_chat"]
+    olchov.qosh(buyruq=nom if nom in BUYRUQ_HUQUQI else None, egasi=egasi)
     conn_id = message.business_connection_id
     chat_id = message.chat.id
     thread = biznes_thread(egasi)
@@ -489,11 +517,14 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
         return
     prompt, tarix_bilan, qayerga = t
 
+    olchov.belgi("tekshiruv")
     narx = message_cost("text")
     kvota = await database.check_and_consume_quota(egasi, narx)
+    olchov.belgi("kvota")
     if not kvota.get("allowed"):
         if not kvota.get("banned"):
             await _egasiga(dm, "Bugungi limitingiz tugadi — buyruq bajarilmadi. /profile")
+        olchov.qosh(natija="limit")
         return
 
     # Buyruq avval o'chadi. Huquq yetmasa natija baribir chiqadi — buyruq
@@ -502,6 +533,7 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
         await bot.delete_business_messages(conn_id, [message.message_id])
     except Exception as e:
         logger.info(f"[BIZNES] buyruq o'chirilmadi: {e}")
+    olchov.belgi("ochirish")
 
     # `.javob` suhbatdoshga egasi nomidan ketadi — mijoz javobi kabi
     # egasining uslubida va yordamchi promptisiz (`BIZNES_INSTRUCTIONS`).
@@ -513,6 +545,7 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
     except Exception as e:
         logger.warning(f"[BIZNES] .{nom} model xatosi: {e}")
         natija = ""
+    olchov.belgi("model")
     if not natija:
         if not kvota.get("unlimited"):
             await database.refund_quota(egasi, narx)
@@ -539,6 +572,7 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
     else:
         await _egasiga(dm, natija, html=False)
 
+    olchov.belgi("yuborish")
     track_user_activity(egasi, message.from_user.username, "biznes_buyruq")
     logger.info(f"[BIZNES] buyruq=.{nom} egasi={egasi} chat={chat_id} -> {qayerga}")
 
@@ -645,29 +679,40 @@ async def _kechiktir(kalit: tuple) -> None:
 _loyiha_qulf: dict = {}
 
 
+@olchov.oqim("loyiha")
 async def _loyiha(buf: dict) -> None:
     message: Message = buf["last_message"]
     matn = "\n".join(buf["parts"])
     chat_id = message.chat.id
+    # Debounce: birinchi qism kelganidan shu yergacha (TEXT_MERGE_WAIT + navbat).
+    olchov.qosh(kutish_ms=round((time.time() - buf.get("created_at", time.time())) * 1000),
+                qismlar=len(buf["parts"]), chat=chat_id)
     ul = await _ulanish(message.business_connection_id)
     if not ul or not ul["yoqilgan"]:
         return
     egasi, dm = ul["owner_id"], ul["owner_chat"]
+    olchov.qosh(egasi=egasi)
     thread = biznes_thread(egasi)
     if ul["rejim"] == "avtomat":
+        olchov.qosh(natija="avtomatga")
         await _avtojavob(message, matn, ul)
         return
 
     async with _loyiha_qulf.setdefault((chat_id, thread), asyncio.Lock()):
+        olchov.belgi("qulf")
         # Kutish paytida rejim almashgan yoki ta'til yoqilgan bo'lishi
         # mumkin — xabar baribir tarixda qoladi.
         if (ul["rejim"] != "yordamchi"
                 or await database.get_maintenance_notice_for(egasi)):
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
+            olchov.qosh(natija="rejim_yoki_tatil")
             return
+        olchov.belgi("tatil")
         narx = message_cost("text")
         kvota = await database.check_and_consume_quota(egasi, narx)
+        olchov.belgi("kvota")
         if not kvota.get("allowed"):
+            olchov.qosh(natija="limit")
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
             if not kvota.get("banned"):
                 await _bir_marta(egasi, f"limit:{date.today()}", dm,
@@ -676,23 +721,31 @@ async def _loyiha(buf: dict) -> None:
             return
 
         try:
+            # Tartib o'zgarmagan (bilim, keyin uslub, keyin model) — faqat
+            # o'lchov uchun alohida qatorlarga ajratildi.
+            bilim = await database.biznes_bilim_ol(egasi)
+            uslub = await biznes_uslub.uslub_ol(egasi)
+            olchov.belgi("bilim_uslub")
             loyiha = await _model(matn, chat_id, thread, egasi,
-                                  biznes_yoriqnoma=mijoz_yoriqnomasi(
-                                      await database.biznes_bilim_ol(egasi),
-                                      uslub=await biznes_uslub.uslub_ol(egasi)))
+                                  biznes_yoriqnoma=mijoz_yoriqnomasi(bilim, uslub=uslub))
         except Exception as e:
             logger.warning(f"[BIZNES] loyiha modeli xatosi: {e}")
             loyiha = ""
+        olchov.belgi("model")
         await safe_update_history(chat_id, matn, role="user", thread_id=thread)
+        olchov.belgi("tarix")
         if not loyiha:
             if not kvota.get("unlimited"):
                 await database.refund_quota(egasi, narx)
+            olchov.qosh(natija="bosh_javob")
             return
 
         lid = await database.biznes_loyiha_yarat(
             egasi, message.business_connection_id, chat_id, matn, loyiha)
+        olchov.belgi("loyiha_yarat")
     ism = escape(message.from_user.full_name if message.from_user else "Mijoz")
     await _loyiha_korsat(dm, lid, ism, matn, loyiha)
+    olchov.belgi("egasiga")
     track_user_activity(egasi, None, "biznes_loyiha")
     logger.info(f"[BIZNES] loyiha id={lid} egasi={egasi} chat={chat_id}")
 
@@ -778,6 +831,7 @@ async def _xato_egasiga(egasi: int, dm: int, xato) -> None:
                 f"ko'rmadi. Sabab: {str(xato)[:150]}"))
 
 
+@olchov.oqim("avtojavob")
 async def _avtojavob(message: Message, matn: str, ul: dict,
                      rasm: str | None = None) -> None:
     chat_id = message.chat.id
@@ -788,13 +842,19 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
     # Bitta chatda bir vaqtda bitta javob. `GeneratingState` bu yerda
     # ishlamaydi — FSM kaliti mijoz emas, egasi ham emas.
     async with _loyiha_qulf.setdefault((chat_id, thread), asyncio.Lock()):
+        olchov.belgi("qulf")
+        olchov.qosh(egasi=egasi, chat=chat_id, rasm=rasm is not None)
         sabab = await _toxtash_sababi(ul, chat_id)
+        olchov.belgi("toxtash")
         if sabab:
+            olchov.qosh(natija="jim")
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
             logger.info(f"[BIZNES] avtomat jim chat={chat_id}: {sabab}")
             return
         sanoq = await database.check_and_consume_daily(egasi, "biznes")
+        olchov.belgi("sanoq")
         if not sanoq.get("allowed"):
+            olchov.qosh(natija="limit")
             # Mijozga HECH NARSA. Egasiga bir marta (kuniga) — `_ogoh_holat`
             # naqshi: bitta hodisa, bitta xabar. Rejim o'zi o'zgarmaydi.
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
@@ -814,8 +874,10 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
         except Exception:
             pass
         try:
-            yoriq = mijoz_yoriqnomasi(await database.biznes_bilim_ol(egasi),
-                                      avtomat=True, uslub=await biznes_uslub.uslub_ol(egasi))
+            bilim = await database.biznes_bilim_ol(egasi)
+            uslub = await biznes_uslub.uslub_ol(egasi)
+            olchov.belgi("bilim_uslub")
+            yoriq = mijoz_yoriqnomasi(bilim, avtomat=True, uslub=uslub)
             if rasm is None:
                 javob = await _model(matn, chat_id, thread, egasi, biznes_yoriqnoma=yoriq)
             else:
@@ -826,10 +888,13 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
                         biznes_yoriqnoma=yoriq)]
                 javob = _toza("".join(qismlar))
         except Exception as e:
+            olchov.belgi("model")
+            olchov.qosh(natija="model_xatosi")
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
             await _qaytar()
             await _xato_egasiga(egasi, dm, e)
             return
+        olchov.belgi("model")
         await safe_update_history(chat_id, matn, role="user", thread_id=thread)
 
         # ⛔️ Marker mijozga HECH QACHON ketmaydi — to'g'risi ham, buzilgani
@@ -844,9 +909,11 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             _bot_yubordi(await bot.send_message(
                 chat_id, toza, business_connection_id=conn_id, parse_mode=None))
         except Exception as e:
+            olchov.qosh(natija="yuborilmadi")
             await _qaytar()
             await _xato_egasiga(egasi, dm, e)
             return
+        olchov.belgi("yuborish")
         try:
             await bot.read_business_message(conn_id, chat_id, message.message_id)
         except Exception:
@@ -854,7 +921,9 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
         await safe_update_history(chat_id, toza, role="assistant", thread_id=thread)
         if uzat is not None:
             await database.biznes_pauza(egasi, chat_id, BIZNES_PAUZA_SOAT)
+        olchov.belgi("tarix")
 
+    olchov.qosh(natija="uzatildi" if uzat is not None else "javob")
     if uzat is not None:
         await _uzatish_xabari(dm, message, matn, uzat)
         track_user_activity(egasi, None, "biznes_uzatish")
@@ -884,6 +953,7 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
         await _egasiga(dm, matni)
 
 
+@olchov.oqim("ovoz")
 async def _avto_ovoz(message: Message, ul: dict) -> None:
     """Ovoz → matn → oddiy oqim (debounce ham). Javob matnda."""
     yol = os.path.join(tempfile.gettempdir(), f"bz_{message.chat.id}_{message.message_id}.ogg")
@@ -938,6 +1008,7 @@ async def _loyiha_korsat(dm: int, lid: int, ism: str, matn: str, loyiha: str) ->
         logger.warning(f"[BIZNES] loyiha egasiga ko'rsatilmadi: {e}")
 
 
+@olchov.oqim("yuborish")
 async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None) -> str:
     """Loyihani (yoki egasining tahririni) mijozga yuboradi. Qaytgan satr
     egasiga ko'rsatiladi.
@@ -1293,6 +1364,7 @@ def _hozir_kun():
     return _hozir().date()
 
 
+@olchov.oqim("hisobot")
 async def _hisobot(egasi: int, dm: int) -> bool:
     """Bitta egaga kechagi hisobot. Qaytadi: yuborildimi."""
     if not await database.pro_tarifmi(egasi):
@@ -1309,8 +1381,10 @@ async def _hisobot(egasi: int, dm: int) -> bool:
     matnlar = [f"#{i}\n" + "\n".join(
         f"{'Mijoz' if rol == 'user' else 'Egasi'}: {(m or '')[:400]}" for rol, m in xs)
         for i, xs in enumerate(h["chatlar"].values(), 1)]
+    olchov.belgi("hisob")
     with _biznes_hisobida():
         x = await biznes_kun_xulosasi(matnlar, egasi)
+    olchov.belgi("model")
 
     # Kartoteka (4.3). Model `n` ni yozadi, chat_id'ni emas — va `n`
     # ko'rsatilgan ro'yxat chegarasida tekshiriladi (xotira indeksi bilan
