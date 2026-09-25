@@ -115,6 +115,22 @@ async def _birinchi_marta(egasi: int, message: Message) -> bool:
         return True
 
 
+# Pro tekshiruvi har business xabarda (egasiniki ham) — bazaga 1 so'rov.
+# 60 s RAM kesh (AUDIT 3.1). Bu ko'rsatish darajasidagi shart: haqiqiy
+# darvoza — kvota (`check_and_consume_quota` / kunlik sanoq) o'z so'rovida.
+_PRO_TTL = 60
+_pro_kesh: dict = {}
+
+
+async def _pro(egasi: int) -> bool:
+    bor = _pro_kesh.get(egasi)
+    if bor and time.monotonic() - bor[1] < _PRO_TTL:
+        return bor[0]
+    natija = await database.pro_tarifmi(egasi)
+    _pro_kesh[egasi] = (natija, time.monotonic())
+    return natija
+
+
 def biznes_thread(owner_id: int) -> int:
     """Business suhbatining tarix kaliti (REJA.md 0.4).
 
@@ -428,7 +444,7 @@ async def biznes_xabar(message: Message):
             await database.biznes_pauza(egasi, message.chat.id, BIZNES_PAUZA_SOAT)
         olchov.belgi("egasi_holati")
     if not (ul["huquqlar"].get("can_read_messages")
-            and await database.pro_tarifmi(egasi)):
+            and await _pro(egasi)):
         olchov.belgi("pro")
         olchov.qosh(natija="oqishsiz_yoki_bepul")
         return
@@ -573,7 +589,7 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
         await _egasiga(dm, notice)
         return
     # Bepul egada ball ham yechilmaydi — tekshiruv kvotadan OLDIN.
-    if not await database.pro_tarifmi(egasi):
+    if not await _pro(egasi):
         await _bir_marta(egasi, "pro", dm, ulanish_matni(True, ul["huquqlar"], False))
         return
     kerak = BUYRUQ_HUQUQI[nom]
@@ -823,8 +839,9 @@ async def _loyiha(buf: dict) -> None:
         try:
             # Tartib o'zgarmagan (bilim, keyin uslub, keyin model) — faqat
             # o'lchov uchun alohida qatorlarga ajratildi.
-            bilim = await database.biznes_bilim_ol(egasi)
-            uslub = await biznes_uslub.uslub_ol(egasi)
+            # Ikkalasi faqat o'qish — parallel (AUDIT 2.2).
+            bilim, uslub = await asyncio.gather(database.biznes_bilim_ol(egasi),
+                                                biznes_uslub.uslub_ol(egasi))
             olchov.belgi("bilim_uslub")
             loyiha = await _model(matn, chat_id, thread, egasi,
                                   biznes_yoriqnoma=mijoz_yoriqnomasi(bilim, uslub=uslub),
@@ -1057,8 +1074,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             pass
         boshlandi = _hozirgi_tartib()
         try:
-            bilim = await database.biznes_bilim_ol(egasi)
-            uslub = await biznes_uslub.uslub_ol(egasi)
+            bilim, uslub = await asyncio.gather(database.biznes_bilim_ol(egasi),
+                                                biznes_uslub.uslub_ol(egasi))
             olchov.belgi("bilim_uslub")
             yoriq = mijoz_yoriqnomasi(bilim, avtomat=True, uslub=uslub)
             if rasm is None:
@@ -1807,7 +1824,7 @@ async def javobsiz_tekshir() -> int:
         dm = egalar.get(r["owner_id"])
         if kalit in _javobsiz_aytilgan or dm is None:
             continue
-        if not await database.pro_tarifmi(r["owner_id"]):
+        if not await _pro(r["owner_id"]):   # N+1 edi (AUDIT 6.3.1) — endi keshdan
             continue
         nom = _mijoz_nomi(r)
         matn = (f"⏳ <b>{escape(nom)}</b> {BIZNES_JAVOBSIZ_DAQIQA} daqiqadan beri "

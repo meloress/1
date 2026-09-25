@@ -198,11 +198,13 @@ check(13, ".javob mijoz chati tarixini o'qiydi (chat, -egasi)",
 
 # ── 14. Bepul ega ────────────────────────────────────────────────
 holat["pro"] = False
+b._pro_kesh.clear()   # 60 s Pro keshi (AUDIT 3.1) — holat almashdi
 izlar = ishga(b.biznes_xabar(xabar(".en Salom", kimdan=EGASI)))
 check(14, "bepul egada buyruq ishlamaydi, ball yechilmaydi",
       "kvota" not in izlar and "gpt" not in izlar and "delete" not in izlar
       and any(x[0] == "send" and x[1] == DM for x in q.l))
 holat["pro"] = True
+b._pro_kesh.clear()   # 60 s Pro keshi (AUDIT 3.1) — holat almashdi
 
 # ── 15. Huquq yo'q ───────────────────────────────────────────────
 database._biznes_kesh["c1"] = dict(UL, huquqlar={"can_read_messages": True})

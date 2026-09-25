@@ -1,6 +1,7 @@
 import os
 import asyncio
 import json
+import time
 import logging
 import re
 from functools import wraps
@@ -131,6 +132,14 @@ _INDEKSLAR = (
     # Qisman indeks: oddiy DM tarixi unga umuman kirmaydi.
     ("idx_chat_messages_biznes",
      "chat_messages (created_at) WHERE thread_id < 0"),
+    # «Chatlar» ekrani va ertalabki hisobot egasining business tarixini
+    # `thread_id = -owner` bo'yicha o'qiydi. Mavjud `(chat_id, thread_id, id)`
+    # thread bo'yicha BOSHLANMAYDI — `chat_messages` (HAMMA foydalanuvchining
+    # DM tarixi) to'liq skanerlanardi (AUDIT 6.2.1). ⚠️ So'rovlarda
+    # `AND thread_id < 0` ATAYLAB: parametrli `thread_id = $1` dan planner
+    # qisman indeks shartini isbotlay olmaydi.
+    ("idx_chat_messages_biznes_thread",
+     "chat_messages (thread_id, id) WHERE thread_id < 0"),
 )
 
 
@@ -1142,14 +1151,42 @@ def clean_biznes_bilim(matn: str) -> tuple:
     return matn, None
 
 
+# ── Bilim va uslub RAM keshi (AUDIT 3.2-3.3) ─────────────────────────
+# Har qoralama/avtojavobda o'qiladi (jonli o'lchov: 0,63 s — 4 so'rov).
+# Bitta jarayon (CLAUDE.md: panel ham shu jarayonda), shuning uchun HAR
+# YOZUV shu modulda keshni o'zi bekor qiladi. TTL — faqat sug'urta:
+# unutilgan bekor qilish ham 10 daqiqadan oshmaydi.
+_BIZNES_KESH_TTL = 600
+_bilim_kesh: Dict[int, tuple] = {}     # egasi -> (bilim, vaqt)
+_uslub_kesh: Dict[int, tuple] = {}     # egasi -> (dict, vaqt) — faqat standart `namuna`
+
+
+def _keshdan(kesh: dict, egasi: int):
+    bor = kesh.get(egasi)
+    if bor and time.monotonic() - bor[1] < _BIZNES_KESH_TTL:
+        return bor[0]
+    return None
+
+
+def biznes_keshni_bekor(egasi: int) -> None:
+    """Egasining bilim/uslub keshi — keyingi o'qish bazadan."""
+    _bilim_kesh.pop(egasi, None)
+    _uslub_kesh.pop(egasi, None)
+
+
 @with_db_retry()
 async def biznes_bilim_ol(owner_id: int) -> str:
+    bor = _keshdan(_bilim_kesh, owner_id)
+    if bor is not None:
+        return bor
     global pool
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
-        return await conn.fetchval(
+        bilim = await conn.fetchval(
             'SELECT bilim FROM biznes_profil WHERE owner_id = $1', owner_id) or ""
+    _bilim_kesh[owner_id] = (bilim, time.monotonic())
+    return bilim
 
 
 @with_db_retry()
@@ -1163,6 +1200,7 @@ async def biznes_bilim_yoz(owner_id: int, bilim: str) -> None:
             'INSERT INTO biznes_profil (owner_id, bilim) VALUES ($1, $2) '
             'ON CONFLICT (owner_id) DO UPDATE SET bilim = EXCLUDED.bilim, '
             'yangilangan = NOW()', owner_id, bilim)
+    biznes_keshni_bekor(owner_id)
 
 
 @with_db_retry()
@@ -1233,13 +1271,18 @@ async def biznes_namuna_qosh(owner_id: int, matn: str) -> tuple:
                 "VALUES ($1, '', 1) ON CONFLICT (owner_id) DO UPDATE SET "
                 "namuna_jami = biznes_profil.namuna_jami + 1 "
                 "RETURNING namuna_jami, uslub_jami", owner_id)
+    biznes_keshni_bekor(owner_id)
     return r['namuna_jami'], r['uslub_jami']
 
 
 @with_db_retry()
 async def biznes_uslub_ol(owner_id: int, namuna: int = BIZNES_NAMUNA_KORSAT) -> dict:
     """Uslub tavsifi, egasining qoidalari, oxirgi `namuna` ta xabari va
-    oxirgi tuzatishlari (eskidan yangiga)."""
+    oxirgi tuzatishlari (eskidan yangiga). Standart `namuna` — RAM keshdan."""
+    if namuna == BIZNES_NAMUNA_KORSAT:
+        bor = _keshdan(_uslub_kesh, owner_id)
+        if bor is not None:
+            return bor
     global pool
     if pool is None:
         await create_db_pool()
@@ -1254,13 +1297,16 @@ async def biznes_uslub_ol(owner_id: int, namuna: int = BIZNES_NAMUNA_KORSAT) -> 
             "SELECT loyiha, yakuniy FROM biznes_loyiha WHERE owner_id = $1 "
             "AND holat = 'tahrirlandi' AND yakuniy IS NOT NULL "
             "ORDER BY id DESC LIMIT $2", owner_id, BIZNES_TAHRIR_KORSAT)
-    return {
+    natija = {
         "uslub": p['uslub'] if p else None,
         "uslub_egasi": p['uslub_egasi'] if p else None,
         "jami": p['namuna_jami'] if p else 0,
         "namunalar": [r['matn'] for r in reversed(nam)],
         "tahrirlar": [(r['loyiha'], r['yakuniy']) for r in reversed(tah)],
     }
+    if namuna == BIZNES_NAMUNA_KORSAT:
+        _uslub_kesh[owner_id] = (natija, time.monotonic())
+    return natija
 
 
 @with_db_retry()
@@ -1275,6 +1321,7 @@ async def biznes_uslub_yoz(owner_id: int, uslub: Optional[str], jami: int) -> No
             "VALUES ($1, '', $2, $3) ON CONFLICT (owner_id) DO UPDATE SET "
             "uslub = EXCLUDED.uslub, uslub_jami = EXCLUDED.uslub_jami",
             owner_id, uslub, jami)
+    biznes_keshni_bekor(owner_id)
 
 
 def clean_uslub_egasi(matn: str) -> tuple:
@@ -1295,6 +1342,7 @@ async def biznes_uslub_egasi_yoz(owner_id: int, matn: Optional[str]) -> None:
             "INSERT INTO biznes_profil (owner_id, bilim, uslub_egasi) "
             "VALUES ($1, '', $2) ON CONFLICT (owner_id) DO UPDATE SET "
             "uslub_egasi = EXCLUDED.uslub_egasi", owner_id, matn)
+    biznes_keshni_bekor(owner_id)
 
 
 @with_db_retry()
@@ -1310,6 +1358,7 @@ async def biznes_namunalar_ochir(owner_id: int) -> None:
             await conn.execute(
                 'UPDATE biznes_profil SET uslub = NULL, namuna_jami = 0, '
                 'uslub_jami = 0 WHERE owner_id = $1', owner_id)
+    biznes_keshni_bekor(owner_id)
 
 
 @with_db_retry()
@@ -1423,6 +1472,9 @@ async def biznes_loyiha_yakun(loyiha_id: int, owner_id: int, holat: str,
         await conn.execute(
             'UPDATE biznes_loyiha SET holat = $3, yakuniy = COALESCE($4, yakuniy) '
             'WHERE id = $1 AND owner_id = $2', loyiha_id, owner_id, holat, yakuniy)
+    # `tahrirlandi` — uslubning "tuzatishlar" qismi o'zgardi.
+    if holat == "tahrirlandi":
+        biznes_keshni_bekor(owner_id)
 
 
 @with_db_retry()
@@ -1552,7 +1604,7 @@ async def biznes_chatlar(owner_id: int, limit: int = 10) -> List[Dict[str, Any]]
                    COALESCE(BOOL_OR(c.ochirilgan), FALSE) AS ochirilgan
             FROM chat_messages m
             LEFT JOIN biznes_chat c ON c.owner_id = $1 AND c.chat_id = m.chat_id
-            WHERE m.thread_id = $2
+            WHERE m.thread_id = $2 AND m.thread_id < 0
             GROUP BY m.chat_id
             ORDER BY oxirgi DESC
             LIMIT $3
@@ -1661,7 +1713,7 @@ async def biznes_kun_hisobi(owner_id: int, kun, chat_limit: int = 20,
             '''
             SELECT COUNT(DISTINCT chat_id) AS mijozlar, COUNT(*) AS xabarlar
             FROM chat_messages
-            WHERE thread_id = $1 AND role = 'user'
+            WHERE thread_id = $1 AND thread_id < 0 AND role = 'user'
               AND (created_at AT TIME ZONE 'Asia/Tashkent')::date = $2
             ''', thread, kun)
         faollik = await conn.fetch(
@@ -1678,9 +1730,9 @@ async def biznes_kun_hisobi(owner_id: int, kun, chat_limit: int = 20,
                 SELECT chat_id, role, content, id,
                        ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY id DESC) AS n
                 FROM chat_messages
-                WHERE thread_id = $1 AND chat_id IN (
+                WHERE thread_id = $1 AND thread_id < 0 AND chat_id IN (
                     SELECT chat_id FROM chat_messages
-                    WHERE thread_id = $1 AND role = 'user'
+                    WHERE thread_id = $1 AND thread_id < 0 AND role = 'user'
                       AND (created_at AT TIME ZONE 'Asia/Tashkent')::date = $2
                     GROUP BY chat_id ORDER BY MAX(id) DESC LIMIT $3)
             ) t WHERE n <= $4 ORDER BY chat_id, id

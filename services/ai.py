@@ -4332,6 +4332,10 @@ async def get_openai_reply(
     # pick_reasoning_effort) — soddasiga tez/arzon, murakkabiga chuqurroq.
     base_params = build_request_params(user_text=message_text, model=model, is_pro=is_pro)
     initial_model = base_params.pop("model")
+    if biznes and "prompt_cache_key" in base_params:
+        # Business prefiksi (`BIZNES_INSTRUCTIONS`) Pro DM prefiksidan boshqa —
+        # bitta kalitda aralashsa ikkalasining ham kesh urilishi pasayadi (AUDIT 5.2).
+        base_params["prompt_cache_key"] += "-biznes"
 
     # Qidiruv va fayl vazifasi uchun ALOHIDA byudjet. Avval ikkalasi bitta
     # 3 bosqichli hisobni bo'lishardi — natijada "qidirib, keyin hujjat
