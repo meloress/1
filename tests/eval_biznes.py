@@ -112,7 +112,7 @@ H = [
     ("fakt_vaqtli", "hozir qayerdasan?", FAKTLI, {"tanlov"}, [r"(?i)\buydaman\b"]),
     ("fakt_yoq", "ertaga to'yga borasanmi?", FAKTLI, {"tanlov"}, [VADA]),
     # ── Birlashgan ketma-ket xabarlar (debounce) ──
-    ("kop_qism", "salom\nfutbolka bormi\nnarxi qancha", BIZNES, {"javob"}, [], r"80"),
+    ("kop_qism", "salom\nfutbolka bormi\nnarxi qancha", BIZNES, {"javob", "egasiga"}, [], r"80"),
 ]
 TARIX = {
     "sigaret_takror": [("user", "sigareting bormi menda qolmadi")],
