@@ -17,6 +17,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 from handlers import admin as admin_module  # noqa: E402
 
@@ -141,14 +143,14 @@ import pathlib  # noqa: E402
 import re  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-src = (ROOT / "handlers" / "admin" / "__init__.py").read_text(encoding="utf-8")
+src = kod(ROOT / "handlers" / "admin" / "__init__.py")
 assert "F.text ==" not in src, (
     "matnli tugmaga bog'langan handler qolgan — klaviatura yo'q, u o'lik")
 buyruqlar = set(re.findall(r'Command\("(\w+)"\)', src))
 assert buyruqlar == {"xabar", "kod"}, buyruqlar
 # Panel ham, `/start` ham aynan shu ikki buyruqni nomlaydi — nom
 # o'zgarsa uchala joy birdan yangilanishi kerak.
-msgs = (ROOT / "handlers" / "messages.py").read_text(encoding="utf-8")
+msgs = kod(ROOT / "handlers" / "messages.py")
 for b in buyruqlar:
     assert f"/{b}" in msgs, f"/start adminlarga /{b} haqida aytmaydi"
 html = (ROOT / "web" / "static" / "panel.html").read_text(encoding="utf-8")

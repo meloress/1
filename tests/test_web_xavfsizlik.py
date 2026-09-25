@@ -24,6 +24,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 from aiohttp import web as aioweb
 from aiohttp.test_utils import TestClient, TestServer
@@ -92,7 +94,7 @@ async def main():
           "eski" not in auth._urinishlar)
 
     # ── 4) Yozuv chegarasi FAQAT yozish so'rovida ──────────────────
-    src = open(os.path.join(ROOT, "web", "auth.py"), encoding="utf-8").read()
+    src = kod(os.path.join(ROOT, "web", "auth.py"))
     i = src.index("def admin_only(")
     tana = src[i:i + 2500]
     check(4, "chegara GET'ni chetlab o'tadi, yozuvni sanaydi",
@@ -162,7 +164,7 @@ async def main():
 
     yomon = []
     for fayl in ("web/__init__.py", "web/auth.py", "web/api.py"):
-        matn = open(os.path.join(ROOT, fayl), encoding="utf-8").read()
+        matn = kod(os.path.join(ROOT, fayl))
         for m in re.finditer(r"logger\.\w+\((.{0,200}?)\)\s*$", matn, re.M):
             q = m.group(1)
             if re.search(r"\.headers|\.cookies|init_data|initData|INIT_DATA_HEADER"
@@ -176,7 +178,7 @@ async def main():
     # ── 9) Cookie o'chirish — QO'YISH bilan bir xil atributlarda ───
     # aiohttp'ning `del_cookie()` si `Secure`/`SameSite` ni
     # yubormaydi; brauzer mos kelmadi deb cookie'ni qoldirib ketardi.
-    ini = open(os.path.join(ROOT, "web", "__init__.py"), encoding="utf-8").read()
+    ini = kod(os.path.join(ROOT, "web", "__init__.py"))
     chiq = ini[ini.index("async def chiqish("):]
     chiq = chiq[:chiq.index("async def ", 10)]
     # ⚠️ CHAQIRUV qidiriladi, so'z emas: yuqoridagi izohning o'zida

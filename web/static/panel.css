@@ -489,6 +489,18 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 .holat-bosh{display:flex;flex-direction:column;align-items:flex-start;gap:10px;
   padding:18px 0;color:var(--ink-3);font-size:var(--f-m)}
 
+/* Ekran tepasidagi ogohlantirish banneri. Hozircha bitta iste'molchi —
+   kuzatuv guruhi yiqilgani — lekin u KPI qatoridan yuqorida turishi
+   shart: telefonda birinchi `.card` ekrandan pastda qoladi (xato
+   qatori bilan bir xil sabab). Ranglar mavjud `--warn` tokenlaridan,
+   ikkala mavzuda ham aniqlangan. */
+.banner{display:flex;align-items:flex-start;gap:var(--s-3);
+  border:1px solid var(--warn);background:var(--warn-yuza);
+  border-radius:var(--r-m);padding:12px 14px;margin-bottom:var(--s-4);
+  font-size:var(--f-m);color:var(--ink)}
+.banner b{display:block;color:var(--warn)}
+.banner span{color:var(--ink-2)}
+
 /* ══ TOAST (§3.4) ══════════════════════════════════════════════════ */
 .toast{
   position:fixed;left:50%;transform:translate(-50%,16px);

@@ -18,6 +18,7 @@ python tests/test_tts_lang.py --live  # jonli TTS sintezi bilan
 
 ```bash
 node --check web/static/panel.js        # panel JS sintaksisi
+node --check web/static/soz.js          # panel lug'ati (u ham JS)
 python -m compileall -q .               # butun daraxt kompilyatsiyasi
 ```
 
@@ -60,8 +61,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   uses are spent or which was revoked never reaches the picker: sending one means handing
   someone a gift that will not work.
 - `test_web_auth.py` / `test_web_panel.py` / `test_web_stats.py` / `test_web_users.py` /
-  `test_web_journal.py` / `test_web_settings.py` / `test_web_promo.py` — the web panel.
-  All seven run offline (no DB, no network, no browser) by replacing `web.huquq_bormi`
+  `test_web_journal.py` / `test_web_settings.py` / `test_web_promo.py` /
+  `test_web_xavfsizlik.py` / `test_bir_marta.py` — the web panel.
+  All nine run offline (no DB, no network, no browser) by replacing `web.huquq_bormi`
   and the `database` calls. The ones that earn their keep: `test_web_users.py` check 9
   proves the refund does **not** touch the database when Telegram refuses,
   `test_web_stats.py` check 8 proves there is no raw SQL in `web/api.py` or `daily.py`
@@ -86,6 +88,18 @@ Some are structural guards rather than feature tests, and they earn their keep o
   checks are that one outage produces **one** message (a repeating alert is an
   ignored alert), that night-time silence is not reported, and that an empty
   `user_activity` table is not read as "silent forever". Runs offline.
+- `test_bir_marta.py` — the idempotency decorator. Its sharpest check is **2**, which
+  fires two requests with `asyncio.gather`: a real double-tap arrives while the first
+  request is still running, so "store the result afterwards" buys nothing on its own —
+  the per-key lock is the whole feature. Deleting the lock leaves check 1 passing and
+  only check 2 fails, which is exactly the illusion the check exists to break. Check 7
+  recomputes which endpoints need the decorator **from the source** rather than from a
+  list, so a new endpoint forces a decision.
+- `test_web_xavfsizlik.py` — the panel's security rules, all of which break silently:
+  the client IP must not come from the **first** `X-Forwarded-For` entry (the client
+  writes that one), `_urinishlar` must stay bounded, `X-Frame-Options` must stay
+  **absent** (it would kill the Mini App inside Telegram Web's iframe), and `initData`
+  must appear in no log line.
 - `test_panel_korinish.py` — the panel's *appearance* rules. No browser is available here,
   so it checks the rule instead: no `<table>` and no horizontally scrolling list, content
   padded past the fixed bottom nav **plus** the device inset, every colour token defined in
@@ -93,6 +107,30 @@ Some are structural guards rather than feature tests, and they earn their keep o
   an actual WCAG contrast calculation in each theme — the old `--ink-3` scored 3.7:1, which
   is every hint on every screen failing AA. It also pins that each `fetch` carries the
   Telegram signature.
+
+⛔️ **A test that reads source text goes through `tests/_manba.py`, never through
+`read_text()` directly.** `kod(path)` blanks out comments and docstrings *in place*;
+`js_kod(text)` / `css_kod(text)` do the same for the panel's files. This is the single
+most repeated mistake in this repo — **four times**, always identically: a guard matched
+the comment that *explains* the rule it guards, and stayed green while the code was
+wrong. `@bir_marta` was found in the comment saying why `refund` is excluded from it;
+`del_cookie()` in the comment saying it must not be used; "Ishonchingiz komilmi" in a
+comment giving it as an example of a forbidden phrase; "chat not found" in the comment
+saying the list must not be copied. `test_web_journal.py` check 18 walks every
+`tests/test_*.py` with `ast` and fails on a raw `.py` read, so the rule cannot rot back.
+
+Two things about `kod()` are load-bearing and both were paid for. It **preserves the
+layout** — the first version rejoined tokens with `"\n"`, which turned `def admin_only(`
+into three lines and broke *fifteen* test files at once, because nearly every guard
+here works by finding a declaration and slicing to the next one. And it treats only a
+**logical** line end (`NEWLINE`) as a statement boundary, never `NL`: counting `NL` made
+it read the keys of a multi-line dict literal, and f-strings inside multi-line calls, as
+docstrings and delete them. A docstring is replaced by `0`, not by nothing, so a class
+whose whole body is a docstring still parses.
+
+⚠️ **Strings are deliberately kept.** Most guards here read SQL, and SQL lives in
+ordinary string literals — stripping strings would kill them all. The hazard is prose,
+and prose lives in comments and docstrings.
 
 Exact token counts need `tiktoken` (`pip install tiktoken`, encoding `o200k_base`). It is **not** in `requirements.txt` — the bot never counts tokens itself, it is a local measuring tool. Do not estimate from character counts; that was 11% off on this prompt.
 
@@ -929,7 +967,217 @@ fake database has no types at all.
 text** for both rules — the same approach as `test_panel_raqamlar.py`, and the only
 one available without a database.
 
-### Five label maps that all rotted the same way
+### The panel's third pass: the phone, the double tap, the stale card
+
+Four complaints, and every one of them was invisible to the test suite because the
+suite has no browser, no Telegram and no types.
+
+⛔️ **`touch-action: manipulation` goes on `html, body`, not on the buttons.** The
+complaint was double-tap zoom on *text and empty space*, so closing only the tappable
+elements would have fixed the part nobody was tapping. ⚠️ Do not "also" add
+`user-scalable=no` to the viewport: iOS has ignored it since iOS 10, and where it is
+honoured it kills pinch-zoom for someone who needs it. Pinch still works; only the
+accidental double tap stopped zooming.
+
+⚠️ **Every input is `max(16px, …)` and 16px is an iOS constant, not a taste.** Below
+it, WKWebView force-zooms the whole page on focus and never zooms back. Three
+selectors carry it (`input,textarea,select`, `.field input`, `.kiritish`) — the bare
+element rule matters because `font: inherit` was pulling 15px from `body`. The
+`transform: scale()` trick was deliberately not used: it moves the focus ring and the
+hit area with it.
+
+⚠️ **`:hover` lives in one `@media (hover:hover) and (pointer:fine)` block.** On a
+phone the hover state sticks after the finger leaves and the row reads as "selected".
+Moving the rules earlier in the file was the risky part, not the media query — four of
+them compete with `[aria-current]` or `.btn.danger` at *equal* specificity, so the
+relative order had to be preserved. Check that before moving any of them again.
+
+⚠️ **`tg.expand()` does nothing on desktop.** It sets the height on phones; the narrow
+window on Telegram Desktop needs `requestFullscreen()` (Bot API 8.0), guarded by
+`typeof`, `isVersionAtLeast("8.0")` and `try/catch`. ⛔️ **There is no platform value
+`"web"`** — Telegram Web is `weba` and `webk`. Writing `"web"` makes the condition
+never fire and the bug stays silent, which is why `test_panel_korinish.py` check 12
+asserts the set of four exactly.
+
+⚠️ **`sahifa()` no longer returns a `FileResponse`.** It reads `panel.html` once and
+rewrites every `/static/*.css|js` link to `?v=<that file's own sha256 prefix>`, so an
+admin cannot be left on yesterday's JavaScript after a deploy while an unchanged file
+stays cached. Per-file hashes, not one global version. ⚠️ The version is never written
+by hand: a hand-written number is forgotten exactly once, and then cache-busting
+*looks* present while doing nothing — worse than not having it. `logo.jpg` is
+deliberately untouched (`REJA.md` 3.2.1 fixes its URL). One consequence for local work:
+the rendered page is cached in a module global, so editing CSS during development needs
+a restart.
+
+⚠️ **The error row goes to the top of the `<section>`, not into its first `.card`.**
+On six of the eight screens the first `.card` sits *after* the KPI row — 1277 characters
+into `dash` — so on a phone the "could not load" message was below the fold while five
+`—` placeholders sat on screen saying nothing. A static `—` does not distinguish "not
+loaded yet" from "the request failed", which is why the KPI values now show a skeleton
+first. This was a live incident, not a hypothetical: a 500 from `/api/overview` looked
+exactly like an idle panel.
+
+### Two clicks, and why the disabled button is not the fix
+
+`so_rov(yol, tana, usul, tugma)` disables the button for the duration of the request,
+synchronously, before the first `await`. That stops the double tap **on screen**. It is
+not a guarantee: a slow network, a page reload or a second app window still sends two
+requests, and `set_user_premium(..., extend=True)` *adds* days, so the second one
+silently turned 30 into 60.
+
+`@bir_marta` (`web/auth.py`) is the server half. Three things decide whether it works:
+
+- ⭐ **The key is derived from the content, never random.** A `crypto.randomUUID()` per
+  call cannot stop a double tap — two taps produce two UUIDs and both look new. The key
+  is `sha256(user_id + path_qs + body)` with a 10-second window; an explicit
+  `Idempotency-Key` header overrides it when a deliberate repeat is wanted. ⚠️ `path_qs`,
+  not `path`: `/api/export?tur=users` and `?tur=payments` share a path and an empty body.
+- ⭐ **A per-key `asyncio.Lock`.** The second request arrives while the first is still
+  running, so caching the result afterwards buys nothing on its own. The second waits and
+  returns the first's response.
+- **Only 2xx is cached.** A cached 4xx would show the admin a stale error after they had
+  already fixed the cause, and a failed request performed nothing, so repeating it is
+  free.
+
+Which endpoints carry it is **computed, not listed**: those whose repeat has an external
+effect (they send through `_xabar` / `_hujjat` / `_guruh_sinovi`, or pass `extend=True`).
+The other eight rewrite the same state and are naturally idempotent. ⛔️ `refund` is
+deliberately excluded: `refunded_at` is an atomic, *permanent* guard, and a 10-second
+cache would only hide the 409 behind a 200 — the wrong trade on a money path. Its bug
+was different and is fixed: `mark_payment_refunded()` already returned `False` for the
+loser of a race, and the caller ignored it, so the loser still wrote an audit row and
+sent the user a **second** "your money was refunded" message.
+
+### The alert channel could fail silently, and nothing said so
+
+The panel is pull-only, so `alert_watcher()` is the one thing that reaches an admin
+without being asked. It writes to the watch group — and that send could fail with
+nothing but a `logger.warning`, i.e. the "the bot is down" message failing was visible
+only in the log you read when the bot is down.
+
+⭐ **`_ogoh_holat` is set from the send's return value, never before it.** That flag
+means "this has already been reported". Setting it for a message that never arrived
+marks an unsaid thing as said, and since the flag only clears when the *condition*
+clears, the alert was then lost completely. `_ogoh_yubor()` returns a bool for exactly
+this. The retry interval is the existing 15-minute check with no backoff and no new
+constant: a send that fails reaches nobody, so retrying cannot spam anyone — the only
+cost is 96 failed Telegram calls a day, and it stops the moment one lands.
+
+⛔️ **Only a group-level failure lights the banner.** `config.guruh_xato_sababi()` is
+the single classifier (the list is `GURUH_XATOSI`, and `test_web_settings.py` check 15
+fails if any of the three consumers copies it). "Message is too long", "can't parse
+entities", a rejected media type — those fix themselves on the next message, and putting
+them on the banner would leave it permanently lit, which is a banner nobody reads.
+`_send_watch_copy()` therefore records **once, at the end**: the fallback rung succeeding
+means the group is healthy, so writing on each `except` would flash "broken → fixed" for
+a message that was actually delivered.
+
+The state lives in three `watch_settings` columns and the banner condition compares two
+timestamps, so a successful send clears it by itself — there is no "dismiss" button and
+no clearing step that can be forgotten. `database.watch_holat_yoz()` only writes when the
+state *changes*, because `_send_watch_copy()` runs on every message of a watched user.
+
+### Migrations run before the bot starts, so they must be cheap
+
+`create_users_table()` / `create_history_table()` are awaited in `main()` ahead of
+polling and the web server. Everything in them blocks startup.
+
+⛔️ **`CREATE INDEX CONCURRENTLY` is therefore NOT in them** — it is in
+`indekslarni_qur()`, which `main.py` fires with `asyncio.create_task()`. `CONCURRENTLY`
+scans the whole table and takes seconds on a large one; awaited, both the bot and the
+panel would sit dark for that long, for something that only affects *speed*. An
+unindexed bot works, just slower; a bot still waiting works not at all. The result goes
+to the log only (`[indeks] … tayyor` / `… qurilmadi: …`).
+
+Two traps come with `CONCURRENTLY`, and `test_panel_raqamlar.py` check 12 pins both.
+asyncpg sends `conn.execute(sql)` over the simple query protocol and opens no
+transaction — but **only when no parameters are passed**; add one and it switches to a
+prepared statement and Postgres answers "cannot run inside a transaction block". And a
+failed `CONCURRENTLY` leaves an **invalid** index that `IF NOT EXISTS` then happily skips
+forever, so `_indeks_yarat()` checks `pg_index.indisvalid` and drops it (also
+`CONCURRENTLY`) before rebuilding. Its error is logged as a warning rather than swallowed:
+the existing index block ends in `except: pass`, which is why these calls sit outside it.
+
+### `make_interval`, not string concatenation
+
+Every day-interval in the codebase is `make_interval(days => $N::int)`. The old
+`($N || ' days')::interval` made asyncpg infer `$N` as **text**, so passing an `int`
+raised `DataError` — that single line killed the audit screen, the error screen and
+`alert_watcher()`, which then retried every 15 minutes forever. Wrapping the arguments
+in `str()` fixed the symptom and left the trap in place for the next writer.
+`test_web_journal.py` check 17 walks the tree (comments stripped) and fails if the old
+spelling returns. `_YOZ_MUDDAT_SQL` still contains `NOW() +` and still has no `GREATEST`,
+so `test_pro_grant.py` check 4 — the frozen overwrite behaviour — is untouched by this.
+### The panel's own security rules
+
+⛔️ **The client IP is the *rightmost* `X-Forwarded-For` entry, never the first.** The
+client writes the leftmost one, so the old code let anyone defeat the rate limit by
+sending a different value each request — and leave a permanent key behind each time, a
+memory-exhaustion path of its own. `ISHONCHLI_PROKSI` counts hops from the right, and
+`XFF_TEKSHIR=1` exists to log the raw header once on Railway so that number can be
+confirmed; turn it off afterwards, it prints IP addresses.
+
+⚠️ **The rate limiter is bounded now** (`CHASTOTA_OYNA`, `CHASTOTA_MAX`) and it counts
+writes per **admin**, not per IP — the caller already passed the signature and the
+permission check, and a phone changes IP every few minutes. `YOZUV_RATE_LIMIT` is 120/min
+and that number is aimed at a runaway script, not at a fast human: a limit set near real
+usage fires on legitimate bursts, the admin learns to ignore it, and then the real one is
+missed too. The measurement behind it is that the heaviest test file makes 31 writes in a
+few seconds.
+
+⛔️ **`X-Frame-Options` must never be added.** The Mini App is loaded in an iframe by
+Telegram Web, so `DENY` and `SAMEORIGIN` both kill the panel outright. Framing is
+controlled by `frame-ancestors` (`telegram.org` plus `*.telegram.org`, which covers
+`web.`, `webk.`, `webz.`, `weba.`); desktop and mobile use an embedded webview, where the
+directive does not apply at all.
+
+⚠️ **CSP ships as `Content-Security-Policy-Report-Only` on purpose.** Two unknowns can
+only be settled live: the inline `style=` attributes in `panel.html` (hence
+`'unsafe-inline'` on `style-src`) and how Telegram Desktop's webview answers
+`frame-ancestors`. `POST /csp-report` logs violations to Railway, because Report-Only
+tells you nothing on a phone where the console cannot be opened. That endpoint is
+deliberately **not** under `/api/` and deliberately has no `@admin_only` — the browser
+sends the report without our header or cookie — so the "every `/api/*` is guarded" rule
+stays intact. Flip to enforcing only after the log stays quiet through every screen on
+iOS, Android, Desktop and Web; `test_web_xavfsizlik.py` check 6b pins the Report-Only
+state so the flip has to be deliberate.
+
+`del_cookie()` in aiohttp 3.9.5 takes only `domain`/`path`, so logout sets the cookie to
+`""` with `max_age=0` and the **same** `Secure`/`SameSite`/`HttpOnly` attributes instead.
+
+### Setting a plan is not adding to one, and the screen has to say so
+
+Five grant sites exist. Four go through `_EXTEND_PLAN_SQL` and **add** (Stars payment,
+promo code, referral reward, and the panel's gift via `extend=True`); that SQL
+carries the three guards `test_pro_grant.py` freezes — `GREATEST(..., NOW())` so a lapsed
+subscription's days are not added to a past date, unlimited stays unlimited, and the tier
+never drops. There is no recurring-subscription path at all, so no renewal can lose days.
+
+The fifth is the profile card, and it **overwrites** — deliberately, because it is the
+correction tool: without it an admin who mistyped 3650 days could never shorten it. That
+is frozen by `test_pro_grant.py` check 4 and must stay. The defect was never the
+behaviour, it was that nothing said so:
+
+- the button now reads **"Muddatni belgilash"**, against "qo'shish" on the gift screen —
+  the verbs differ, so the two actions differ before any dialog opens;
+- the confirmation states the **current** state in one of four wordings (free, dated,
+  from-unlimited, to-unlimited) — "Ishonchingiz komilmi?" is not a confirmation, it is a
+  button with extra steps, and `test_panel_korinish.py` check 14 rejects that phrasing;
+- ⭐ the panel sends the `premium_until` **it displayed**, and
+  `set_user_premium_checked()` compares it against the live row inside one transaction
+  with `FOR UPDATE`, answering **409** on a mismatch. Without it, a payment landing
+  between opening the card and tapping the chip would be erased by an admin who never saw
+  it. A separate `SELECT` then `UPDATE` would leave exactly that window open, so the
+  comparison has to be inside the transaction.
+- ⛔️ the `holat` field is **required**; accepting its absence would leave the bypass as
+  "just omit the field". The panel is this endpoint's only client and deploys in the same
+  process, so an "old client" is a tab left open across a deploy — and that tab is showing
+  stale numbers anyway, which is the hazard itself.
+
+The audit row is JSON now (`{"kun":30,"oldin":{"tarif","muddat","qolgan"}}`) so the
+previous expiry can actually be restored; `_premium_tafsiloti()` renders it as
+`30 kun (oldin: 20 kun)` on the journal screen and falls through to the raw string for the
+older rows, which are still plain `"30"` and `"sovga 45 kun"`.### Five label maps that all rotted the same way
 
 `core/config.py` holds five dicts — `ACTIVITY_TYPES`, `AUDIT_ACTIONS`, `LIMIT_NOMI`,
 `SEGMENT_NOMI`, `TARIF_NOMI` — for one reason: the same list kept being hand-written in each new

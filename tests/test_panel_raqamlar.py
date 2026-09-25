@@ -29,6 +29,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 os.environ.setdefault("BOT_TOKEN", "123456:TEST-TOKEN-FOR-PANEL-NUMBERS")
 
 from core.config import (LIMIT_IZOHI, LIMIT_NOMI, PLAN_LIMITS,  # noqa: E402
@@ -49,7 +51,7 @@ def _funksiya(manba: str, nom: str) -> str:
 
 
 def main() -> None:
-    dbs = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+    dbs = kod(ROOT / "db" / "database.py")
 
     # ── 1) Tarif ta'rifi BITTA JOYDA ────────────────────────────
     # Uchta so'rov «Pro nima?» degan savolga javob beradi:
@@ -217,7 +219,36 @@ def main() -> None:
     assert api._sana(None) is None and api._sana("2026") is None
     print("[11] sanalar Toshkent siljishi bilan ISO bo'lib keladi OK")
 
-    print("\npanel raqamlari: barcha tekshiruvlar o'tdi (11/11).")
+    # ── 12) ⭐ `CONCURRENTLY` PARAMETRSIZ CHAQIRILSIN ────────────
+    # `CREATE INDEX CONCURRENTLY` tranzaksiya blokida ishlamaydi.
+    # asyncpg `conn.execute(sql)` ni ARGUMENTSIZ chaqirilganda oddiy
+    # so'rov protokoli bilan yuboradi va tranzaksiya ochmaydi; parametr
+    # qo'shilsa tayyorlangan so'rovga o'tadi va Postgres "cannot run
+    # inside a transaction block" beradi.
+    #
+    # Bu jonli bazasiz ko'rinmaydi — testlarda baza soxta. Shuning uchun
+    # qoida MANBA MATNIDAN o'qiladi.
+    import pathlib
+    import re as _re
+    db_matn = kod(pathlib.Path(__file__).resolve().parent.parent
+               / "db" / "database.py")
+    for chaqiruv in _re.findall(r"conn\.execute\(\s*f?\"[^\"]*CONCURRENTLY[^\"]*\"[^)]*\)",
+                                db_matn):
+        assert chaqiruv.rstrip().endswith('")'), (
+            "CONCURRENTLY parametr bilan chaqirilgan — asyncpg uni "
+            "tranzaksiyada yuboradi va Postgres rad etadi: " + chaqiruv)
+    # ⛔️ Yiqilgan CONCURRENTLY YAROQSIZ indeks qoldiradi, `IF NOT EXISTS`
+    # esa uni «bor» deb o'tkazadi — indeks abadiy yaroqsiz qoladi.
+    i = db_matn.index("async def _indeks_yarat(")
+    tana = db_matn[i:db_matn.index("\nasync def ", i + 1)]
+    assert "indisvalid" in tana and "DROP INDEX CONCURRENTLY" in tana, (
+        "_indeks_yarat yaroqsiz indeksni tanimaydi")
+    assert "except Exception" in tana and "logger.warning" in tana, (
+        "indeks xatosi jim yutilyapti — indekssiz bot SEKIN ishlaydi va "
+        "buni hech narsa aytmaydi")
+    print("[12] CONCURRENTLY parametrsiz, yaroqsiz indeks qayta quriladi OK")
+
+    print("\npanel raqamlari: barcha tekshiruvlar o'tdi (12/12).")
 
 
 if __name__ == "__main__":

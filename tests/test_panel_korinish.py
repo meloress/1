@@ -22,12 +22,14 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import css_kod, kod
 os.environ.setdefault("BOT_TOKEN", "123456:TEST-TOKEN-FOR-PANEL-LOOK")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 STATIC = ROOT / "web" / "static"
 HTML = (STATIC / "panel.html").read_text(encoding="utf-8")
-CSS = (STATIC / "panel.css").read_text(encoding="utf-8")
+CSS = css_kod((STATIC / "panel.css").read_text(encoding="utf-8"))
 JS = (STATIC / "panel.js").read_text(encoding="utf-8")
 SOZ = (STATIC / "soz.js").read_text(encoding="utf-8")
 
@@ -179,7 +181,7 @@ def main() -> None:
     assert "toLocaleString" not in JS.split("function son(")[1].split("}")[0].replace(
         'toLocaleString("ru-RU")', ""), "raqam formati o'zgarib ketgan"
     # Server tayyor satr EMAS, ISO yubormoqda.
-    api = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+    api = kod(ROOT / "web" / "api.py")
     assert "isoformat(timespec=" in api, "server hali ham tayyor sana satrini yuborayapti"
     assert '%d.%m.%Y %H:%M' not in api, "serverda sana formati qolgan"
     print("[8] sanalar serverda ISO, panelda qisqa/nisbiy shaklda OK")
@@ -284,7 +286,91 @@ def main() -> None:
         assert "kpiSkelet(" in JS[j:j + 300], f"{ekran}: KPI skeleti chaqirilmagan"
     print("[13] xato xabari ekran tepasida, KPI skeleti bor OK")
 
-    print("\npanel ko'rinishi: barcha tekshiruvlar o'tdi (13/13).")
+    # ── 14) ⭐ OG'IR AMAL TASDIQSIZ BAJARILMAYDI ──────────────────
+    # Panelning 11 ta amali allaqachon tasdiqlanardi, uchtasi esa
+    # tushib qolgan edi — va aynan o'sha uchtasi eng qimmati:
+    #   • «Cheksiz» Pro — bitta bosishda MUDDATSIZ tarif,
+    #   • eksport — ma'lumot tizimdan CHIQIB ketadi,
+    #   • xabar — yuborilgani qaytarilmaydi.
+    # Ro'yxat emas, QOIDA tekshiriladi: xavfli chaqiruvdan OLDIN
+    # `tasdiq(` turishi shart.
+    XAVFLI = (
+        ('/premium",', "Muddatni belgilash"),
+        ('"/api/export?tur="', "CSV eksport"),
+        ('/message", { matn: matn }', "xabar yuborish"),
+        # ⚠️ Naqsh POST'ni ko'rsatsin: shu ekranda `ol("/api/giveaway")`
+        # degan O'QISH ham bor va u matnda oldinroq turadi.
+        ("{ kimlar: kimlar", "ommaviy sovg'a"),
+        ('/refund", null,', "to'lovni qaytarish"),
+        ('"/api/admins", { amal: "add"', "admin qo'shish"),
+    )
+    for naqsh, nom in XAVFLI:
+        i = JS.index(naqsh)
+        oldin = JS[max(0, i - 700):i]
+        assert "tasdiq(" in oldin, f"{nom}: tasdiqsiz bajarilyapti"
+
+    # Tasdiq matni AMALNI aytsin. «Ishonchingiz komilmi?» hech qanday
+    # yangi ma'lumot bermaydi, ya'ni o'qilmay bosiladi va tasdiq
+    # bo'lishdan to'xtaydi.
+    # ⚠️ IZOHSIZ MATN bo'yicha — `CSS_SOF` bilan bir xil sabab. Bu fayl
+    # ichidagi izohda «Ishonchingiz komilmi?» aynan MISOL sifatida
+    # yozilgan, ya'ni xom matnni tekshirish o'z izohiga ilinardi.
+    soz_sof = re.sub(r"/\*.*?\*/", "", SOZ, flags=re.S)
+    for bosh in ("Ishonchingiz komilmi", "Davom etilsinmi", "Rostdanmi"):
+        assert bosh not in soz_sof, f"tasdiq matni bo'sh: «{bosh}»"
+
+    # ⚠️ `S.savol.X` da xato yozilsa tasdiq oynasida «undefined»
+    # ko'rinardi — va odam o'sha oynani baribir tasdiqlardi.
+    ishlatilgan = set(re.findall(r"S\.savol\.(\w+)", JS))
+    borlar = set(re.findall(r"^\s{4}(\w+):",
+                            re.split(r"^  \},", soz_sof.split("savol: {", 1)[1], maxsplit=1, flags=re.M)[0], re.M))
+    assert ishlatilgan <= borlar, f"lug'atda yo'q savol: {ishlatilgan - borlar}"
+    print(f"[14] {len(XAVFLI)} ta og'ir amal tasdiq bilan, matnlar aniq OK")
+
+    # ── 15) KLAVIATURA: yopish va Enter ──────────────────────────
+    # Saqlangandan keyin klaviatura ochiq qolsa natija xabari ham,
+    # o'zgargan ro'yxat ham uning tagida ko'rinmaydi.
+    assert "function klaviaturaYop(" in JS and "hideKeyboard" in JS
+    assert JS.count("klaviaturaYop();") >= 8, (
+        f"klaviatura faqat {JS.count('klaviaturaYop();')} joyda yopilyapti")
+
+    # ⭐ Enter ikki marta ishlamasin: `so_rov()` tugmani so'rov
+    # boshlanishida darhol o'chiradi, `enterBosilsa` esa o'chiq tugmani
+    # bosmaydi. Shu ikkisi birgalikda takroriy Enter'ni to'xtatadi.
+    i = JS.index("function enterBosilsa(")
+    tana = JS[i:i + 800]
+    assert "!t.disabled" in tana, "Enter o'chiq tugmani ham bosyapti"
+    assert 'tagName === "TEXTAREA"' in tana, (
+        "Enter `textarea` da ham ushlanyapti — ko'p qatorli matn buziladi")
+    assert "isComposing" in tana, "IME terish paytidagi Enter filtrlanmagan"
+    print("[15] klaviatura yopiladi; Enter textarea'da emas, takrori yo'q OK")
+
+    # ── 16) ⭐ KUZATUV BANNERI EKRAN TEPASIDA, MATNI LUG'ATDA ─────
+    # Xato qatori bilan AYNAN bir xil sabab: oltita ekranda birinchi
+    # `.card` KPI qatoridan keyin turadi, ya'ni telefonda banner
+    # ekrandan pastda qolardi va hech kim ko'rmasdi.
+    i = JS.index("function kuzatuvBanner(")
+    keyin = re.search(r"\n  function ", JS[i + 1:])
+    tana = JS[i:i + 1 + keyin.start()] if keyin else JS[i:]
+    assert "insertBefore(el, joy.firstChild)" in tana, (
+        "kuzatuv banneri ekran tepasiga qo'yilmayapti")
+    assert 'querySelector(\'section[data-screen="dash"]\')' in tana, (
+        "banner Boshqaruv ekraniga bog'lanmagan")
+    # Sabab serverdan keladi — ya'ni u ISHONCHSIZ matn (Telegram yozadi).
+    assert "xavfsiz(izoh)" in tana and "xavfsiz(bosh)" in tana, (
+        "banner matni `xavfsiz()` dan o'tmayapti")
+    # ⛔️ Qo'lda o'chirish tugmasi YO'Q: banner muvaffaqiyatli
+    # yuborishdan keyin o'zi yo'qolishi kerak, aks holda muammo qolgan
+    # holda banner yopilib ketardi.
+    assert "data-banner-yop" not in JS, "banner qo'lda yopiladigan qilingan"
+    # Matnlar lug'atda, JS da qotirilgan emas (`soz.js` qoidasi).
+    for bolak in ("Kuzatuv guruhi sozlanmagan", "xabar yetmayapti"):
+        assert bolak not in JS, f"banner matni panel.js da qotirilgan: {bolak}"
+        assert bolak in soz_sof, f"banner matni lug'atda yo'q: {bolak}"
+    assert ".banner{" in CSS_SOF, "banner uslubi yo'q"
+    print("[16] kuzatuv banneri ekran tepasida, matni lug'atda OK")
+
+    print("\npanel ko'rinishi: barcha tekshiruvlar o'tdi (16/16).")
 
 
 if __name__ == "__main__":

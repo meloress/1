@@ -14,6 +14,8 @@ bo'lib chiqib turardi. Bu test o'sha holatning qaytishini to'sadi.
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import js_kod, kod
 
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN-FOR-WEB-JOURNAL"
 
@@ -156,7 +158,7 @@ async def main():
     # ⚠️ Nusxa demak — TAYINLASH. Oddiy `"ACTION_LABELS" not in a` bu
     # yerda izohni ham ushlab, testni bekorga yiqitardi: `api.py` da
     # «bu xatoni takrorlamaslik kerak» degan izoh bor va u to'g'ri joyda.
-    a = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+    a = kod(ROOT / "web" / "api.py")
     assert not re.search(r"^\s*[A-Z_]*ACTION[A-Z_]*\s*=\s*\{", a, re.M), (
         "web/api.py da amal nomlari ro'yxatining nusxasi paydo bo'lgan")
     assert "AUDIT_ACTIONS" in a, "web yagona ro'yxatdan o'qimaydi"
@@ -211,7 +213,7 @@ async def main():
         assert e["sahifalar"] == 3, e["sahifalar"]               # 45 / 20
         # Xato matni XOM uzatiladi; ekranlash panelda (`xavfsiz`).
         assert "<script>" in e["rows"][0]["matn"]
-        js = (ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8")
+        js = js_kod((ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8"))
         assert "xavfsiz(r.matn)" in js, "xato matni panelda ekranlanmagan"
         print("[6] xatolar: xulosa, turlar, sahifalash; matn panelda ekranlanadi OK")
 
@@ -249,8 +251,8 @@ async def main():
         #    yozmaganlar» EMAS. Shunday deb atalsa admin ularga xabar
         #    yuborishga urinadi — holbuki xabar aynan shuning uchun
         #    yetmagan.
-        assert "/api/journal/inactive" not in (
-            ROOT / "web" / "api.py").read_text(encoding="utf-8"), \
+        assert "/api/journal/inactive" not in kod(
+            ROOT / "web" / "api.py"), \
             "dublikat endpoint qaytib kelgan"
         assert (await c.get("/api/journal/inactive", headers=h)).status == 404
 
@@ -388,23 +390,91 @@ async def main():
         api._hujjat = asl_hujjat
         print("[16] eksport: noma'lum tur 400, fayl so'ragan adminga ketadi OK")
 
-    # ── 17) ⭐ INTERVAL ARGUMENTI SATR BO'LISHI SHART ────────────
-    # `NOW() - ($N || ' days')::interval` ifodasida asyncpg $N ni
-    # `text` deb biladi. int berilsa DataError tashlaydi — jonli botda
-    # butun jurnal ekrani ham, ogohlantirish kuzatuvchisi ham har 15
-    # daqiqada aynan shu bitta satrda o'lgan edi.
+    # ── 17) ⭐ ESKI INTERVAL NAQSHI QAYTIB KELMASIN ──────────────
+    # `NOW() - ($N || ' days')::interval` ifodasida asyncpg $N ni `text`
+    # deb biladi. int berilsa DataError tashlaydi — jonli botda butun
+    # jurnal ekrani ham, ogohlantirish kuzatuvchisi ham har 15 daqiqada
+    # aynan shu bitta satrda o'lgan edi.
+    #
+    # Uni `str(int(kun))` bilan yopish MUAMMONI EMAS, BELGISINI tuzatardi:
+    # tuzoq joyida qolardi va keyingi yozuvchi yana int berardi. Endi
+    # hamma joyda `make_interval(days => $N::int)` — argument haqiqiy int,
+    # ya'ni tuzoqning o'zi yo'q. Bu tekshiruv eski naqshning QAYTISHINI
+    # rad etadi.
     #
     # Testlar uni KO'RMAGAN: bu yerda baza soxta, ya'ni asyncpg turni
     # umuman tekshirmaydi. Shuning uchun qoida MANBA MATNIDAN o'qiladi.
-    db_matn = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+    #
+    # ⚠️ IZOHLAR TASHLANADI (`tests/_manba.py`). Eski naqsh kodda emas,
+    # uni TUSHUNTIRAYOTGAN izohda ham uchraydi — izohlarni qoldirsak
+    # test o'z hujjatimizni xato deb o'qirdi.
+    topildi = []
+    for yol in sorted(ROOT.glob("**/*.py")):
+        if "tests" in yol.parts or ".git" in yol.parts:
+            continue
+        manba = kod(yol)
+        if "|| ' days')" in manba or "||' days')" in manba:
+            topildi.append(str(yol.relative_to(ROOT)))
+    assert not topildi, (
+        "eski interval naqshi qaytib keldi: " + ", ".join(topildi) +
+        " — `make_interval(days => $N::int)` ishlatilsin, aks holda "
+        "asyncpg $N ni text deb biladi va int berilganda DataError beradi")
+
+    db_matn = kod(ROOT / "db" / "database.py")
     for nom in ("_jurnal_filtri", "_audit_filtri"):
         i = db_matn.index("def " + nom + "(")
-        tana = db_matn[i:i + 1500]
-        assert "args.append(str(int(kun)))" in tana, (
-            nom + ": interval argumenti satr emas — asyncpg DataError beradi")
-    print("[17] jurnal filtrida interval argumenti SATR OK")
+        # Keyingi USTKI darajadagi e'lonigacha — qat'iy 1500 belgi emas.
+        # Oyna bilan kesilganda qisqa funksiya qo'shnisiga oqib ketadi va
+        # test qo'shnining kodini o'ziniki deb o'qiydi.
+        keyin = re.search(r"\n(?:@|def |async def )", db_matn[i + 1:])
+        tana = db_matn[i:i + 1 + keyin.start()] if keyin else db_matn[i:]
+        assert "make_interval(days => $" in tana, (
+            nom + ": interval `make_interval` orqali qurilmagan")
+        assert "args.append(int(kun))" in tana, (
+            nom + ": interval argumenti int emas — `make_interval` ga satr "
+            "berilsa Postgres uni qabul qilmaydi")
+    print("[17] eski `|| ' days'` naqshi yo'q, filtrlar make_interval'da OK")
 
-    print("\nweb journal: barcha tekshiruvlar o'tdi (17/17).")
+    # ── 18) ⭐ MANBA SKANERLOVCHI TEST `_manba` DAN O'TSIN ────────
+    # Bu loyihadagi eng takrorlanuvchi xato: qo'riqchi test o'zi
+    # qo'riqlayotgan qoidani TUSHUNTIRUVCHI izohni kod deb o'qiydi va
+    # yashil bo'lib turaveradi. To'rt marta sodir bo'ldi (`@bir_marta`,
+    # `del_cookie()`, «Ishonchingiz komilmi», «chat not found») va har
+    # safar bitta sabab: izoh tozalanmagan.
+    #
+    # Qoida: `.py` manbasi FAQAT `_manba.kod()` orqali o'qiladi.
+    # `ast.parse()` istisno — u izohni o'zi ko'rmaydi.
+    ayblar = []
+    for t in sorted((ROOT / "tests").glob("test_*.py")):
+        # `utf-8-sig` — ikkita test fayli BOM bilan yozilgan.
+        daraxt = ast.parse(t.read_text(encoding="utf-8-sig"))
+        ruxsat = set()
+        for tugun in ast.walk(daraxt):
+            if (isinstance(tugun, ast.Call)
+                    and isinstance(tugun.func, ast.Name)
+                    and tugun.func.id in ("kod", "parse")):
+                ruxsat.update(id(a) for a in tugun.args)
+            # `ast.parse(...)` — nuqtali shakli
+            if (isinstance(tugun, ast.Call)
+                    and isinstance(tugun.func, ast.Attribute)
+                    and tugun.func.attr == "parse"):
+                ruxsat.update(id(a) for a in tugun.args)
+        for tugun in ast.walk(daraxt):
+            if not isinstance(tugun, ast.Call) or id(tugun) in ruxsat:
+                continue
+            nomi = (tugun.func.attr if isinstance(tugun.func, ast.Attribute)
+                    else getattr(tugun.func, "id", ""))
+            if nomi not in ("read_text", "open"):
+                continue
+            ifoda = ast.unparse(tugun)
+            if ".py'" in ifoda or '.py"' in ifoda:
+                ayblar.append(f"{t.name}:{tugun.lineno}  {ifoda[:70]}")
+    assert not ayblar, (
+        "manba xom holda o'qilyapti — `_manba.kod()` ishlatilsin, aks "
+        "holda test IZOHNI kod deb o'qiydi:\n  " + "\n  ".join(ayblar))
+    print("[18] manba skanerlovchi testlar `_manba.kod()` dan o'tadi OK")
+
+    print("\nweb journal: barcha tekshiruvlar o'tdi (18/18).")
 
 
 if __name__ == "__main__":

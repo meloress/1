@@ -1062,6 +1062,49 @@ SEGMENT_NOMI: dict[str, str] = {
     "pick":    "Tanlangan odamlarga",
 }
 
+# Kuzatuv guruhiga yozib bo'lmasligining GURUH darajasidagi sabablari.
+#
+# ⚠️ Bu ro'yxat ikki xil xatoni AJRATADI va ajratish ma'noli: guruh
+# darajasidagi xato (bot guruhda yo'q, chiqarib yuborilgan, huquqi yo'q)
+# ADMIN ARALASHUVINI talab qiladi va Boshqaruv ekranida banner bo'lib
+# yonadi; xabarga xos xato (matn uzun, media turi qabul qilinmadi,
+# HTML tahlil qilinmadi) esa keyingi xabarda o'zi tuzaladi va bannerni
+# YOQMASLIGI kerak — aks holda banner doim yonib turadi va hech kim
+# unga qaramay qo'yadi.
+#
+# ⛔️ Uchta iste'molchi: panelning guruh sinovi (`web/api.py`),
+# ogohlantirish yuboruvchi (`handlers/admin/daily.py`) va kuzatuv
+# nusxalovchi (`handlers/helpers.py`). Ro'yxat ularning birortasida
+# qayta yozilmasin — bu faylda beshta yorliq xaritasi aynan shunday
+# nusxalanib, har biri bir-biridan farq qilib ketgan edi.
+GURUH_XATOSI: tuple[tuple[str, str], ...] = (
+    ("chat not found", "Bunday guruh topilmadi — ID ni tekshiring."),
+    ("bot is not a member", "Bot bu guruhda emas — avval uni qo'shing."),
+    ("bot was kicked", "Bot guruhdan chiqarib yuborilgan."),
+    ("bot was blocked", "Bot guruhdan chiqarib yuborilgan."),
+    ("not enough rights", "Botda bu guruhga yozish huquqi yo'q."),
+    ("have no rights", "Botda bu guruhga yozish huquqi yo'q."),
+    ("chat_write_forbidden", "Botda bu guruhga yozish huquqi yo'q."),
+    ("need administrator rights", "Bot guruhda admin bo'lishi kerak."),
+    ("chat was upgraded", "Guruh superguruhga aylangan — yangi ID ni kiriting."),
+    ("group chat was deactivated", "Guruh o'chirilgan."),
+)
+
+
+def guruh_xato_sababi(matn: str) -> Optional[str]:
+    """Telegram xatosi GURUH darajasidami? Ha — sabab, yo'q — `None`.
+
+    `None` «xato yo'q» degani EMAS: u «bu xato guruhga emas, aynan shu
+    xabarga tegishli» degani. Chaqiruvchi uni baribir logga yozadi,
+    faqat banner holatiga tegmaydi.
+    """
+    past = (matn or "").lower()
+    for kalit, sabab in GURUH_XATOSI:
+        if kalit in past:
+            return sabab
+    return None
+
+
 LIMIT_NOMI: dict[str, str] = {
     "points":   "Kunlik ballar",
     "files":    "Fayl yaratish",

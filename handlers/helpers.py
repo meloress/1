@@ -6,7 +6,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramForbiddenError
 
 from core.loader import logger, bot
-from core.config import MAX_MANUAL_RETRIES
+from core.config import MAX_MANUAL_RETRIES, guruh_xato_sababi
 from db import database
 from core.memory import store_failed_request
 
@@ -128,6 +128,26 @@ def _file_senders():
             "voice": bot.send_voice}
 
 
+async def kuzatuv_holati(ok: bool, xato: str = "") -> None:
+    """Kuzatuv guruhiga yuborish natijasini yozadi — banner shu yerdan.
+
+    ⛔️ FAQAT GURUH DARAJASIDAGI xato banner'ni yoqadi. Xabarga xos xato
+    (matn uzun, media turi rad etildi, HTML tahlil qilinmadi) keyingi
+    xabarda o'zi tuzaladi; uni banner'ga chiqarish banner'ni DOIM yonib
+    turadigan qilardi, va doim yonadigan ogohlantirish — o'chirilgan
+    ogohlantirish. Ajratish `config.guruh_xato_sababi()` da.
+
+    ⚠️ HECH QACHON yiqilmaydi: bu hisob yuritish, javob yo'li emas.
+    """
+    sabab = None if ok else guruh_xato_sababi(xato)
+    if not ok and sabab is None:
+        return
+    try:
+        await database.watch_holat_yoz(ok, sabab)
+    except Exception:
+        logger.warning("[watch_mirror] kuzatuv holati yozilmadi")
+
+
 async def _send_watch_copy(group_id, user_id, username, direction, text,
                            copy_chat_id, copy_message_id,
                            file_id=None, file_kind=None):
@@ -137,6 +157,12 @@ async def _send_watch_copy(group_id, user_id, username, direction, text,
 
     send_file = _file_senders().get(file_kind) if file_id else None
     media_sent = False
+    # Natija OXIRIDA bir marta yoziladi. Har `except` da yozilsa bitta
+    # xabar uchun «yiqildi → tuzaldi» juftligi ketardi: zaxira yo'l
+    # ishlagan holatda guruh aslida SOG'LOM, va banner bir zumga yonib
+    # o'chishi adminni chalg'itardi.
+    yetdi = False
+    oxirgi_xato = ""
 
     if send_file is not None or (copy_chat_id and copy_message_id):
         # Rasm/hujjat/ovoz: sarlavha + asl xabar nusxasi.
@@ -148,15 +174,19 @@ async def _send_watch_copy(group_id, user_id, username, direction, text,
                 await bot.copy_message(chat_id=group_id, from_chat_id=copy_chat_id,
                                        message_id=copy_message_id)
             media_sent = True
+            yetdi = True
         except Exception as e:
             # Nusxa ko'chirish yiqilsa sarlavha ALLAQACHON ketgan bo'ladi —
             # guruhda "bo'sh" xabar osilib qolmasin, sababini yozamiz.
             logger.warning(f"[watch_mirror] nusxa ko'chmadi (user={user_id}): {e}")
+            oxirgi_xato = str(e)
             try:
                 await bot.send_message(group_id, f"⚠️ Xabar nusxasi ko'chmadi: {e}")
+                yetdi = True        # guruhning o'zi yetib turibdi
             except Exception:
                 pass
     if not text:
+        await kuzatuv_holati(yetdi, oxirgi_xato)
         return
 
     # Sarlavha media bilan birga ALLAQACHON ketgan bo'lsa, uni takrorlamaymiz —
@@ -171,15 +201,20 @@ async def _send_watch_copy(group_id, user_id, username, direction, text,
         # UMUMAN yetib bormaydi. Telegram API'da tekshirilgan.
         await bot.send_message(group_id, f"{text_header}\n{html_escape(body)}",
                                parse_mode="HTML")
+        yetdi = True
     except Exception as e:
         logger.warning(f"[watch_mirror] {direction} yetkazilmadi (user={user_id}): {e}")
+        oxirgi_xato = str(e)
         # Zaxira: formatlashsiz. Kuzatuv butunlay jim qolgandan ko'ra
         # bezaksiz xabar yaxshi.
         try:
             await bot.send_message(group_id, f"{who} ({user_id}) — {label}\n{body}")
-
+            yetdi = True
         except Exception as e2:
             logger.warning(f"[watch_mirror] zaxira ham yetkazilmadi: {e2}")
+            oxirgi_xato = str(e2)
+
+    await kuzatuv_holati(yetdi, oxirgi_xato)
 
 
 _MISS_FALLBACK = (

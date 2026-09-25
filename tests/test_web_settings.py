@@ -19,6 +19,8 @@ Bu fayl 6-bosqichning «TAYYOR» mezonini qo'riqlaydi:
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN-FOR-WEB-SETTINGS"
 
@@ -44,6 +46,18 @@ SUPER = 641382901          # superadmin — ADMIN ning o'zi
 
 AUDIT = []
 KESH = []                  # load_watch_cache chaqiruvlari
+GURUHGA = []               # kuzatuv guruhiga ketgan sinov xabarlari
+
+
+class SoxtaBot:
+    """`core.loader.bot` o'rniga. Telegram rad etishini ham o'ynaydi."""
+    xato = None            # None | Telegram javobining matni
+
+    async def send_message(self, chat_id, text, parse_mode=None):
+        if SoxtaBot.xato:
+            from aiogram.exceptions import TelegramBadRequest
+            raise TelegramBadRequest(method=None, message=SoxtaBot.xato)
+        GURUHGA.append((chat_id, text))
 MENYU = []                 # sync_menu_button chaqiruvlari
 HOLAT = {"overrides": {}, "maintenance": {"active": False, "message": "Eski matn"},
          "guruh": -1002481000, "watch": {511204873}, "adminlar": {ADMIN, BOSHQA}}
@@ -146,6 +160,8 @@ def amal(turi):
 
 
 async def main():
+    import core.loader
+    core.loader.bot = SoxtaBot()
     soxta_baza()
 
     # `_check_can_remove_admin` bazaning pool'iga to'g'ridan-to'g'ri
@@ -232,7 +248,7 @@ async def main():
             assert kalit in PLAN_LIMITS["free"], (
                 f"«{kalit}» LIMIT_NOMI da bor, PLAN_LIMITS da yo'q — "
                 "o'zgartirib bo'lmaydigan qator")
-        a = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        a = kod(ROOT / "web" / "api.py")
         assert '"files": "Fayllar"' not in a, "web/api.py da nomlarning nusxasi qaytib kelgan"
         assert "LIMIT_NOMI" in a, "web yagona ro'yxatdan o'qimaydi"
         print(f"[5] {len(LIMIT_NOMI)} ta limit nomi yagona ro'yxatdan, nusxa yo'q OK")
@@ -273,7 +289,8 @@ async def main():
         #    `get_watch_target()` har xabarda, bazaga bormasdan ishlaydi —
         #    kesh yangilanmasa panel «qo'shildi» deydi, xabarlar esa
         #    guruhga tushmaydi va buni hech narsa aytmaydi.
-        AUDIT.clear(); KESH.clear()
+        AUDIT.clear(); KESH.clear(); GURUHGA.clear()
+        SoxtaBot.xato = None
         assert (await c.post("/api/watch", headers=h,
                              json={"amal": "add", "kim": "@akmal"})).status == 200
         assert (await c.post("/api/watch", headers=h,
@@ -283,7 +300,11 @@ async def main():
         assert len(KESH) == 3, f"load_watch_cache() {len(KESH)} marta chaqirildi"
         for nom in ("watch_add", "watch_remove", "watch_group"):
             assert amal(nom), f"{nom} auditga tushmadi"
-        print("[8] kuzatuvning uchala amali ham RAM keshini yangilaydi, auditda OK")
+        # ⭐ Guruhga SINOV XABARI ketdi. Usiz noto'g'ri ID saqlanib,
+        # ogohlantirishlar jimgina hech qayerga bormasdi.
+        assert len(GURUHGA) == 1 and GURUHGA[0][0] == -100999, GURUHGA
+        assert "Kuzatuv guruhi ulandi" in GURUHGA[0][1], GURUHGA[0][1]
+        print("[8] kuzatuv: kesh yangilanadi, auditda, guruhga sinov xabari OK")
 
         # 9) Yo'q odam kuzatuvga qo'shilmaydi va guruh ID matn bo'lmaydi.
         KESH.clear()
@@ -326,7 +347,7 @@ async def main():
         assert MENYU == [(BOSHQA, False)], "o'chirilgan adminda «Panel» tugmasi qoldi"
         assert amal("remove_admin"), "remove_admin auditga tushmadi"
         # Manba bo'yicha: web O'Z tekshiruvini yozmaganiga ishonch.
-        src = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        src = kod(ROOT / "web" / "api.py")
         assert "_check_can_remove_admin" in src, (
             "web o'chirish qoidasini QAYTA YOZGAN — bitta darvoza bo'lishi kerak")
         print("[11] ⭐ o'chirish qoidasi Telegram bilan BITTA darvozadan o'tadi OK")
@@ -341,7 +362,7 @@ async def main():
         d = await (await c.get("/api/admins", headers=h)).json()
         assert [r["user_id"] for r in d["rows"]] == [SUPER], d
         assert d["rows"][0]["super"] is True and d["rows"][0]["ozim"] is True
-        src2 = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        src2 = kod(ROOT / "web" / "api.py")
         gavda = src2.split("async def admins(")[1].split("async def ")[0]
         assert "get_panel_admins" in gavda, (
             "ro'yxat `get_admins()` dan olinyapti — superadmin ko'rinmaydi")
@@ -363,8 +384,60 @@ async def main():
         assert len(marshrutlar) == 31, f"marshrutlar soni kutilgandan boshqa ({len(marshrutlar)} ta)"
         print(f"[13] {len(marshrutlar)} ta marshrutning hammasi @admin_only bilan OK")
 
+        # ── 14) ⭐ TELEGRAM RAD ETSA GURUH SAQLANMAYDI ──────────────
+        # `refund` bilan bir xil qoida: Telegram avval, baza keyin.
+        # Aks holda bazada yangi guruh turardi-yu, u yerga hech narsa
+        # yetmasdi — va buni HECH NARSA aytmasdi.
+        for xato, kutilgan in (
+                ("Bad Request: chat not found", "topilmadi"),
+                ("Forbidden: bot is not a member of the group chat", "guruhda emas"),
+                ("Bad Request: have no rights to send a message", "huquqi yo'q")):
+            AUDIT.clear(); KESH.clear(); GURUHGA.clear()
+            SoxtaBot.xato = xato
+            r = await c.post("/api/watch", headers=h,
+                             json={"amal": "group", "guruh": "-100777"})
+            assert r.status == 400, await r.text()
+            d = await r.json()
+            assert kutilgan in d["error"], (xato, d)
+            assert not KESH, "Telegram rad etdi, kesh esa yangilandi"
+            assert not amal("watch_group"), "rad etilgan guruh auditga tushdi"
+        # Noma'lum xato ham JIM YUTILMAYDI — Telegram matnini ko'rsatadi.
+        SoxtaBot.xato = "Bad Request: something brand new"
+        d = await (await c.post("/api/watch", headers=h,
+                                json={"amal": "group", "guruh": "-100777"})).json()
+        assert "something brand new" in d["error"], d
+        SoxtaBot.xato = None
+        print("[14] Telegram rad etsa guruh saqlanmaydi, sabab tushunarli OK")
+
+        # ── 15) ⭐ GURUH XATOSI RO'YXATI BITTA JOYDA ───────────────
+        # Uchta iste'molchi: panel sinovi, ogohlantirish yuboruvchi va
+        # kuzatuv nusxalovchi. Ro'yxat ularning biriga ham nusxalanmasin
+        # — bu faylda beshta yorliq xaritasi aynan shunday nusxalanib,
+        # HAR BIRI bir-biridan farq qilib ketgan edi (`ban` va
+        # `ban_user`, «Fayl» va «Fayllar»).
+        # ⚠️ IZOHLAR TASHLANADI (`tests/_manba.py`). Ro'yxat kodda emas,
+        # uni TUSHUNTIRAYOTGAN izohda ham uchraydi — izohlarni qoldirsak
+        # test o'z hujjatimizni nusxa deb o'qirdi. Shu tekshiruvning
+        # birinchi ishga tushishida AYNAN shunday bo'ldi.
+        import pathlib
+        ildiz = pathlib.Path(__file__).resolve().parent.parent
+        for nisbiy in ("web/api.py", "handlers/admin/daily.py",
+                       "handlers/helpers.py"):
+            matn = kod(ildiz / nisbiy)
+            assert "chat not found" not in matn, (
+                nisbiy + ": guruh xatolari ro'yxati nusxalangan — "
+                "`core/config.py::GURUH_XATOSI` dan o'qilsin")
+
+        # ⛔️ Ajratish ma'noli: guruh darajasidagi xato adminni chaqiradi,
+        # xabarga xos xato esa keyingi xabarda o'zi tuzaladi.
+        assert config.guruh_xato_sababi(
+            "Forbidden: bot was kicked from the group chat")
+        assert config.guruh_xato_sababi("Bad Request: message is too long") is None
+        assert config.guruh_xato_sababi("") is None
+        print("[15] guruh xatolari ro'yxati bitta joyda, ajratish to'g'ri OK")
+
     config.apply_limit_overrides({})
-    print("\nweb settings: barcha tekshiruvlar o'tdi (13/13).")
+    print("\nweb settings: barcha tekshiruvlar o'tdi (15/15).")
 
 
 if __name__ == "__main__":

@@ -42,6 +42,11 @@ async def main():
     await create_users_table()
     await create_history_table()
     await ensure_profile_columns()
+    # ⛔️ Qulfsiz indekslar FON'da: `CONCURRENTLY` jadvalni skanerlaydi va
+    # katta jadvalda soniyalab davom etadi. Kutib turilsa bot ham, panel
+    # ham o'sha vaqt davomida ishga tushmasdi — indeks esa tezlik uchun,
+    # ishlashi uchun emas. Natija logda (`[indeks] …`).
+    asyncio.create_task(database.indekslarni_qur())
     await database.load_watch_cache()
     # Admin panelida sozlangan kunlik limitlar. Bazadan BIR MARTA
     # o'qiladi va xotiraga qo'yiladi — `daily_limit()` har xabarda

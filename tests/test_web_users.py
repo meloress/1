@@ -16,11 +16,14 @@ turadigan joyni:
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN-FOR-WEB-USERS"
 
 import ast
 import asyncio
+import json
 import datetime
 import pathlib
 
@@ -95,6 +98,16 @@ def soxta_baza(tolov=None):
     async def set_user_premium(uid, days, **kw):
         AUDIT.append({"amal": "_db_premium", "kimga": uid, "tafsilot": days})
 
+    async def set_user_premium_checked(uid, days, *, plan="pro",
+                                       kutilgan_tarif, kutilgan_muddat):
+        """Haqiqiysidagi kabi: mos kelmasa HECH NARSA yozmaydi."""
+        hozir = {"tarif": PROFIL["plan_type"], "muddat": PROFIL["premium_until"]}
+        if (hozir["tarif"] != kutilgan_tarif
+                or hozir["muddat"] != kutilgan_muddat):
+            return {"ok": False, "hozir": hozir}
+        AUDIT.append({"amal": "_db_premium", "kimga": uid, "tafsilot": days})
+        return {"ok": True, "oldin": hozir}
+
     async def set_user_plan(uid, plan):
         AUDIT.append({"amal": "_db_plan", "kimga": uid, "tafsilot": plan})
 
@@ -154,7 +167,7 @@ async def main():
         # 2) Manba bo'yicha: har bir route handleri `@admin_only` bilan.
         #    Jonli tekshiruv bitta unutilgan dekoratorni ushlaydi, lekin
         #    faqat men sinab ko'rgan yo'lni. Bu esa HAMMASINI ko'radi.
-        src = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        src = kod(ROOT / "web" / "api.py")
         daraxt = ast.parse(src)
         dekorator = {
             f.name: any(getattr(d, "id", "") == "admin_only" for d in f.decorator_list)
@@ -204,22 +217,53 @@ async def main():
         # 5) Pro berish: bazaga yozadi, auditga tushadi, ODAMGA XABAR
         #    yuboradi (REJA 10-bo'lim, 5-tekshiruv).
         AUDIT.clear(); XABARLAR.clear()
-        r = await c.post(f"/api/users/{UID}/premium", headers=h, json={"kun": 30})
+        # ⚠️ `holat` — kartochkada KO'RILGAN qiymat, server uni joriy
+        # qiymat bilan solishtiradi.
+        HOLAT = {"tarif": PROFIL["plan_type"],
+                 "muddat": PROFIL["premium_until"].astimezone(
+                     api.TIMEZONE).isoformat(timespec="seconds")}
+        r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                         json={"kun": 30, "holat": HOLAT})
         assert r.status == 200, await r.text()
         assert amallar_faqat("_db_premium"), "bazaga yozilmadi"
         yozuv = amallar_faqat("set_premium")
-        assert yozuv and yozuv[0]["kimga"] == UID and yozuv[0]["tafsilot"] == "30", AUDIT
+        assert yozuv and yozuv[0]["kimga"] == UID, AUDIT
+        # ⭐ Audit yozuvi TUZILGAN: oldingi holat keyin TIKLASH uchun
+        # yaroqli bo'lishi kerak. Ilgari bu yerda faqat «30» turardi va
+        # xato bosilgan muddatni qaytarishning iloji yo'q edi.
+        d = json.loads(yozuv[0]["tafsilot"])
+        assert isinstance(d, dict), (
+            "audit yozuvi TUZILGAN emas — oldingi holat yo'qoladi va "
+            "xato bosilgan muddatni tiklashning iloji qolmaydi")
+        assert d["kun"] == 30, d
+        assert d["oldin"]["tarif"] == PROFIL["plan_type"], d
+        assert d["oldin"]["muddat"] == HOLAT["muddat"], d
+        assert isinstance(d["oldin"]["qolgan"], int), d
+        # Jurnal ekranida esa u O'QILADIGAN ko'rinishda chiqadi.
+        assert api._tafsilot("set_premium", yozuv[0]["tafsilot"]).startswith("30 kun (oldin:")
         assert XABARLAR and str(UID) == str(XABARLAR[0][0]), XABARLAR
         assert "Pro" in XABARLAR[0][1]
         print("[5] Pro berildi: baza + audit + foydalanuvchiga xabar OK")
 
         # 6) Muddat ishonchsiz kirish: faqat ruxsat etilgani o'tadi.
         for yomon in ({"kun": 5}, {"kun": 99999}, {"kun": "o'ttiz"}, {"kun": -30}):
-            r = await c.post(f"/api/users/{UID}/premium", headers=h, json=yomon)
+            r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                             json={**yomon, "holat": HOLAT})
             assert r.status == 400, f"{yomon} qabul qilindi"
-        r = await c.post(f"/api/users/{UID}/premium", headers=h, json={"kun": None})
-        assert r.status == 200 and amallar_faqat("set_premium")[-1]["tafsilot"] == "inf"
-        print("[6] faqat ruxsat etilgan muddatlar qabul qilinadi OK")
+        # ⛔️ `holat` MAJBURIY. Uni ixtiyoriy qilish butun himoyani bekor
+        # qilardi: chetlab o'tish uchun maydonni yubormaslik kifoya edi.
+        r = await c.post(f"/api/users/{UID}/premium", headers=h, json={"kun": 30})
+        assert r.status == 400, "holatsiz so'rov o'tkazib yuborildi"
+        r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                         json={"kun": 30, "holat": {"tarif": "pro",
+                                                    "muddat": "shanba kuni"}})
+        assert r.status == 400, "buzuq sana qabul qilindi"
+
+        r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                         json={"kun": None, "holat": HOLAT})
+        assert r.status == 200, await r.text()
+        assert json.loads(amallar_faqat("set_premium")[-1]["tafsilot"])["kun"] == "inf"
+        print("[6] faqat ruxsat etilgan muddatlar; holatsiz so'rov rad etiladi OK")
 
         # 7) Bloklash / ochish va kvota — hammasi auditda.
         AUDIT.clear(); XABARLAR.clear()
@@ -287,13 +331,46 @@ async def main():
         async def yetmaydi(chat_id, text, parse_mode=None):
             raise RuntimeError("bot bloklangan")
         core.loader.bot.send_message = yetmaydi
-        r = await c.post(f"/api/users/{UID}/premium", headers=h, json={"kun": 7})
+        r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                         json={"kun": 7, "holat": HOLAT})
         assert r.status == 200, await r.text()
         assert (await r.json())["xabar_yetdi"] is False
         assert amallar_faqat("set_premium"), "xabar yetmagani uchun amal bekor bo'ldi"
         print("[12] xabar yetmasa ham amal bajariladi va auditda qoladi OK")
 
-    print("\nweb users: barcha tekshiruvlar o'tdi (12/12).")
+        # ── 13) ⭐ SO'ROVLAR ORASIDA TO'LOV BO'LGAN HOLAT ──────────
+        # Admin kartani ochdi va «20 kun» ni ko'rdi. U tugmani bosguncha
+        # odam Stars bilan 30 kun sotib oldi. Tekshiruvsiz admin O'ZI
+        # KO'RMAGAN 30 kunni o'chirgan bo'lardi — pul to'langan kunlarni.
+        AUDIT.clear(); XABARLAR.clear()
+        # ⚠️ Idempotentlik keshini tozalaymiz: 5-bandda AYNAN shu tana
+        # yuborilgan edi va `@bir_marta` o'sha javobni qaytarib berardi.
+        # Bu yerda biz ikki bosishni emas, KEYINROQ qilingan amalni
+        # o'ynayapmiz — ya'ni kesh bu sinovga tegishli emas.
+        auth._natijalar.clear()
+        PROFIL["premium_until"] = datetime.datetime(2026, 11, 8, tzinfo=UTC)
+        r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                         json={"kun": 30, "holat": HOLAT})   # ESKI holat
+        assert r.status == 409, await r.text()
+        d = await r.json()
+        assert "o'zgargan" in d["error"], d
+        # ⚠️ HECH NARSA yozilmasin: na baza, na audit, na xabar.
+        assert not amallar_faqat("_db_premium"), "409 ga qaramay bazaga yozildi"
+        assert not amallar_faqat("set_premium"), "409 ga qaramay auditga yozildi"
+        assert not XABARLAR, "409 ga qaramay foydalanuvchiga xabar ketdi"
+        # Panel yangi holatni oladi va qayta ko'rsatadi.
+        assert d["hozir"]["muddat"].startswith("2026-11-08"), d
+
+        # Yangi holat bilan qayta urinish O'TADI.
+        YANGI = {"tarif": PROFIL["plan_type"],
+                 "muddat": PROFIL["premium_until"].astimezone(
+                     api.TIMEZONE).isoformat(timespec="seconds")}
+        r = await c.post(f"/api/users/{UID}/premium", headers=h,
+                         json={"kun": 30, "holat": YANGI})
+        assert r.status == 200, await r.text()
+        print("[13] so'rovlar orasida to'lov bo'lsa 409, hech narsa yozilmaydi OK")
+
+    print("\nweb users: barcha tekshiruvlar o'tdi (13/13).")
 
 
 if __name__ == "__main__":

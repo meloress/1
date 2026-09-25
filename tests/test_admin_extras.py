@@ -21,6 +21,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 from core import config  # noqa: E402
 from handlers.admin import daily  # noqa: E402
@@ -103,7 +105,7 @@ OCHIQ = {"report_callback", "process_report_message",
 qo_riqsiz = []
 topilgan = 0
 for fayl in sorted(ADMIN_DIR.glob("*.py")):
-    src = fayl.read_text(encoding="utf-8")
+    src = kod(fayl)
     for m in re.finditer(r"^async def (\w+)\(query: CallbackQuery", src, re.M):
         nom = m.group(1)
         if nom in OCHIQ or nom.startswith("_"):
@@ -123,7 +125,7 @@ check(12, f"har bir admin callback qo'riqlangan ({topilgan} ta tekshirildi)",
 # ⚠️ Shart qo'lda takrorlanmaydi — `_ODDIY_USER` o'zgaruvchisida turadi
 # va kerak joyga qo'yiladi, ya'ni "bittasida bor, ikkinchisida yo'q"
 # holati tuzilish jihatidan imkonsiz. Test shu tuzilishni qo'riqlaydi.
-_db = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+_db = kod(ROOT / "db" / "database.py")
 _fn = _db.split("async def activity_stats")[1].split("\nasync def ")[0]
 check(13, "jami va tarif bo'yicha sanoq bir xil to'plamni sanaydi",
       "_ODDIY_USER = " in _db

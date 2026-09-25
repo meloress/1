@@ -14,6 +14,8 @@ yiqiladi — yonma-yon qo'lda solishtirib o'tirmasdan.
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import js_kod, kod
 
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN-FOR-WEB-STATS"
 
@@ -122,6 +124,10 @@ def soxta_bazani_qoy(modul, **ustidan):
     async def get_maintenance():
         return {"active": False, "message": "..."}
 
+    async def get_watch_health():
+        # Sog'lom holat: guruh ulangan, yiqilish yo'q → banner yo'q.
+        return {"guruh": True, "sabab": None, "vaqt": None}
+
     joy = modul.database_module
     for nom, fn in list(locals().items()):
         if nom in ("modul", "ustidan", "joy", "nom", "fn"):
@@ -182,7 +188,7 @@ async def main():
         # formatlash panelda (`sana()` / `nisbiy()`), chunki bitta sana
         # uch xil joyda uch xil uzunlikda ko'rsatiladi.
         assert x["tur"] == "timeout" and x["vaqt"] == "2026-09-15T19:12:00+05:00", x
-        js = (ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8")
+        js = js_kod((ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8"))
         assert "function xavfsiz(" in js, "panel.js da ekranlash funksiyasi yo'q"
         # `username` `nom` o'zgaruvchisi orqali o'tadi, shuning uchun
         # ro'yxatda o'sha turibdi.
@@ -253,13 +259,13 @@ async def main():
         # kerak. Web o'ziga SQL yozgan kunidan boshlab kunlik hisobot
         # (`daily.py`) va panel bir-biriga mos kelmay qoladi, va buni
         # hech narsa aytmaydi.
-        src = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        src = kod(ROOT / "web" / "api.py")
         for taqiq in ("pool.acquire", "SELECT ", "INSERT ", "UPDATE ", "DELETE "):
             assert taqiq not in src, f"web/api.py ga xom SQL kirib qolgan: {taqiq}"
         assert "activity_stats()" in src, "web statistikani yagona manbadan olmaydi"
         # Kunlik hisobot ham AYNAN o'sha funksiyalardan o'qiydi — ya'ni
         # panel va hisobot bir kuni ikki xil raqam ko'rsata olmaydi.
-        d = (ROOT / "handlers" / "admin" / "daily.py").read_text(encoding="utf-8")
+        d = kod(ROOT / "handlers" / "admin" / "daily.py")
         assert "pool.acquire" not in d, "daily.py ga xom SQL qaytib kelgan"
         assert "daily_report_stats" in d
         assert st["kpi"]["jami"] == SOXTA_ACTIVITY["total_users"]
@@ -299,7 +305,7 @@ async def main():
         # Oshgan token baribir ISHLAYDI, faqat pulli bo'ladi — shuning
         # uchun bu «bloklandi» emas, ogohlantirish.
         assert t["kecha"] == 2_610_000 and t["kecha_oshgan"] is True, t
-        js_matn = (ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8")
+        js_matn = js_kod((ROOT / "web" / "static" / "panel.js").read_text(encoding="utf-8"))
         assert "kecha oshgan" in js_matn, "panel kechagi oshishni aytmaydi"
         assert "grantdan oshdi" in js_matn, "panel bugungi oshishni aytmaydi"
         print("[9b] grantdan oshish panelda aytiladi OK")
@@ -316,7 +322,7 @@ async def main():
         # ── 9d) Yozish javobni KUTTIRMAYDI va yiqilmaydi ───────────────
         # ⚠️ Hisob javobdan muhimroq emas: baza yiqilsa ham foydalanuvchi
         # javobini olishi kerak.
-        ai_matn = (ROOT / "services" / "ai.py").read_text(encoding="utf-8")
+        ai_matn = kod(ROOT / "services" / "ai.py")
         assert "asyncio.create_task(_token_saqla(" in ai_matn, (
             "token yozuvi javob yo'lida kutilyapti")
         i = ai_matn.index("async def _token_saqla")
@@ -333,7 +339,7 @@ async def main():
         # Bu JONLI xato edi va testlar uni KO'RMAGAN: bu yerda baza
         # soxta va int qaytaradi. Shuning uchun tekshiruv SQL MATNINI
         # o'qiydi — `test_panel_raqamlar.py` dagi qoida bilan bir xil.
-        db_matn = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+        db_matn = kod(ROOT / "db" / "database.py")
         i = db_matn.index("async def token_stats")
         tana = db_matn[i:db_matn.index("\n@with_db_retry", i)]
         tana = tana[tana.index("pool.acquire"):]        # izohlar emas, SQL
@@ -342,7 +348,38 @@ async def main():
         assert not xom, f"token_stats da ::bigint siz SUM(): {xom}"
         print("[9e] token_stats: hamma SUM() ::bigint ga o'tkazilgan OK")
 
-    print("\nweb stats: barcha tekshiruvlar o'tdi (13/13).")
+        # ── 14) ⭐ KUZATUV GURUHI BANNERI ──────────────────────────
+        # Kuzatuv guruhi — panelning YAGONA chiqish kanali: ogohlantirish
+        # faqat shu yerga boradi. U yiqilsa, ilgari buni bitta
+        # `logger.warning` bilardi — ya'ni «bot jim» xabari yetmagani
+        # aynan bot jim bo'lganida ko'rinardi.
+        #
+        # Sog'lom holatda banner YONMASLIGI kerak: doim yonib turadigan
+        # ogohlantirish — o'chirilgan ogohlantirish.
+        assert ov["kuzatuv"] == {"guruh": True, "sabab": None, "vaqt": None}, \
+            ov["kuzatuv"]
+
+        vaqt = datetime.datetime(2026, 9, 25, 14, 0,
+                                 tzinfo=datetime.timezone.utc)
+
+        async def yiqilgan():
+            return {"guruh": True, "sabab": "Bot guruhdan chiqarib yuborilgan.",
+                    "vaqt": vaqt}
+        api.database_module.get_watch_health = yiqilgan
+        k = (await (await client.get("/api/overview", headers=h)).json())["kuzatuv"]
+        assert k["sabab"] == "Bot guruhdan chiqarib yuborilgan.", k
+        # ⚠️ Vaqt ISO satr, tayyor «25.09.2026» EMAS — formatlash panelda
+        # (`_sana` izohiga qarang) va Toshkent siljishi bilan.
+        assert k["vaqt"].startswith("2026-09-25T19:00:00+05:00"), k
+
+        async def sozlanmagan():
+            return {"guruh": False, "sabab": None, "vaqt": None}
+        api.database_module.get_watch_health = sozlanmagan
+        k = (await (await client.get("/api/overview", headers=h)).json())["kuzatuv"]
+        assert k["guruh"] is False, k
+        print("[14] kuzatuv guruhi banneri: sog'lom / yiqilgan / sozlanmagan OK")
+
+    print("\nweb stats: barcha tekshiruvlar o'tdi (14/14).")
 
 
 async def _nol_kecha():

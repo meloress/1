@@ -18,6 +18,8 @@ Shuning uchun tekshiruvlarning ko'pi chegaralar haqida:
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 os.environ["BOT_TOKEN"] = "123456:TEST-TOKEN-FOR-WEB-PROMO"
 
@@ -189,7 +191,7 @@ async def main():
         # sof funksiyada bo'lsin — u yerda ular testda tekshiriladi va
         # keyingi chaqiruvchi (masalan qaytib keladigan bot ekrani)
         # ularni qayta yozishga majbur bo'lmaydi.
-        src = (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        src = kod(ROOT / "web" / "api.py")
         assert "clean_promo_spec" in src, "web promokod qoidasini qayta yozgan"
         # ⚠️ Faqat `promo_set` TANASI qaraladi. Butun fayl bo'yicha
         # qidirish soxta ogohlantirish berardi: `100000` fayl ichida bor,
@@ -200,7 +202,7 @@ async def main():
             assert chegara not in gavda, (
                 f"promokod chegarasi ({chegara}) web/api.py ga ko'chib kelgan — "
                 "u `database.clean_promo_spec()` da turishi kerak")
-        d = (ROOT / "db" / "database.py").read_text(encoding="utf-8")
+        d = kod(ROOT / "db" / "database.py")
         assert "def clean_promo_spec" in d and "PROMO_KUN_MAX" in d
         print("[3] ⭐ promokod qoidalari bitta sof funksiyada, panelda nusxa yo'q OK")
 
@@ -315,11 +317,11 @@ async def main():
         # ro'yxat o'shanikiga mos bo'lishi shart. Aynan shu mos
         # kelmaslik birinchi urinishda yuz bergan edi — panel uchun
         # `"pro"` va `"active"` degan mavjud bo'lmagan kalitlar yozilgan.
-        b = (ROOT / "handlers" / "admin" / "broadcast.py").read_text(encoding="utf-8")
+        b = kod(ROOT / "handlers" / "admin" / "broadcast.py")
         for kalit in SEGMENT_NOMI:
             assert f'"{kalit}"' in b, (
                 f"SEGMENT_NOMI da «{kalit}» bor, broadcast.py esa uni yozmaydi")
-        assert "SEGMENT_NOMI" in (ROOT / "web" / "api.py").read_text(encoding="utf-8")
+        assert "SEGMENT_NOMI" in kod(ROOT / "web" / "api.py")
         print("[10] segment nomlari yagona ro'yxatdan, noma'lumi yashirilmaydi OK")
 
         # 11) Bekor qilish: yuborilgan tarqatma 404, buzuq ID 400.

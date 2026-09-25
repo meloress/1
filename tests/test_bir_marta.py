@@ -29,6 +29,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
@@ -150,7 +152,7 @@ async def main():
     # (foydalanuvchiga xabar, hujjat, kun qo'shish). Holatni shunchaki
     # qayta yozadiganiga kerak emas — ikkinchi marta bajarilsa ham
     # natija bir xil.
-    api = open(os.path.join(ROOT, "web", "api.py"), encoding="utf-8").read()
+    api = kod(os.path.join(ROOT, "web", "api.py"))
     yoz = re.findall(r'app\.router\.add_(?:post|delete)\("[^"]+",\s*(\w+)\)', api)
     assert len(yoz) >= 14, yoz
 
@@ -160,12 +162,38 @@ async def main():
     # yashirardi, pul yo'lida esa bu noto'g'ri savdo.
     ISTISNO = {"refund"}
 
+    # ⚠️ YUBORUVCHI YORDAMCHILAR RO'YXATI QO'LDA YOZILMAYDI. Handler
+    # odatda Telegramga O'ZI murojaat qilmaydi — u `_xabar()`,
+    # `_hujjat()` yoki `_guruh_sinovi()` ni chaqiradi. Ro'yxat qo'lda
+    # yozilsa, yangi yordamchi qo'shilganda u yerga tushmay qolardi va
+    # tekshiruv JIMGINA to'xtardi. Shuning uchun u manbadan olinadi:
+    # `bot.send_*` / `bot.refund_*` ni chaqiradigan har bir yordamchi.
+    def _tana_matni(bosh: int) -> str:
+        """Funksiya tanasi — KEYINGI yuqori darajadagi e'longa qadar.
+
+        ⚠️ Qat'iy chegara shart: oldin bu yerda «1500 belgi» turardi va
+        qisqa funksiyalar (`_tana`, `_yoz`) qo'shnisining ichiga oqib
+        ketib, o'zi hech narsa yubormasa ham «yuboruvchi» bo'lib
+        chiqardi.
+        """
+        keyingi = re.search(r"^(?:@|def |async def )", api[bosh + 10:], re.M)
+        return api[bosh:bosh + 10 + keyingi.start()] if keyingi else api[bosh:]
+
+    YUBORUVCHI = set()
+    for m in re.finditer(r"^async def (_\w+)\(", api, re.M):
+        if re.search(r"bot\.(send_|refund_)", _tana_matni(m.start())):
+            YUBORUVCHI.add(m.group(1))
+    assert YUBORUVCHI, "yuboruvchi yordamchi topilmadi — naqsh eskirgan"
+
     kutilgan, bor = set(), set()
     for fn in yoz:
         i = api.index(f"async def {fn}(")
         j = api.find("\n@", i)
         tana = api[i:j if j > 0 else len(api)]
-        if ("_xabar(" in tana or "_hujjat(" in tana or "extend=True" in tana):
+        tashqi = ("extend=True" in tana
+                  or re.search(r"bot\.(send_|refund_)", tana)
+                  or any(f"{y}(" in tana for y in YUBORUVCHI))
+        if tashqi:
             kutilgan.add(fn)
         # Dekoratorlar to'plami. Izoh qatorlari ham o'tkaziladi —
         # `refund` ustida sababni tushuntiruvchi izoh turibdi.

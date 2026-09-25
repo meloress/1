@@ -11,6 +11,7 @@ so'rovda qayta tekshiriladi).
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -25,7 +26,8 @@ from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS,
                          GPT_MODEL_DISPLAY_NAME, LIMIT_IZOHI, LIMIT_NOMI,
                          PLAN_LIMITS, PRO_PLANS, SEGMENT_NOMI, TARIF_NOMI,
                          TOKEN_KUNLIK_GRANT,
-                         TARIF_RANGI, TIMEZONE, audit_nomi, daily_limit)
+                         TARIF_RANGI, TIMEZONE, audit_nomi, daily_limit,
+                         guruh_xato_sababi)
 from db import database as database_module
 from web.auth import admin_only, bir_marta
 
@@ -175,7 +177,7 @@ async def overview(request: web.Request):
     # Telegram baribir bazadan OLDIN turishi shart, `watch_set` da esa
     # kesh yangilanishi yozuvdan keyin bo'lishi kerak.
     (kunlik, daromad, xatolar, xato_jami,
-     tatil, st, token) = await asyncio.gather(
+     tatil, st, token, kuzatuv) = await asyncio.gather(
         database_module.daily_report_stats(),
         database_module.revenue_stats(),
         database_module.recent_errors(limit=4),
@@ -183,6 +185,7 @@ async def overview(request: web.Request):
         database_module.get_maintenance(),
         database_module.activity_stats(kun_oynasi),
         database_module.token_stats(2),
+        database_module.get_watch_health(),
     )
 
     kunlar = _kun_qatori(st["daily_activity"], kun_oynasi,
@@ -228,6 +231,15 @@ async def overview(request: web.Request):
             "user": x.get("user_id"),
         } for x in xatolar],
         "xato_soni": xato_jami.get("day") or 0,
+        # ⚠️ Kuzatuv guruhi — panelning YAGONA chiqish kanali. U yiqilsa
+        # ogohlantirishlar hech qayerga bormaydi va buni ilgari faqat
+        # Railway logi bilardi. Matnlar `soz.js` da; bu yerdan faqat
+        # holat ketadi.
+        "kuzatuv": {
+            "guruh": bool(kuzatuv.get("guruh")),
+            "sabab": kuzatuv.get("sabab"),
+            "vaqt": _sana(kuzatuv.get("vaqt")),
+        },
         "tatil": bool(tatil.get("active")),
         # ⚠️ «Bot ishlayapti» BELGISI QOTIRILGAN MATN EMAS. Panel bot
         # jarayonining ICHIDA ishlaydi, ya'ni bu javobning kelishi
@@ -531,12 +543,53 @@ async def user(request: web.Request):
     })
 
 
+def _holat_javobi(h: Dict[str, Any]) -> Dict[str, Any]:
+    """Tarif holati — panel yuboradigan shakl bilan AYNAN bir xil."""
+    return {"tarif": h.get("tarif"), "muddat": _sana(h.get("muddat"))}
+
+
+def _qolgan_kun(muddat) -> Optional[int]:
+    """Bugundan muddatgacha necha kun. O'tib ketgan bo'lsa 0."""
+    if not isinstance(muddat, datetime):
+        return None
+    return max(0, (muddat - datetime.now(muddat.tzinfo)).days)
+
+
+def _set_premium_tafsiloti(kun, oldin: Dict[str, Any]) -> str:
+    """Audit yozuvi — TUZILGAN, ya'ni keyin TIKLASH uchun yaroqli.
+
+    ⚠️ Ilgari bu yerda faqat `"30"` turardi. Amal esa muddatni
+    ALMASHTIRADI: admin xato bosgan bo'lsa, eski qiymat hech qayerda
+    qolmasdi va uni tiklashning iloji yo'q edi. Endi oldingi tarif va
+    ANIQ sana yoziladi.
+
+    `qolgan` — o'sha paytdagi kun soni. U sanadan qayta hisoblanmaydi,
+    chunki vaqt o'tgan sari javob o'zgaradi; jurnal esa O'SHA ondagi
+    holatni ko'rsatishi kerak.
+    """
+    return json.dumps({
+        "kun": "inf" if kun is None else kun,
+        "oldin": {
+            "tarif": oldin.get("tarif"),
+            "muddat": _sana(oldin.get("muddat")),
+            "qolgan": _qolgan_kun(oldin.get("muddat")),
+        },
+    }, ensure_ascii=False)
+
+
 @admin_only
 @bir_marta
 async def premium(request: web.Request):
-    """Pro berish. `kun: null` — cheksiz."""
+    """Muddatni BELGILAYDI (qo'shmaydi). `kun: null` — cheksiz.
+
+    ⚠️ Bu amal muddatni USTIDAN yozadi — u tuzatish amali. Qo'shish
+    kerak bo'lsa `giveaway_set` (Promo → Sovg'a) ishlatiladi. Farqi
+    ekranda ham ko'rinadi: bu yerda «Muddatni belgilash», u yerda
+    «qo'shiladi».
+    """
     uid = _target(request)
-    kun = (await _tana(request)).get("kun", 30)
+    tana = await _tana(request)
+    kun = tana.get("kun", 30)
     # ⚠️ Buzuq qiymatni `None` ga aylantirish MUMKIN EMAS: bu yerda
     # `None` — «cheksiz» degani, ya'ni `{"kun": "o'ttiz"}` yozgan
     # so'rov eng katta sovg'ani olardi. Tushunib bo'lmadi = rad etiladi.
@@ -549,8 +602,48 @@ async def premium(request: web.Request):
         return web.json_response(
             {"error": f"muddat {PREMIUM_KUNLARI} dan biri bo'lsin"}, status=400)
 
-    await database_module.set_user_premium(uid, kun)
-    await _yoz(request, "set_premium", uid, "inf" if kun is None else str(kun))
+    # ⭐ OPTIMISTIK TEKSHIRUV. Panel kartochkada KO'RGAN holatni qaytarib
+    # yuboradi; server uni tranzaksiya ichida joriy holat bilan
+    # solishtiradi. Bu amal muddatni ALMASHTIRADI, ya'ni ekrandagi
+    # «20 kun» ni o'chiradi — agar o'sha 20 kun ekran ochilgandan keyin
+    # o'zgargan bo'lsa (to'lov, promokod, referal mukofoti), admin
+    # O'ZI KO'RMAGAN narsani o'chirgan bo'lardi.
+    #
+    # ⛔️ MAYDON MAJBURIY, yo'q bo'lsa 400. «Yo'q bo'lsa eskicha ishlasin»
+    # degan yo'l butun himoyani BEKOR qiladi: uni chetlab o'tish uchun
+    # maydonni yubormaslik kifoya bo'lardi. Panel — bu endpointning
+    # YAGONA mijozi va u server bilan bitta jarayonda deploy bo'ladi,
+    # ya'ni «eski mijoz» — deploy paytida ochiq qolgan varaq, xolos;
+    # u yangilansa (`?v=` hash'i shuni kafolatlaydi) maydon paydo
+    # bo'ladi. Eski varaqdagi admin baribir ESKI holatni ko'rsatib
+    # turadi, ya'ni uni o'tkazib yuborish xavfning o'zi.
+    holat = tana.get("holat")
+    if not isinstance(holat, dict) or not holat.get("tarif"):
+        return web.json_response(
+            {"error": "Profil holati yuborilmadi — panelni yangilang."},
+            status=400)
+    xom_muddat = holat.get("muddat")
+    try:
+        kutilgan_muddat = (datetime.fromisoformat(xom_muddat)
+                           if xom_muddat else None)
+    except (TypeError, ValueError):
+        return web.json_response({"error": "muddat formati noto'g'ri"}, status=400)
+
+    natija = await database_module.set_user_premium_checked(
+        uid, kun,
+        kutilgan_tarif=str(holat["tarif"]),
+        kutilgan_muddat=kutilgan_muddat)
+    if natija is None:
+        return web.json_response({"error": "topilmadi"}, status=404)
+    if not natija["ok"]:
+        # 409 — panel buni «profilni qayta yukla» deb tushunadi.
+        return web.json_response({
+            "error": "Foydalanuvchi holati o'zgargan — profilni yangilang.",
+            "hozir": _holat_javobi(natija["hozir"]),
+        }, status=409)
+
+    await _yoz(request, "set_premium", uid, _set_premium_tafsiloti(
+        kun, natija["oldin"]))
     yetdi = await _xabar(uid, (
         "🎉 <b>Sizga Pro tarif berildi!</b>\n\n"
         + ("Muddati: <b>cheksiz</b>." if kun is None else f"Muddati: <b>{kun} kun</b>.")
@@ -754,6 +847,31 @@ def _kim(user_id: Optional[int], username: Optional[str]) -> Optional[str]:
 _LIMIT_ASL = "asl qiymat"
 
 
+def _premium_tafsiloti(xom: str) -> str:
+    """`{"kun":30,"oldin":{...}}` → `«30 kun (oldin: 20 kun)»`.
+
+    ⚠️ Buzuq JSON JIM YUTILMAYDI — xom satr o'zi qaytadi. Auditda
+    bo'sh katak ko'rsatish qatorni umuman yo'q qilib qo'yardi.
+    """
+    try:
+        d = json.loads(xom)
+        kun = d["kun"]
+        o = d.get("oldin") or {}
+    except (ValueError, KeyError, TypeError):
+        return xom
+
+    yangi = "Muddatsiz" if kun == "inf" else f"{kun} kun"
+    tarif = o.get("tarif")
+    if not tarif or tarif == "free":
+        oldingi = TARIF_NOMI.get("free", "Bepul")
+    elif o.get("muddat") is None:
+        oldingi = "Muddatsiz"
+    else:
+        qolgan = o.get("qolgan")
+        oldingi = f"{qolgan} kun" if isinstance(qolgan, int) else "muddatli"
+    return f"{yangi} (oldin: {oldingi})"
+
+
 def _tafsilot(amal: str, xom: Optional[str]) -> Optional[str]:
     """`«free.points = 500»` → `«Bepul · Kunlik ballar → 500»`."""
     if not xom:
@@ -761,6 +879,10 @@ def _tafsilot(amal: str, xom: Optional[str]) -> Optional[str]:
     t = xom.strip()
 
     if amal == "set_premium":
+        # TUZILGAN yozuv (yangi qatorlar). Eskilari quyidagi
+        # qoidalardan o'tadi — ikkalasi yonma-yon yashaydi.
+        if t.startswith("{"):
+            return _premium_tafsiloti(t)
         if t == "inf":
             return "Muddatsiz"
         m = re.fullmatch(r"sovga (\d+) kun", t)
@@ -1276,7 +1398,61 @@ async def watch(request: web.Request):
     })
 
 
+# Telegram xatosini ADMIN TUSHUNADIGAN sababga o'giradi. Telegram'ning
+# o'z matni inglizcha va texnik («Bad Request: chat not found»), admin
+# esa undan nima qilishni bilmaydi.
+#
+# ⚠️ Kalit — Telegram javobining MATNI. Bu mo'rt, lekin boshqa yo'l
+# yo'q: Bot API bu holatlar uchun alohida kod bermaydi. Shuning uchun
+# mos kelmagani JIM YUTILMAYDI — oxirgi qator Telegram matnini o'zini
+# ko'rsatadi, ya'ni yangi holat paydo bo'lsa admin baribir sabab ko'radi.
+# ⚠️ Ro'yxat `core/config.py::GURUH_XATOSI` da — bu yerda nusxasi YO'Q.
+# Uni ogohlantirish yuboruvchi va kuzatuv nusxalovchi ham o'qiydi;
+# uchta nusxa bo'lsa panel bir sababni, banner boshqasini aytardi.
+
+
+async def _guruh_sinovi(guruh: int, admin_id: int) -> Optional[str]:
+    """Guruhga sinov xabari. Qaytadi: xato sababi yoki `None`."""
+    from aiogram.exceptions import TelegramAPIError
+    from core.loader import bot
+    from html import escape          # `_xabar` dagi bilan bir xil naqsh
+
+    # Kim ulagani — xabarda ko'rinsin. Nomni o'qish BEZAK: u yiqilsa
+    # ham sinov o'tishi kerak, aks holda bazadagi bir soniyalik uzilish
+    # butun amalni to'xtatardi.
+    kim = f"ID {admin_id}"
+    try:
+        meta = await database_module.get_admin_meta(admin_id) or {}
+        nom = meta.get("username")
+        if nom:
+            kim = f"@{nom} (ID {admin_id})"
+    except Exception:
+        logger.warning(f"[web] {admin_id} nomi o'qilmadi — ID ishlatiladi")
+
+    try:
+        await bot.send_message(
+            guruh,
+            "✅ <b>Kuzatuv guruhi ulandi</b>\n\n"
+            f"Ulagan: {escape(kim)}\n"
+            "Bundan buyon ogohlantirishlar va kuzatuv xabarlari shu yerga keladi.",
+            parse_mode="HTML")
+    except TelegramAPIError as e:
+        sabab = guruh_xato_sababi(str(getattr(e, "message", "") or e))
+        if sabab:
+            return sabab
+        return f"Telegram rad etdi: {getattr(e, 'message', None) or e}"
+    # ⚠️ Yiqilgan sinovda HOLAT YOZILMAYDI: bu hali saqlanmagan NOMZOD
+    # guruh, ya'ni uning xatosi hozirgi ishlayotgan guruh haqida hech
+    # narsa demaydi. Faqat muvaffaqiyat yoziladi — va u `set_watch_group_id`
+    # bilan birga eski bannerni o'chiradi.
+    except Exception:
+        logger.exception("[web] guruh sinovi yiqildi")
+        return "Telegram bilan bog'lanib bo'lmadi — keyinroq urinib ko'ring."
+    return None
+
+
 @admin_only
+@bir_marta
 async def watch_set(request: web.Request):
     """Kuzatuvga qo'shish / olib tashlash / guruhni o'zgartirish.
 
@@ -1300,6 +1476,19 @@ async def watch_set(request: web.Request):
         except (TypeError, ValueError):
             return web.json_response(
                 {"error": "Guruh ID butun son bo'lsin (masalan -1002481…)"}, status=400)
+
+        # ⭐ AVVAL SINOV XABARI, KEYIN SAQLASH. Ilgari bu yerda faqat
+        # `int()` tekshirilardi: noto'g'ri ID kiritilsa panel «Saqlandi»
+        # deb yozardi va ogohlantirishlar jimgina HECH QAYERGA
+        # bormasdi — aynan o'sha paytda ular kerak bo'ladi.
+        #
+        # ⚠️ Tartib `refund` dagi bilan bir xil sababdan: Telegram
+        # avval, baza keyin. Aks holda baza yangi guruhni ko'rsatib
+        # turardi-yu, u yerga hech narsa yetmasdi.
+        xato = await _guruh_sinovi(guruh, request["user_id"])
+        if xato:
+            return web.json_response({"error": xato}, status=400)
+
         await database_module.set_watch_group_id(guruh)
         await database_module.load_watch_cache()
         await _yoz(request, "watch_group", None, str(guruh))
@@ -1683,6 +1872,9 @@ async def meta(request: web.Request):
         "limit_izohi": LIMIT_IZOHI,
         "qamrovlar": SEGMENT_NOMI,
         "grafik_kunlari": list(GRAFIK_KUNLARI),
+        # Tasdiq oynasida «eng ko'pi bilan N qator» deyiladi. Panel bu
+        # sonni O'YLAB TOPMASLIGI kerak — u shu faylda, bitta joyda.
+        "eksport_max": EKSPORT_MAX,
     })
 
 

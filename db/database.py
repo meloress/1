@@ -75,6 +75,81 @@ def with_db_retry(retries: int = 2, delay: float = 0.5):
     return decorator
 
 
+async def _indeks_yarat(conn, nom: str, ifoda: str) -> None:
+    """Indeksni JADVALNI QULFLAMASDAN quradi (`CONCURRENTLY`).
+
+    ⚠️ `CONCURRENTLY` tranzaksiya blokida ISHLAMAYDI. asyncpg'da
+    `conn.execute(sql)` ARGUMENTSIZ chaqirilsa oddiy so'rov protokoli
+    ishlaydi va tranzaksiya ochilmaydi — shuning uchun bu yerda hech
+    qachon parametr berilmaydi va `nom`/`ifoda` faqat shu fayldagi
+    o'zgarmas matnlar bo'ladi. Parametr qo'shilsa asyncpg tayyorlangan
+    so'rovga o'tadi va Postgres "cannot run inside a transaction block"
+    beradi.
+
+    ⛔️ Yiqilgan `CONCURRENTLY` jadvalda YAROQSIZ (invalid) indeks
+    qoldiradi, `IF NOT EXISTS` esa uni "bor" deb o'tkazib yuboradi —
+    ya'ni indeks abadiy yaroqsiz qoladi va hech narsa aytmaydi. Shuning
+    uchun avval yaroqsizi qidiriladi va tashlanadi.
+
+    Xato JIM YUTILMAYDI: indeks bo'lmasa bot ishlaydi, faqat sekin —
+    bu ogohlantirish, ishga tushishni to'xtatadigan sabab emas.
+    """
+    try:
+        yaroqsiz = await conn.fetchval(
+            '''SELECT TRUE FROM pg_class c
+                 JOIN pg_index i ON i.indexrelid = c.oid
+                WHERE c.relname = $1 AND NOT i.indisvalid''', nom)
+        if yaroqsiz:
+            logger.warning(f"[indeks] {nom} yaroqsiz edi — qayta quriladi")
+            await conn.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {nom}")
+        await conn.execute(
+            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {nom} ON {ifoda}")
+    except Exception as e:
+        logger.warning(f"[indeks] {nom} qurilmadi: {e}")
+        return
+    logger.info(f"[indeks] {nom} tayyor")
+
+
+# Qulfsiz quriladigan indekslar: (nomi, jadval va ustunlar).
+#
+# ⚠️ Uchalasi ham YOZILADIGAN jadval ustida: `user_history` ga har model
+# raundida, `error_log` ga har foydalanuvchi xatosida, `admin_audit` ga
+# har admin amalida. Oddiy `CREATE INDEX` ularni qurish davomida
+# qulflaydi, ya'ni deploy paytida yozib bo'lmaydigan oyna paydo bo'lardi.
+_INDEKSLAR = (
+    # `token_stats::eng_qimmat` `created_at` bo'yicha filtrlab, `user_id`
+    # bo'yicha guruhlaydi — bitta ustunli indeks faqat filtrni qoplaydi.
+    ("idx_user_history_kun_user", "user_history (created_at, user_id)"),
+    ("idx_error_log_kun", "error_log (created_at)"),
+    ("idx_admin_audit_vaqt", "admin_audit (action_time)"),
+)
+
+
+async def indekslarni_qur() -> None:
+    """Qulfsiz indekslar — FON VAZIFASI, ishga tushishni kutkazmaydi.
+
+    ⛔️ `CONCURRENTLY` jadvalni skanerlab chiqadi, ya'ni katta jadvalda
+    u SONIYALAB davom etadi. `main()` ichida `await` qilinsa bot ham,
+    panel ham shuncha vaqt ishga tushmay turardi — indeks esa tezlik
+    uchun, ishlashi uchun emas. Indekssiz bot darhol ishlaydi, faqat
+    sekinroq; kutib turgan bot esa umuman ishlamaydi.
+
+    Shuning uchun `main.py` buni `asyncio.create_task()` bilan
+    chaqiradi va natija faqat LOGGA yoziladi — `[indeks] … tayyor`
+    yoki `[indeks] … qurilmadi: …`.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    try:
+        async with pool.acquire() as conn:
+            for nom, ifoda in _INDEKSLAR:
+                await _indeks_yarat(conn, nom, ifoda)
+    except Exception as e:
+        # Butun vazifa yiqilsa ham bot ishlayveradi — bu fon ishi.
+        logger.warning(f"[indeks] qurish vazifasi yiqildi: {e}")
+
+
 async def create_db_pool():
     """Create and return a global asyncpg pool (if not created yet)."""
     global pool
@@ -222,6 +297,22 @@ async def create_users_table():
             INSERT INTO watch_settings (id) VALUES (1)
             ON CONFLICT (id) DO NOTHING
         ''')
+        # Kuzatuv guruhiga yozib bo'lmayotgani PANELDA ko'rinsin.
+        #
+        # ⚠️ NEGA KERAK: ogohlantirish yuborilmasa kod faqat
+        # `logger.warning` yozardi — ya'ni «bot yiqildi» xabari
+        # yetmagani Railway logida qolardi, va u yerga bot yiqilganda
+        # qaraladi. Xabar ketmadi, tizim esa «ketdi» deb hisoblardi.
+        #
+        # Uchalasi NULL bo'lishi mumkin = hali hech narsa yiqilmagan,
+        # ya'ni migratsiya kerak emas va sozlanmagan bot eski
+        # xatti-harakatda qoladi.
+        await conn.execute('''
+            ALTER TABLE watch_settings
+                ADD COLUMN IF NOT EXISTS oxirgi_xato_vaqt TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS oxirgi_xato_sabab TEXT,
+                ADD COLUMN IF NOT EXISTS oxirgi_ok_vaqt TIMESTAMPTZ
+        ''')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS watchlist (
                 user_id BIGINT PRIMARY KEY,
@@ -358,6 +449,9 @@ async def create_users_table():
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);")
         except Exception:
             pass
+
+        # ⚠️ `CONCURRENTLY` indekslari BU YERDA EMAS — `indekslarni_qur()`
+        # da, fon vazifasida. Izohini o'sha yerdan o'qing.
 
 
 @with_db_retry()
@@ -773,6 +867,74 @@ async def load_watch_cache() -> None:
         _watched_user_ids = {r['user_id'] for r in rows}
 
 
+# Oxirgi bazaga YOZILGAN kuzatuv holati. Faqat holat o'zgarganda
+# yoziladi.
+#
+# ⛔️ CHASTOTA CHEKLOVI SHART. `_send_watch_copy()` kuzatilayotgan
+# odamning HAR xabarida ishlaydi — guruh yiqilgan bo'lsa har xabarda
+# `UPDATE` ketardi. Holat o'zgarishi (yiqildi / tuzaldi) esa kamdan-kam
+# hodisa, ya'ni alohida taymer kerak emas: juftlik o'zgarmasa yozilmaydi.
+_watch_holat_ram: tuple = (None, None)
+
+
+@with_db_retry()
+async def watch_holat_yoz(ok: bool, sabab: Optional[str] = None) -> None:
+    """Kuzatuv guruhiga yuborish natijasini yozadi.
+
+    `ok=True`  — yetkazildi; banner o'chadi.
+    `ok=False` — GURUH darajasidagi xato (`config.guruh_xato_sababi()`
+                 tanigan sabab). Xabarga xos xatolar bu yerga KELMAYDI:
+                 ular keyingi xabarda o'zi tuzaladi va bannerni doim
+                 yonib turadigan — ya'ni ma'nosiz — qilib qo'yardi.
+
+    ⚠️ Chaqiruvchi buni `try/except` ichida chaqiradi: hisob yuritish
+    javob yo'lidan muhimroq emas (`_token_saqla()` bilan bir xil qoida).
+    """
+    global _watch_holat_ram, pool
+    yangi = (bool(ok), None if ok else (sabab or "")[:200])
+    if yangi == _watch_holat_ram:
+        return
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        if ok:
+            await conn.execute(
+                "UPDATE watch_settings SET oxirgi_ok_vaqt = NOW() WHERE id = 1")
+        else:
+            await conn.execute(
+                "UPDATE watch_settings SET oxirgi_xato_vaqt = NOW(), "
+                "oxirgi_xato_sabab = $1 WHERE id = 1", yangi[1])
+    # Faqat YOZILGANDAN keyin — aks holda yiqilgan yozuv «yozilgan»
+    # bo'lib qolardi va holat boshqa hech qachon yangilanmasdi.
+    _watch_holat_ram = yangi
+
+
+@with_db_retry()
+async def get_watch_health() -> Dict[str, Any]:
+    """Boshqaruv ekranidagi banner uchun: guruh bormi, oxirgi xato qachon."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT group_id, oxirgi_xato_vaqt, oxirgi_xato_sabab, "
+            "oxirgi_ok_vaqt FROM watch_settings WHERE id = 1")
+    if row is None:
+        return {"guruh": False, "sabab": None, "vaqt": None}
+    xato, ok = row["oxirgi_xato_vaqt"], row["oxirgi_ok_vaqt"]
+    # Xato oxirgi muvaffaqiyatdan KEYIN bo'lsagina banner yonadi —
+    # alohida «tozalash» amali yo'q, ya'ni unutib qo'yiladigan qadam ham
+    # yo'q: muvaffaqiyatli yuborish bannerni o'zi o'chiradi.
+    tirik = bool(xato) and (ok is None or xato > ok)
+    # ⚠️ `vaqt` — xom `datetime`, tayyor satr emas: formatlash panelning
+    # ishi (`web/api.py::_sana` izohiga qarang).
+    return {
+        "guruh": row["group_id"] is not None,
+        "sabab": row["oxirgi_xato_sabab"] if tirik else None,
+        "vaqt": xato if tirik else None,
+    }
+
+
 @with_db_retry()
 async def get_watch_group_id() -> Optional[int]:
     global pool
@@ -784,12 +946,18 @@ async def get_watch_group_id() -> Optional[int]:
 
 @with_db_retry()
 async def set_watch_group_id(group_id: int) -> None:
-    global pool, _watch_group_id
+    global pool, _watch_group_id, _watch_holat_ram
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
-        await conn.execute('UPDATE watch_settings SET group_id = $1 WHERE id = 1', group_id)
+        # ⚠️ Yangi guruh — eski sabab BEKOR. Aks holda banner o'chgan
+        # guruhning xatosini yangi, sog'lom guruh ustida ko'rsatib turardi.
+        await conn.execute(
+            'UPDATE watch_settings SET group_id = $1, oxirgi_ok_vaqt = NOW(), '
+            'oxirgi_xato_vaqt = NULL, oxirgi_xato_sabab = NULL WHERE id = 1',
+            group_id)
     _watch_group_id = group_id
+    _watch_holat_ram = (True, None)
 
 
 @with_db_retry()
@@ -874,6 +1042,8 @@ async def create_history_table():
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_user_history_kun "
             "ON user_history (created_at)")
+        # ⚠️ Kompozit indeks BU YERDA EMAS — `indekslarni_qur()` da,
+        # fon vazifasida.
 
 @with_db_retry()
 async def get_superadmin_id() -> Optional[int]:
@@ -1497,6 +1667,21 @@ async def set_user_plan(user_id: int, plan_type: str) -> None:
 # Tarif muddatini QOLGAN VAQT USTIGA qo'shadigan yagona SQL. Sotib olish,
 # sovg'a, referal mukofoti va promokod — hammasi shu bittasidan foydalanadi,
 # shuning uchun uchta ehtiyot chorasi ham hamma joyda bir xil ishlaydi.
+# USTIDAN YOZISH — «Muddatni belgilash» amali. Qo'shmaydi, almashtiradi.
+#
+# ⚠️ XATTI-HARAKATI O'ZGARMASIN. `tests/test_pro_grant.py` 4-bandi admin
+# panelini shu SQL matni orqali muzlatadi: unda `NOW() +` bo'lishi va
+# `GREATEST` BO'LMASLIGI shart. Muddat qanday yozilishi (`make_interval`
+# yoki eski `|| ' days'`) tekshiruvga kirmaydi — ikkalasi ham `NOW() +`
+# ni saqlaydi, ya'ni ustidan yozish xatti-harakati o'zgarmaydi. Ikkinchisi
+# qo'shilsa amal jimgina «qo'shish» ga aylanadi va tuzatish imkoniyati
+# yo'qoladi — xato bilan 3650 kun bergan adminda uni qisqartirish yo'li
+# qolmaydi.
+_YOZ_MUDDAT_SQL = ("UPDATE users SET plan_type = $2, premium_until = "
+                   "NOW() + make_interval(days => $3::int) WHERE user_id = $1")
+_YOZ_CHEKSIZ_SQL = ("UPDATE users SET plan_type = $2, premium_until = NULL "
+                    "WHERE user_id = $1")
+
 _EXTEND_PLAN_SQL = """
     UPDATE users SET
       premium_until = CASE
@@ -1508,7 +1693,7 @@ _EXTEND_PLAN_SQL = """
           -- kunlari O'TMISHDAGI sanaga qo'shilib ketmasin — aks holda u pul
           -- to'lab hech narsa olmagan bo'lardi.
           ELSE GREATEST(COALESCE(premium_until, NOW()), NOW())
-               + ($3 || ' days')::interval
+               + make_interval(days => $3::int)
       END,
       -- Tarif faqat YAXSHILANADI: cheksiz 'premium' foydalanuvchi Pro sotib
       -- olsa, 10k/kun limitiga pasaytirilmaydi.
@@ -1546,17 +1731,65 @@ async def set_user_premium(user_id: int, days: Optional[int], *,
         await create_db_pool()
     async with pool.acquire() as conn:
         if days is None:
-            await conn.execute(
-                "UPDATE users SET plan_type = $2, premium_until = NULL WHERE user_id = $1",
-                user_id, plan,
-            )
+            await conn.execute(_YOZ_CHEKSIZ_SQL, user_id, plan)
         elif not extend:
-            await conn.execute(
-                "UPDATE users SET plan_type = $2, premium_until = NOW() + ($3 || ' days')::interval WHERE user_id = $1",
-                user_id, plan, str(days),
-            )
+            await conn.execute(_YOZ_MUDDAT_SQL, user_id, plan, int(days))
         else:
-            await conn.execute(_EXTEND_PLAN_SQL, user_id, plan, str(days))
+            await conn.execute(_EXTEND_PLAN_SQL, user_id, plan, int(days))
+
+
+def _soniyaga(dt):
+    """Mikrosoniyalarni tashlaydi — taqqoslash aniqligi bir soniya.
+
+    Panel sanani `isoformat(timespec="seconds")` bilan oladi, ya'ni
+    mikrosoniya unga umuman yetib bormaydi. Ularni taqqoslashga
+    qo'shish har safar «o'zgargan» degan yolg'on javob berardi.
+    """
+    return dt.replace(microsecond=0) if dt is not None else None
+
+
+@with_db_retry()
+async def set_user_premium_checked(
+        user_id: int, days: Optional[int], *, plan: str = "pro",
+        kutilgan_tarif: str, kutilgan_muddat) -> Optional[Dict[str, Any]]:
+    """Muddatni USTIDAN yozadi — lekin faqat holat kutilganday bo'lsa.
+
+    NEGA: bu amal muddatni almashtiradi, ya'ni admin ekranda ko'rgan
+    «20 kun» ni o'chiradi. Agar o'sha 20 kun ekran ochilgandan keyin
+    o'zgargan bo'lsa (odam pul to'lagan, promokod ishlatgan, referal
+    mukofoti kelgan), admin O'ZI KO'RMAGAN narsani o'chirgan bo'ladi.
+
+    ⚠️ Tekshiruv va yozuv BITTA TRANZAKSIYADA, `FOR UPDATE` qulfi
+    bilan. Alohida `SELECT` + `UPDATE` bo'lsa, ikkisining orasida
+    to'lov o'tib ketishi mumkin — ya'ni himoya bor ko'rinib, aslida
+    yo'q bo'lardi.
+
+    Qaytadi:
+      `None`                                 — bunday foydalanuvchi yo'q
+      `{"ok": False, "hozir": {...}}`        — holat o'zgargan, HECH NARSA yozilmadi
+      `{"ok": True,  "oldin": {...}}`        — yozildi; `oldin` auditga ketadi
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT plan_type, premium_until FROM users "
+                "WHERE user_id = $1 FOR UPDATE", user_id)
+            if row is None:
+                return None
+            tarif = row["plan_type"] or "free"
+            muddat = row["premium_until"]
+            holat = {"tarif": tarif, "muddat": muddat}
+            if (tarif != kutilgan_tarif
+                    or _soniyaga(muddat) != _soniyaga(kutilgan_muddat)):
+                return {"ok": False, "hozir": holat}
+            if days is None:
+                await conn.execute(_YOZ_CHEKSIZ_SQL, user_id, plan)
+            else:
+                await conn.execute(_YOZ_MUDDAT_SQL, user_id, plan, int(days))
+            return {"ok": True, "oldin": holat}
 
 
 @with_db_retry()
@@ -1969,9 +2202,9 @@ async def mark_payment_refunded(charge_id: str, admin_id: int) -> bool:
             # undan kun ayirishning ma'nosi yo'q.
             await conn.execute(
                 '''UPDATE users
-                   SET premium_until = premium_until - ($2 || ' days')::interval
+                   SET premium_until = premium_until - make_interval(days => $2::int)
                    WHERE user_id = $1 AND premium_until IS NOT NULL''',
-                row['beneficiary_id'], str(row['days']),
+                row['beneficiary_id'], int(row['days']),
             )
             # Ayirgandan keyin muddat o'tmishda qolsa — darhol free'ga.
             await conn.execute(
@@ -2504,10 +2737,11 @@ async def take_expiry_reminders(within_days: int = 3) -> List[Dict[str, Any]]:
             '''UPDATE users SET premium_reminded_for = premium_until
                WHERE plan_type <> 'free'
                  AND premium_until IS NOT NULL
-                 AND premium_until BETWEEN NOW() AND NOW() + ($1 || ' days')::interval
+                 AND premium_until BETWEEN NOW()
+                                       AND NOW() + make_interval(days => $1::int)
                  AND premium_reminded_for IS DISTINCT FROM premium_until
                RETURNING user_id, premium_until, plan_type''',
-            str(within_days),
+            int(within_days),
         )
         return [dict(r) for r in rows]
 
@@ -2543,9 +2777,8 @@ async def take_inactive_users(limit: int = 40) -> List[Dict[str, Any]]:
                    AND COALESCE(is_banned, FALSE) = FALSE
                    AND last_seen IS NOT NULL
                    AND GREATEST(last_seen, COALESCE(inactive_notified_at, last_seen))
-                       < NOW() - (
-                           (ARRAY[{steps}])[COALESCE(inactive_stage, 0) + 1]
-                           || ' days')::interval
+                       < NOW() - make_interval(days =>
+                           (ARRAY[{steps}])[COALESCE(inactive_stage, 0) + 1])
                  ORDER BY GREATEST(last_seen, COALESCE(inactive_notified_at, last_seen))
                  LIMIT $1
                  FOR UPDATE SKIP LOCKED
@@ -2732,13 +2965,16 @@ def _jurnal_filtri(ustunlar: tuple, q: Optional[str], kun: Optional[int],
     args = list(boshlangich)
 
     if kun:
-        # ⚠️ SATR, int EMAS. `($N || ' days')` ifodasida asyncpg $N ni
-        # `text` deb biladi va int berilsa DataError tashlaydi. Butun
-        # jurnal ekrani va ogohlantirish kuzatuvchisi shu bitta satrda
-        # yiqilgan edi — testlarda baza soxta bo'lgani uchun ko'rinmay
-        # qolgan. Faylning qolgan joylari ham shunday (`str(within_days)`).
-        args.append(str(int(kun)))
-        shartlar.append(f"created_at >= NOW() - (${len(args)} || ' days')::interval")
+        # ⚠️ `make_interval(days => $N::int)`, satr yopishtirish EMAS.
+        # Eski `($N || ' days')::interval` da asyncpg $N ni `text` deb
+        # bilardi va int berilsa DataError tashlardi — butun jurnal
+        # ekrani va ogohlantirish kuzatuvchisi shu bitta satrda yiqilgan
+        # edi. `str()` bilan yopish ishlagan, lekin tuzoq joyida qolgan:
+        # keyingi yozuvchi yana int beradi. `make_interval` da tur
+        # to'g'ridan-to'g'ri int, ya'ni tuzoqning o'zi yo'q.
+        args.append(int(kun))
+        shartlar.append(
+            f"created_at >= NOW() - make_interval(days => ${len(args)}::int)")
 
     frag = (q or "").strip()[:64]
     if len(frag) >= 2:
@@ -2918,9 +3154,9 @@ def _audit_filtri(admin_id: Optional[int], q: Optional[str],
         args.append(admin_id)
         shartlar.append(f"a.admin_id = ${len(args)}")
     if kun:
-        args.append(str(int(kun)))          # SATR — `_jurnal_filtri` ga qarang
+        args.append(int(kun))               # int — `_jurnal_filtri` ga qarang
         shartlar.append(
-            f"a.action_time >= NOW() - (${len(args)} || ' days')::interval")
+            f"a.action_time >= NOW() - make_interval(days => ${len(args)}::int)")
     frag = (q or "").strip()[:64]
     if len(frag) >= 2:
         args.append(f"%{frag}%")
@@ -3154,12 +3390,12 @@ async def top_users(days: int, limit: int) -> List[Dict[str, Any]]:
         rows = await conn.fetch(f'''
             SELECT user_id, username, COUNT(*) AS activity_count
             FROM user_activity
-            WHERE activity_time >= NOW() - ($1 || ' days')::interval
+            WHERE activity_time >= NOW() - make_interval(days => $1::int)
               {_ODDIY_USER}
             GROUP BY user_id, username
             ORDER BY activity_count DESC
             LIMIT $2
-        ''', str(int(days)), int(limit))
+        ''', int(days), int(limit))
         return [dict(r) for r in rows]
 
 
@@ -3351,7 +3587,7 @@ async def activity_stats(kunlar: int = 7) -> Dict[str, Any]:
             SELECT (activity_time AT TIME ZONE 'Asia/Tashkent')::date AS day,
                    COUNT(*) AS total, COUNT(DISTINCT user_id) AS uniq_users
             FROM user_activity
-            WHERE activity_time >= NOW() - (($1::int + 1) || ' days')::interval
+            WHERE activity_time >= NOW() - make_interval(days => $1::int + 1)
               AND (activity_time AT TIME ZONE 'Asia/Tashkent')::date
                   > (NOW() AT TIME ZONE 'Asia/Tashkent')::date - $1::int
               {_ODDIY_USER}

@@ -32,6 +32,8 @@ window.SOZ = {
   yangilandi: "Yangilandi",
   qaytaUrinish: "Qayta urinish",
   yuklanmadi: "Ma'lumot yuklanmadi.",
+  /* 409 \u2014 kartadagi ma'lumot eskirgan, panel profilni qayta yuklaydi. */
+  eskirdi: "Profil yangilandi \u2014 raqamlarni tekshirib qayta urinib ko'ring.",
   saqlandi: "Saqlandi",
   bekorQilish: "Bekor qilish",
   bekorQilindi: "Bekor qilindi",
@@ -71,6 +73,16 @@ window.SOZ = {
   },
   tatilYoq: "O'chiq",
   tatilBor: "Yoqilgan",
+
+  /* Kuzatuv guruhi banneri — Boshqaruv ekranining tepasida.
+     Matn ANIQ bo'lsin: «nimadir ishlamayapti» emas, nima ishlamayapti
+     va nima qilish kerak. Sabab serverdan keladi va shu yerda emas. */
+  kuzatuvBanner: {
+    yoq:         "Kuzatuv guruhi sozlanmagan",
+    yoqIzoh:     "Ogohlantirishlar hech qayerga bormaydi. " +
+                 "Sozlamalar → Kuzatuv bo'limidan guruhni ulang.",
+    yetmayapti:  "Kuzatuv guruhiga xabar yetmayapti"
+  },
 
   /* ── Foydalanuvchilar ──────────────────────────────────────── */
   user: {
@@ -121,7 +133,55 @@ window.SOZ = {
     kuzatuvOl: "Kuzatuvdan olib tashlansinmi?",
     tatil:   "Texnik ta'til yoqilsinmi? Adminlardan boshqa hamma javob o'rniga ogohlantirish oladi.",
     sovga:   "Bepul Pro berilsinmi? Har biriga botdan xabar boradi.",
-    tarqatma: "Rejalashtirilgan tarqatma bekor qilinsinmi?"
+    tarqatma: "Rejalashtirilgan tarqatma bekor qilinsinmi?",
+
+    /* ⚠️ TASDIQ MATNI AMALNI AYTSIN, "Ishonchingiz komilmi?" emas.
+       Tasdiq odamni to'xtatish uchun emas — U NIMA QILAYOTGANINI
+       KO'RSATISH uchun. "Ishonchingiz komilmi?" hech qanday yangi
+       ma'lumot bermaydi, ya'ni o'qilmay bosiladi va tasdiq bo'lishdan
+       to'xtaydi. Shuning uchun bu uchtasi funksiya: ular KIMGA,
+       QANCHA va NIMA yuborilishini aytadi. */
+    /* ⚠️ MATN HOZIRGI HOLATNI AYTSIN. Bu amal muddatni ALMASHTIRADI,
+       ya'ni kartadagi «20 kun» ni o'chiradi \u2014 va admin buni tasdiq
+       oynasida KO'RMASA, yo'qotganini ham bilmaydi. */
+    proFree: function (kim, kun) {
+      return kim + " ga " + kun + " kunlik Pro berilsinmi? Hozir bepul tarifda.";
+    },
+    proMuddat: function (kim, kun, qolgan, sana) {
+      return kim + ": hozir " + qolgan + " kuni bor (" + sana +
+             " gacha) \u2014 u o'chadi, muddat bugundan boshlab " + kun +
+             " kun bo'ladi.";
+    },
+    /* ⛔️ ENG QATTIQ HOLAT: cheksiz tarif muddatliga almashadi va eski
+       qiymat auditdan boshqa hech qayerda qolmaydi. */
+    proCheksizdan: function (kim, kun) {
+      return kim + " da hozir CHEKSIZ Pro bor. U O'CHADI va o'rniga " +
+             kun + " kunlik muddat qo'yiladi. Cheksiz tarif qaytarilmaydi.";
+    },
+    /* Cheksiz — alohida matn: u boshqa chiplar bilan yonma-yon turadi
+       va bitta bosishda MUDDATSIZ tarif beradi. */
+    proCheksizga: function (kim) {
+      return kim + " ga CHEKSIZ Pro berilsinmi?" +
+             " Bu muddatsiz: avtomatik tugamaydi va faqat qo'lda" +
+             " bekor qilinadi.";
+    },
+    eksport: function (nima, max) {
+      return nima + " CSV fayli tayyorlansinmi? Eng ko'pi bilan " + max +
+             " qator. Fayl Telegram chatingizga hujjat bo'lib keladi" +
+             " \u2014 undan forward qilish mumkin.";
+    },
+    xabar: function (kim, parcha) {
+      return kim + " ga botdan xabar yuborilsinmi?\n\n\u00ab" + parcha + "\u00bb";
+    }
+  },
+
+  /* Eksport turlarining ko'rinadigan nomlari. Bu PANELNING o'z matni
+     (bot uni ishlatmaydi), shuning uchun shu yerda. Chegara soni esa
+     serverdan keladi (`/api/meta`) — u `api.py` dagi `EKSPORT_MAX`. */
+  eksportNomi: {
+    users:    "Foydalanuvchilar",
+    audit:    "Admin amallari jurnali",
+    payments: "To'lovlar"
   },
 
   /* ── Amal natijalari ───────────────────────────────────────── */

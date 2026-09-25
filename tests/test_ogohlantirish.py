@@ -21,10 +21,15 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 from handlers.admin import daily as d
+from handlers import helpers as _helpers
 
 _xato = 0
+# `watch_holat_yoz` ga ketgan chaqiruvlar: (ok, sabab).
+HOLAT: list = []
 
 
 def check(n, nom, shart):
@@ -69,6 +74,15 @@ def sozla(*, xato_kun=0, jim_soat=0.0, guruh=-100500, soat=12):
                     ("get_watch_group_id", get_watch_group_id),
                     ("last_activity_at", last_activity_at)):
         setattr(d.database_module, nom, fn)
+
+    # Kuzatuv holati yozuvi. `kuzatuv_holati()` uni `handlers.helpers`
+    # ichidagi `database` orqali chaqiradi, shuning uchun soxta AYNAN
+    # o'sha modulga qo'yiladi.
+    HOLAT.clear()
+
+    async def watch_holat_yoz(ok, sabab=None):
+        HOLAT.append((bool(ok), sabab))
+    _helpers.database.watch_holat_yoz = watch_holat_yoz
 
     # Soatni boshqarish: `datetime.now(TASHKENT).hour` shu orqali o'tadi.
     asl = d.datetime
@@ -154,8 +168,8 @@ async def main():
 
     # ── 9) Kuzatuvchi ro'yxatdan o'tgan ────────────────────────────
     import inspect
-    m = (open(os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "main.py"), encoding="utf-8").read())
+    m = kod(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "main.py"))
     check(9, "alert_watcher main.py da ishga tushiriladi",
           "alert_watcher()" in m and "create_task" in m)
 
@@ -171,6 +185,62 @@ async def main():
     except Exception:
         ok = False
     check(10, "Telegram rad etsa ham tekshiruv yiqilmaydi", ok)
+    tikla()
+
+    # ── 11) ⭐ YUBORILMAGAN XABAR UCHUN BAYROQ QO'YILMAYDI ─────────
+    # `_ogoh_holat` «bu haqda aytilgan» degani. Yetmagan xabar uchun uni
+    # qo'yish — aytilmagan narsani aytilgan deb belgilash, va shart
+    # bekor bo'lmaguncha boshqa HECH QACHON urinilmaydi. Ya'ni guruh
+    # yiqilgan paytda ogohlantirish BUTUNLAY yo'qolardi.
+    bot, tikla = sozla(xato_kun=d.OGOH_XATO_CHEGARA + 5)
+
+    async def yiqiladi(*a, **k):
+        raise RuntimeError("Forbidden: bot was kicked from the group chat")
+    d.bot.send_message = yiqiladi
+    await d._ogoh_tekshir()
+    check(11, "yuborish yiqilsa bayroq QO'YILMAYDI",
+          d._ogoh_holat.get("xato") is not True)
+
+    # ── 12) Keyingi tekshiruvda QAYTA urinadi ─────────────────────
+    urinish = []
+
+    async def sanaydi(*a, **k):
+        urinish.append(1)
+        raise RuntimeError("Forbidden: bot was kicked from the group chat")
+    d.bot.send_message = sanaydi
+    await d._ogoh_tekshir()
+    await d._ogoh_tekshir()
+    check(12, "yiqilgan ogohlantirish keyingi tekshiruvda qayta uriniladi",
+          len(urinish) == 2)
+
+    # ── 13) ⭐ GURUH darajasidagi xato banner'ni yoqadi ────────────
+    check(13, "guruh xatosi banner holatiga yoziladi",
+          HOLAT and HOLAT[-1][0] is False
+          and "chiqarib yuborilgan" in (HOLAT[-1][1] or ""))
+
+    # Yetkazilgach bayroq qo'yiladi va banner o'chadi.
+    HOLAT.clear()
+    # ⚠️ Yangi bot — `d.bot.send_message` yuqorida ustidan yozilgan, ya'ni
+    # eski obyektdan asl usulni qaytarib bo'lmaydi. `_ogoh_holat` esa
+    # ATAYLAB tozalanmaydi: bayroq hali False, ya'ni bu o'sha qayta
+    # urinishning davomi.
+    d.bot = SoxtaBot()
+    await d._ogoh_tekshir()
+    check(14, "yetkazilgach bayroq qo'yiladi va banner o'chadi",
+          d._ogoh_holat.get("xato") is True and HOLAT == [(True, None)])
+    tikla()
+
+    # ── 15) ⭐ XABARGA XOS xato banner holatiga TEGMAYDI ───────────
+    # «matn uzun», «tahlil qilinmadi» keyingi xabarda o'zi tuzaladi.
+    # Uni banner'ga chiqarish banner'ni DOIM yonib turadigan qilardi,
+    # va doim yonadigan ogohlantirish — o'chirilgan ogohlantirish.
+    bot, tikla = sozla(xato_kun=d.OGOH_XATO_CHEGARA + 5)
+
+    async def uzun(*a, **k):
+        raise RuntimeError("Bad Request: message is too long")
+    d.bot.send_message = uzun
+    await d._ogoh_tekshir()
+    check(15, "xabarga xos xato banner holatini o'zgartirmaydi", HOLAT == [])
     tikla()
 
     print()

@@ -17,6 +17,11 @@ from aiogram.enums import ParseMode
 from core.config import ACTIVITY_TYPES
 from core.loader import bot
 from db import database as database_module
+# ⚠️ Bitta yozuvchi — ikkita chaqiruvchi. Ogohlantirish ham, kuzatuv
+# nusxasi ham guruhga yozadi, ya'ni «qaysi xato banner'ni yoqadi» qoidasi
+# ikkalasida BIR XIL bo'lishi kerak. Ikkinchi nusxa yozilsa, ular bir
+# sababni ikki xil talqin qilib ketardi.
+from handlers.helpers import kuzatuv_holati
 
 logger = logging.getLogger(__name__)
 
@@ -191,15 +196,33 @@ OGOH_JIMLIK_SOAT = 3              # shuncha soat hech kim yozmasa
 _ogoh_holat: dict = {}
 
 
-async def _ogoh_yubor(matn: str) -> None:
-    """Kuzatuv guruhiga. Guruh sozlanmagan bo'lsa — jim."""
+async def _ogoh_yubor(matn: str) -> bool:
+    """Kuzatuv guruhiga. Qaytadi: YETKAZILDIMI.
+
+    ⭐ Qaytish qiymati chaqiruvchiga KERAK. `_ogoh_holat` bayrog'i
+    «bu haqda allaqachon aytilgan» degani; yuborilmagan xabar uchun uni
+    qo'yish — aytilmagan narsani aytilgan deb belgilash. Guruh yiqilgan
+    paytda aynan shu bo'lardi: birinchi urinish jim yiqilardi, bayroq
+    qolardi, va shart bekor bo'lmaguncha boshqa HECH QACHON urinilmasdi.
+
+    Guruh sozlanmagan bo'lsa ham `False`: xabar yetmadi, ya'ni keyingi
+    tekshiruvda qayta urinish kerak (banner esa buni aytib turadi).
+    """
     guruh = await database_module.get_watch_group_id()
     if not guruh:
-        return
+        return False
     try:
         await bot.send_message(guruh, matn, parse_mode="HTML")
     except Exception as e:
         logger.warning(f"[Ogohlantirish] yuborilmadi: {e}")
+        # Faqat GURUH darajasidagi xato banner'ni yoqadi. Ogohlantirish
+        # matnini o'zimiz yozamiz, ya'ni «uzun» yoki «tahlil qilinmadi»
+        # bu yerda deyarli bo'lmaydi — lekin qoida hamma yuboruvchida
+        # bir xil bo'lsin.
+        await kuzatuv_holati(False, str(e))
+        return False
+    await kuzatuv_holati(True)
+    return True
 
 
 async def _ogoh_tekshir() -> None:
@@ -211,8 +234,13 @@ async def _ogoh_tekshir() -> None:
     #    o'tkazamiz — chegara soat bo'yicha o'qilishi kerak.
     kop = (xulosa.get("day") or 0) >= OGOH_XATO_CHEGARA
     if kop and not _ogoh_holat.get("xato"):
-        _ogoh_holat["xato"] = True
-        await _ogoh_yubor(
+        # ⭐ Bayroq FAQAT yetkazilgandan keyin. Yiqilsa qo'yilmaydi, ya'ni
+        # keyingi tekshiruvda (OGOH_TEKSHIRUV = 15 daqiqa) qayta
+        # urinamiz. Spam emas: yetmagan xabar hech kimga ko'rinmaydi,
+        # ya'ni qayta urinishning yagona narxi — kuniga 96 ta
+        # muvaffaqiyatsiz Telegram chaqiruvi. Yetkazilishi bilan bayroq
+        # qo'yiladi va takrorlanish to'xtaydi.
+        _ogoh_holat["xato"] = await _ogoh_yubor(
             "🔴 <b>Xatolar ko'payib ketdi</b>\n"
             f"So'nggi 24 soatda <b>{xulosa.get('day')}</b> ta xato "
             f"({xulosa.get('users_day') or 0} kishida).\n"
@@ -237,8 +265,8 @@ async def _ogoh_tekshir() -> None:
         return
     jim_soat = (datetime.now(timezone.utc) - oxirgi).total_seconds() / 3600
     if jim_soat >= OGOH_JIMLIK_SOAT and not _ogoh_holat.get("jim"):
-        _ogoh_holat["jim"] = True
-        await _ogoh_yubor(
+        # Bayroq yetkazilgandan keyin — yuqoridagi izohga qarang.
+        _ogoh_holat["jim"] = await _ogoh_yubor(
             "🟠 <b>Bot jim</b>\n"
             f"Oxirgi so'rovdan beri <b>{jim_soat:.1f} soat</b> o'tdi.\n"
             "Polling, baza yoki OpenAI yiqilgan bo'lishi mumkin — "

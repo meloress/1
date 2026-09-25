@@ -28,6 +28,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 import db.history as h                 # noqa: E402
 import handlers.messages as m          # noqa: E402
@@ -158,8 +160,8 @@ check(16, "mavzu migratsiyasi idempotent (IF NOT EXISTS / DO $$)",
 
 
 # ── 17. Bayroq BotFather'dan o'qiladi, koddan yoqilmaydi ─────────
-_MAIN = open(os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "main.py"), encoding="utf-8").read()
+_MAIN = kod(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "main.py"))
 check(17, "TOPICS_ENABLED getMe dan to'ldiriladi",
       "messages_module.TOPICS_ENABLED" in _MAIN
       and "has_topics_enabled" in _MAIN)

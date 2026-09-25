@@ -15,13 +15,15 @@ import os
 import re
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import css_kod, js_kod
 
 import pathlib
 
 STATIC = pathlib.Path(__file__).resolve().parent.parent / "web" / "static"
 HTML = (STATIC / "panel.html").read_text(encoding="utf-8")
-CSS = (STATIC / "panel.css").read_text(encoding="utf-8")
-JS = (STATIC / "panel.js").read_text(encoding="utf-8")
+CSS = css_kod((STATIC / "panel.css").read_text(encoding="utf-8"))
+JS = js_kod((STATIC / "panel.js").read_text(encoding="utf-8"))
 
 # Ekran bo'laklari: <section data-screen="x" ...> ... </section>
 SECTIONS = dict(re.findall(

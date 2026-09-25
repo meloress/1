@@ -287,19 +287,24 @@
             <div>
               <h2 style="font-size:var(--f-s);color:var(--ink-3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:11px">Amallar</h2>
               <div class="actions">
-                <button class="btn primary" id="a-pro"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6.1L12 16.8 6.6 19.7l1.2-6.1L3.3 9.4l6.1-.8z"/></svg>Pro berish</button>
+                <button class="btn primary" id="a-pro"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6.1L12 16.8 6.6 19.7l1.2-6.1L3.3 9.4l6.1-.8z"/></svg>Muddatni belgilash</button>
                 <button class="btn" id="a-free">Bepulga tushirish</button>
                 <button class="btn" id="a-quota">Kvotani tiklash</button>
                 <button class="btn" id="a-msg">Xabar yozish</button>
                 <button class="btn danger" id="a-ban">Bloklash</button>
               </div>
 
-              <!-- Muddat tanlash: «Pro berish» bosilganda ochiladi. -->
-              <div class="chips" id="a-kunlar" hidden style="margin-top:var(--s-3)">
+                            <!-- Muddat tanlash: «Muddatni belgilash» bosilganda ochiladi.
+                   ⚠️ Bu chiplar muddatni ALMASHTIRADI (qo'shmaydi) —
+                   izoh shuning uchun tugmaning yonida turibdi. -->
+              <div id="a-kunlar" hidden style="margin-top:var(--s-3)">
+                <p class="hint" style="margin-bottom:8px">Yangi muddat bugundan boshlanadi — qolgan kunlar ustiga qo'shilmaydi.</p>
+                <div class="chips">
                 <button class="chip" data-kun="7">7 kun</button>
                 <button class="chip" data-kun="30">30 kun</button>
                 <button class="chip" data-kun="90">90 kun</button>
                 <button class="chip" data-kun="inf">Cheksiz</button>
+                </div>
               </div>
 
               <div id="a-xabar" hidden style="margin-top:var(--s-3)">
@@ -409,7 +414,7 @@
         <div class="pane" data-pane="gift">
           <div class="grid2">
             <div class="card">
-              <header><h2>Bepul Pro berish</h2></header>
+              <header><h2>Bepul Pro qo'shish</h2></header>
               <p class="hint" style="margin-bottom:var(--s-3)">ID yoki @username — probel yoki vergul bilan ajratib, bir martada 20 tagacha. Har biri botdan xabar oladi.</p>
               <textarea class="kiritish" id="g-kimlar" rows="2" placeholder="@nodira_x, 641382905"></textarea>
               <div class="forma">

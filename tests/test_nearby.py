@@ -10,6 +10,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 
 from core import memory  # noqa: E402
 from services import places  # noqa: E402
@@ -162,8 +164,8 @@ check(29, "manifest joylashuv so'rashni aytadi", "send" in yoq and "location" in
 # ⚠️ Bare `else` har qanday notanish tool nomini VEB QIDIRUVGA
 # yo'naltiradi — `find_nearby` undan pastda qolsa, "eng yaqin
 # zapravka" jimgina DuckDuckGo so'roviga aylanardi.
-src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "..", "services", "ai.py"), encoding="utf-8").read()
+src = kod(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "..", "services", "ai.py"))
 check(30, "find_nearby dispatchi bare else dan YUQORIDA",
       src.index('elif call_item.name == "find_nearby"')
       < src.index('            else:\n                search_ran = True'))
@@ -191,8 +193,8 @@ check("8b:4", "URL'dagi & to'g'ri ekranlangan", "&amp;rtt=auto" in tugma)
 # u ekranda o'zining «lokatsiyangizni yuboring» degan gapini, keyin
 # «Zapravka» degan javobni ko'rardi va yana «lokatsiyangizni yuboring»
 # derdi. Endi joylashuv oddiy matn yo'lidan o'tadi.
-msrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "..", "handlers", "messages.py"), encoding="utf-8").read()
+msrc = kod(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "handlers", "messages.py"))
 loc_fn = msrc.split("async def handle_location")[1].split("async def ")[0]
 check(31, "joylashuv AI navbatiga qo'shiladi", "_queue_for_ai" in loc_fn)
 check(32, "tayyor kartochka bilan javob berilmaydi", "message.answer" not in loc_fn)

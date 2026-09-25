@@ -241,6 +241,9 @@
     // ular bo'lmasa jadval «undefined» bilan chiziladi.
     try { META = await ol("/api/meta"); } catch (e) { META = null; }
     if (!META) META = { tariflar: {}, ranglar: {}, limitlar: {}, limit_izohi: {},
+                        // `EKSPORT_MAX` ning zaxirasi: lug'at kelmasa
+                        // tasdiq matni «0 qator» deb yolg'on gapirmasin.
+                        eksport_max: 5000,
                         grafik_kunlari: [7, 30, 90] };
 
     qism("chiplar", chiplarniChiz);
@@ -381,6 +384,14 @@
     return String(s === null || s === undefined ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  /* Tasdiq oynasi uchun matnning boshi. Uzun xabar butunlay
+     ko'rsatilsa tasdiq o'qilmaydigan devorga aylanadi. */
+  function parcha(matn, uzunlik) {
+    var t = String(matn || "").replace(/\s+/g, " ").trim();
+    var n = uzunlik || 80;
+    return t.length > n ? t.slice(0, n) + "\u2026" : t;
   }
 
   async function ol(yol) {
@@ -731,8 +742,40 @@
         }).join("")
       : boshHolat(S.bosh.xato);
 
+    kuzatuvBanner(d.kuzatuv);
     holatBelgisi(d);
     yangilandiBelgisi();
+  }
+
+  /* ⭐ Kuzatuv guruhi — panelning YAGONA chiqish kanali: ogohlantirishlar
+     shu yerga boradi. U yiqilsa, ilgari buni faqat Railway logi bilardi,
+     ya'ni «bot jim» xabari yetmagani botning o'zi jim qolganida
+     ko'rinardi. Banner ekranning ENG TEPASIDA — `xatoQatori` bilan bir
+     xil sabab: telefonda birinchi `.card` KPI qatoridan keyin turadi.
+
+     ⚠️ O'CHIRISH TUGMASI YO'Q. Banner muvaffaqiyatli yuborishdan keyin
+     o'zi yo'qoladi (server ikkita vaqtni solishtiradi), ya'ni qo'lda
+     o'chirilgan banner muammo qolgan holda yo'qolib ketmaydi. */
+  function kuzatuvBanner(k) {
+    var joy = document.querySelector('section[data-screen="dash"]');
+    if (!joy) return;
+    var eski = joy.querySelector(".banner");
+    if (eski) eski.remove();
+    if (!k) return;
+
+    var bosh, izoh;
+    if (!k.guruh) { bosh = S.kuzatuvBanner.yoq; izoh = S.kuzatuvBanner.yoqIzoh; }
+    else if (k.sabab) {
+      bosh = S.kuzatuvBanner.yetmayapti;
+      izoh = k.sabab + (k.vaqt ? " · " + nisbiy(k.vaqt) : "");
+    } else return;
+
+    var el = document.createElement("div");
+    el.className = "banner";
+    el.setAttribute("role", "status");
+    el.innerHTML = ikonka("kuzatuv_ol") + "<div><b>" + xavfsiz(bosh) +
+                   "</b><span>" + xavfsiz(izoh) + "</span></div>";
+    joy.insertBefore(el, joy.firstChild);
   }
 
   /* Sarlavhadagi kichik holat nuqtasi. Uchta haqiqiy holat: baza
@@ -1032,6 +1075,11 @@
     // Tugmani o'chirish/tiklash endi `so_rov()` ning ishi — bu yerda
     // alohida nusxa turgan edi va qolgan 12 ta yozish amali undan
     // foydalanmasdi.
+    // Eksport ma'lumotni TIZIMDAN CHIQARADI: fayl Telegram chatiga
+    // tushadi va u yerdan forward qilinadi. Shuning uchun tasdiq
+    // nimani, qanchasini va QAYERGA ketishini aytadi.
+    var nima = (S.eksportNomi && S.eksportNomi[tur]) || tur;
+    if (!await tasdiq(S.savol.eksport(nima, son(META.eksport_max)))) return;
     var j = await so_rov("/api/export?tur=" + encodeURIComponent(tur),
                          {}, null, tugma);
     toast(j.ok ? son(j.d.qator) + " qator — fayl Telegramga yuborildi" : j.xato);
@@ -1273,9 +1321,49 @@
     });
   }
 
+  /* Telegram klaviaturasini yopadi. Saqlangandan keyin u ochiq qolsa
+     natija xabari ham, o'zgargan ro'yxat ham klaviatura tagida
+     ko'rinmaydi — odam nima bo'lganini bilmaydi.
+     Eski mijozda metod yo'q, shuning uchun `typeof`. */
+  function klaviaturaYop() {
+    if (!tg || typeof tg.hideKeyboard !== "function") return;
+    try { tg.hideKeyboard(); } catch (e) {}
+  }
+
+  /* Enter — formaning asosiy amali.
+     ⚠️ `textarea` DA EMAS: u yerda Enter yangi qator, va uni o'g'irlash
+     ko'p qatorli xabar yozishni buzardi.
+     ⚠️ TUGMA O'CHIQ BO'LSA ISHLAMAYDI — `so_rov()` so'rov boshlanishida
+     tugmani darhol o'chiradi, ya'ni Enter'ni bosib turish ikkinchi
+     so'rov yubormaydi.
+     ⚠️ `isComposing` — IME (masalan xitoycha klaviatura) so'z terish
+     paytida ham Enter yuboradi; o'sha Enter forma uchun emas. */
+  function enterBosilsa(idlar, tugmaId) {
+    idlar.forEach(function (id) {
+      var el = $(id);
+      if (!el || el.tagName === "TEXTAREA") return;
+      el.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter" || e.isComposing) return;
+        e.preventDefault();
+        var t = $(tugmaId);
+        if (t && !t.disabled) t.click();
+      });
+    });
+  }
+
   async function amal(yol, tana, muvaffaqiyat, tugma) {
     var j = await so_rov(yol, tana, null, tugma);
-    if (!j.ok) { natija(j.xato, true); return false; }
+    if (!j.ok) {
+      natija(j.xato, true);
+      // ⚠️ 409 = kartadagi ma'lumot ESKIRGAN. Uni yangilamasdan
+      // qoldirsak, admin o'sha eski raqamga qarab qayta bosardi va
+      // yana 409 olardi — chiqib bo'lmaydigan halqa.
+      if (j.status === 409 && uOchiq) {
+        toast(S.eskirdi);
+        qayta().catch(function (e) { console.error("[panel] 409:", e); });
+      }
+      return false;
+    }
     natija(muvaffaqiyat + (j.d.xabar_yetdi === false ? S.natija.xabarYetmadi : ""));
     toast(muvaffaqiyat);
     return true;
@@ -1297,6 +1385,36 @@
                    S.natija.refund, tugma)) await qayta();
   }
 
+  /* Kartochkada ko'rilgan tarif holati — server shuni tekshiradi.
+     ⚠️ `plan_type`, `tarif` EMAS: `tarif` bloklangan odamni «ban» deb
+     ko'rsatadi, bazadagi `plan_type` esa o'sha payt «pro» bo'lishi
+     mumkin — ikkisi hech qachon solishtirilmasligi kerak. */
+  function proHolati(d) {
+    return { tarif: d.plan_type || "free", muddat: d.premium_until || null };
+  }
+
+  /* Muddatgacha necha kun qolgani. Server ham shu qoidadan foydalanadi
+     (`_qolgan_kun`), ya'ni tasdiqdagi son auditdagisi bilan bir xil. */
+  function qolganKun(iso) {
+    var d = pars(iso);
+    if (!d) return null;
+    return Math.max(0, Math.floor((d.getTime() - Date.now()) / 86400000));
+  }
+
+  /* Tasdiq matni — TO'RT holat. Har biri boshqa narsani aytadi, chunki
+     admin uchun ular boshqa-boshqa oqibat. */
+  function proSavoli(d, kun) {
+    var kim = nomi(d);
+    var cheksizmi = d.plan_type !== "free" && !d.premium_until;
+    if (kun === null) return S.savol.proCheksizga(kim);
+    if (cheksizmi) return S.savol.proCheksizdan(kim, kun);
+    if (d.plan_type !== "free" && d.premium_until) {
+      return S.savol.proMuddat(kim, kun, qolganKun(d.premium_until),
+                               qisqa(d.premium_until));
+    }
+    return S.savol.proFree(kim, kun);
+  }
+
   function amallar() {
     $("a-pro").addEventListener("click", function () {
       titroq("light");
@@ -1308,7 +1426,13 @@
       if (!b || !uOchiq) return;
       var kun = b.dataset.kun === "inf" ? null : Number(b.dataset.kun);
       $("a-kunlar").hidden = true;
-      if (await amal("/api/users/" + uOchiq.user_id + "/premium", { kun: kun },
+      if (!await tasdiq(proSavoli(uOchiq, kun))) return;
+      // ⭐ `holat` — kartochkada KO'RILGAN qiymat. Server uni joriy
+      // qiymat bilan tranzaksiya ichida solishtiradi va farq qilsa
+      // HECH NARSA yozmaydi (409). Usiz ekran ochilgandan keyin kelgan
+      // to'lov yoki promokod jimgina o'chib ketardi.
+      if (await amal("/api/users/" + uOchiq.user_id + "/premium",
+                     { kun: kun, holat: proHolati(uOchiq) },
                      S.natija.pro, b)) await qayta();
     });
 
@@ -1344,10 +1468,15 @@
       if (!uOchiq) return;
       var matn = $("a-matn").value.trim();
       if (!matn) return natija("Matn bo'sh.", true);
+      // Yuborilgan xabar qaytarilmaydi — tasdiqda kimga va matnning
+      // boshi ko'rsatiladi, ya'ni noto'g'ri odamga yozish shu yerda
+      // to'xtaydi.
+      if (!await tasdiq(S.savol.xabar(nomi(uOchiq), parcha(matn)))) return;
       if (await amal("/api/users/" + uOchiq.user_id + "/message", { matn: matn },
                      S.natija.xabar, this)) {
         $("a-matn").value = "";
         $("a-xabar").hidden = true;
+        klaviaturaYop();
       }
     });
     delegat("u-tolovlar", "data-refund", function (id, b) { qaytarish(Number(id), b); });
@@ -1424,12 +1553,13 @@
         r = await fetch(yol, cfg);
       } catch (e) {
         titroq("xato");
-        return { ok: false, d: {}, xato: S.kirish.ulanmadi[1] };
+        return { ok: false, d: {}, status: 0, xato: S.kirish.ulanmadi[1] };
       }
       var d = {};
       try { d = await r.json(); } catch (e) {}
       titroq(r.ok ? "ok" : "xato");
-      return { ok: r.ok, d: d, xato: d.error || (S.natija.bajarilmadi + " (" + r.status + ")") };
+      return { ok: r.ok, d: d, status: r.status,
+               xato: d.error || (S.natija.bajarilmadi + " (" + r.status + ")") };
     } finally {
       if (tugma) { tugma.disabled = false; tugma.innerHTML = eski; }
     }
@@ -1795,6 +1925,7 @@
       if (!j.ok) return natijaChiz("m-natija", j.xato, true);
       $("m-matn").textContent = j.d.matn;
       $("m-forma").hidden = true;
+      klaviaturaYop();
       natijaChiz("m-natija", S.natija.matn);
       toast(S.saqlandi);
     });
@@ -1814,6 +1945,7 @@
       if (!j.ok) return natijaChiz("w-natija", j.xato, true);
       $("w-guruh-forma").hidden = true;
       $("w-guruh-input").value = "";
+      klaviaturaYop();
       natijaChiz("w-natija", S.natija.guruh);
       toast(S.saqlandi);
       await kuzatuv();
@@ -1825,6 +1957,7 @@
       var j = await so_rov("/api/watch", { amal: "add", kim: kim }, null, this);
       if (!j.ok) return natijaChiz("w-natija", j.xato, true);
       $("w-kim").value = "";
+      klaviaturaYop();
       natijaChiz("w-natija", S.natija.kuzatuvQosh);
       await kuzatuv();
     });
@@ -1843,9 +1976,16 @@
       var j = await so_rov("/api/admins", { amal: "add", kim: kim }, null, this);
       if (!j.ok) return natijaChiz("ad-natija", j.xato, true);
       $("ad-kim").value = "";
+      klaviaturaYop();
       natijaChiz("ad-natija", S.natija.adminQosh);
       await adminlar();
     });
+    // Enter — formaning asosiy amali. Sozlamalardagi uchala forma ham
+    // BIR QATORLI input bilan, ya'ni Enter uchun to'sqinlik yo'q.
+    enterBosilsa(["w-guruh-input"], "w-guruh-saqla");
+    enterBosilsa(["w-kim"], "w-qosh");
+    enterBosilsa(["ad-kim"], "ad-qosh");
+
     delegat("ad-rows", "data-addel", async function (uid, b) {
       if (!await tasdiq(S.savol.adminOl)) return;
       var j = await so_rov("/api/admins", { amal: "remove", kim: uid }, null, b);
@@ -1873,10 +2013,17 @@
       if (!j.ok) return natijaChiz("p-natija", j.xato, true);
       ["p-kod", "p-kun", "p-max", "p-muddat"].forEach(function (id) { $(id).value = ""; });
       $("p-forma").hidden = true;
+      klaviaturaYop();
       natijaChiz("p-natija", j.d.kod + " yaratildi. Odamlarga yuborish uchun botda /kod.");
       toast(S.saqlandi);
       await promokodlar();
     });
+
+    // Promo va referal formalari: hamma maydon bir qatorli.
+    // ⛔️ `g-kimlar` — `textarea`, u ataylab YO'Q: u yerda Enter yangi
+    // qator va ro'yxat bir necha qatorga yoziladi.
+    enterBosilsa(["p-kod", "p-kun", "p-max", "p-muddat"], "p-yarat");
+    enterBosilsa(["r-required", "r-days"], "r-saqla");
 
     delegat("p-rows", "data-pcopy", function (kod) {
       // ⚠️ `navigator.clipboard` faqat xavfsiz ulanishda ishlaydi;
@@ -1915,6 +2062,7 @@
       if (d.topilmadi.length) q.push("topilmadi: " + d.topilmadi.join(", "));
       natijaChiz("g-natija", q.join(" · "), !d.berildi.length && !d.yetmadi.length);
       if (d.berildi.length || d.yetmadi.length) $("g-kimlar").value = "";
+      klaviaturaYop();
       await sovga();
     });
 
@@ -1924,6 +2072,7 @@
         reward_days: $("r-days").value.trim()
       }, null, this);
       if (!j.ok) return natijaChiz("r-natija", j.xato, true);
+      klaviaturaYop();
       natijaChiz("r-natija", j.d.required + " ta do'st → " + j.d.reward_days + " kun Pro.");
       toast(S.saqlandi);
       await referal();

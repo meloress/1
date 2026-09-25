@@ -15,6 +15,8 @@ Uchta narsa qo'riqlanadi:
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
 import asyncio
 import pathlib
 import re
@@ -45,8 +47,8 @@ def test_lists():
 
 def test_registered():
     """Menyudagi buyruq HAQIQATAN handler bilan bog'langanmi?"""
-    main_src = (ROOT / "main.py").read_text(encoding="utf-8")
-    msg_src = (ROOT / "handlers" / "messages.py").read_text(encoding="utf-8")
+    main_src = kod(ROOT / "main.py")
+    msg_src = kod(ROOT / "handlers" / "messages.py")
     registered = set(re.findall(r'Command\("(\w+)"\)', main_src))
     # /new alohida: u Command() bilan emas, handle_text ichida matn
     # sifatida tekshiriladi.
@@ -55,7 +57,7 @@ def test_registered():
     # ⚠️ Admin buyruqlari `handlers/admin/__init__.py` da ro'yxatdan
     # o'tadi, main.py da emas — 7-bosqichda paydo bo'ldi va usiz
     # menyuda ko'ringan `/xabar` hech qayerga bormagan bo'lardi.
-    adm_src = (ROOT / "handlers" / "admin" / "__init__.py").read_text(encoding="utf-8")
+    adm_src = kod(ROOT / "handlers" / "admin" / "__init__.py")
     registered |= set(re.findall(r'Command\("(\w+)"\)', adm_src))
 
     for c in menu.commands_for(True, is_admin=True):
@@ -141,7 +143,7 @@ def test_call_sites():
     statik tekshiriladi — xato sinfi qaytib kelmasin.
     """
     import ast
-    src = (ROOT / "handlers" / "messages.py").read_text(encoding="utf-8")
+    src = kod(ROOT / "handlers" / "messages.py")
     tree = ast.parse(src)
     xato = []
     for fn in [n for n in ast.walk(tree)
