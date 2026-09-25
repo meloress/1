@@ -1099,25 +1099,26 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
         # `variant` callback'dan keladi — ro'yxat chegarasida tekshiriladi
         # (`isinstance(bool)`: True ham int).
         if isinstance(variant, bool) or not 0 <= variant < len(vs):
-            await database.biznes_loyiha_yakun(lid, "kutmoqda")
+            await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
             return "Bu variant endi yo'q."
         matn = vs[variant]
     else:
         matn = (yangi_matn or "").strip() or r["loyiha"]
     if not matn:
         # Variantsiz tanlov: yuboradigan tayyor matn yo'q.
-        await database.biznes_loyiha_yakun(lid, "kutmoqda")
+        await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         return "Tayyor javob yo'q — «O'zim yozaman» ni bosing."
     try:
         _bot_yubordi(await bot.send_message(
             r["chat_id"], matn, business_connection_id=r["conn_id"], parse_mode=None))
     except Exception as e:
-        await database.biznes_loyiha_yakun(lid, "kutmoqda")
+        await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         logger.warning(f"[BIZNES] loyiha id={lid} yuborilmadi: {e}")
         return f"⚠️ Yuborilmadi: {e}"
     # Tanlangan variant — modelning matni (egasi faqat tanladi): namuna emas.
     tahrirsiz = variant is not None or matn == r["loyiha"]
-    await database.biznes_loyiha_yakun(lid, "yuborildi" if tahrirsiz else "tahrirlandi", matn)
+    await database.biznes_loyiha_yakun(lid, egasi, "yuborildi" if tahrirsiz else "tahrirlandi",
+                                      matn)
     ul = database.biznes_ulanish_ol(r["conn_id"]) or {}
     if ul.get("huquqlar", {}).get("can_read_messages"):
         await safe_update_history(r["chat_id"], matn, role="assistant",

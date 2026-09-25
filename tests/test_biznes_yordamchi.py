@@ -160,7 +160,7 @@ async def soxta_band(lid, owner, holat="kutmoqda", yangi="yuborilmoqda"):
     return dict(r)
 
 
-async def soxta_yakun(lid, holat, yakuniy=None):
+async def soxta_yakun(lid, owner, holat, yakuniy=None):
     loyihalar[lid]["holat"] = holat
     q.append(("yakun", lid, holat))
 

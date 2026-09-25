@@ -1364,15 +1364,18 @@ async def biznes_loyiha_band(loyiha_id: int, owner_id: int,
 
 
 @with_db_retry()
-async def biznes_loyiha_yakun(loyiha_id: int, holat: str,
+async def biznes_loyiha_yakun(loyiha_id: int, owner_id: int, holat: str,
                               yakuniy: Optional[str] = None) -> None:
+    """⚠️ `AND owner_id` — id odatda `biznes_loyiha_band()` (egasi tekshirilgan)
+    natijasidan keladi, lekin qoida bitta: loyihaga tegadigan HAR so'rov
+    egasi bo'yicha filtrlanadi (AUDIT.md S1, test_biznes_owner.py)."""
     global pool
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE biznes_loyiha SET holat = $2, yakuniy = COALESCE($3, yakuniy) '
-            'WHERE id = $1', loyiha_id, holat, yakuniy)
+            'UPDATE biznes_loyiha SET holat = $3, yakuniy = COALESCE($4, yakuniy) '
+            'WHERE id = $1 AND owner_id = $2', loyiha_id, owner_id, holat, yakuniy)
 
 
 @with_db_retry()

@@ -136,7 +136,7 @@ async def band(lid, owner, holat_="kutmoqda", yangi="yuborilmoqda"):
     return dict(r)
 
 
-async def yakun(lid, holat_, yakuniy=None):
+async def yakun(lid, owner, holat_, yakuniy=None):
     loyihalar[lid]["holat"] = holat_
     q.append(("yakun", lid, holat_))
 
