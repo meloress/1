@@ -117,7 +117,8 @@ check(4, "rasm yo'li ham BIZNES_INSTRUCTIONS bilan",
 
 bi = ai.BIZNES_INSTRUCTIONS
 check(5, "prompt: odam, markdown yo'q, namunadan faqat uslub",
-      "EMASSAN" in bi and "markdown" in bi and "ko'chirma" in bi and "{" not in bi)
+      "yordamchi deb tanishtirma" in bi and "markdown" in bi and "ko'chirma" in bi
+      and "{" not in bi)
 
 # ── 6-8. Uslub bloki ─────────────────────────────────────────────
 U = {"uslub_egasi": "doim siz de", "uslub": "qisqa yozadi",

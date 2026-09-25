@@ -100,7 +100,7 @@ asyncio.run(yig(ai.get_openai_reply(
     biznes_yoriqnoma=yoriq)))
 kirish = str(ushlangan.get("input"))
 check(1, "bilim instructions'da YO'Q, developer xabarda BOR",
-      BILIM not in ushlangan["instructions"] and BILIM in kirish
+      BILIM not in ushlangan["instructions"]
       and any(m.get("role") == "developer" and BILIM in m.get("content", "")
               for m in ushlangan["input"]))
 check(2, "mijoz yo'lida tool schema'lari yo'q (tools_enabled=True bo'lsa ham)",

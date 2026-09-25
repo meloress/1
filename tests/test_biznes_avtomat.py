@@ -71,9 +71,9 @@ check(4, "egasiga_ajrat: to'g'ri, buzilgan, yo'q, bo'sh sabab",
 
 yoriq_a = b.mijoz_yoriqnomasi("bilim", avtomat=True)
 yoriq_y = b.mijoz_yoriqnomasi("bilim")
-check(5, "avtomat yo'riqnomasida marker qoidasi bor, yordamchida yo'q",
-      "[egasiga:" in yoriq_a and "TO'G'RIDAN-TO'G'RI" in yoriq_a
-      and "[egasiga:" not in yoriq_y and b.BUYRUQ_QOIDASI in yoriq_a)
+check(5, "avtomat yo'riqnomasida uzatish (egasiga) qarori bor, qoralamada ishlatilmaydi",
+      'qaror=\"egasiga\" — egasining biznesi' in yoriq_a and "TO'G'RIDAN-TO'G'RI" in yoriq_a
+      and 'qaror=\"egasiga\" ishlatilmaydi' in yoriq_y and b.BUYRUQ_QOIDASI in yoriq_a)
 
 # ── 6. Rasm yo'li: tool'siz, xotirasiz (haqiqiy get_vision_reply) ──
 ushlangan, xotira = {}, []
@@ -323,7 +323,7 @@ check(7, "mijoz yozdi -> bitta javob, «yozmoqda», o'qildi, sanoq, tarix",
       and ("sanoq", "biznes") in q
       and [x[2] for x in q if x[0] == "tarix"] == ["user", "assistant"]
       and ("faollik", "biznes_avtojavob") in q
-      and "[egasiga:" in next(x for x in q if x[0] == "gpt")[2])
+      and 'qaror=\"egasiga\"' in next(x for x in q if x[0] == "gpt")[2])
 
 # ── 8-10. Marker ─────────────────────────────────────────────────
 holat["model"] = "[egasiga: chegirma so'radi] Hozir aniqlab aytaman."

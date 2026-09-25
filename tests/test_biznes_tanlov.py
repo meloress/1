@@ -52,9 +52,11 @@ check(3, "variantlar 3 tadan oshmaydi, bo'shlari tashlanadi, bo'sh savol «—»
 
 # ── 4-5. Prompt qoidalari ────────────────────────────────────────
 bi = ai.BIZNES_INSTRUCTIONS
-check(4, "instructions: shaxsiy fakt to'qima, va'da berma, [tanlov:] formati",
-      "O'YLAB TOPMA" in bi and "VA'DA" in bi and "[tanlov:" in bi
-      and "sigaret" not in bi)   # misol emas, qoida — model so'zni ko'chirmasin
+check(4, "instructions: shaxsiy fakt to'qima, va'da berma, «tanlov» qarori; sxemada qaror majburiy",
+      "O'YLAB TOPMA" in bi and "VA'DA" in bi and "«tanlov»" in bi
+      and "sigaret" not in bi    # misol emas, qoida — model so'zni ko'chirmasin
+      and ai.BIZNES_SXEMA["schema"]["required"][0] == "qaror"
+      and ai.BIZNES_SXEMA["schema"]["properties"]["qaror"]["enum"] == ["javob", "tanlov", "egasiga"])
 check(5, "instructions: biznes faqat yozilgan bo'lsa; suhbatdosh do'st/oila ham bo'ladi",
       "yozilmagan bo'lsa ular haqida gapirma" in bi and "oila" in bi
       and "[EGASI HAQIDA" in b.mijoz_yoriqnomasi("")

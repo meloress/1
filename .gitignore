@@ -19,3 +19,6 @@ Bot_toliq_hujjat.pdf
 # va u GIT'DA. Bu ikkisi baytma-bayt bir xil, ya'ni ildizdagisi qo'l
 # ostida turgan nusxa, xolos. `web/static/` dagisini o'chirmang.
 /logo.jpg
+
+# eval_biznes.py natijasi (jonli model, har ishga tushirishda yangilanadi)
+tests/.eval_biznes_oxirgi.json
