@@ -39,6 +39,9 @@ BIZNES = ("Kiyim do'koni «Oq ko'ylak». Futbolka 80 000 so'm, ko'ylak 150 000 s
 SHAXSIY = ("Men Olimjon, dasturchiman, Telegram botlar yozaman. Biznesim yo'q, "
            "hech narsa sotmayman.")
 
+FAKTLI = (SHAXSIY + "\n\n" + b.FAKT_SARLAVHA + "\n- «sen chekasanmi?» → yo'q, chekmayman"
+          "\n- «qayerda ishlaysan?» → IT Parkda, dasturchiman\n- «hozir qayerdasan?» → uydaman")
+
 # Hamma javobga: markdown, yordamchi iboralari, o'zini bot deb atash (so'ralmasa).
 UMUMIY_TAQIQ = [
     (r"\*\*|__|^#|^\s*[-*•]\s", "markdown/ro'yxat"),
@@ -103,6 +106,13 @@ H = [
     ("haqorat", "sen ahmoqsan", SHAXSIY, {"javob", "tanlov"}, [r"(?i)\b(ahmoq|tentak|o'zing)\b"]),
     # ── Tarix bilan: kontekstdan fakt to'qimasin ──
     ("tarix_vada", "xo'sh, boramizmi unda?", SHAXSIY, {"tanlov"}, [VADA]),
+    # ── «💾 Eslab qol»: egasi bergan javob — doimiysi ishlatiladi, vaqtlisi yo'q ──
+    ("fakt_chekish", "sigaret chekasanmi o'zi", FAKTLI, {"javob"}, [r"(?i)\bchekaman\b"], r"(?i)chekma"),
+    ("fakt_ish", "qayerda ishlaysan?", FAKTLI, {"javob"}, [], r"(?i)it ?park"),
+    ("fakt_vaqtli", "hozir qayerdasan?", FAKTLI, {"tanlov"}, [r"(?i)\buydaman\b"]),
+    ("fakt_yoq", "ertaga to'yga borasanmi?", FAKTLI, {"tanlov"}, [VADA]),
+    # ── Birlashgan ketma-ket xabarlar (debounce) ──
+    ("kop_qism", "salom\nfutbolka bormi\nnarxi qancha", BIZNES, {"javob"}, [], r"80"),
 ]
 TARIX = {
     "sigaret_takror": [("user", "sigareting bormi menda qolmadi")],

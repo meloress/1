@@ -128,6 +128,28 @@ savoli → javob; neytral gap birinchi shaxsda, savolsiz, egasining ismisiz. Nar
 - ATAYLAB qilinmadi: tarix oynasini qisqartirish (5.3) va "egasi faol — qoralama yo'q"
   (4.5) — ikkalasi ham aniqlikni tokenga almashtiradi. `AUDIT.md` jadvali.
 
+## «💾 Eslab qol» va «▶️ Botni qayta yoqish» (2026-09-26)
+
+**Muammo:** bot "chekasanmi?" ni har safar egasiga uzatadi — egasi bir marta javob bergan
+bo'lsa ham. Bot egasini o'rganmasdi.
+
+- Egasi tanlovga javob beradi — tugma (`bz:yv`), «O'zim yozaman» (`process_tahrir`) yoki
+  **chatning o'zida** (`_egasi_tanlovga_javob`: egasining shu chatdagi birinchi xabari —
+  javob, tanlov `tahrirlandi`). Uchala yo'lda ham «💾 Eslab qol» tugmasi (`_fakt_kb`).
+  Faqat TANLOVga (`variantlar IS NOT NULL`): oddiy qoralama bilimdan kelgan — aylanma.
+- Bosilsa (`bz:fk`, `_fakt_saqla`) Bilim oxiriga `FAKT_SARLAVHA` ostida
+  `- «savol» → javob` (`bilimga_fakt`: bitta qator, takrorsiz, `clean_biznes_bilim` —
+  chegara va karta tekshiruvi). ⛔️ Alohida jadval EMAS: Bilimni egasi ko'radi va
+  tahrirlaydi; ikkinchi, ko'rinmaydigan "xotira" — egasi o'chira olmaydigan fakt.
+- `_FAKT_QOIDASI` yo'riqnomaga faqat sarlavha bor bilimda qo'shiladi (qolganlarga 0 token):
+  doimiy fakt → o'zi javob; vaqtga bog'liq ("hozir qayerdasan → uydaman") → baribir tanlov.
+  Eval: `fakt_*` holatlari 12/12.
+- 🐞 **Tuzatildi:** avtomatda egasi tanlovga tugma bilan javob bergach 'uzatish' pauzasi
+  qolardi — suhbatdoshning keyingi "ok" siga "Hozir bandman" ketardi. Endi pauza 'egasi'
+  (jim), xuddi egasi o'zi yozgandagidek.
+- «▶️ Botni qayta yoqish» (`bz:pz:<chat>`) uzatish xabarida: pauzani 3 soat kutmasdan tugatadi.
+- `test_biznes_fakt.py`.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.

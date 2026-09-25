@@ -176,7 +176,7 @@ for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    check_and_consume_daily=ruxsat, refund_daily=hech, refund_quota=hech,
                    biznes_bilim_ol=bilim, biznes_uslub_ol=bosh_uslub,
                    biznes_namuna_qosh=namuna, biznes_chat_holati=chat_holati,
-                   biznes_pauza=pauza, biznes_loyiha_eskirt=eskirt,
+                   biznes_pauza=pauza, biznes_loyiha_eskirt=eskirt, biznes_kutayotgan_tanlov=hech,
                    biznes_loyiha_yarat=yarat, biznes_loyiha_band=band,
                    biznes_loyiha_yakun=yakun, biznes_mavzu_ol=hech).items():
     setattr(database, nom, f)

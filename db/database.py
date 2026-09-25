@@ -1530,6 +1530,19 @@ async def biznes_chat_holati(owner_id: int, chat_id: int) -> Dict[str, Any]:
 
 
 @with_db_retry()
+async def biznes_loyiha_ol(lid: int, owner_id: int) -> Optional[Dict[str, Any]]:
+    """«💾 Eslab qol» uchun: yuborilgan tanlovning savoli va javobi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT mijoz_matni, yakuniy, holat, variantlar FROM biznes_loyiha '
+            'WHERE id = $1 AND owner_id = $2', lid, owner_id)
+    return dict(row) if row else None
+
+
+@with_db_retry()
 async def biznes_pauza(owner_id: int, chat_id: int, soat: int,
                        sabab: str = "egasi") -> None:
     """`sabab` — 'egasi' | 'uzatish'. Yangi pauza "bandman" bayrog'ini

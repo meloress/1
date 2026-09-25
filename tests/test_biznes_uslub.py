@@ -197,6 +197,7 @@ async def _birinchi():
 database.pro_tarifmi = rost
 database.biznes_mijoz_korildi = hech
 database.biznes_loyiha_eskirt = hech
+database.biznes_kutayotgan_tanlov = hech
 database.biznes_namuna_qosh = namuna_qosh
 database.biznes_uslub_ol = uslub_ol
 database.biznes_uslub_yoz = uslub_yoz

@@ -229,6 +229,7 @@ database.biznes_loyiha_band = soxta_band
 database.biznes_loyiha_yakun = soxta_yakun
 database.biznes_loyiha_yarat = soxta_yarat
 database.biznes_loyiha_eskirt = soxta_eskirt
+database.biznes_kutayotgan_tanlov = hech
 # Uslub (5-bosqich) — test_biznes_uslub.py da; bu yerda bo'sh.
 database.biznes_uslub_ol = lambda *a, **k: bilim_uslub()
 database.biznes_namuna_qosh = lambda *a, **k: namuna_qosh()

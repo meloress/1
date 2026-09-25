@@ -259,6 +259,7 @@ database.biznes_bilim_ol = bilim
 database.biznes_chat_holati = chat_holati
 database.biznes_pauza = soxta_pauza
 database.biznes_loyiha_eskirt = hech   # avtomatda ham eskiradi (tanlov)
+database.biznes_kutayotgan_tanlov = hech
 # Uslub (5-bosqich) — test_biznes_uslub.py da; bu yerda bo'sh.
 database.biznes_uslub_ol = lambda *a, **k: bilim_uslub()
 database.biznes_namuna_qosh = lambda *a, **k: namuna_qosh()

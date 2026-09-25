@@ -188,7 +188,7 @@ for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_uslub_ol=bosh, biznes_namuna_qosh=namuna,
                    biznes_chat_holati=chat_holati, biznes_pauza=hech,
                    biznes_loyiha_eskirt=hech, biznes_loyiha_yarat=yarat,
-                   biznes_mavzu_ol=hech).items():
+                   biznes_mavzu_ol=hech, biznes_kutayotgan_tanlov=hech).items():
     setattr(database, nom, f)
 
 UL = {"owner_id": EGASI, "owner_chat": DM, "yoqilgan": True, "rejim": "avtomat",

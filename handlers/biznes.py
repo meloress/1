@@ -438,7 +438,15 @@ async def biznes_xabar(message: Message):
         # uni keyin "Yuborish" qilish mijozga ikkinchi, eski javob bo'lardi.
         # Avtomatda ham: kutayotgan `[tanlov:]` variantlari endi o'rinsiz.
         if ul["rejim"] in ("yordamchi", "avtomat"):
+            tanlov = None
+            if matn:
+                try:
+                    tanlov = await database.biznes_kutayotgan_tanlov(egasi, message.chat.id)
+                except Exception as e:
+                    logger.debug(f"[BIZNES] kutayotgan tanlov o'qilmadi: {e}")
             await database.biznes_loyiha_eskirt(egasi, message.chat.id)
+            if tanlov:
+                await _egasi_tanlovga_javob(egasi, ul["owner_chat"], tanlov["id"], matn)
         # Avtomatda — tabiiy "qo'lga olish": egasi yozgan chatda bot
         # BIZNES_PAUZA_SOAT jim turadi (REJA.md 3-bosqich, 4-qadam).
         if ul["rejim"] == "avtomat":
@@ -725,6 +733,32 @@ REJIM_NOMI = {
 assert set(REJIM_NOMI) == set(BIZNES_REJIMLAR)
 
 
+# «💾 Eslab qol»: egasi tanlovga bergan javob Bilim oxiriga shu sarlavha
+# ostida qo'shiladi. Bilim — egasi o'zi ko'radigan va tahrirlaydigan joy
+# (alohida jadval = ikkinchi, ko'rinmaydigan "xotira"), keshi, chegarasi
+# va karta tekshiruvi tayyor.
+FAKT_SARLAVHA = "Suhbatlarda o'zim bergan javoblar:"
+
+
+def bilimga_fakt(bilim: str, savol: str, javob: str) -> tuple[str, str | None]:
+    """(yangi_bilim, xato). Sof — testda. Takror qator qo'shilmaydi."""
+    savol, javob = " ".join(savol.split())[:150], " ".join(javob.split())[:300]
+    qator = f"- «{savol}» → {javob}"
+    bilim = (bilim or "").strip()
+    if qator in bilim:
+        return bilim, None
+    if FAKT_SARLAVHA not in bilim:
+        bilim = f"{bilim}\n\n{FAKT_SARLAVHA}".strip()
+    return database.clean_biznes_bilim(f"{bilim}\n{qator}")
+
+
+# Faqat bilimda shunday qator bo'lsa qo'shiladi — qolganlar uchun 0 token.
+_FAKT_QOIDASI = (
+    "«savol» → javob qatorlari — egasining o'zi tanlagan javoblari: shunga "
+    "o'xshash savolga shu mazmunda o'zing javob ber (qaror=\"javob\"). Faqat "
+    "vaqtga bog'liq bo'lsa (hozir, bugun, ertaga, soat) — u eskirgan: tanlov.\n")
+
+
 def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
                       uslub: dict | None = None) -> str:
     """Mijoz yo'lining `developer` xabari (REJA.md 0.7).
@@ -778,7 +812,8 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "[EGASI HAQIDA — egasi o'zi yozgan; biznes yozilmagan bo'lsa, "
         "egasining biznesi yo'q. Ro'yxat TO'LIQ EMAS bo'lishi mumkin: unda "
         "yo'q mahsulot yoki xizmat so'ralsa — bu «bilimda javob yo'q», "
-        "«yo'q» dema]\n" + (bilim or "(egasi hali yozmagan)")
+        "«yo'q» dema]\n" + (_FAKT_QOIDASI if bilim and FAKT_SARLAVHA in bilim else "")
+        + (bilim or "(egasi hali yozmagan)")
         + ("\n\n" + blok if (blok := biznes_uslub.uslub_bloki(uslub)) else "")
     )
 
@@ -1257,12 +1292,13 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
     qatorlar = []
     if u and u.username:
         qatorlar.append([pro_module.btn("Chatga o'tish", "", url=f"https://t.me/{u.username}")])
+    qatorlar.append([pro_module.btn("▶️ Botni qayta yoqish", f"bz:pz:{message.chat.id}")])
     qatorlar.append([pro_module.btn("Bu chatda avtomatni o'chirish",
                                     f"bz:o:{message.chat.id}", style=BTN_DANGER)])
     matni = (f"🙋 <b>{escape(u.full_name if u else 'Mijoz')}</b> sizni kutmoqda\n"
              f"Sabab: {escape(sabab)}\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
              f"Bu chatda {BIZNES_PAUZA_SOAT} soat jim turaman — javobni o'zingiz "
-             "yozing.")
+             "yozing yoki «▶️ Botni qayta yoqish».")
     try:
         await _dm_yubor(dm, matni, parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
@@ -1413,6 +1449,11 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
     if ul.get("huquqlar", {}).get("can_read_messages"):
         await safe_update_history(r["chat_id"], matn, role="assistant",
                                   thread_id=biznes_thread(egasi))
+    if r.get("variantlar") is not None and ul.get("rejim") == "avtomat":
+        # Egasi tanlovga javob berdi. 'uzatish' pauzasi qolsa suhbatdoshning
+        # keyingi "ok" siga "Hozir bandman" ketardi — egasi hozirgina yozgan
+        # bo'lsa ham. Endi — egasi o'zi yozgandagi kabi jim pauza.
+        await database.biznes_pauza(egasi, r["chat_id"], BIZNES_PAUZA_SOAT)
     if not tahrirsiz:
         # Egasi qoralamani o'z so'zi bilan almashtirdi — bu uning haqiqiy
         # xabari. Juftlik (loyiha → yakuniy) `biznes_loyiha` da qoladi.
@@ -1570,7 +1611,8 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             return
         javob = await loyihani_yubor(lid, uid, variant=n)
         if javob.startswith("✅"):
-            await _tugmasiz(query, f"\n\n✅ <i>{n + 1}-variant yuborildi</i>")
+            await _tugmasiz(query, f"\n\n✅ <i>{n + 1}-variant yuborildi</i>",
+                            await _fakt_kb(lid, uid))
         await query.answer(javob[:200], show_alert=not javob.startswith("✅"))
         return
 
@@ -1583,7 +1625,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         if amal == "y":
             javob = await loyihani_yubor(lid, uid)
             if javob.startswith("✅"):
-                await _tugmasiz(query, "\n\n✅ <i>Yuborildi</i>")
+                await _tugmasiz(query, "\n\n✅ <i>Yuborildi</i>", await _fakt_kb(lid, uid))
             await query.answer(javob[:200], show_alert=not javob.startswith("✅"))
         elif amal == "b":
             if await database.biznes_loyiha_band(lid, uid, yangi="bekor"):
@@ -1647,6 +1689,16 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         except Exception:
             pass
         await query.answer(REJIM_NOMI[qism[2]][0])
+    elif amal == "fk" and len(qism) > 2 and qism[2].isdigit():
+        javob = await _fakt_saqla(int(qism[2]), uid)
+        if javob.startswith("✅"):
+            await _tugmasiz(query, "\n\n💾 <i>Eslab qolindi</i>")
+        await query.answer(javob[:200], show_alert=not javob.startswith("✅"))
+    elif amal == "pz" and len(qism) > 2 and qism[2].lstrip("-").isdigit():
+        # Uzatish pauzasini muddatidan oldin tugatish: egasi hal qildi.
+        await database.biznes_pauza(uid, int(qism[2]), 0)
+        await _tugmasiz(query, "\n\n▶️ <i>Bot bu chatda yana javob beradi</i>")
+        await query.answer("Bot yana javob beradi")
     elif amal in ("o", "a") and len(qism) > 2 and qism[2].lstrip("-").isdigit():
         await database.biznes_chat_ochir(uid, int(qism[2]), amal == "o")
         await query.answer("Bu chatda avtomat o'chirildi" if amal == "o"
@@ -1722,13 +1774,60 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         await query.answer()
 
 
-async def _tugmasiz(query: CallbackQuery, qoshimcha: str) -> None:
-    """Hal qilingan loyiha ostidagi tugmalarni olib tashlaydi."""
+async def _tugmasiz(query: CallbackQuery, qoshimcha: str, kb=None) -> None:
+    """Hal qilingan loyiha ostidagi tugmalarni olib tashlaydi (yoki `kb` ga almashtiradi)."""
     try:
         await query.message.edit_text((query.message.html_text or "") + qoshimcha,
-                                      reply_markup=None)
+                                      reply_markup=kb)
     except Exception:
         pass
+
+
+async def _fakt_kb(lid: int, egasi: int) -> InlineKeyboardMarkup | None:
+    """Yuborilgan TANLOV bo'lsa — «💾 Eslab qol». Oddiy qoralamaga emas:
+    u biznes javobi, bilimdan kelgan."""
+    try:
+        r = await database.biznes_loyiha_ol(lid, egasi)
+    except Exception:
+        return None
+    if not r or r["variantlar"] is None or not r["yakuniy"]:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[pro_module.btn(
+        "💾 Eslab qol — keyingi safar o'zim javob beray", f"bz:fk:{lid}")]])
+
+
+async def _egasi_tanlovga_javob(egasi: int, dm: int, lid: int, matn: str) -> None:
+    """Egasi tanlovga tugma bilan emas, CHATDA o'zi javob berdi — odatda
+    shunday bo'ladi. Uning birinchi xabari — javob: tanlov `tahrirlandi`
+    (yakuniy = shu matn) va «💾 Eslab qol» taklifi. Xatosi yutiladi: bu
+    qulaylik, egasining xabari baribir yetib borgan."""
+    try:
+        await database.biznes_loyiha_yakun(lid, egasi, "tahrirlandi", matn)
+        r = await database.biznes_loyiha_ol(lid, egasi)
+        kb = await _fakt_kb(lid, egasi)
+        if not r or not kb:
+            return
+        await _dm_yubor(
+            dm, "💬 Savolga o'zingiz javob berdingiz:\n"
+            f"<blockquote>{escape(r['mijoz_matni'][:300])}</blockquote>"
+            f"→ {escape(matn[:300])}\n\nEslab qolaymi? Keyingi safar shunga "
+            "o'xshash savolga o'zim shunday javob beraman.",
+            parse_mode="HTML", reply_markup=kb)
+    except Exception as e:
+        logger.warning(f"[BIZNES] eslab qolish taklifi yuborilmadi: {e}")
+
+
+async def _fakt_saqla(lid: int, egasi: int) -> str:
+    r = await database.biznes_loyiha_ol(lid, egasi)
+    if (not r or r["variantlar"] is None or not r["yakuniy"]
+            or r["holat"] not in ("yuborildi", "tahrirlandi")):
+        return "Bu javob endi saqlanmaydi."
+    yangi, xato = bilimga_fakt(await database.biznes_bilim_ol(egasi),
+                               r["mijoz_matni"], r["yakuniy"])
+    if xato:
+        return f"Saqlanmadi: Bilim {xato}. /biznes → Bilim"
+    await database.biznes_bilim_yoz(egasi, yangi)
+    return "✅ Eslab qoldim — Bilim oxirida."
 
 
 def _bekormi(message: Message) -> bool:
@@ -1763,9 +1862,10 @@ async def process_tahrir(message: Message, state: FSMContext) -> None:
     if not message.text:
         await message.answer("Faqat matn yuborsa bo'ladi. Loyiha kutib turibdi.")
         return
-    await message.answer(await loyihani_yubor(data.get("loyiha_id", 0),
-                                              message.from_user.id, message.text),
-                         parse_mode=None)
+    lid = data.get("loyiha_id", 0)
+    javob = await loyihani_yubor(lid, message.from_user.id, message.text)
+    await message.answer(javob, parse_mode=None, reply_markup=(
+        await _fakt_kb(lid, message.from_user.id) if javob.startswith("✅") else None))
 
 
 async def process_vaqt(message: Message, state: FSMContext) -> None:
