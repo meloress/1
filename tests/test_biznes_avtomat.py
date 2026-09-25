@@ -249,6 +249,7 @@ database.refund_daily = qaytar
 database.biznes_bilim_ol = bilim
 database.biznes_chat_holati = chat_holati
 database.biznes_pauza = soxta_pauza
+database.biznes_loyiha_eskirt = hech   # avtomatda ham eskiradi (tanlov)
 # Uslub (5-bosqich) — test_biznes_uslub.py da; bu yerda bo'sh.
 database.biznes_uslub_ol = lambda *a, **k: bilim_uslub()
 database.biznes_namuna_qosh = lambda *a, **k: namuna_qosh()
@@ -262,7 +263,9 @@ async def namuna_qosh():
     return 0, 0
 
 UL = {"owner_id": EGASI, "owner_chat": DM, "yoqilgan": True, "rejim": "avtomat",
-      "ish_vaqti": None, "huquqlar": {"can_reply": True, "can_read_messages": True}}
+      "ish_vaqti": None, "huquqlar": {"can_reply": True, "can_read_messages": True},
+      # 🤖 belgisi — test_biznes_tanlov.py da; bu yerda aniq matn solishtiriladi.
+      "avto_belgi": False}
 database._biznes_kesh["c1"] = UL
 
 

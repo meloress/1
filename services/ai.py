@@ -866,7 +866,8 @@ _EGASIGA_BUZUQ_RE = re.compile(r"\[\s*egasiga\b[^\n]*", re.I)
 # xabarda (`handlers/biznes.py::mijoz_yoriqnomasi`).
 BIZNES_INSTRUCTIONS = (
     "Sen Telegram akkaunt egasining O'ZISAN va uning nomidan suhbatdoshiga "
-    "(odatda mijoz) yozasan. Sen yordamchi, bot yoki sun'iy intellekt "
+    "yozasan. Suhbatdosh mijoz, tanish, do'st yoki oila a'zosi bo'lishi "
+    "mumkin — ohangni suhbatdan ol. Sen yordamchi, bot yoki sun'iy intellekt "
     "EMASSAN: o'zingni hech qachon shunday atama, «Qanday yordam bera "
     "olaman?», «Albatta!», «Savolingiz uchun rahmat» kabi yordamchi "
     "iboralarini ishlatma.\n"
@@ -878,8 +879,44 @@ BIZNES_INSTRUCTIONS = (
     "o'rganilgan tavsifdan, tavsif namunalardan ustun. Namunalardan faqat "
     "USLUBni ol — ulardagi narx, ism, sana, manzil va va'dalarni boshqa "
     "suhbatga ko'chirma.\n"
-    "Suhbatdosh qaysi tilda yozgan bo'lsa, o'sha tilda javob ber."
+    "Suhbatdosh qaysi tilda yozgan bo'lsa, o'sha tilda javob ber.\n"
+    "Egasining biznesi, mahsuloti yoki narxi faqat [EGASI HAQIDA] bo'limida "
+    "yozilgan bo'lsa bor; yozilmagan bo'lsa ular haqida gapirma.\n"
+    "⛔️ FAQAT EGASI BILADIGAN NARSA: egasining shaxsiy hayoti (odati, "
+    "sog'lig'i, qayerdaligi, hozir nima qilayotgani, rejasi, kayfiyati, "
+    "oilasi, narsalari) haqida fakt O'YLAB TOPMA va uning nomidan VA'DA "
+    "BERMA (uchrashuvga rozilik, vaqt, muddat, pul, «boraman», «qilaman», "
+    "«tashlayman»). Bunday savolga javob o'rniga `[tanlov: egasiga qisqa "
+    "savol | 1-variant | 2-variant]` markerini yoz: variantlar — egasi "
+    "bosib yuborishi mumkin bo'lgan TAYYOR javoblar, uning uslubida (odatda "
+    "ha va yo'q, 2-3 ta). [EGASI HAQIDA] yoki suhbatda aniq yozilgan narsa "
+    "bu qoidaga kirmaydi. Egasi mazmunni o'zi aytgan bo'lsa (buyruq) — bu "
+    "uning qarori, marker kerak emas."
 )
+
+
+# ── [tanlov: savol | variant | variant] — faqat egasi biladigan savol ──
+# Model egasining shaxsiy hayoti yoki va'dasi haqidagi savolga javob
+# o'rniga shu markerni yozadi (`BIZNES_INSTRUCTIONS`). `[egasiga:]` bilan
+# bir xil naqsh: markerni KOD ushlaydi, suhbatdosh uni hech qachon
+# ko'rmaydi — buzilgani ham qator oxirigacha tashlanadi.
+_TANLOV_RE = re.compile(r"\[\s*tanlov\s*:\s*([^\]\n]{0,1500})\]", re.I)
+_TANLOV_BUZUQ_RE = re.compile(r"\[\s*tanlov\b[^\n]*", re.I)
+TANLOV_MAX = 3
+
+
+def tanlov_ajrat(text: str) -> tuple:
+    """(qolgan_matn, savol | None, variantlar). Marker yo'q — savol None.
+    Buzilgan marker ham tanlov (savol "—", variantsiz): yarim javob
+    yuborilgandan ko'ra egasidan so'ragan ma'qul."""
+    text = text or ""
+    m = _TANLOV_RE.search(text)
+    toza = _TANLOV_BUZUQ_RE.sub("", _TANLOV_RE.sub("", text)).strip()
+    if not m:
+        return toza, ("—" if _TANLOV_BUZUQ_RE.search(text) else None), []
+    qism = [" ".join(q.split()) for q in m.group(1).split("|")]
+    variantlar = [q[:500] for q in qism[1:] if q][:TANLOV_MAX]
+    return toza, (qism[0][:200] or "—"), variantlar
 
 
 def egasiga_ajrat(text: str) -> tuple:

@@ -165,7 +165,7 @@ async def soxta_yakun(lid, holat, yakuniy=None):
     q.append(("yakun", lid, holat))
 
 
-async def soxta_yarat(owner, conn_id, chat_id, matn, loyiha):
+async def soxta_yarat(owner, conn_id, chat_id, matn, loyiha, variantlar=None):
     lid = len(loyihalar) + 1
     loyihalar[lid] = dict(id=lid, owner_id=owner, conn_id=conn_id, chat_id=chat_id,
                           mijoz_matni=matn, loyiha=loyiha, holat="kutmoqda")
@@ -347,7 +347,7 @@ UL["huquqlar"] = {"can_reply": True, "can_read_messages": True}
 # ── 22-24. Ekran, ro'yxatga olish, uyg'otish himoyasi ────────────
 check(22, "ekran: rejim, bilim uzunligi, bilimsiz ogohlantirish",
       "Yordamchi" in b.ekran_matni(UL, BILIM) and str(len(BILIM)) in b.ekran_matni(UL, BILIM)
-      and "narx va manzilni bilmayman" in b.ekran_matni(UL, "")
+      and "hech narsa bilmayman" in b.ekran_matni(UL, "")
       and "Ulanmagan" in b.ekran_matni(None, ""))
 
 main = kod(os.path.join(ROOT, "main.py"))

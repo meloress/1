@@ -481,6 +481,13 @@ async def create_users_table():
         # ochardi (jonli ko'rilgan) — hamma Business xabari shu bittasiga.
         await conn.execute(
             "ALTER TABLE biznes_profil ADD COLUMN IF NOT EXISTS dm_mavzu BIGINT")
+        # `[tanlov:]` — egasiga tugma bilan beriladigan tayyor javoblar.
+        await conn.execute(
+            "ALTER TABLE biznes_loyiha ADD COLUMN IF NOT EXISTS variantlar JSONB")
+        # Avtomat javob oxiridagi «🤖 avtojavob» belgisi (standart — yoqilgan).
+        await conn.execute(
+            "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS "
+            "avto_belgi BOOLEAN NOT NULL DEFAULT TRUE")
         # Egasi mijozga O'ZI yozgan xabarlar — uslub namunalari. Chat tarixi
         # (`chat_messages`) yetmaydi: u yerda `assistant` — egasi ham, bot
         # uning nomidan yuborgani ham, ya'ni bot o'zidan o'rganib qolardi.
@@ -1010,7 +1017,7 @@ async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
     _biznes_kesh[conn_id] = {
         "owner_id": owner_id, "owner_chat": owner_chat, "yoqilgan": yoqilgan,
         "huquqlar": dict(huquqlar), "rejim": eski.get("rejim", "buyruq"),
-        "ish_vaqti": eski.get("ish_vaqti")}
+        "ish_vaqti": eski.get("ish_vaqti"), "avto_belgi": eski.get("avto_belgi", True)}
     global pool
     if pool is None:
         await create_db_pool()
@@ -1023,11 +1030,12 @@ async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
                 owner_id = EXCLUDED.owner_id, owner_chat = EXCLUDED.owner_chat,
                 yoqilgan = EXCLUDED.yoqilgan, huquqlar = EXCLUDED.huquqlar,
                 yangilangan = NOW()
-            RETURNING rejim, ish_vaqti
+            RETURNING rejim, ish_vaqti, avto_belgi
             ''',
             conn_id, owner_id, owner_chat, yoqilgan, json.dumps(huquqlar))
     _biznes_kesh[conn_id]["rejim"] = rejim["rejim"]
     _biznes_kesh[conn_id]["ish_vaqti"] = rejim["ish_vaqti"]
+    _biznes_kesh[conn_id]["avto_belgi"] = rejim["avto_belgi"]
     return _biznes_kesh[conn_id]
 
 
@@ -1040,7 +1048,7 @@ async def biznes_keshni_yukla() -> None:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             'SELECT conn_id, owner_id, owner_chat, yoqilgan, huquqlar, rejim, '
-            'ish_vaqti FROM biznes_ulanish')
+            'ish_vaqti, avto_belgi FROM biznes_ulanish')
     _biznes_kesh = {
         r['conn_id']: {
             "owner_id": r['owner_id'], "owner_chat": r['owner_chat'],
@@ -1050,6 +1058,7 @@ async def biznes_keshni_yukla() -> None:
                          if isinstance(r['huquqlar'], str) else dict(r['huquqlar'])),
             "rejim": r['rejim'],
             "ish_vaqti": r['ish_vaqti'],
+            "avto_belgi": r['avto_belgi'],
         } for r in rows
     }
 
@@ -1284,7 +1293,8 @@ async def biznes_namunalar_ochir(owner_id: int) -> None:
 
 @with_db_retry()
 async def biznes_loyiha_yarat(owner_id: int, conn_id: str, chat_id: int,
-                              mijoz_matni: str, loyiha: str) -> int:
+                              mijoz_matni: str, loyiha: str,
+                              variantlar: Optional[List[str]] = None) -> int:
     """Yangi loyiha. O'sha chatdagi eski kutayotgan loyiha ESKIRADI —
     yangisi butun suhbatni (eski xabarni ham) ko'rib yozilgan."""
     global pool
@@ -1297,9 +1307,10 @@ async def biznes_loyiha_yarat(owner_id: int, conn_id: str, chat_id: int,
                 "WHERE owner_id = $1 AND chat_id = $2 AND holat = 'kutmoqda'",
                 owner_id, chat_id)
             yangi = await conn.fetchval(
-                'INSERT INTO biznes_loyiha (owner_id, conn_id, chat_id, mijoz_matni, loyiha) '
-                'VALUES ($1, $2, $3, $4, $5) RETURNING id',
-                owner_id, conn_id, chat_id, mijoz_matni, loyiha)
+                'INSERT INTO biznes_loyiha (owner_id, conn_id, chat_id, mijoz_matni, '
+                'loyiha, variantlar) VALUES ($1, $2, $3, $4, $5, $6::jsonb) RETURNING id',
+                owner_id, conn_id, chat_id, mijoz_matni, loyiha,
+                json.dumps(variantlar) if variantlar is not None else None)
             # O'zini o'zi kesadi (`error_log` kabi): 30 kun o'lchov uchun
             # yetarli, undan eskisi hech kimga kerak emas.
             await conn.execute(
@@ -1341,9 +1352,15 @@ async def biznes_loyiha_band(loyiha_id: int, owner_id: int,
             'UPDATE biznes_loyiha SET holat = $4 '
             'WHERE id = $1 AND owner_id = $2 AND holat = $3 '
             'AND yaratilgan > NOW() - make_interval(hours => $5::int) '
-            'RETURNING id, conn_id, chat_id, mijoz_matni, loyiha',
+            'RETURNING id, conn_id, chat_id, mijoz_matni, loyiha, variantlar',
             loyiha_id, owner_id, holat, yangi, BIZNES_LOYIHA_TTL_SOAT)
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    # asyncpg JSONB'ni kodeksiz satr qilib qaytaradi.
+    v = d.get("variantlar")
+    d["variantlar"] = json.loads(v) if isinstance(v, str) else (v or [])
+    return d
 
 
 @with_db_retry()
@@ -1356,6 +1373,21 @@ async def biznes_loyiha_yakun(loyiha_id: int, holat: str,
         await conn.execute(
             'UPDATE biznes_loyiha SET holat = $2, yakuniy = COALESCE($3, yakuniy) '
             'WHERE id = $1', loyiha_id, holat, yakuniy)
+
+
+@with_db_retry()
+async def biznes_belgi_yoz(owner_id: int, yoqilgan: bool) -> None:
+    """Avtomat javob belgisi (🤖) — egasi darajasida, keshda ham."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE biznes_ulanish SET avto_belgi = $2 WHERE owner_id = $1',
+            owner_id, yoqilgan)
+    for yozuv in _biznes_kesh.values():
+        if yozuv["owner_id"] == owner_id:
+            yozuv["avto_belgi"] = yoqilgan
 
 
 @with_db_retry()

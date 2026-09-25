@@ -36,6 +36,36 @@ savoli "yangi mavzu" bo'lib ko'rinib, nom ustidan yozilardi. `test_biznes_mavzu.
 Callback'dan keladigan javoblar (`query.message.answer`) o'zi shu mavzuga tushadi — aiogram
 mavzuni xabardan oladi.
 
+## Faqat egasi biladigan savol — `[tanlov:]`, va «🤖 avtojavob» belgisi
+
+Jonli sinov (2026-09-25): bot egasi nomidan "menda ham sigaret qolmagan" (egasi chekmaydi) va
+"boramiz, 9:00 da" (egasining vaqtini bilmay) deb yozdi. Model rolni o'ynab bo'shliqni to'qiydi.
+
+⛔️ **Qoida `BIZNES_INSTRUCTIONS` da (statik, keshlanadi):** egasining shaxsiy hayoti haqida fakt
+to'qima, uning nomidan va'da berma — o'rniga `[tanlov: savol | variant | variant]`. Prompt kafolat
+emas, shuning uchun markerni **kod** ushlaydi (`services.ai.tanlov_ajrat`, `egasiga_ajrat` naqshi;
+buzilgani ham tanlov — variantsiz):
+- **Yordamchi:** soxta qoralama o'rniga egasiga "buni faqat siz bilasiz" + variant tugmalari
+  (`bz:yv:<lid>:<n>`), «O'zim yozaman», «Bekor». «Yuborish» tugmasi YO'Q — bir bosishda yolg'on
+  ketmasin. Variantlar `biznes_loyiha.variantlar` (JSONB) da; `n` ro'yxat chegarasida tekshiriladi
+  (`isinstance(bool)`). Tanlangan variant — modelning matni: `yuborildi`, namuna EMAS.
+- **Avtomat:** suhbatdoshga marker ortidagi neytral gap (yoki `NEYTRAL_JAVOB`), chat pauzada,
+  egasiga o'sha tugmalar. Egasi chatga o'zi yozsa kutayotgan tanlov eskiradi (avtomatda ham).
+- **`.javob`:** marker chatga ketmaydi (egasi mazmunni o'zi aytgan — qaror uniki).
+
+**Biznes ham, shaxsiy ham:** rejim yo'q — bot faqat Bilimda (`[EGASI HAQIDA]`) yozilganga tayanadi;
+biznes yozilmagan bo'lsa narx/mahsulot haqida gapirmaydi. Suhbatdosh "mijoz" deb emas,
+"suhbatdosh" (do'st, oila ham) deb ataladi.
+
+**«🤖 avtojavob» belgisi.** Telegram'ning "ChatGPT AI" yozuvi faqat EGASIGA ko'rinadi. Bot o'zi
+(egasi ko'rmasdan) yuborgan AVTOMAT javob oxiriga kursiv belgi qo'shiladi (`avto_matn`,
+`biznes_ulanish.avto_belgi`, standart yoqilgan, `/biznes` → «🤖 belgisi»). Yordamchida yo'q —
+egasi bosgan matn uning so'zi. ⚠️ Tarixga BELGISIZ matn yoziladi, aks holda model belgini o'z
+uslubi deb takrorlaydi.
+
+Narx (`tiktoken`): `BIZNES_INSTRUCTIONS` 293 → **601**, yo'riqnoma +28 (yordamchi) / +50 (avtomat) —
+har qoralama ~**+340 token**. `test_biznes_tanlov.py`.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.
