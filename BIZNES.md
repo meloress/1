@@ -114,6 +114,20 @@ savoli → javob; neytral gap birinchi shaxsda, savolsiz, egasining ismisiz. Nar
 - **`/biznes`:** bosh ekranda rejim + Bilim/Uslubim/Sozlamalar + bugungi statistika; qolgani
   `_sozlama_kb`.
 
+## Tejash (AUDIT oxirgi bandlari, 2026-09-26)
+
+- **Debounce 3 s** (`BIZNES_MERGE_WAIT`, DM'niki 1,5 s): "salom" / "narxi?" / "futbolka"
+  bitta so'rov. Testlar `b.BIZNES_MERGE_WAIT` ni kichraytiradi (`TEXT_MERGE_WAIT` emas).
+- **Model muddati 60 s** (`BIZNES_MODEL_TIMEOUT`): osilgan model chat qulfini 180 s
+  ushlardi. Muddat — oddiy xato: ball qaytadi, egasiga "javob kechikdi".
+- **"rahmat" / 👍 — Yordamchida qoralama yo'q** (`faqat_rahmatmi`). ⛔️ "ha", "ok", "mayli"
+  qo'shilmasin: ular egasining savoliga javob, keyingi qadamni qoralama aytadi.
+- **Vaqt xabari tarixdan keyin** (`services/ai.py`, `biznes_vaqt`): oldin turgan daqiqali
+  vaqt keshni 0 ga tushirardi. Eval o'zgarmadi.
+- **Kartoteka fonda**, ism o'zgarmasa 10 daqiqada bir.
+- ATAYLAB qilinmadi: tarix oynasini qisqartirish (5.3) va "egasi faol — qoralama yo'q"
+  (4.5) — ikkalasi ham aniqlikni tokenga almashtiradi. `AUDIT.md` jadvali.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.

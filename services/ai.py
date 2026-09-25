@@ -4271,6 +4271,7 @@ async def get_openai_reply(
         f"{IMAGE_CAPABILITY_NOTE}")
 
     messages: list = []
+    biznes_vaqt = None
 
     try:
         now_utc = datetime.now(timezone.utc)
@@ -4289,7 +4290,12 @@ async def get_openai_reply(
             # buyruq; sana esa ("ertaga olib kelamiz") kerak.
             time_msg = (f"[TIZIM MA'LUMOTI] Hozir: "
                         f"{now_tashkent.strftime('%Y-%m-%d %H:%M')} (Toshkent).")
-        messages.append({"role": "developer", "content": time_msg})
+            # AUDIT 5.1: daqiqa aniqligidagi vaqt tarixdan OLDIN tursa keshlanadigan
+            # prefiks faqat 848 token (< 1 024 minimum) — amalda 0. Tarixdan keyin
+            # qo'yilsa bitta chat ichida instructions + xulosa + tarix keshdan.
+            biznes_vaqt = {"role": "developer", "content": time_msg}
+        else:
+            messages.append({"role": "developer", "content": time_msg})
     except Exception:
         pass
 
@@ -4323,6 +4329,8 @@ async def get_openai_reply(
     if research:
         messages.append({"role": "developer", "content": _RESEARCH_SYSTEM})
 
+    if biznes_vaqt:
+        messages.append(biznes_vaqt)
     if biznes_yoriqnoma is not None:
         messages.append({"role": "developer", "content": biznes_yoriqnoma})
 

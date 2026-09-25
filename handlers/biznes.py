@@ -36,10 +36,11 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
                          BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
-                         BIZNES_ESLATMA_DAQIQA, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
+                         BIZNES_ESLATMA_DAQIQA, BIZNES_MERGE_WAIT,
+                         BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
-                         BTN_PRIMARY, BTN_SUCCESS, TEXT_MERGE_WAIT, message_cost)
+                         BTN_PRIMARY, BTN_SUCCESS, message_cost)
 from core.loader import bot, logger
 from core import olchov
 from core.csv_fayl import csv_matn
@@ -453,15 +454,7 @@ async def biznes_xabar(message: Message):
         await biznes_uslub.namuna_saqla(egasi, matn)
         olchov.belgi("namuna")
     if kim == "mijoz":
-        # Kartoteka (4.3) va hisobot/ogohlantirishdagi ism uchun. Hisob
-        # yuritish — javob yo'lidan muhimroq emas: xatosi yutiladi.
-        try:
-            u = message.from_user
-            await database.biznes_mijoz_korildi(
-                egasi, message.chat.id, u.full_name if u else None,
-                u.username if u else None)
-        except Exception as e:
-            logger.debug(f"[BIZNES] kartoteka yozilmadi: {e}")
+        _kartotekaga(egasi, message)
         olchov.belgi("kartoteka")
     avtomat = kim == "mijoz" and ul["rejim"] == "avtomat"
     # Ovoz va rasm — faqat avtomatda (REJA.md 3-bosqich 6-7): boshqa
@@ -492,6 +485,37 @@ async def biznes_xabar(message: Message):
         thread_id=biznes_thread(egasi))
     olchov.belgi("tarix")
     olchov.qosh(natija="tarix")
+
+
+# Kartoteka (4.3) va hisobot/ogohlantirishdagi ism uchun. Hisob yuritish —
+# javob yo'lidan muhimroq emas: FONDA (AUDIT 2.4), ism/username o'zgarmagan
+# bo'lsa 10 daqiqada bir marta (3.5) — `oxirgi` vaqti shuncha kechikadi,
+# u faqat /mijozlar tartibi uchun. Xatoda RAM belgisi olinadi: keyingi
+# xabar qayta urinadi.
+_KARTOTEKA_SONIYA = 600
+_kartoteka: dict = {}
+_fon: set = set()
+
+
+def _kartotekaga(egasi: int, message: Message) -> None:
+    u = message.from_user
+    qiymat = (u.full_name if u else None, u.username if u else None)
+    kalit = (egasi, message.chat.id)
+    oldin = _kartoteka.get(kalit)
+    if oldin and oldin[0] == qiymat and time.monotonic() - oldin[1] < _KARTOTEKA_SONIYA:
+        return
+    _kartoteka[kalit] = (qiymat, time.monotonic())
+
+    async def yoz():
+        try:
+            await database.biznes_mijoz_korildi(egasi, message.chat.id, *qiymat)
+        except Exception as e:
+            _kartoteka.pop(kalit, None)
+            logger.debug(f"[BIZNES] kartoteka yozilmadi: {e}")
+
+    vazifa = asyncio.create_task(yoz())
+    _fon.add(vazifa)
+    vazifa.add_done_callback(_fon.discard)
 
 
 # ── Buyruqni bajarish ────────────────────────────────────────────────
@@ -554,8 +578,14 @@ def _biznes_hisobida():
 
 async def _model(prompt: str, chat_id: int, thread: int, egasi: int,
                  **kw) -> str:
+    # AUDIT 7.5: muddat — model osilsa chat qulfi 180 s ushlanmasin.
     with _biznes_hisobida():
-        return await _model_ichki(prompt, chat_id, thread, egasi, **kw)
+        return await asyncio.wait_for(_model_ichki(prompt, chat_id, thread, egasi, **kw),
+                                      BIZNES_MODEL_TIMEOUT)
+
+
+async def _yig(oqim) -> list:
+    return [c async for c in oqim]
 
 
 async def _model_ichki(prompt: str, chat_id: int, thread: int, egasi: int,
@@ -777,7 +807,7 @@ async def _navbatga(message: Message, matn: str, thread: int) -> None:
 
 async def _kechiktir(kalit: tuple) -> None:
     try:
-        await asyncio.sleep(TEXT_MERGE_WAIT)
+        await asyncio.sleep(BIZNES_MERGE_WAIT)
         async with get_text_merge_lock(*kalit):
             buf = text_merge_buffers.pop(kalit, None)
         if buf:
@@ -786,6 +816,20 @@ async def _kechiktir(kalit: tuple) -> None:
         pass
     except Exception:
         logger.exception("[BIZNES] loyiha yozilmadi")
+
+
+# ⚠️ Ataylab tor: "ha", "ok", "mayli", "yaxshi" — bu yerda YO'Q. Ular egasining
+# savoliga javob bo'lishi mumkin ("ertaga kelasizmi?" — "ha"), va keyingi
+# qadamni qoralama aytadi.
+_RAHMAT_RE = re.compile(
+    r"^(?:(?:katta\s+)?(?:rahmat|raxmat|рахмат|рахмет|спасибо|спс|thanks?|thank\s+you)"
+    r"|[👍👌🙏🤝❤♥️+]+)[\s!.,)]*$", re.I)
+
+
+def faqat_rahmatmi(matn: str) -> bool:
+    """Har qatori faqat minnatdorchilik/tasdiq belgisi. Sof — testda."""
+    qatorlar = [q.strip() for q in matn.splitlines() if q.strip()]
+    return bool(qatorlar) and all(_RAHMAT_RE.match(q) for q in qatorlar)
 
 
 # Bitta chatda bir vaqtda bitta loyiha: aks holda keyin boshlangan (ko'proq
@@ -798,7 +842,7 @@ async def _loyiha(buf: dict) -> None:
     message: Message = buf["last_message"]
     matn = "\n".join(buf["parts"])
     chat_id = message.chat.id
-    # Debounce: birinchi qism kelganidan shu yergacha (TEXT_MERGE_WAIT + navbat).
+    # Debounce: birinchi qism kelganidan shu yergacha (BIZNES_MERGE_WAIT + navbat).
     olchov.qosh(kutish_ms=round((time.time() - buf.get("created_at", time.time())) * 1000),
                 qismlar=len(buf["parts"]), chat=chat_id)
     ul = await _ulanish(message.business_connection_id)
@@ -822,6 +866,13 @@ async def _loyiha(buf: dict) -> None:
             olchov.qosh(natija="rejim_yoki_tatil")
             return
         olchov.belgi("tatil")
+        # AUDIT 4.2: "rahmat", "👍" — egasiga qoralama kerak emas (u xabarni
+        # chatda baribir ko'radi), to'liq so'rov esa ~1,5-8k token.
+        # Avtomatda emas: u yerda javob kutiladi (4.3).
+        if faqat_rahmatmi(matn):
+            await safe_update_history(chat_id, matn, role="user", thread_id=thread)
+            olchov.qosh(natija="rahmat")
+            return
         narx = message_cost("text")
         kvota = await database.check_and_consume_quota(egasi, narx)
         olchov.belgi("kvota")
@@ -1015,6 +1066,9 @@ async def _xato_egasiga(egasi: int, dm: int, xato, qoralama: bool = False) -> No
     xabari egasiga alohida xato bo'lib kelardi."""
     logger.warning(f"[BIZNES] {'qoralama' if qoralama else 'avtojavob'} xatosi "
                    f"egasi={egasi}: {xato}")
+    # `TimeoutError` ning str() i bo'sh — "Sabab: " dan keyin hech narsa qolardi.
+    xato = str(xato) or ("model javobi kechikdi" if isinstance(xato, TimeoutError)
+                         else type(xato).__name__)
     kalit = f"xato:{_hozir():%Y%m%d%H}"
     if (egasi, kalit) in _aytilgan:
         return
@@ -1083,10 +1137,11 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
                                      javob_formati=BIZNES_SXEMA)
             else:
                 with _biznes_hisobida():
-                    qismlar = [c async for c in get_vision_reply(
+                    qismlar = await asyncio.wait_for(_yig(get_vision_reply(
                         chat_id, rasm, message.caption or "Mijoz rasm yubordi.",
                         user_id=egasi, is_pro=True, thread_id=thread,
-                        biznes_yoriqnoma=yoriq, javob_formati=BIZNES_SXEMA)]
+                        biznes_yoriqnoma=yoriq, javob_formati=BIZNES_SXEMA)),
+                        BIZNES_MODEL_TIMEOUT)
                 javob = _toza("".join(qismlar))
         except Exception as e:
             olchov.belgi("model")

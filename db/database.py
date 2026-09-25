@@ -140,6 +140,11 @@ _INDEKSLAR = (
     # qisman indeks shartini isbotlay olmaydi.
     ("idx_chat_messages_biznes_thread",
      "chat_messages (thread_id, id) WHERE thread_id < 0"),
+    # `biznes_loyiha` da PK'dan boshqa indeks yo'q edi (AUDIT 6.2.2): har
+    # egasi xabarida `eskirt` va har tanlovda kutayotganini qidirish.
+    ("idx_biznes_loyiha_kutmoqda",
+     "biznes_loyiha (owner_id, chat_id) WHERE holat = 'kutmoqda'"),
+    ("idx_biznes_loyiha_egasi", "biznes_loyiha (owner_id, id)"),
 )
 
 

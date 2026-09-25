@@ -230,7 +230,7 @@ b.safe_update_history = soxta_tarix
 b.send_error_with_retry = soxta_xato
 b.speech_to_text_smart = soxta_stt
 b.track_user_activity = lambda *a: q.append(("faollik", a[-1]))
-b.TEXT_MERGE_WAIT = 0.01
+b.BIZNES_MERGE_WAIT = 0.01
 b.BIZNES_AVTOMAT_OCHIQ = True
 b._hozir = lambda: holat["soat"]
 # «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.

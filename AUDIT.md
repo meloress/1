@@ -23,8 +23,19 @@ Egasi "7-8 darajaga olib chiq" dedi — quyidagilar kiritildi, har biri alohida 
 | 7.2-7.3 429 | ✅ | `_qayta_429` |
 | 7.4 qoralama yozilmadi | ✅ | egasiga soatiga bir |
 | 7.6 poyga | ✅ | tartib raqami (`_egasi_yozdi`) |
-| 2.1, 2.4-2.5, 3.4-3.6, 6.2.2, 7.5 | ⏳ | kesh bilan kamroq muhim; qoldi |
-| 4.x, 5.1, 5.3 | ⏳ | natijaga ta'sir qiladi — `eval_biznes.py` bilan o'lchab, alohida qaror |
+| 2.4 + 3.5 kartoteka | ✅ | fonda; ism o'zgarmasa 10 daqiqada bir (`_kartotekaga`) |
+| 4.2 "rahmat"/👍 | ✅ | Yordamchida qoralamasiz, kvotadan oldin. "ha"/"ok" ATAYLAB yo'q |
+| 4.4 debounce | ✅ | `BIZNES_MERGE_WAIT` 3 s |
+| 5.1 prompt keshi | ✅ | vaqt xabari tarixdan keyin; eval o'zgarmadi (98% / 100%), takrorda keshdan 99% |
+| 6.2.2 `biznes_loyiha` indekslari | ✅ | `_INDEKSLAR` |
+| 7.5 model muddati | ✅ | `BIZNES_MODEL_TIMEOUT` 60 s (matn va rasm) |
+| hammasi | | `test_biznes_tejash.py` |
+| 2.1 | ➖ | 3.2 keshi bilan 3 so'rov 10 daqiqada bir — qolgan foyda sezilmaydi |
+| 2.5 | ➖ | qulf ichida −1 RTT; tartib (tarix → poyga tekshiruvi → loyiha) aniqroq |
+| 3.4 | ➖ | −1 RTT, lekin panel ta'til tugmasi keshni yangilashi kerak bo'lardi — ikkinchi joy |
+| 3.6 | ➖ | umumiy DM yo'li (`update_chat_history`), `test_topic_nom` shu songa tayanadi |
+| 4.5 | ➖ **ataylab** | egasi yaqinda yozgani u keyingisiga ham javob beradi degani emas; qoralama yo'qligi eskirganidan yomonroq (egasi yozsa u baribir `eskirgan`) |
+| 5.3 | ➖ **ataylab** | 80 xabar qoladi: bot egasi o'rniga yozadi, oldingi va'da/kelishuvni ko'rmasligi token tejashdan qimmat |
 
 Shu jarayonda qo'shimcha: tuzilgan qaror (`BIZNES_SXEMA`), `eval_biznes.py` (81% → 98-100%),
 uzatish pauzasi, alifbo, `/biznes` soddalashtirildi — `BIZNES.md`.

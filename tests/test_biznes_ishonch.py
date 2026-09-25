@@ -180,7 +180,7 @@ b.get_gpt_reply = soxta_gpt
 b.safe_update_history = hech
 b.send_error_with_retry = xato_voronka
 b.track_user_activity = lambda *a: None
-b.TEXT_MERGE_WAIT = 0.01
+b.BIZNES_MERGE_WAIT = 0.01
 for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_quota=ruxsat,
                    check_and_consume_daily=ruxsat, refund_daily=refund_daily,

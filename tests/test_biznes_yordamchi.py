@@ -202,7 +202,7 @@ b.bot = SoxtaBot()
 b.get_gpt_reply = soxta_gpt
 b.safe_update_history = soxta_tarix
 b.track_user_activity = lambda *a: q.append(("faollik", a[-1]))
-b.TEXT_MERGE_WAIT = 0.01
+b.BIZNES_MERGE_WAIT = 0.01
 # «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.
 database.biznes_mavzu_ol = lambda *a, **k: _mavzusiz()
 

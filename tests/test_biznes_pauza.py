@@ -126,7 +126,7 @@ b.bot = SoxtaBot()
 b.get_gpt_reply = soxta_gpt
 b.safe_update_history = tarix
 b.track_user_activity = lambda *a: None
-b.TEXT_MERGE_WAIT = 0.01
+b.BIZNES_MERGE_WAIT = 0.01
 b._birinchi_marta = birinchi
 for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_daily=ruxsat,

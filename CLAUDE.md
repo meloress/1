@@ -55,7 +55,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
   `test_biznes_hisobot.py` / `test_biznes_uslub.py` / `test_biznes_mavzu.py` /
   `test_biznes_tanlov.py` / `test_biznes_qaror.py` / `test_biznes_ishonch.py` /
   `test_biznes_pauza.py` / `test_biznes_kesh.py` / `test_biznes_owner.py` /
-  `test_biznes_ekran.py` — Telegram Business,
+  `test_biznes_ekran.py` / `test_biznes_tejash.py` — Telegram Business,
   all offline. The loop guard (`biznes_kimdan` order), the atomic draft claim, "nothing
   technical reaches the customer", "the customer path never gets the assistant prompt", and
   "a `[tanlov:]` marker never reaches the other side". `test_biznes_owner.py` walks every

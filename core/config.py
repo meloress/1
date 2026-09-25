@@ -855,6 +855,15 @@ BIZNES_REJIMLAR = ("buyruq", "yordamchi", "kuzatuv", "avtomat")
 BIZNES_AVTOMAT_OCHIQ = True
 # Uzatishdan yoki egasi o'zi yozgandan keyin bot shu chatda jim turadi.
 BIZNES_PAUZA_SOAT = 3
+# Business debounce (AUDIT 4.4). DM'dagi 1,5 s suhbatdoshning ketma-ket
+# 2-3 qisqa xabarini ("salom" / "narxi qancha" / "futbolka") bo'lib
+# yuborardi: har biriga alohida javob va to'lov, avtomatda esa birinchi
+# xabarga savolni ko'rmasdan javob. Odam baribir bir necha soniyada javob beradi.
+BIZNES_MERGE_WAIT = 3.0
+# Bitta qoralama/avtojavob uchun model muddati (AUDIT 7.5). Tool'siz bir
+# raund odatda 2-8 s; `STREAM_IDLE_TIMEOUT` (180 s) esa chat qulfini
+# ushlab turib, shu chatning keyingi xabarlarini kutkazardi.
+BIZNES_MODEL_TIMEOUT = 60
 # Uzatish pauzasida suhbatdosh yana yozsa — egasiga eslatma, bitta chatga
 # shu oraliqda ko'pi bilan bittasi (ketma-ket 4 xabar = 4 bildirishnoma emas).
 BIZNES_ESLATMA_DAQIQA = 5
