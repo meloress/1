@@ -126,6 +126,8 @@ def organish_kerakmi(jami: int, uslub_jami: int) -> bool:
 
 
 _organmoqda: set = set()
+# Fon vazifalariga havola — aks holda GC ularni tugamasdan yig'ib oladi.
+_fon: set = set()
 
 
 @olchov.oqim("uslub_organ")
@@ -165,10 +167,23 @@ async def namuna_saqla(egasi: int, matn: str) -> None:
         return
     try:
         jami, uslub_jami = await database.biznes_namuna_qosh(egasi, toza)
-        if organish_kerakmi(jami, uslub_jami):
-            await organ(egasi)
     except Exception as e:
         logger.warning(f"[BIZNES] namuna saqlanmadi: {e}")
+        return
+    if organish_kerakmi(jami, uslub_jami):
+        # ⚠️ FONDA (AUDIT 2.3): o'rganish 60 s gacha ketadi, kutilsa egasining
+        # xabari shuncha vaqt tarixga yozilmay turardi — va o'sha oraliqda
+        # yozilgan qoralama egasining oxirgi javobini ko'rmasdi.
+        vazifa = asyncio.create_task(_organ_fonda(egasi))
+        _fon.add(vazifa)
+        vazifa.add_done_callback(_fon.discard)
+
+
+async def _organ_fonda(egasi: int) -> None:
+    try:
+        await organ(egasi)
+    except Exception:
+        logger.exception(f"[BIZNES] uslub o'rganish yiqildi egasi={egasi}")
 
 
 # ── «Uslubim» ekrani ─────────────────────────────────────────────────

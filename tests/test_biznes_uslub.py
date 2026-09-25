@@ -184,6 +184,15 @@ async def _mavzusiz():
     return None
 
 
+# Dublikat himoyasi (AUDIT 7.1) — test_biznes_ishonch.py da; bu yerda
+# har xabar birinchi (bazaga bormaydi).
+b._birinchi_marta = lambda *a, **k: _birinchi()
+
+
+async def _birinchi():
+    return True
+
+
 database.pro_tarifmi = rost
 database.biznes_mijoz_korildi = hech
 database.biznes_loyiha_eskirt = hech
@@ -242,9 +251,18 @@ check(12, "o'qish huquqisiz namuna yig'ilmaydi (tarix bilan bir xil shart)",
 # ── 13-15. Avtomatik o'rganish ───────────────────────────────────
 q.clear()
 holat["jami"] = (10, 0)
-asyncio.run(b.biznes_xabar(xabar("o'ninchi xabar")))
-check(13, "10-namunada o'rganiladi va sanoq yoziladi",
-      ("organ",) in q and ("uslub_yoz", "yangi tavsif", 42) in q)
+
+
+async def xabar_va_fon():
+    await b.biznes_xabar(xabar("o'ninchi xabar"))
+    # O'rganish FONDA (AUDIT 2.3): handler uni kutmaydi — tarix darhol.
+    tarix_darhol = ("tarix",) in q and ("organ",) not in q
+    await asyncio.sleep(0.05)
+    return tarix_darhol
+
+tarix_darhol = asyncio.run(xabar_va_fon())
+check(13, "10-namunada o'rganiladi (fonda) va sanoq yoziladi; tarix o'rganishni kutmaydi",
+      tarix_darhol and ("organ",) in q and ("uslub_yoz", "yangi tavsif", 42) in q)
 
 q.clear()
 holat["model"] = ""
