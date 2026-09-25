@@ -19,6 +19,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import services.ai as ai
 import db.history as h
+import db.database as _db
+
+
+async def _biznes_emas(*a):
+    return False
+
+
+# Egasining «💼 Biznes» mavzusi emas — bazaga bormasin.
+_db.biznes_mavzumi = _biznes_emas
 
 _xato = 0
 

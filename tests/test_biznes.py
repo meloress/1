@@ -102,6 +102,14 @@ b.bot = SoxtaBot()
 b.get_gpt_reply = soxta_gpt
 b.safe_update_history = soxta_tarix
 b.track_user_activity = lambda *a: q.l.append(("faollik", a[-1]))
+# «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.
+database.biznes_mavzu_ol = lambda *a, **k: _mavzusiz()
+
+
+async def _mavzusiz():
+    return None
+
+
 database.pro_tarifmi = soxta_pro
 database.check_and_consume_quota = soxta_kvota
 database.refund_quota = soxta_refund

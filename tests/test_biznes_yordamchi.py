@@ -203,6 +203,14 @@ b.get_gpt_reply = soxta_gpt
 b.safe_update_history = soxta_tarix
 b.track_user_activity = lambda *a: q.append(("faollik", a[-1]))
 b.TEXT_MERGE_WAIT = 0.01
+# «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.
+database.biznes_mavzu_ol = lambda *a, **k: _mavzusiz()
+
+
+async def _mavzusiz():
+    return None
+
+
 database.pro_tarifmi = rost
 database.get_maintenance_notice_for = hech
 database.biznes_mijoz_korildi = hech   # 4-bosqich kartotekasi — bu testda emas

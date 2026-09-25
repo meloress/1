@@ -52,7 +52,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
   (draft emptied, group message deleted, and both still done when the body raises). An
   abandoned draft hangs on screen and kills the next animation.
 - `test_biznes.py` / `test_biznes_yordamchi.py` / `test_biznes_avtomat.py` /
-  `test_biznes_hisobot.py` / `test_biznes_uslub.py` — Telegram Business, one per phase,
+  `test_biznes_hisobot.py` / `test_biznes_uslub.py` / `test_biznes_mavzu.py` — Telegram Business,
   all offline. The loop guard (`biznes_kimdan` order), the atomic draft claim, "nothing
   technical reaches the customer", and "the customer path never gets the assistant prompt".
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.

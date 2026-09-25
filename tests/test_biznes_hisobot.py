@@ -115,6 +115,14 @@ async def javobsizlar(dan, gacha, owner_id=None):
 b.bot = SoxtaBot()
 b.biznes_kun_xulosasi = xulosa
 b._hozir = lambda: holat["soat"]
+# «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.
+database.biznes_mavzu_ol = lambda *a, **k: _mavzusiz()
+
+
+async def _mavzusiz():
+    return None
+
+
 database.pro_tarifmi = rost
 database.biznes_hisobot_band = band
 database.biznes_kun_hisobi = kun_hisobi

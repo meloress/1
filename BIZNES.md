@@ -20,6 +20,22 @@ Sinov davri: `/biznes` va `/mijozlar` ATAYLAB menyuda yo'q
 (`services/menu.py`), yozib ishlatilsa ishlaydi. Hamma uchun ochilganda
 `PRO_COMMANDS` ga qo'shiladi. Avtomat rejim `BIZNES_AVTOMAT_OCHIQ = False`.
 
+## Egasining bot DM'i: bitta «💼 Biznes» mavzusi
+
+⛔️ Mavzular yoqilgan shaxsiy chatda `message_thread_id` SIZ yuborilgan xabar HAR SAFAR
+yangi mavzu ochadi (jonli ko'rilgan, 2026-09-25) — har qoralama alohida mavzu edi. Shuning
+uchun egasiga ketadigan hamma Business xabari `handlers/biznes.py::_dm_yubor()` dan o'tadi:
+`biznes_mavzusi()` mavzuni bir marta ochadi (`createForumTopic`, per-dm qulf — ikkita
+ochilmasin), id `biznes_profil.dm_mavzu` da. Egasi mavzuni o'chirsa Telegram "thread not
+found" deydi — yangisi ochilib xabar bir marta qayta yuboriladi. Mavzu ochilmasa (mavzular
+o'chiq) — mavzusiz, qayta urinish soatiga bir. Mijozga ketadigan xabarlar bunga TEGMAYDI
+(ular `business_connection_id` bilan). `nomla_mavzu()` bu mavzuni `biznes_mavzumi()` bilan
+o'tkazib yuboradi — qoralamalar tarixga yozilmagani uchun egasining u yerdagi birinchi
+savoli "yangi mavzu" bo'lib ko'rinib, nom ustidan yozilardi. `test_biznes_mavzu.py`.
+
+Callback'dan keladigan javoblar (`query.message.answer`) o'zi shu mavzuga tushadi — aiogram
+mavzuni xabardan oladi.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.

@@ -238,6 +238,12 @@ async def nomla_mavzu(chat_id: int, thread_id: int, savol: str) -> None:
     ALOHIDA bepul kvotadan yeydi (katta modellarnikidan ~10 barobar
     katta). Bitta mavzu uchun umri davomida bitta chaqiruv.
     """
+    # Egasining «💼 Biznes» mavzusi: qoralamalar tarixga yozilmaydi, shuning
+    # uchun egasining u yerdagi birinchi savoli "yangi mavzu" bo'lib ko'rinadi
+    # va nom ustiga yozilardi. Fon vazifasi — bitta so'rov arzimaydi.
+    from db.database import biznes_mavzumi
+    if await biznes_mavzumi(chat_id, thread_id):
+        return
     try:
         resp = await asyncio.wait_for(
             openai_client.responses.create(

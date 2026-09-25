@@ -476,6 +476,11 @@ async def create_users_table():
                 ADD COLUMN IF NOT EXISTS namuna_jami INT NOT NULL DEFAULT 0,
                 ADD COLUMN IF NOT EXISTS uslub_jami  INT NOT NULL DEFAULT 0
         ''')
+        # Egasining bot DM'idagi «💼 Biznes» mavzusi. Mavzular yoqilgan
+        # shaxsiy chatda `message_thread_id` siz xabar HAR SAFAR yangi mavzu
+        # ochardi (jonli ko'rilgan) — hamma Business xabari shu bittasiga.
+        await conn.execute(
+            "ALTER TABLE biznes_profil ADD COLUMN IF NOT EXISTS dm_mavzu BIGINT")
         # Egasi mijozga O'ZI yozgan xabarlar — uslub namunalari. Chat tarixi
         # (`chat_messages`) yetmaydi: u yerda `assistant` — egasi ham, bot
         # uning nomidan yuborgani ham, ya'ni bot o'zidan o'rganib qolardi.
@@ -1128,6 +1133,43 @@ async def biznes_bilim_yoz(owner_id: int, bilim: str) -> None:
             'INSERT INTO biznes_profil (owner_id, bilim) VALUES ($1, $2) '
             'ON CONFLICT (owner_id) DO UPDATE SET bilim = EXCLUDED.bilim, '
             'yangilangan = NOW()', owner_id, bilim)
+
+
+@with_db_retry()
+async def biznes_mavzu_ol(owner_id: int) -> Optional[int]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            'SELECT dm_mavzu FROM biznes_profil WHERE owner_id = $1', owner_id)
+
+
+@with_db_retry()
+async def biznes_mavzu_yoz(owner_id: int, thread_id: Optional[int]) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO biznes_profil (owner_id, bilim, dm_mavzu) VALUES ($1, '', $2) "
+            "ON CONFLICT (owner_id) DO UPDATE SET dm_mavzu = EXCLUDED.dm_mavzu",
+            owner_id, thread_id)
+
+
+async def biznes_mavzumi(chat_id: int, thread_id: int) -> bool:
+    """Shu mavzu egasining «💼 Biznes» mavzusimi — mavzu nomlash uni
+    o'zgartirmasin. Xato — False emas, True (nomlamaslik xavfsiz tomon)."""
+    global pool
+    try:
+        if pool is None:
+            await create_db_pool()
+        async with pool.acquire() as conn:
+            return bool(await conn.fetchval(
+                'SELECT 1 FROM biznes_profil WHERE owner_id = $1 AND dm_mavzu = $2',
+                chat_id, thread_id))
+    except Exception:
+        return True
 
 
 def clean_biznes_namuna(matn: str) -> Optional[str]:

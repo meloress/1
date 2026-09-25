@@ -176,6 +176,14 @@ async def organ(namunalar, tahrirlar, egasi=None):
     return holat["model"]
 
 
+# «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.
+database.biznes_mavzu_ol = lambda *a, **k: _mavzusiz()
+
+
+async def _mavzusiz():
+    return None
+
+
 database.pro_tarifmi = rost
 database.biznes_mijoz_korildi = hech
 database.biznes_loyiha_eskirt = hech

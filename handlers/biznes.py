@@ -48,7 +48,7 @@ from services.ai import (BIZNES_MANBA, biznes_kun_xulosasi, egasiga_ajrat,
 from db.history import get_chat_history
 from handlers import biznes_uslub
 from handlers import pro as pro_module
-from handlers.helpers import send_error_with_retry
+from handlers.helpers import mavzu_kwargs, send_error_with_retry
 from handlers.messages import track_user_activity
 
 router = Router(name="biznes")
@@ -191,13 +191,70 @@ def ulanish_matni(yoqilgan: bool, huquqlar: dict, is_pro: bool) -> str:
 _aytilgan: set = set()
 
 
+# ── Egasining bot DM'idagi «💼 Biznes» mavzusi ───────────────────────
+# ⛔️ Mavzular yoqilgan shaxsiy chatda `message_thread_id` SIZ yuborilgan
+# xabar har safar YANGI mavzu ochadi (jonli ko'rilgan) — har qoralama
+# alohida mavzu bo'lib ketardi. Shuning uchun egasiga ketadigan HAMMA
+# Business xabari `_dm_yubor()` dan o'tadi. Mavzu yopiq (bot yoki Telegram
+# qo'llamaydi) bo'lsa — mavzusiz, oddiy chatga.
+MAVZU_NOMI = "💼 Biznes"
+_MAVZU_QAYTA = 3600          # mavzu ochilmasa, qayta urinish oralig'i
+_mavzu: dict = {}            # dm -> (thread_id | None, qachon)
+_mavzu_qulf: dict = {}
+
+
+def _mavzu_keshda(dm: int):
+    bor = _mavzu.get(dm)
+    if bor and (bor[0] or time.time() - bor[1] < _MAVZU_QAYTA):
+        return bor
+    return None
+
+
+async def biznes_mavzusi(dm: int, yangi: bool = False) -> int | None:
+    """Egasining «💼 Biznes» mavzusi; yo'q bo'lsa ochiladi. `yangi=True` —
+    saqlangani o'chirilgan (Telegram rad etdi), yangisini och."""
+    if not yangi and (bor := _mavzu_keshda(dm)):
+        return bor[0]
+    async with _mavzu_qulf.setdefault(dm, asyncio.Lock()):
+        # Qulfni kutayotganda boshqasi ochib qo'ygan bo'lishi mumkin —
+        # ikkita "💼 Biznes" mavzusi bo'lmasin.
+        if not yangi and (bor := _mavzu_keshda(dm)):
+            return bor[0]
+        tid = None
+        try:
+            if not yangi:
+                tid = await database.biznes_mavzu_ol(dm)
+            if not tid:
+                tid = (await bot.create_forum_topic(dm, MAVZU_NOMI)).message_thread_id
+                logger.info(f"[BIZNES] mavzu ochildi dm={dm} thread={tid}")
+                await database.biznes_mavzu_yoz(dm, tid)
+        except Exception as e:
+            logger.info(f"[BIZNES] mavzusiz (dm={dm}): {e}")
+        _mavzu[dm] = (tid, time.time())
+        return tid
+
+
+async def _dm_yubor(dm: int, matn: str, **kw):
+    """Egasiga — «💼 Biznes» mavzusiga. Egasi mavzuni o'chirgan bo'lsa
+    Telegram rad etadi: yangisi ochiladi va bir marta qayta yuboriladi."""
+    tid = await biznes_mavzusi(dm)
+    try:
+        return await bot.send_message(dm, matn, **mavzu_kwargs(tid), **kw)
+    except Exception as e:
+        if not tid or not any(s in str(e).lower() for s in ("thread", "topic")):
+            raise
+        logger.info(f"[BIZNES] mavzu yo'q (dm={dm}), qayta ochilmoqda: {e}")
+    tid = await biznes_mavzusi(dm, yangi=True)
+    return await bot.send_message(dm, matn, **mavzu_kwargs(tid), **kw)
+
+
 async def _egasiga(chat_id: int, matn: str, html: bool = True, kb=None) -> bool:
     """Egasiga xabar. Tugma rad etilsa (masalan tg://user maxfiylik
     sababli) — tugmasiz qayta. Qaytadi: yetib bordimi."""
     for klaviatura in ((kb, None) if kb else (None,)):
         try:
-            await bot.send_message(chat_id, matn, parse_mode="HTML" if html else None,
-                                   reply_markup=klaviatura)
+            await _dm_yubor(chat_id, matn, parse_mode="HTML" if html else None,
+                            reply_markup=klaviatura)
             return True
         except Exception as e:
             logger.warning(f"[BIZNES] egasiga yuborilmadi (chat={chat_id}): {e}")
@@ -716,6 +773,7 @@ async def _xato_egasiga(egasi: int, dm: int, xato) -> None:
     _aytilgan.add((egasi, kalit))
     await send_error_with_retry(
         dm, 0, egasi, "", kind="biznes", retry=False,
+        thread_id=await biznes_mavzusi(dm) or 0,
         reason=("⚠️ Mijozga avtojavob yuborilmadi — mijoz hech narsa "
                 f"ko'rmadi. Sabab: {str(xato)[:150]}"))
 
@@ -818,8 +876,8 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
              f"Bu chatda {BIZNES_PAUZA_SOAT} soat jim turaman — javobni o'zingiz "
              "yozing.")
     try:
-        await bot.send_message(dm, matni, parse_mode="HTML",
-                               reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
+        await _dm_yubor(dm, matni, parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
     except Exception as e:
         # URL tugma rad etilishi mumkin — xabar baribir yetib borsin.
         logger.warning(f"[BIZNES] uzatish tugmasi rad etildi: {e}")
@@ -871,7 +929,7 @@ async def _loyiha_korsat(dm: int, lid: int, ism: str, matn: str, loyiha: str) ->
     # 4096 belgi chegarasi: ko'rsatish qisqartiriladi, yuboriladigan
     # matn esa bazadan to'liq olinadi.
     try:
-        await bot.send_message(
+        await _dm_yubor(
             dm,
             f"✍️ <b>{ism}</b> yozdi:\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
             f"Javob loyihasi:\n<blockquote>{escape(loyiha[:2400])}</blockquote>",
