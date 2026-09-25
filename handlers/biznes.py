@@ -26,6 +26,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 
 from aiogram import Router
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.methods import PostStory
@@ -54,6 +55,63 @@ from handlers.helpers import mavzu_kwargs, send_error_with_retry
 from handlers.messages import track_user_activity
 
 router = Router(name="biznes")
+
+
+# ── Ishonchlilik (AUDIT.md §7) ───────────────────────────────────────
+async def _qayta_429(chaqir, eng_kop: int = 30):
+    """Telegram 429 (`retry_after`) — bir marta kutib qayta. Ilgari egasiga
+    ketadigan qoralama shunda jimgina yo'qolardi (AUDIT 7.2). Uzoq kutish
+    (> `eng_kop` s) — kutmaymiz, xato yuqoriga chiqadi."""
+    try:
+        return await chaqir()
+    except TelegramRetryAfter as e:
+        if e.retry_after > eng_kop:
+            raise
+        logger.info(f"[BIZNES] 429, {e.retry_after} s kutilmoqda")
+        await asyncio.sleep(e.retry_after)
+        return await chaqir()
+
+
+# Egasi chatga oxirgi marta O'ZI qachon yozdi — soat emas, o'sib boruvchi
+# TARTIB RAQAMI: `time.monotonic()` Windows'da ~16 ms qadamli, ya'ni ikki
+# hodisa bir xil "vaqt" olib, poyga ko'rinmay qolardi. Model javob
+# yozayotgan paytda egasi javob bersa, eski qoralama/avtojavob chiqmasin
+# (AUDIT 7.6). ponytail: RAM — deploy oralig'idagi poyga sezilarsiz.
+_egasi_yozgan: dict = {}
+_tartib = [0]
+
+
+def _hozirgi_tartib() -> int:
+    return _tartib[0]
+
+
+def _egasi_yozdi(egasi: int, chat_id: int) -> None:
+    _tartib[0] += 1
+    _egasi_yozgan[(egasi, chat_id)] = _tartib[0]
+
+
+def _egasi_keyin_yozdimi(egasi: int, chat_id: int, boshlandi: int) -> bool:
+    return _egasi_yozgan.get((egasi, chat_id), 0) > boshlandi
+
+
+# Dublikat update: birinchi qatlam RAM (arzon), ikkinchisi baza
+# (qayta ishga tushishdan omon qoladi). ponytail: RAM oxirgi 5000 ta.
+_korilgan: deque = deque(maxlen=5000)
+
+
+async def _birinchi_marta(egasi: int, message: Message) -> bool:
+    """Harakatga olib keladigan xabar (qoralama, avtojavob, buyruq) BIR
+    MARTA ishlansin. Baza xatosi — True: xabarni yo'qotgandan ko'ra ikki
+    marta ishlagan ma'qul."""
+    kalit = (egasi, message.chat.id, message.message_id)
+    if kalit in _korilgan:
+        return False
+    _korilgan.append(kalit)
+    try:
+        return await database.biznes_birinchimi(*kalit)
+    except Exception as e:
+        logger.warning(f"[BIZNES] dublikat tekshirilmadi: {e}")
+        return True
 
 
 def biznes_thread(owner_id: int) -> int:
@@ -241,13 +299,15 @@ async def _dm_yubor(dm: int, matn: str, **kw):
     Telegram rad etadi: yangisi ochiladi va bir marta qayta yuboriladi."""
     tid = await biznes_mavzusi(dm)
     try:
-        return await bot.send_message(dm, matn, **mavzu_kwargs(tid), **kw)
+        return await _qayta_429(lambda: bot.send_message(dm, matn, **mavzu_kwargs(tid), **kw))
+    except TelegramRetryAfter:
+        raise
     except Exception as e:
         if not tid or not any(s in str(e).lower() for s in ("thread", "topic")):
             raise
         logger.info(f"[BIZNES] mavzu yo'q (dm={dm}), qayta ochilmoqda: {e}")
     tid = await biznes_mavzusi(dm, yangi=True)
-    return await bot.send_message(dm, matn, **mavzu_kwargs(tid), **kw)
+    return await _qayta_429(lambda: bot.send_message(dm, matn, **mavzu_kwargs(tid), **kw))
 
 
 async def _egasiga(chat_id: int, matn: str, html: bool = True, kb=None) -> bool:
@@ -341,12 +401,21 @@ async def biznes_xabar(message: Message):
         return
     matn = message.text or message.caption or ""
     egasi = ul["owner_id"]
+    buyruq = buyruq_ajrat(matn) if kim == "egasi" else None
+    # Dublikat update (AUDIT 7.1) — faqat harakatga olib keladiganlari:
+    # ikkinchi avtojavob / qoralama / buyruq. Oddiy yozuv takrori zararsiz.
+    if ((buyruq or (kim == "mijoz" and ul["rejim"] in ("yordamchi", "avtomat")))
+            and not await _birinchi_marta(egasi, message)):
+        olchov.qosh(natija="dublikat")
+        logger.info(f"[BIZNES] dublikat update chat={message.chat.id} "
+                    f"msg={message.message_id}")
+        return
     if kim == "egasi":
-        buyruq = buyruq_ajrat(matn)
         if buyruq:
             olchov.qosh(natija="buyruq")
             await _bajar(message, ul, *buyruq)
             return
+        _egasi_yozdi(egasi, message.chat.id)
         # Egasi mijozga O'ZI javob berdi — kutayotgan loyiha endi o'rinsiz:
         # uni keyin "Yuborish" qilish mijozga ikkinchi, eski javob bo'lardi.
         # Avtomatda ham: kutayotgan `[tanlov:]` variantlari endi o'rinsiz.
@@ -727,6 +796,8 @@ async def _loyiha(buf: dict) -> None:
                                  "loyihasi ertaga qadar yozilmaydi. /profile")
             return
 
+        boshlandi = _hozirgi_tartib()
+        xato = None
         try:
             # Tartib o'zgarmagan (bilim, keyin uslub, keyin model) — faqat
             # o'lchov uchun alohida qatorlarga ajratildi.
@@ -737,14 +808,23 @@ async def _loyiha(buf: dict) -> None:
                                   biznes_yoriqnoma=mijoz_yoriqnomasi(bilim, uslub=uslub))
         except Exception as e:
             logger.warning(f"[BIZNES] loyiha modeli xatosi: {e}")
-            loyiha = ""
+            loyiha, xato = "", e
         olchov.belgi("model")
         await safe_update_history(chat_id, matn, role="user", thread_id=thread)
         olchov.belgi("tarix")
+        # Poyga (AUDIT 7.6): model yozayotganda egasi o'zi javob berdi —
+        # qoralama endi eskirgan, ko'rsatilsa egasi ikkinchi javobni yuborishi mumkin.
+        if loyiha and _egasi_keyin_yozdimi(egasi, chat_id, boshlandi):
+            loyiha = ""
+            olchov.qosh(natija="egasi_javob_berdi")
         if not loyiha:
             if not kvota.get("unlimited"):
                 await database.refund_quota(egasi, narx)
-            olchov.qosh(natija="bosh_javob")
+            if not _egasi_keyin_yozdimi(egasi, chat_id, boshlandi):
+                # AUDIT 7.4: ilgari egasi qoralama yozilmaganini bilmasdi.
+                await _xato_egasiga(egasi, dm, xato or "model bo'sh javob qaytardi",
+                                    qoralama=True)
+                olchov.qosh(natija="bosh_javob")
             return
 
         # Faqat egasi biladigan savol — soxta javob o'rniga egasiga tanlov.
@@ -831,11 +911,12 @@ async def _toxtash_sababi(ul: dict, chat_id: int) -> str | None:
     return None
 
 
-async def _xato_egasiga(egasi: int, dm: int, xato) -> None:
+async def _xato_egasiga(egasi: int, dm: int, xato, qoralama: bool = False) -> None:
     """Texnik xato — FAQAT egasiga, `send_error_with_retry` voronkasi
     orqali (jurnal + xabar). Soatiga bittadan: OpenAI yiqilsa har mijoz
     xabari egasiga alohida xato bo'lib kelardi."""
-    logger.warning(f"[BIZNES] avtojavob xatosi egasi={egasi}: {xato}")
+    logger.warning(f"[BIZNES] {'qoralama' if qoralama else 'avtojavob'} xatosi "
+                   f"egasi={egasi}: {xato}")
     kalit = f"xato:{_hozir():%Y%m%d%H}"
     if (egasi, kalit) in _aytilgan:
         return
@@ -843,8 +924,10 @@ async def _xato_egasiga(egasi: int, dm: int, xato) -> None:
     await send_error_with_retry(
         dm, 0, egasi, "", kind="biznes", retry=False,
         thread_id=await biznes_mavzusi(dm) or 0,
-        reason=("⚠️ Mijozga avtojavob yuborilmadi — mijoz hech narsa "
-                f"ko'rmadi. Sabab: {str(xato)[:150]}"))
+        reason=(("⚠️ Javob qoralamasi yozilmadi — yangi xabarlarni o'zingiz "
+                 f"ko'ring. Sabab: {str(xato)[:150]}") if qoralama else
+                ("⚠️ Avtojavob yuborilmadi — suhbatdosh hech narsa "
+                 f"ko'rmadi. Sabab: {str(xato)[:150]}")))
 
 
 @olchov.oqim("avtojavob")
@@ -889,6 +972,7 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             await bot.send_chat_action(chat_id, "typing", business_connection_id=conn_id)
         except Exception:
             pass
+        boshlandi = _hozirgi_tartib()
         try:
             bilim = await database.biznes_bilim_ol(egasi)
             uslub = await biznes_uslub.uslub_ol(egasi)
@@ -912,6 +996,12 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             return
         olchov.belgi("model")
         await safe_update_history(chat_id, matn, role="user", thread_id=thread)
+        # Poyga (AUDIT 7.6): model yozayotganda egasi o'zi javob berdi — bot
+        # jim. Chat allaqachon pauzada (egasi yozgani pauza qo'yadi).
+        if _egasi_keyin_yozdimi(egasi, chat_id, boshlandi):
+            await _qaytar()
+            olchov.qosh(natija="egasi_javob_berdi")
+            return
 
         # ⛔️ Marker mijozga HECH QACHON ketmaydi — to'g'risi ham, buzilgani
         # ham (`egasiga_ajrat`). Bo'sh javob ham uzatish: jim qolishdan
@@ -927,9 +1017,9 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
         if uzat is not None:
             toza = toza or NEYTRAL_JAVOB
         try:
-            _bot_yubordi(await bot.send_message(
+            _bot_yubordi(await _qayta_429(lambda: bot.send_message(
                 chat_id, business_connection_id=conn_id,
-                **avto_matn(toza, ul.get("avto_belgi", True))))
+                **avto_matn(toza, ul.get("avto_belgi", True)))))
         except Exception as e:
             olchov.qosh(natija="yuborilmadi")
             await _qaytar()
@@ -1109,8 +1199,8 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
         await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         return "Tayyor javob yo'q — «O'zim yozaman» ni bosing."
     try:
-        _bot_yubordi(await bot.send_message(
-            r["chat_id"], matn, business_connection_id=r["conn_id"], parse_mode=None))
+        _bot_yubordi(await _qayta_429(lambda: bot.send_message(
+            r["chat_id"], matn, business_connection_id=r["conn_id"], parse_mode=None)))
     except Exception as e:
         await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         logger.warning(f"[BIZNES] loyiha id={lid} yuborilmadi: {e}")
@@ -1541,8 +1631,17 @@ async def biznes_hisobot_watcher():
     martalikni `biznes_hisobot_band()` (bazada, atomik) kafolatlaydi.
     """
     await asyncio.sleep(60)
+    tozalangan = None
     while True:
         if _hozir().hour >= BIZNES_HISOBOT_SOAT:
+            # Kunlik tozalash (AUDIT S2) — kuniga bir marta, RAM bayroq:
+            # qayta ishga tushishda ikkinchi DELETE zararsiz.
+            if tozalangan != _hozir_kun():
+                try:
+                    await database.biznes_tozala()
+                    tozalangan = _hozir_kun()
+                except Exception:
+                    logger.exception("[BIZNES] kunlik tozalash yiqildi")
             for egasi, dm in database.biznes_faol_egalar().items():
                 try:
                     await _hisobot(egasi, dm)

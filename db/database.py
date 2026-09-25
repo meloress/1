@@ -484,6 +484,19 @@ async def create_users_table():
         # `[tanlov:]` — egasiga tugma bilan beriladigan tayyor javoblar.
         await conn.execute(
             "ALTER TABLE biznes_loyiha ADD COLUMN IF NOT EXISTS variantlar JSONB")
+        # Dublikat update himoyasi (AUDIT 7.1): deploy paytida eski jarayon
+        # update'ni olib, offsetni tasdiqlamay o'lsa, yangisi uni qayta oladi —
+        # avtomat ikki marta javob berardi. RAM qayta ishga tushishdan
+        # omon qolmaydi, shuning uchun bazada. Kunlik `biznes_tozala()` kesadi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_korilgan (
+                owner_id   BIGINT NOT NULL,
+                chat_id    BIGINT NOT NULL,
+                message_id BIGINT NOT NULL,
+                vaqt       TIMESTAMP NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (owner_id, chat_id, message_id)
+            );
+        ''')
         # Avtomat javob oxiridagi «🤖 avtojavob» belgisi (standart — yoqilgan).
         await conn.execute(
             "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS "
@@ -1311,12 +1324,38 @@ async def biznes_loyiha_yarat(owner_id: int, conn_id: str, chat_id: int,
                 'loyiha, variantlar) VALUES ($1, $2, $3, $4, $5, $6::jsonb) RETURNING id',
                 owner_id, conn_id, chat_id, mijoz_matni, loyiha,
                 json.dumps(variantlar) if variantlar is not None else None)
-            # O'zini o'zi kesadi (`error_log` kabi): 30 kun o'lchov uchun
-            # yetarli, undan eskisi hech kimga kerak emas.
-            await conn.execute(
-                'DELETE FROM biznes_loyiha '
-                'WHERE yaratilgan < NOW() - make_interval(days => $1::int)', 30)
     return yangi
+
+
+@with_db_retry()
+async def biznes_birinchimi(owner_id: int, chat_id: int, message_id: int) -> bool:
+    """Shu xabar birinchi marta ko'rilyaptimi — atomik (`ON CONFLICT DO
+    NOTHING RETURNING`). Ikki jarayon bir vaqtda so'rasa ham bittasi True."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            'INSERT INTO biznes_korilgan (owner_id, chat_id, message_id) '
+            'VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING 1',
+            owner_id, chat_id, message_id))
+
+
+@with_db_retry()
+async def biznes_tozala() -> None:
+    """Kunlik tozalash (hisobot kuzatuvchisidan). Ilgari 30 kunlik loyiha
+    tozalash HAR qoralama tranzaksiyasida, indekssiz, butun jadval bo'yicha
+    ishlardi (AUDIT S2)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'DELETE FROM biznes_loyiha '
+            'WHERE yaratilgan < NOW() - make_interval(days => $1::int)', 30)
+        await conn.execute(
+            'DELETE FROM biznes_korilgan '
+            'WHERE vaqt < NOW() - make_interval(days => $1::int)', 2)
 
 
 @with_db_retry()

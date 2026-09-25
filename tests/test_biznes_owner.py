@@ -18,6 +18,10 @@ Ishga tushirish:
 import ast
 import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,17 +31,17 @@ def check(n, nom, shart):
     print(f"[{n}] {nom} OK")
 
 
-JADVAL = re.compile(r"\bbiznes_(loyiha|chat|mijoz|namuna|profil|ulanish)\b")
+JADVAL = re.compile(r"\bbiznes_(loyiha|chat|mijoz|namuna|profil|ulanish|korilgan)\b")
 DML = re.compile(r"^\s*(SELECT|UPDATE|DELETE|INSERT|WITH)\b", re.I)
 
 # (funksiya, SQL boshidagi so'z) -> sabab. Faqat ATAYLAB global so'rovlar.
 ISTISNO = {
     ("biznes_keshni_yukla", "SELECT"): "ishga tushishda butun kesh yuklanadi",
     ("biznes_panel_stats", "SELECT"): "admin paneli — hamma egalar soni",
-    ("biznes_loyiha_yarat", "DELETE"): "30 kunlik saqlash muddati (egasi kiritmasi yo'q)",
+    ("biznes_tozala", "DELETE"): "kunlik saqlash muddati (egasi kiritmasi yo'q)",
 }
 
-daraxt = ast.parse(open(os.path.join(ROOT, "db", "database.py"), encoding="utf-8").read())
+daraxt = ast.parse(kod(os.path.join(ROOT, "db", "database.py")))
 sorovlar = []   # (funksiya, sql)
 for fn in ast.walk(daraxt):
     if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):

@@ -211,6 +211,15 @@ async def _mavzusiz():
     return None
 
 
+# Dublikat himoyasi (AUDIT 7.1) — test_biznes_ishonch.py da; bu yerda
+# har xabar birinchi (bazaga bormaydi).
+b._birinchi_marta = lambda *a, **k: _birinchi()
+
+
+async def _birinchi():
+    return True
+
+
 database.pro_tarifmi = rost
 database.get_maintenance_notice_for = hech
 database.biznes_mijoz_korildi = hech   # 4-bosqich kartotekasi — bu testda emas

@@ -160,6 +160,15 @@ b.track_user_activity = lambda *a: None
 b.TEXT_MERGE_WAIT = 0.01
 b.BIZNES_AVTOMAT_OCHIQ = True   # avtomat oqimini sinash uchun
 b._hozir = lambda: __import__("datetime").datetime(2026, 9, 25, 14, 0)
+# Dublikat himoyasi (AUDIT 7.1) — test_biznes_ishonch.py da; bu yerda
+# har xabar birinchi (bazaga bormaydi).
+b._birinchi_marta = lambda *a, **k: _birinchi()
+
+
+async def _birinchi():
+    return True
+
+
 for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_quota=ruxsat,
                    check_and_consume_daily=ruxsat, refund_daily=hech, refund_quota=hech,

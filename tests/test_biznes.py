@@ -110,6 +110,15 @@ async def _mavzusiz():
     return None
 
 
+# Dublikat himoyasi (AUDIT 7.1) — test_biznes_ishonch.py da; bu yerda
+# har xabar birinchi (bazaga bormaydi).
+b._birinchi_marta = lambda *a, **k: _birinchi()
+
+
+async def _birinchi():
+    return True
+
+
 database.pro_tarifmi = soxta_pro
 database.check_and_consume_quota = soxta_kvota
 database.refund_quota = soxta_refund
