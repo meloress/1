@@ -78,4 +78,39 @@ check(3, "istisno ro'yxatida o'lik yozuv yo'q (ko'chirilgan so'rov unutilmasin)"
 yakun = next(q for f, q in sorovlar if f == "biznes_loyiha_yakun")
 check(4, "S1: biznes_loyiha_yakun egasi bo'yicha", "owner_id" in yakun and "WHERE" in yakun)
 
-print("\nHammasi o'tdi: 4/4")
+# ── 5. S3: "barcha mavzular" tozalash begona egalarning tarixiga tegmaydi ──
+import asyncio                            # noqa: E402
+sys.path.insert(0, ROOT)
+import db.history as h                    # noqa: E402
+
+sql_lar = []
+
+
+class Conn:
+    async def execute(self, sql, *a):
+        sql_lar.append(sql)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class Pool:
+    def acquire(self):
+        return Conn()
+
+
+async def pool_():
+    return Pool()
+
+h._pool = pool_
+h._cache[(5, 0)] = [1]
+h._cache[(5, -7001)] = [2]
+asyncio.run(h.clear_history(5, thread_id=None))
+check(5, "S3: clear_history(thread_id=None) — faqat thread_id >= 0, business keshi qoladi",
+      all("thread_id >= 0" in q for q in sql_lar) and len(sql_lar) == 2
+      and (5, 0) not in h._cache and (5, -7001) in h._cache)
+
+print("\nHammasi o'tdi: 5/5")

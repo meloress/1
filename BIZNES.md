@@ -15,6 +15,7 @@ oldin shu faylni o'qing. Bosqichlar rejasi va asl qarorlar — `REJA.md`.
 | `core/config.py` | `BIZNES_*` konstantalar |
 | `core/csv_fayl.py` | CSV formula-injection himoyasi (panel bilan umumiy) |
 | `tests/test_biznes*.py` | har bosqichga bitta test, hammasi oflayn |
+| `tests/eval_biznes.py` | ANIQLIK — jonli model, qo'lda (prompt o'zgarsa oldin/keyin) |
 
 Sinov davri: `/biznes` va `/mijozlar` ATAYLAB menyuda yo'q
 (`services/menu.py`), yozib ishlatilsa ishlaydi. Hamma uchun ochilganda
@@ -65,6 +66,53 @@ uslubi deb takrorlaydi.
 
 Narx (`tiktoken`): `BIZNES_INSTRUCTIONS` 293 → **601**, yo'riqnoma +28 (yordamchi) / +50 (avtomat) —
 har qoralama ~**+340 token**. `test_biznes_tanlov.py`.
+
+## Aniqlik: tuzilgan qaror va baholash to'plami (2026-09-26)
+
+⛔️ **Prompt yoki model o'zgarsa — `tests/eval_biznes.py` OLDIN va KEYIN.** Jonli model, 40 ta
+qiyin xabar (shaxsiy fakt, va'da, biznes, xarid, injeksiya, "botmisan", haqorat), har biri
+uchun kutilgan qaror va taqiqlar. `test_*.py` emas (token sarflaydi, natija tasodifiy):
+`--takror 3` bilan o'lchang — bir ishga tushirish 89% va 97% ni berdi, prompt o'zgarmasdan.
+`--qoralama` — Yordamchi rejimi. Natija `tests/.eval_biznes_oxirgi.json` (gitignore).
+
+| | avtomat | qoralama |
+|---|---|---|
+| erkin matn + `[tanlov:]` markeri | 81% (haqiqatda 76%: `’` regexdan qochdi) | — |
+| `BIZNES_SXEMA` + prompt tuzatishlari | **98-99%** (×3) | **100%** (×2) |
+
+**Nega sxema.** Model markerni tarjima qildi (`[танлов:`, `[choice:`) va shablonni ko'chirdi.
+Endi `text.format` = `BIZNES_SXEMA`: `qaror` (javob | tanlov | egasiga), `matn`, `savol`,
+`variantlar` — har javobda qaror majburiy. `biznes_qaror_ajrat()` (sof, `test_biznes_qaror.py`):
+- `{` bilan boshlanib ajratilmaydi (uzilgan JSON) → **egasiga**, matn bo'sh — xom JSON hech
+  qachon ketmaydi;
+- `...`, `…`, `[..]`, `<..>`, `___` li variant tashlanadi (egasi bossa aynan shu ketardi);
+- JSON bo'lmasa — eski markerlar zaxira (tarjimalari bilan).
+Qoralamada `egasiga` → variantsiz tanlov. Rasm yo'li ham sxema bilan (jonli tekshirilgan).
+
+**Prompt qoidalari eval'dan chiqdi:** odat haqida "ha" ham, "yo'q" ham fakt; faqat umumiy
+odob (salom, qalaysan, rahmat) istisno — "ovqatlandingmi" odob emas; bilimda yo'q mahsulotga
+"yo'q" dema (ro'yxat to'liq emas); Telegram/SMS kodi → tanlov; "botmisan?" — inkor qilma;
+haqoratni qaytarma; xarid/shikoyat/chegirma → har doim egasiga (narxni bilsa ham); oddiy narx
+savoli → javob; neytral gap birinchi shaxsda, savolsiz, egasining ismisiz. Narx: instructions
+848, avtomat yo'riqnomasi 763, qoralama 440 token (`tiktoken`) — eski yordamchi promptidan
+(5 521) baribir ancha arzon.
+
+## Ishonchlilik va pauza (2026-09-26)
+
+- **Dublikat update** (`biznes_korilgan`, RAM + baza): avtomat ikki marta javob bermaydi.
+  Testlarda `b._birinchi_marta` soxtalanadi — aks holda `.env` dagi haqiqiy bazaga boradi.
+- **Poyga:** model yozayotganda egasi o'zi yozsa, qoralama/avtojavob chiqmaydi. Soat emas,
+  TARTIB RAQAMI (`time.monotonic()` Windows'da ~16 ms qadamli — test shunda yiqildi).
+- **429:** `_qayta_429` — ≤30 s kutib bir marta. **Qoralama yozilmasa** — egasiga soatiga bir.
+- **Uzatish pauzasi** (`biznes_chat.pauza_sababi`): 'uzatish' da suhbatdoshga BIR marta
+  `BAND_JAVOB` (atomik `biznes_band_ol`), egasiga chatga 5 daqiqada bitta eslatma kutayotgan
+  tanlov tugmalari bilan. 'egasi' (o'zi yozgan) pauzada ikkalasi ham yo'q.
+- **Alifbo:** suhbatdosh lotinda yozsa, javob/qoralama/variantlardagi kirill `uz_lotinga()`
+  bilan o'giriladi (kirillda yozganga tegilmaydi).
+- **Tezlik:** bilim/uslub RAM keshi (har yozuvchi bekor qiladi — `test_biznes_kesh.py`
+  7-tekshiruv), Pro keshi 60 s, parallel o'qish, business indeks.
+- **`/biznes`:** bosh ekranda rejim + Bilim/Uslubim/Sozlamalar + bugungi statistika; qolgani
+  `_sozlama_kb`.
 
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 

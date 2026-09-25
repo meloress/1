@@ -4,6 +4,31 @@ Faqat o'qish natijasi. Kodda **hech narsa optimallashtirilmagan**. Yagona o'zgar
 o'lchov loglari (pastda, §9). Har bir taklif sizning tasdig'ingizdan keyin alohida kichik commit
 va testi bilan kiritiladi.
 
+## Holat (2026-09-26)
+
+Egasi "7-8 darajaga olib chiq" dedi — quyidagilar kiritildi, har biri alohida commit va testi bilan.
+
+| Band | Holat | Qayerda / test |
+|---|---|---|
+| S1 `owner_id` yo'q so'rov | ✅ | `biznes_loyiha_yakun`; `test_biznes_owner.py` HAR biznes_* so'rovni `ast` bilan tekshiradi |
+| S2 global tozalash qoralama ichida | ✅ | `biznes_tozala()` kunlik |
+| S3 `clear_user_history` | ✅ | o'chirildi; `clear_history(thread_id=None)` faqat `thread_id >= 0` |
+| 2.2 bilim ‖ uslub | ✅ | `asyncio.gather` |
+| 2.3 uslub o'rganish fonda | ✅ | `biznes_uslub.namuna_saqla` |
+| 3.1 Pro keshi | ✅ | `_pro()` 60 s (6.3.1 N+1 ham) |
+| 3.2-3.3 uslub/bilim keshi | ✅ | `test_biznes_kesh.py` (yozuvchilarni `ast` bilan tekshiradi) |
+| 5.2 business `prompt_cache_key` | ✅ | `…-biznes` |
+| 6.2.1 indeks | ✅ | `idx_chat_messages_biznes_thread` + `AND thread_id < 0` |
+| 7.1 dublikat | ✅ | `biznes_korilgan` + RAM |
+| 7.2-7.3 429 | ✅ | `_qayta_429` |
+| 7.4 qoralama yozilmadi | ✅ | egasiga soatiga bir |
+| 7.6 poyga | ✅ | tartib raqami (`_egasi_yozdi`) |
+| 2.1, 2.4-2.5, 3.4-3.6, 6.2.2, 7.5 | ⏳ | kesh bilan kamroq muhim; qoldi |
+| 4.x, 5.1, 5.3 | ⏳ | natijaga ta'sir qiladi — `eval_biznes.py` bilan o'lchab, alohida qaror |
+
+Shu jarayonda qo'shimcha: tuzilgan qaror (`BIZNES_SXEMA`), `eval_biznes.py` (81% → 98-100%),
+uzatish pauzasi, alifbo, `/biznes` soddalashtirildi — `BIZNES.md`.
+
 Belgilar: **Ta'sir** — Y (yuqori) / O (o'rta) / P (past). **Xavf** — xulqni yoki natijani
 o'zgartirish ehtimoli. ⚠️ **XAVFSIZLIK** — `owner_id` qoidasiga oid.
 

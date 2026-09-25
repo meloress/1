@@ -368,14 +368,19 @@ async def clear_history(chat_id: int, thread_id: Optional[int] = 0):
     bo'lardi: u "tarix tozalandi" degan xabarni ko'radi, bot esa eski
     suhbatning siqilgan shaklini saqlab qolib, keyingi javobda uni
     ishlatishda davom etardi. O'chirish — o'chirish degani.
+
+    ⛔️ "Barcha mavzular" — faqat foydalanuvchining O'Z suhbatlari
+    (`thread_id >= 0`). Manfiy `thread_id` — Telegram Business: `chat_id`
+    o'sha odam, lekin suhbat boshqa EGANIKI (`thread_id = -owner_id`).
+    Uni o'chirish begona egalarning tarixini o'chirish bo'lardi (AUDIT S3).
     """
     if thread_id is None:
         for d in (_cache, _summary_cache):
-            for k in [k for k in d if k[0] == chat_id]:
+            for k in [k for k in d if k[0] == chat_id and k[1] >= 0]:
                 d.pop(k, None)
-        for k in [k for k in _long_warn if k[0] == chat_id]:
+        for k in [k for k in _long_warn if k[0] == chat_id and k[1] >= 0]:
             _long_warn.discard(k)
-        shart, args = "chat_id = $1", (chat_id,)
+        shart, args = "chat_id = $1 AND thread_id >= 0", (chat_id,)
     else:
         key = (chat_id, thread_id)
         _cache.pop(key, None)
@@ -388,7 +393,3 @@ async def clear_history(chat_id: int, thread_id: Optional[int] = 0):
         await conn.execute(f"DELETE FROM chat_messages WHERE {shart}", *args)
         await conn.execute(f"DELETE FROM chat_summaries WHERE {shart}", *args)
 
-
-async def clear_user_history(chat_id: int):
-    """Foydalanuvchining BARCHA mavzulari."""
-    await clear_history(chat_id, thread_id=None)
