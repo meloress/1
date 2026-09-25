@@ -848,11 +848,11 @@ BIZNES_BILIM_MAX = 4000
 # kuzatuv   — faqat tarix (4-bosqich hisobotining xom ashyosi)
 # avtomat   — bot mijozga O'ZI javob beradi (3-bosqich)
 BIZNES_REJIMLAR = ("buyruq", "yordamchi", "kuzatuv", "avtomat")
-# ⛔️ REJA.md: avtomat rejim FAQAT 2-bosqich o'lchovi yaxshi bo'lsa
-# (loyihalarning ≥60% i tahrirsiz yuboriladi) ochiladi. Kod tayyor, lekin
-# o'lchovgacha `/biznes` ekranida tugma ko'rinmaydi va callback ham
-# qabul qilinmaydi. O'lchovdan keyin — shu bitta qatorni True qiling.
-BIZNES_AVTOMAT_OCHIQ = False
+# REJA.md avtomatni 2-bosqich o'lchovidan (≥60% loyiha tahrirsiz) keyin
+# ochishni aytgan edi. 2026-09-26 da egasi o'lchovsiz, ATAYLAB ochdi —
+# `[tanlov:]` (shaxsiy savol/va'da egasiga) va «🤖 avtojavob» belgisi
+# kiritilgandan keyin. False — tugma yashirinadi va avtomat to'xtaydi.
+BIZNES_AVTOMAT_OCHIQ = True
 # Uzatishdan yoki egasi o'zi yozgandan keyin bot shu chatda jim turadi.
 BIZNES_PAUZA_SOAT = 3
 # 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"

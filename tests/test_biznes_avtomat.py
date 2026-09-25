@@ -480,7 +480,9 @@ manba = kod(os.path.join(ROOT, "db", "database.py"))
 check(30, "ustunlar migratsiyada, pauza SQL'da NOW() bilan solishtiriladi",
       "daily_biznes_used INTEGER" in manba and "daily_biznes_date DATE" in manba
       and "pauza_gacha > NOW()" in manba and "make_interval(hours => $3::int)" in manba)
-check(31, "avtomat bayrog'i asl holda YOPIQ (REJA: o'lchovsiz ochilmaydi)",
-      c.BIZNES_AVTOMAT_OCHIQ is False)
+# Egasi 2026-09-26 da ataylab ochdi (config izohi). Tekshiruv qiymatni
+# qotiradi — keyingi o'zgarish ham ataylab bo'lsin.
+check(31, "avtomat bayrog'i OCHIQ (egasining qarori, 2026-09-26)",
+      c.BIZNES_AVTOMAT_OCHIQ is True)
 
 print("\nHammasi o'tdi: 31/31")

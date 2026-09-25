@@ -18,7 +18,7 @@ oldin shu faylni o'qing. Bosqichlar rejasi va asl qarorlar — `REJA.md`.
 
 Sinov davri: `/biznes` va `/mijozlar` ATAYLAB menyuda yo'q
 (`services/menu.py`), yozib ishlatilsa ishlaydi. Hamma uchun ochilganda
-`PRO_COMMANDS` ga qo'shiladi. Avtomat rejim `BIZNES_AVTOMAT_OCHIQ = False`.
+`PRO_COMMANDS` ga qo'shiladi. Avtomat rejim ochiq (`BIZNES_AVTOMAT_OCHIQ = True`, egasi 2026-09-26 da o'lchovsiz ochdi).
 
 ## Egasining bot DM'i: bitta «💼 Biznes» mavzusi
 
@@ -175,8 +175,9 @@ than `_SECRET_RE`: a shop phone number must pass, and so must a price list like
 
 ### Telegram Business: the "Avtomat" mode (phase 3)
 
-The bot answers the customer **itself**. ⛔️ **It ships switched off:**
-`BIZNES_AVTOMAT_OCHIQ = False` hides the button *and* stops processing, because `REJA.md`
+The bot answers the customer **itself**. ⛔️ **It shipped switched off** and the owner opened it
+deliberately on 2026-09-26, before the measurement, once `[tanlov:]` and the 🤖 label existed.
+`BIZNES_AVTOMAT_OCHIQ = False` hides the button *and* stops processing — the original reason: `REJA.md`
 allows this mode only after phase 2 shows ≥60% of drafts sent unedited — and nothing has
 been measured yet. Flip that one constant after the measurement; `test_biznes_avtomat.py`
 check 31 pins the default so the flip has to be deliberate.
