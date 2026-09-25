@@ -34,7 +34,7 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
                            InlineKeyboardMarkup, InputProfilePhotoStatic,
                            InputStoryContentPhoto, Message)
 
-from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX,
+from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
                          BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
                          BIZNES_ESLATMA_DAQIQA, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_TUNGI_SOAT,
@@ -1369,8 +1369,11 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
 
 
 # ── /biznes ekrani ───────────────────────────────────────────────────
-def ekran_matni(ul: dict | None, bilim: str) -> str:
-    """Sof funksiya — testda tekshiriladi."""
+def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
+                namuna: int | None = None) -> str:
+    """Sof funksiya — testda tekshiriladi. `stat` — `biznes_ekran_stat`,
+    `namuna` — uslub namunalari soni (ikkalasi ixtiyoriy: o'qilmasa ekran
+    baribir chiqadi)."""
     qator = ["💼 <b>TELEGRAM BUSINESS</b>\n━━━━━━━━━━━━━━━━━━━━\n"]
     if not ul or not ul["yoqilgan"]:
         qator.append("❌ Ulanmagan. Sozlamalar → Telegram Business → Chatbotlar "
@@ -1378,8 +1381,15 @@ def ekran_matni(ul: dict | None, bilim: str) -> str:
         return "\n".join(qator)
     nom, tavsif = REJIM_NOMI[ul["rejim"]]
     qator.append(f"✅ Ulangan\nRejim: <b>{nom}</b> — {tavsif}.")
-    qator.append(f"Bilim: <b>{len(bilim)}</b> / {BIZNES_BILIM_MAX} belgi"
-                 if bilim else "Bilim: <b>yozilmagan</b>")
+    if stat:
+        qator.append(f"\nBugun: <b>{stat['javob']}</b> ta javob, "
+                     f"<b>{stat['uzatish']}</b> ta sizga uzatildi")
+        if stat["yuborilgan"]:
+            foiz = stat["tahrirsiz"] * 100 // stat["yuborilgan"]
+            qator.append(f"30 kun: qoralamalarning <b>{foiz}%</b> i o'zgartirilmay "
+                         f"yuborildi ({stat['yuborilgan']} tadan)")
+    qator.append(("Bilim: " + (f"<b>{len(bilim)}</b> belgi" if bilim else "<b>yozilmagan</b>"))
+                 + (f" · Uslub: <b>{namuna}</b> namuna" if namuna is not None else ""))
     if ul["rejim"] == "avtomat":
         qator.append(f"Ish vaqti: <b>{ul.get('ish_vaqti') or 'doim'}</b> (Toshkent)")
         qator.append(f"Javob oxirida «{AVTO_BELGI}»: <b>"
@@ -1407,17 +1417,28 @@ def _ekran_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
                 for r in BIZNES_REJIMLAR
                 if r != "avtomat" or BIZNES_AVTOMAT_OCHIQ or ul["rejim"] == r]
     qatorlar = [rejimlar[i:i + 2] for i in range(0, len(rejimlar), 2)]
+    # Bosh ekranda faqat eng kerakli uchta: egasi "juda murakkab" dedi
+    # (2026-09-25) — qolgani «Sozlamalar» ichida.
+    qatorlar.append([pro_module.btn("📝 Bilim", "bz:k", style=BTN_PRIMARY),
+                     pro_module.btn("🎨 Uslubim", "bz:us")])
+    qatorlar.append([pro_module.btn("⚙️ Sozlamalar", "bz:s")])
+    return InlineKeyboardMarkup(inline_keyboard=qatorlar)
+
+
+def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
+    """«⚙️ Sozlamalar» — kam ishlatiladiganlari."""
+    if not ul or not ul["yoqilgan"]:
+        return None
+    qatorlar = []
     if ul["rejim"] == "avtomat":
         qatorlar.append([pro_module.btn("Ish vaqti", "bz:w"),
                          pro_module.btn("Chatlar", "bz:c")])
         qatorlar.append([pro_module.btn(
             f"🤖 belgisi: {'bor' if ul.get('avto_belgi', True) else 'yo‘q'}", "bz:bl")])
-    qatorlar.append([pro_module.btn("Bilimni yozish", "bz:k", style=BTN_PRIMARY),
-                     pro_module.btn("Bilimni ko'rish", "bz:v")])
-    qatorlar.append([pro_module.btn("Uslubim", "bz:us")])
     qatorlar.append([pro_module.btn("Bio", "bz:pf:bio"), pro_module.btn("Ism", "bz:pf:ism"),
                      pro_module.btn("Rasm", "bz:pf:rasm"),
                      pro_module.btn("Story", "bz:pf:story")])
+    qatorlar.append([pro_module.btn("⬅️ Orqaga", "bz:e")])
     return InlineKeyboardMarkup(inline_keyboard=qatorlar)
 
 
@@ -1447,7 +1468,17 @@ async def _chatlar_royxati(uid: int) -> tuple[str, InlineKeyboardMarkup | None]:
 async def _ekran(user_id: int):
     topilgan = database.biznes_egasi_ulanishi(user_id)
     ul = topilgan[1] if topilgan else None
-    return ekran_matni(ul, await database.biznes_bilim_ol(user_id)), _ekran_kb(ul)
+    bilim = await database.biznes_bilim_ol(user_id)
+    stat = namuna = None
+    if ul:
+        # Statistika — bezak: xatosi ekranni to'xtatmasin.
+        try:
+            stat, u = await asyncio.gather(database.biznes_ekran_stat(user_id, _hozir_kun()),
+                                           database.biznes_uslub_ol(user_id, BIZNES_NAMUNA_MAX))
+            namuna = len(u["namunalar"])
+        except Exception as e:
+            logger.warning(f"[BIZNES] ekran statistikasi o'qilmadi: {e}")
+    return ekran_matni(ul, bilim, stat, namuna), _ekran_kb(ul)
 
 
 async def handle_biznes(message: Message, state: FSMContext) -> None:
@@ -1519,6 +1550,18 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         return
     if amal in biznes_uslub.AMALLAR:
         await biznes_uslub.uslub_callback(query, state, amal)
+    elif amal in ("s", "e"):
+        # Bitta xabar ichida almashadi — chat tugma xabarlari bilan to'lmasin.
+        matn, kb = await _ekran(uid)
+        if amal == "s":
+            topilgan = database.biznes_egasi_ulanishi(uid)
+            kb = _sozlama_kb(topilgan[1] if topilgan else None)
+            matn = "⚙️ <b>Sozlamalar</b>\n\n" + matn
+        try:
+            await query.message.edit_text(matn, reply_markup=kb)
+        except Exception:
+            await query.message.answer(matn, reply_markup=kb)
+        await query.answer()
     elif amal == "bl":
         topilgan = database.biznes_egasi_ulanishi(uid)
         if not topilgan:
@@ -1526,7 +1569,8 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             return
         yangi = not topilgan[1].get("avto_belgi", True)
         await database.biznes_belgi_yoz(uid, yangi)
-        matn, kb = await _ekran(uid)
+        matn, _ = await _ekran(uid)
+        matn, kb = "⚙️ <b>Sozlamalar</b>\n\n" + matn, _sozlama_kb(topilgan[1])
         try:
             await query.message.edit_text(matn, reply_markup=kb)
         except Exception:
@@ -1608,9 +1652,13 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         await query.message.answer_document(BufferedInputFile(
             await _mijozlar_csv(uid), filename=f"mijozlar-{_hozir():%Y%m%d}.csv"))
     elif amal == "k":
+        # «Yozish» va «Ko'rish» bitta tugma: joriy matn + yangisini yuboring.
         await state.set_state(BiznesStates.bilim)
         await query.answer()
-        await query.message.answer(_BILIM_SOROVI)
+        bilim = await database.biznes_bilim_ol(uid)
+        joriy = (f"Hozirgi bilim:\n<blockquote expandable>{escape(bilim)}</blockquote>\n\n"
+                 if bilim else "")
+        await query.message.answer(joriy + _BILIM_SOROVI)
     elif amal == "v":
         bilim = await database.biznes_bilim_ol(uid)
         await query.answer()

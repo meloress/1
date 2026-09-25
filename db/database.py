@@ -1587,6 +1587,33 @@ async def biznes_chat_ochir(owner_id: int, chat_id: int, ochirilgan: bool) -> No
 
 
 @with_db_retry()
+async def biznes_ekran_stat(owner_id: int, kun) -> Dict[str, int]:
+    """/biznes bosh ekrani uchun: bugungi javob/uzatish va 30 kunlik
+    qoralamalardan nechtasi o'zgartirilmay ketgani (3-bosqich mezoni)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        faol = await conn.fetch(
+            '''
+            SELECT activity_type, COUNT(*) AS soni FROM user_activity
+            WHERE user_id = $1 AND activity_type = ANY($3::text[])
+              AND (activity_time AT TIME ZONE 'Asia/Tashkent')::date = $2
+            GROUP BY activity_type
+            ''', owner_id, kun,
+            ["biznes_avtojavob", "biznes_yuborildi", "biznes_uzatish"])
+        lo = await conn.fetchrow(
+            "SELECT COUNT(*) FILTER (WHERE holat = 'yuborildi') AS tahrirsiz, "
+            "COUNT(*) FILTER (WHERE holat IN ('yuborildi', 'tahrirlandi')) AS jami "
+            "FROM biznes_loyiha WHERE owner_id = $1 AND variantlar IS NULL "
+            "AND yaratilgan > NOW() - make_interval(days => 30)", owner_id)
+    f = {r['activity_type']: r['soni'] for r in faol}
+    return {"javob": f.get("biznes_avtojavob", 0) + f.get("biznes_yuborildi", 0),
+            "uzatish": f.get("biznes_uzatish", 0),
+            "tahrirsiz": lo['tahrirsiz'] or 0, "yuborilgan": lo['jami'] or 0}
+
+
+@with_db_retry()
 async def biznes_chatlar(owner_id: int, limit: int = 10) -> List[Dict[str, Any]]:
     """Egasining oxirgi business chatlari — `/biznes` → «Chatlar» ro'yxati.
     Tarix kaliti `thread_id = -owner_id` (REJA.md 0.4)."""

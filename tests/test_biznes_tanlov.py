@@ -300,8 +300,8 @@ check(18, ".javob natijasidan marker olib tashlanadi",
       [x[2] for x in mijozga()] == ["boraman"])
 
 # ── 19. /biznes ekrani: avtomatda belgi tugmasi ──────────────────
-kb = str(b._ekran_kb(UL))
-check(19, "avtomat ekranida «🤖 belgisi» tugmasi va holati",
+kb = str(b._sozlama_kb(UL))
+check(19, "avtomat Sozlamalarida «🤖 belgisi» tugmasi, ekranda holati",
       "bz:bl" in kb and "avtojavob" in b.ekran_matni(UL, ""))
 
 print("\nHammasi o'tdi: 19/19")
