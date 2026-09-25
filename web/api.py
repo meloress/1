@@ -126,6 +126,24 @@ def _tarif(st: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _biznes_kpi(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Telegram Business kartasi (REJA.md 4.5).
+
+    ⚠️ Ulush bugungi JAMI token ichida — grantga nisbatan emas: savol
+    «grantning qanchasini biznes yeyapti», va u `_token_kpi` dagi
+    raqam bilan bir kunlik kesimda solishtiriladi. Token bo'lmasa None:
+    «0%» yolg'on bo'lardi (o'lchanmagan ≠ nol).
+    """
+    jami = d.get("token_jami") or 0
+    token = d.get("token") or 0
+    return {
+        "ulanishlar": d.get("ulanishlar") or 0,
+        "sorovlar": d.get("sorovlar") or 0,
+        "token": token,
+        "ulush": round(token / jami * 100) if jami else None,
+    }
+
+
 def _token_kpi(d: Dict[str, Any]) -> Dict[str, Any]:
     """Bugungi token sarfi — kunlik grantga nisbatan.
 
@@ -177,7 +195,7 @@ async def overview(request: web.Request):
     # Telegram baribir bazadan OLDIN turishi shart, `watch_set` da esa
     # kesh yangilanishi yozuvdan keyin bo'lishi kerak.
     (kunlik, daromad, xatolar, xato_jami,
-     tatil, st, token, kuzatuv) = await asyncio.gather(
+     tatil, st, token, kuzatuv, biznes) = await asyncio.gather(
         database_module.daily_report_stats(),
         database_module.revenue_stats(),
         database_module.recent_errors(limit=4),
@@ -186,6 +204,7 @@ async def overview(request: web.Request):
         database_module.activity_stats(kun_oynasi),
         database_module.token_stats(2),
         database_module.get_watch_health(),
+        database_module.biznes_panel_stats(),
     )
 
     kunlar = _kun_qatori(st["daily_activity"], kun_oynasi,
@@ -241,6 +260,7 @@ async def overview(request: web.Request):
             "vaqt": _sana(kuzatuv.get("vaqt")),
         },
         "tatil": bool(tatil.get("active")),
+        "biznes": _biznes_kpi(biznes),
         # ⚠️ «Bot ishlayapti» BELGISI QOTIRILGAN MATN EMAS. Panel bot
         # jarayonining ICHIDA ishlaydi, ya'ni bu javobning kelishi
         # jarayon tirikligining o'zi; qolgan ikkitasi esa haqiqatan
@@ -1072,31 +1092,11 @@ EKSPORT_TURLARI = {
 }
 
 
-def _csv_katak(qiymat: Any) -> str:
-    """Bitta katak — CSV qoidalari bo'yicha.
-
-    ⛔️ FORMULA IN'EKSIYASI. Excel `=`, `+`, `-`, `@` bilan boshlangan
-    katakni FORMULA deb o'qiydi, ya'ni username `=HYPERLINK(...)` bo'lsa
-    faylni ochgan odamning mashinasida ishga tushardi. Bo'sh joy
-    qo'shish buni to'xtatadi va ko'rinishga deyarli ta'sir qilmaydi.
-    """
-    if qiymat is None:
-        return ""
-    matn = str(qiymat)
-    if matn[:1] in ("=", "+", "-", "@", "\t", "\r"):
-        matn = "'" + matn
-    if any(c in matn for c in ',";\n\r'):
-        matn = '"' + matn.replace('"', '""') + '"'
-    return matn
-
-
-def _csv(sarlavhalar: tuple, qatorlar: List[tuple]) -> str:
-    # ⚠️ BOM (﻿) ATAYLAB: usiz Excel faylni ANSI deb o'qiydi va
-    # o'zbekcha «o'», «g'» hamda @username'lardagi harflar buziladi.
-    # LibreOffice va Google Sheets BOM bilan ham to'g'ri ochadi.
-    satrlar = [";".join(sarlavhalar)]
-    satrlar += [";".join(_csv_katak(k) for k in q) for q in qatorlar]
-    return "﻿" + "\r\n".join(satrlar) + "\r\n"
+# ⚠️ CSV yordamchilari `core/csv_fayl.py` ga KO'CHDI (REJA.md 4.3):
+# Telegram Business kartotekasi ham xuddi shu formula himoyasi bilan
+# eksport qiladi, ikkinchi nusxa esa bu himoyani biri yo'qotib qo'yadigan
+# yo'l bo'lardi. Nomlar shu yerda qoldi — chaqiruvchilar o'zgarmadi.
+from core.csv_fayl import csv_katak as _csv_katak, csv_matn as _csv  # noqa: E402
 
 
 @admin_only

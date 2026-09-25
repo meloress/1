@@ -8,11 +8,12 @@ import asyncio
 import aiohttp
 import ipaddress
 import re
+from contextvars import ContextVar
 import json
 import socket
 from contextlib import AsyncExitStack
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from html import escape as html_escape
 from urllib.parse import urlparse, urlencode
 from urllib.request import Request, urlopen
@@ -184,8 +185,8 @@ def nomlash_kerakmi(chat_id: int, thread_id: int, role: str,
     """Shu yozuvdan keyin mavzuga nom qo'yiladimi?
 
     Shartlar ataylab qattiq:
-    - `thread_id` 0 dan farqli — ya'ni haqiqatan mavzu ichidamiz
-      (mavzusiz chatda ham, guruh/guest yo'lida ham 0 bo'ladi);
+    - `thread_id` musbat — ya'ni haqiqatan mavzu ichidamiz (mavzusiz
+      chatda ham, guruh/guest yo'lida ham 0, business chatda manfiy);
     - `chat_id` musbat — faqat shaxsiy chat, guruhda botning huquqi yo'q;
     - yozuv BOTNIKI — savolga emas, tayyor javobdan keyin nomlaymiz;
     - suhbatda 3 tadan ko'p bo'lmagan qator. Bot javobi juft raqamga
@@ -194,7 +195,10 @@ def nomlash_kerakmi(chat_id: int, thread_id: int, role: str,
       uchun bu shart bir suhbatda BIR MARTADAN ortiq bajarilmaydi
       (keyingi javob eng kamida 4-qator).
     """
-    return bool(thread_id) and chat_id > 0 and role == "assistant" and jami <= 3
+    # ⚠️ `> 0`, `bool()` EMAS: business suhbati `thread_id = -owner_id`
+    # (REJA.md 0.4). Manfiy son ham "rost" — `bool()` bilan editForumTopic
+    # mijoz chatida chaqirilardi.
+    return thread_id > 0 and chat_id > 0 and role == "assistant" and jami <= 3
 
 
 def _nom_tozala(matn: str) -> str:
@@ -317,6 +321,51 @@ async def summarize_history_chunk(old_summary: str, rows: List[Dict]) -> str:
         return ""
     # Model chegarani buzsa ham jadval o'smasin — kesib qo'yamiz.
     return matn[:HISTORY_SUMMARY_MAX_CHARS]
+
+
+_BIZNES_KUN_PROMPT = (
+    "Sen biznes egasining yordamchisisan. Kechagi mijoz yozishmalari "
+    "berilgan: har chat «#N» bilan boshlanadi. Faqat JSON qaytar, boshqa "
+    "hech narsa yozma:\n"
+    '{"xulosa": "egasi uchun 2-4 gaplik umumiy xulosa: nima so\'rashdi, '
+    'nima kelishildi, nima javobsiz qoldi", "mijozlar": [{"n": 1, '
+    '"ism": "yozishmada aytilgan ism yoki null", "telefon": "aytilgan '
+    'telefon yoki null", "qiziqish": "nima so\'radi yoki buyurtma qildi, '
+    'qisqa"}]}\n'
+    "Yozishmada YO'Q narsani to'qima — bilmasang null. Xulosa o'zbek tilida."
+)
+
+
+async def biznes_kun_xulosasi(chatlar: List[str],
+                              egasi: Optional[int] = None) -> Dict[str, Any]:
+    """Ertalabki hisobot (REJA.md 4.1) va kartoteka (4.3) — BITTA mini
+    chaqiruv. Har chat uchun alohida chaqiruv N baravar qimmat bo'lardi.
+
+    ⚠️ `HISTORY_SUMMARY_MODEL` ataylab: mini modellar byudjeti katta
+    modellarnikidan ~10 baravar katta (test_free_models.py). Xato yoki
+    buzuq JSON — bo'sh dict: hisobot raqamlar bilan baribir ketadi.
+    Natija ISHONCHSIZ — `n` va maydonlarni chaqiruvchi tekshiradi.
+    """
+    if not chatlar:
+        return {}
+    try:
+        resp = await asyncio.wait_for(
+            openai_client.responses.create(
+                model=HISTORY_SUMMARY_MODEL,
+                instructions=_BIZNES_KUN_PROMPT,
+                input=[{"role": "user", "content": "\n\n".join(chatlar)[:24000]}],
+                store=False,
+            ),
+            timeout=60,
+        )
+        _log_token_usage(resp, HISTORY_SUMMARY_MODEL, "biznes-hisobot", egasi)
+        matn = (resp.output_text or "").strip()
+        matn = matn[matn.find("{"):matn.rfind("}") + 1]
+        natija = json.loads(matn)
+        return natija if isinstance(natija, dict) else {}
+    except Exception as e:
+        logger.warning(f"[BIZNES] kun xulosasi yozilmadi: {str(e) or type(e).__name__}")
+        return {}
 
 
 async def safe_history_summary_message(chat_id: int,
@@ -789,6 +838,23 @@ def strip_internal_names(text: str) -> str:
         return text
     return _INTERNAL_NAME_RE.sub(
         lambda m: INTERNAL_TOOL_NAMES.get(m.group(0), m.group(0)), text)
+
+
+# ── [egasiga: sabab] — Telegram Business "Avtomat" rejimi (REJA.md 3) ──
+# Model mijozga javob o'rniga shu markerni yozadi: xarid niyati, jahl,
+# bilimda yo'q savol, chegirma so'rovi. Xarita/tugma markerlari bilan bir
+# xil naqsh: markerni KOD ushlaydi va mijoz uni hech qachon ko'rmaydi.
+# ⛔️ Buzilgan marker ham ("[egasiga: narx" — yopilmagan) qator oxirigacha
+# tashlanadi: xom matn mijozga ketsa, u botning ichki buyrug'ini o'qiydi.
+_EGASIGA_RE = re.compile(r"\[\s*egasiga\s*:\s*([^\]\n]{0,300})\]", re.I)
+_EGASIGA_BUZUQ_RE = re.compile(r"\[\s*egasiga\b[^\n]*", re.I)
+
+
+def egasiga_ajrat(text: str) -> tuple:
+    """(mijozga_ketadigan_matn, sabab | None). Sabab bo'sh bo'lsa "—"."""
+    sabablar = [m.strip() or "—" for m in _EGASIGA_RE.findall(text or "")]
+    toza = _EGASIGA_BUZUQ_RE.sub("", _EGASIGA_RE.sub("", text or ""))
+    return toza.strip(), (sabablar[0] if sabablar else None)
 
 
 def strip_rich_tokens(text: str) -> str:
@@ -2230,16 +2296,26 @@ def _log_token_usage(resp, model: str, raund, user_id=None) -> None:
         # «bugun grantning qanchasi yeyildi» degan savolga javob
         # bermaydi; panel esa aynan shuni ko'rsatishi kerak. Fon
         # vazifasi: javob bu yozuvni KUTMAYDI.
-        asyncio.create_task(_token_saqla(user_id, model, kirish, chiqish, keshdan))
+        asyncio.create_task(_token_saqla(user_id, model, kirish, chiqish, keshdan,
+                                         "biznes" if BIZNES_MANBA.get() else None))
     except Exception:
         pass
 
 
-async def _token_saqla(user_id, model, kirish, chiqish, keshdan) -> None:
+# Telegram Business yo'lidagi chaqiruvlar belgisi (panelning biznes token
+# ulushi, REJA.md 4.5). ContextVar, parametr EMAS: model chaqiruvi uch-
+# to'rt funksiya chuqurlikda (`get_gpt_reply` → `get_openai_reply` →
+# `_log_token_usage`) va hammasining imzosini o'zgartirish kerak bo'lardi.
+# `handlers/biznes.py::_biznes_hisobida` uni o'rnatadi.
+BIZNES_MANBA: ContextVar[bool] = ContextVar("biznes_manba", default=False)
+
+
+async def _token_saqla(user_id, model, kirish, chiqish, keshdan,
+                       manba=None) -> None:
     """Hech qachon yiqilmaydi: hisob javobdan muhimroq emas."""
     try:
         from db.database import token_yoz
-        await token_yoz(user_id, model, kirish, chiqish, keshdan)
+        await token_yoz(user_id, model, kirish, chiqish, keshdan, manba)
     except Exception as e:
         logger.debug(f"[TOKEN] bazaga yozilmadi: {e}")
 
@@ -2253,7 +2329,11 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
                            # Shaxsiy chatdagi mavzu (topic) — har mavzu
                            # AYRIM suhbat, ya'ni ayrim tarix va xulosa.
                            # 0 = mavzusiz chat (topic rejimi o'chiq).
-                           thread_id: int = 0):
+                           thread_id: int = 0,
+                           # Telegram Business mijoz yo'li — get_openai_reply
+                           # dagi bilan bir xil: tool'siz, egasining
+                           # xotirasisiz, yo'riqnoma `developer` xabarda.
+                           biznes_yoriqnoma: Optional[str] = None):
     # model=None → build_request_params tarifga qarab o'zi tanlaydi. Ilgari
     # bu yerda default GPT_MODEL edi va Pro foydalanuvchi rasm yuborsa ham
     # bepul modelga tushib qolardi.
@@ -2281,10 +2361,13 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
 
     # Rasm oqimida ham xotiraga YOZILADI: foydalanuvchi rasm bilan birga
     # "bu mening do'konim" deb yozsa, bu fakt ilgari izsiz yo'qolardi.
-    mem_rows, mem_msg = await _memory_context(
-        user_id, can_write=user_id is not None, tg_name=tg_name)
+    mem_rows, mem_msg = ([], None) if biznes_yoriqnoma is not None else \
+        await _memory_context(user_id, can_write=user_id is not None,
+                              tg_name=tg_name)
     if mem_msg:
         messages.append(mem_msg)
+    if biznes_yoriqnoma is not None:
+        messages.append({"role": "developer", "content": biznes_yoriqnoma})
 
     messages.append({
         "role": "user",
@@ -2312,7 +2395,8 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     # yuborganda bot rasmni shunchaki TASVIRLAB berardi, va bu aynan eng
     # tabiiy foydalanish usuli edi.
     edit_enabled = (is_pro and user_id is not None
-                    and output_files is not None)
+                    and output_files is not None
+                    and biznes_yoriqnoma is None)
     image_quota: Optional[DailyQuota] = (
         DailyQuota(user_id, "images") if edit_enabled else None
     )
@@ -2322,7 +2406,7 @@ async def get_vision_reply(chat_id: int, base64_image: str, user_message: str, *
     memory_calls = []
     edit_calls = []
     vision_tools = []
-    if user_id is not None:
+    if user_id is not None and biznes_yoriqnoma is None:
         vision_tools.append(_MEMORY_TOOL)
     if edit_enabled:
         vision_tools.append(_EDIT_IMAGE_TOOL)
@@ -4014,7 +4098,16 @@ async def get_openai_reply(
     # Shaxsiy chatdagi mavzu (topic). Har mavzu AYRIM suhbat — ayrim
     # tarix va ayrim xulosa. 0 = mavzusiz chat (topic rejimi o'chiq).
     thread_id: int = 0,
+    # Telegram Business MIJOZ yo'li (REJA.md 0.7): egasining bilimi va
+    # yo'riqnomasi. None emas bo'lsa — tool'lar MAJBURAN o'chadi (mijoz
+    # egasining kvotasidan rasm chizdira olmasin) va egasining shaxsiy
+    # xotirasi qo'shilmaydi (u begona odamga ketadigan matnga sizardi).
+    # ⛔️ `developer` xabar, `instructions` EMAS — per-egasi matn keshni
+    # hamma uchun buzardi.
+    biznes_yoriqnoma: Optional[str] = None,
 ):
+    if biznes_yoriqnoma is not None:
+        tools_enabled = False
     # ⚠️ IMAGE_CAPABILITY_NOTE ataylab FAQAT shu yo'lda. get_vision_reply()
     # bir raundli va unda qidiruv tooli YO'Q — u yerda "rasm yubora olaman"
     # deyish bajarilmaydigan va'da bo'lardi.
@@ -4041,7 +4134,7 @@ async def get_openai_reply(
 
     # Uzoq muddatli xotira. `mem_rows` pastda, tool chaqiruvida
     # pozitsiya→ID moslash uchun ham kerak bo'ladi.
-    mem_rows, mem_msg = await _memory_context(user_id, tg_name=tg_name)
+    mem_rows, mem_msg = ([], None) if biznes_yoriqnoma is not None else         await _memory_context(user_id, tg_name=tg_name)
     if mem_msg:
         messages.append(mem_msg)
 
@@ -4068,6 +4161,9 @@ async def get_openai_reply(
 
     if research:
         messages.append({"role": "developer", "content": _RESEARCH_SYSTEM})
+
+    if biznes_yoriqnoma is not None:
+        messages.append({"role": "developer", "content": biznes_yoriqnoma})
 
     messages.append({"role": "user", "content": message_text})
 
@@ -4640,6 +4736,7 @@ async def get_gpt_reply(
     tg_name: Optional[str] = None,
     tools_enabled: bool = True,
     thread_id: int = 0,
+    biznes_yoriqnoma: Optional[str] = None,
 ):
     async for chunk in get_openai_reply(
         chat_id,
@@ -4655,6 +4752,7 @@ async def get_gpt_reply(
         research=research,
         tg_name=tg_name,
         tools_enabled=tools_enabled,
+        biznes_yoriqnoma=biznes_yoriqnoma,
     ):
         yield chunk
 

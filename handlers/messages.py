@@ -2368,8 +2368,13 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         # qoidasi (GeneratingState) chat boyicha ishlaydi. Uygotilgan
         # sorovning oz `finally` bloki keyingisini uygotadi, yani navbat
         # ketma-ket boshaydi.
+        # ⛔️ `k[1] >= 0`: manfiy kalit — Telegram Business buferi
+        # (mijoz chati, -egasi). `chat_id` bir xil (mijozning o'z DM'i),
+        # lekin u buferni bu yerda uyg'otish mijozning biznes xabarini
+        # uning DM'ida javoblab yuborardi.
         keyingi = next((k for k, v in text_merge_buffers.items()
-                        if k[0] == chat_id and (v or {}).get("parts")), None)
+                        if k[0] == chat_id and k[1] >= 0
+                        and (v or {}).get("parts")), None)
         if keyingi:
             logger.info(f"[Navbat] chat={chat_id} mavzu={keyingi[1]}: "
                         f"kutib turgan xabar(lar) qayta ishlanmoqda")

@@ -258,7 +258,7 @@ The cached prefix is **instructions + the tool schemas**, and OpenAI documents *
 
 `BOT_API_103.md` is the long-form companion to this file: everything added with Bot API 10.3 and after, explained in full — including the decisions that were **tried and reverted** (the interim "preparing your file" message, the sources slide). Read it before re-attempting anything in that area; this file only carries the rules.
 
-`REJA.md` is the same thing for the **web admin panel**: the plan, the reasoning behind each architectural decision, what each phase actually changed, and every place the approved mockup had to be departed from because the data does not exist. Read it before touching `web/`.
+`REJA.md` is now the **Telegram Business** plan (phases 0-4). The **web admin panel** plan it used to hold — the reasoning behind each architectural decision, what each phase changed, every departure from the mockup — lives in git: `git show 3ba4744:REJA.md`. Every `REJA.md 3.1` / `3.2.1` / `4-bo'lim` reference in code comments points at that version. Read it before touching `web/`.
 
 ### Handler registration order is a safety constraint
 
@@ -289,7 +289,7 @@ Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `edit_image`, 
 
 ⚠️ **`open_capabilities` is a fourth door of a different kind**: it attaches nothing, it
 *returns* the answer (the bot's feature list plus the reader's plan) and the model writes
-from that. Same economics — 211 tokens every round, 1 767 only when called — but it does
+from that. Same economics — 211 tokens every round, 2 214 only when called — but it does
 not turn a mode on, so it has no `_mode` flag and it caps itself at one call. See "What
 the model may claim it can do".
 
@@ -598,6 +598,185 @@ One consequence is deliberate: `/new` empties the topic's history, so the next e
 starts from row 1 and the topic is renamed again. That is the right behaviour — the
 conversation genuinely changed — but it does mean a hand-typed name does not survive
 `/new`.
+
+### Telegram Business: the owner's dot-commands (phase 1)
+
+`handlers/biznes.py`. The owner connects the bot to their own account (Settings → Telegram
+Business → Chatbots) and types `.en Salom`, `.javob …`, `.xulosa` in any private chat; the
+command is deleted and the result appears in its place (or in the owner's bot DM). In this
+phase the bot **never writes to a customer on its own**. Plan and later phases: `REJA.md`.
+
+⛔️ **`biznes_kimdan()` is the single loop guard.** `sender_business_bot` is checked
+*first*: when the bot sends on the owner's behalf, `from_user` is the **owner**, so the
+other order would read the bot's own result as the owner's next command. Every handler goes
+through this function and nowhere else re-states the condition. `test_biznes.py` checks 3-4
+fail if the order is swapped (verified by mutation).
+
+⚠️ **History is keyed `(customer_chat_id, -owner_id)`.** In a business chat `chat.id` is the
+*customer's* id, so the customer's own DM with the bot (`thread_id = 0`) would otherwise merge
+with it. Topic ids are positive, so a negative one collides with nothing and `db/history.py`
+needed no change — but `nomlash_kerakmi()` had to become `thread_id > 0`: `bool(-7001)` is
+`True`, and `editForumTopic` would have been called in a customer chat. Customer messages are
+stored as `user`, the owner's (and what the bot sent for them) as `assistant`, only with
+`can_read_messages` and only for a Pro owner — the summary model costs tokens.
+
+⚠️ **The connection cache is written before the database.** `biznes_ulanish_yoz()` updates
+`_biznes_kesh` first, so a failed write cannot leave a disconnected account "enabled" in RAM
+(the bot would keep acting and nothing would raise). A connection missing from the cache —
+made before the table existed — is fetched with `getBusinessConnection` and stored.
+
+Order inside `_bajar()` is the quota contract: maintenance → Pro → right → argument → points
+→ delete the command → model → send. A free owner, a missing right or an empty argument costs
+**nothing**; an empty model answer refunds. A rejected send to the chat (e.g. the 24-hour rule)
+sends the text to the owner instead of pretending it went. The "no preamble" rule
+(`BUYRUQ_QOIDASI`) lives in the command prompt, **not** in `instructions` — it would be paid on
+every round of every request; `test_prompt_rules.py` guards both facts. `_toza()` strips a
+leftover "Mana tarjima:" line as a second layer.
+
+⚠️ Still unverified live (`REJA.md` 0.2): whether the owner's own messages arrive as
+`business_message`, whether the bot's messages come back, which right `deleteBusinessMessages`
+needs for the owner's message (a failure is logged and the result is sent anyway), and the
+exact 24-hour error text. Test on a **second bot** before enabling Business Mode on the live
+one — the inline-mode lesson applies.
+
+### Telegram Business: knowledge and the "Yordamchi" mode (phase 2)
+
+`/biznes` (Pro) picks the mode — `buyruq` / `yordamchi` / `kuzatuv`
+(`BIZNES_REJIMLAR`) — and takes the owner's free-text **knowledge** (`biznes_profil`,
+`BIZNES_BILIM_MAX` 4 000 chars). In `yordamchi` a customer message is debounced, the model
+writes a reply **draft**, and the draft goes to the owner's bot DM with Yuborish / Tahrirlash /
+Bekor. Nothing reaches the customer that the owner did not tap. `kuzatuv` only writes history.
+
+⛔️ **The customer path is `biznes_yoriqnoma=`, and that one argument does three things.**
+It appends knowledge + rules as a `developer` message (never `instructions` — per-owner text
+there poisons the cache for everyone), it **forces `tools_enabled=False`** inside
+`get_openai_reply` (a customer must not draw images or search on the owner's quota, whatever
+the caller passes), and it **skips `_memory_context`** — the owner's personal memory would
+otherwise leak into text written to a stranger. `test_biznes_yordamchi.py` checks 1-3 pass
+`tools_enabled=True` on purpose; check 2 fails if the forcing line is deleted (verified).
+
+Measured with `tiktoken`: the rules block is **238 tokens**, a full 4 000-char knowledge text
+**~1 726** (Uzbek; the plan's "≈1 000" estimate was low). Both are paid on every draft, on top
+of the usual prefix and the chat history — a draft is a normal-sized request, charged to the
+owner's points.
+
+⚠️ **The debounce reuses `text_merge_buffers` keyed `(customer_chat, -owner)`**, so the DM
+queue's wake-up in `_process_merged_text` must skip negative keys (`k[1] >= 0`): the customer's
+own DM has the same `chat_id`, and without the guard it would pick up the business buffer and
+answer the customer's business message **in their DM**. Check 24 pins it. The customer's text
+is written to history *after* the model call — written before, the model sees it twice.
+
+⛔️ **Sending is an atomic claim, never select-then-send.** `biznes_loyiha_band()` is one
+`UPDATE … WHERE holat = 'kutmoqda' AND owner_id … AND age < 24h RETURNING`; the loser of a
+double tap gets `None` and sends nothing (check 13 fires two taps with `asyncio.gather`, and
+fails against a check-then-act variant). A rejected send puts the row back to `kutmoqda` and
+tells the owner the reason — it is never reported as sent. The owner writing to the customer
+themselves marks pending drafts `eskirgan`, and a new draft stales the previous one.
+`callback_data` carries only the row id (64-byte limit), so drafts live in Postgres, not RAM.
+
+Knowledge is **rejected, not truncated**, when too long (a truncated price list loses its tail
+silently) or when it holds a card or passport number. The card rule is deliberately narrower
+than `_SECRET_RE`: a shop phone number must pass, and so must a price list like
+"50 000 80 000 120 000" — 16 digits with separators, which a "13+ digits" rule rejected.
+
+**Measuring phase 2 → 3:** the gate is the share of drafts sent unedited. Rows end as
+`yuborildi` (unchanged) or `tahrirlandi` (owner's text), and every send logs
+`[BIZNES] yuborildi … tahrirsiz=True|False`. Below ~60% the plan says: no automatic mode.
+
+### Telegram Business: the "Avtomat" mode (phase 3)
+
+The bot answers the customer **itself**. ⛔️ **It ships switched off:**
+`BIZNES_AVTOMAT_OCHIQ = False` hides the button *and* stops processing, because `REJA.md`
+allows this mode only after phase 2 shows ≥60% of drafts sent unedited — and nothing has
+been measured yet. Flip that one constant after the measurement; `test_biznes_avtomat.py`
+check 31 pins the default so the flip has to be deliberate.
+
+Every reply costs one unit of the new **`biznes` daily counter** (`DAILY_COUNTERS` row, two
+`users` columns, `PLAN_LIMITS` free 0 / Pro 50 / premium ∞, `LIMIT_NOMI`), not points. 50 is
+a guess sized against the grant (one reply ≈ 8-10k tokens → ~450k/day for one busy owner);
+the phase-3 measurement exists to correct it, and it is editable in the panel.
+
+⛔️ **Nothing technical ever reaches the customer.** Four paths, each tested: an exhausted
+counter sends the customer nothing and the owner **one** message a day; a model error or a
+rejected send refunds the counter and goes to the owner through `send_error_with_retry(...,
+kind="biznes", retry=False)` — at most once an hour, or an OpenAI outage would become one owner
+message per customer message. `retry=False` exists for this: the retry button would re-run the
+customer's text as the *owner's* DM question. Check 28 collects every customer-bound text in the
+whole run and fails on any error, marker or limit wording.
+
+⛔️ **`[egasiga: sabab]` is caught by code, not trusted to the model.** `egasiga_ajrat()` (next
+to `strip_rich_tokens()`) removes well-formed markers and also a *broken* one up to the end of
+the line — raw `[egasiga: narx` would show the customer the bot's internal instruction. A marker
+means: the customer gets the neutral sentence the model wrote after it (or `NEYTRAL_JAVOB`),
+the owner gets the reason and the message, and the chat pauses for `BIZNES_PAUZA_SOAT` (3). An
+empty answer is treated as a handover too — silence is worse. The avtomat instructions are
+**363 tokens** (`tiktoken`), 125 more than the draft ones, on top of knowledge and history.
+
+⚠️ **Pause and per-chat opt-out live in Postgres (`biznes_chat`), not RAM** — a deploy must not
+make the bot walk back into a conversation the owner took over. The owner writing in the chat
+sets the pause (the natural "take over"); the pause is compared with `NOW()` in SQL so the two
+clocks cannot disagree. Working hours (`ish_vaqti`, Tashkent) are the window the bot **is**
+active; `ish_vaqtimi()` handles the midnight crossing and treats the end as exclusive.
+
+⚠️ **`biznes_kimdan()` also recognises the bot's own sends by `(chat_id, message_id)`**
+(`_yuborilgan`, last 2 000). Whether a bot message comes back with `sender_business_bot` is still
+unverified (`REJA.md` 0.2.3); without this second layer an echoed auto-reply would read as the
+owner writing, and every reply would pause its own chat. Check 24 fails if it is removed.
+
+Voice (STT → the normal debounced flow) and photos (`get_vision_reply(..., biznes_yoriqnoma=)`,
+single round: no memory tool, no `edit_image`) are handled **only in avtomat** — in the other
+modes the transcription would cost money and give the owner nothing. One reply per chat at a
+time: the same per-chat lock as the drafts (`GeneratingState` is keyed by a user, and here there
+is no user to key it by).
+
+### Telegram Business: report, unanswered chats, customer file, profile (phase 4)
+
+**Morning report (4.1).** `biznes_hisobot_watcher()` checks every 10 minutes and sends after
+`BIZNES_HISOBOT_SOAT` (9, Tashkent) — deliberately *not* "sleep until 9": a deploy at 9:05
+would lose that day's report. Once-per-day is `biznes_hisobot_band()`, an atomic
+`UPDATE … WHERE hisobot_sana < today RETURNING` taken **before** any work, so a restart
+neither repeats the message nor pays the model twice. An empty day sends nothing.
+
+One **mini-model** call per owner per day (`biznes_kun_xulosasi`, `HISTORY_SUMMARY_MODEL`,
+**175-token** prompt) writes the summary *and* extracts the customer-file fields — one call
+per chat would cost N times as much. Its failure leaves the report with numbers only.
+
+⛔️ **The model's customer-file output is untrusted twice over.** It names chats by `n`, never
+by `chat_id`, and `n` is bounds-checked against the list it was shown (`isinstance(bool)`
+first — `True` is an `int`); the fields go through `clean_mijoz_maydon()` (phone must be 9-15
+digits after a regex, else `None`; other fields one line, length-cut). An empty field never
+overwrites a known one (`COALESCE`). Check 6 feeds a bool, a string and an out-of-range `n`.
+
+**Unanswered chat (4.2).** Every 5 minutes, chats whose **last** row is the customer's and is
+60-180 min old (`biznes_javobsizlar`, partial index `… WHERE thread_id < 0` built in the
+background). The upper bound is what keeps a deploy — which empties the RAM flag — from
+re-alerting old chats. `_ogoh_holat` pattern: the flag is set **from the send result** (an alert
+that did not arrive is not "said"), and dropped when the chat leaves the list, i.e. was answered.
+Silent 22:00-08:00; what happened at night is in the morning report.
+
+**Customer file (4.3).** Telegram's own name/username are stored on every customer message
+(one upsert, errors swallowed — bookkeeping is not the reply path). `/mijozlar` lists, and the
+CSV export uses **`core/csv_fayl.py`** — the formula-injection escape moved there out of
+`web/api.py` (which re-imports it under the old names), because a second copy is how one of
+them would lose the escape.
+
+⛔️ **Profile and story (4.4) change nothing without a tap.** `/biznes` → Bio / Ism / Rasm /
+Story: the owner describes it, the bot prepares text (points) or an image (the existing
+`generate_image` path — Pro and the `images` counter, refunded if nothing was drawn), shows it,
+and **only `_tasdiqla()`** writes to Telegram. The pending item lives in RAM for an hour (a deploy
+means asking again); a stranger's tap is refused without deleting the owner's item, and it is
+single-use, so a double tap writes once. Telegram wants a **JPG** profile photo and a **1080x1920**
+story, so `_jpeg()` re-encodes/crops. ⚠️ `InputStoryContentPhoto.photo` is typed `str` in aiogram,
+so the story is built with `model_construct`; the session still turns the nested `InputFile`
+into `attach://` (verified by preparing the request offline).
+
+**Panel card (4.5).** Active connections, today's business requests, and business tokens as a
+share of **today's total** tokens — `None`, not 0%, when nothing was measured. Tokens are
+attributed through `services.ai.BIZNES_MANBA`, a `ContextVar` set by `_biznes_hisobida()`
+around every business model call and written to `user_history.manba`. A ContextVar and not a
+parameter: the call is three functions deep, and `asyncio.create_task` in `_log_token_usage`
+copies the context, so the background write still sees it. SQL stays in `db/database.py`
+(`biznes_panel_stats`, `::bigint` on both sums).
 
 ### Inline mode must stay OFF — it breaks guest mode
 
@@ -1386,11 +1565,11 @@ discovers stayed undiscovered.
 
 `open_capabilities` is the fix and it is a **door** (`start_file_task`, `open_memory`,
 `open_reminder` are the same pattern): **211 tokens** per round measured with `tiktoken`,
-and on call it returns the full feature text — **1 767 tokens**, paid only when someone
+and on call it returns the full feature text — **2 214 tokens** (free plan; 1 767 before the Business section), paid only when someone
 actually asks. It is attached on every request including guest, because the question is
 asked in groups too and that is exactly where the model's own knowledge is thinnest
 (files, images, memory and reminders are all off there). `imkoniyat_rounds < 1` caps it
-at one call: the text never changes, so a second call is 1 767 tokens for nothing.
+at one call: the text never changes, so a second call is ~2 000 tokens for nothing.
 
 ⚠️ **The text comes from `handlers/capabilities.py::SECTIONS`, the same dict `/help`
 renders** — `model_uchun(is_pro)` strips the HTML and adds the reader's plan. A second

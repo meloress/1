@@ -158,6 +158,20 @@ for nom, parchalar in MUHIM:
     n += 1
     check(n, f"muhim qoida: {nom}", bor(*parchalar))
 
+# ── Business buyruqlari: natija egasi nomidan ketadi ─────────────
+# Bu qoida `instructions`'da EMAS, `handlers/biznes.py::BUYRUQ_QOIDASI`
+# da — u faqat `.javob`/`.en`/… so'rovida kerak, hamma so'rovda to'lanishi
+# va keshlangan prefiksni o'zgartirishi behuda bo'lardi (REJA.md 0.7).
+from handlers import biznes as _biznes  # noqa: E402
+
+_bq = _biznes.BUYRUQ_QOIDASI.lower()
+n += 1
+check(n, "biznes: muqaddima («Mana javob:») taqiqlangan",
+      "muqaddima" in _bq and "mana javob" in _bq)
+n += 1
+check(n, "biznes: qoida instructions'ga tushmagan (kesh)",
+      " ".join(_biznes.BUYRUQ_QOIDASI.split()).lower() not in DUZ)
+
 # ── O'lcham: prompt sezilmasdan shishib ketmasin ─────────────────
 belgilar = len(INSTRUCTIONS)
 n += 1

@@ -190,6 +190,42 @@ SECTIONS: dict[str, dict] = {
         "example": "",
         "note": "⏱ Lokatsiyani 30 daqiqa eslab turaman — keyin qaytadan kerak",
     },
+    # Telegram Business (REJA.md 1-bosqich). Buyruqlar ro'yxati
+    # handlers/biznes.py::BUYRUQ_HUQUQI bilan bir xil bo'lishi shart —
+    # `tests/test_biznes.py` solishtiradi.
+    "biznes": {
+        "button": "Biznes",
+        "emoji": ("build", "💼"),
+        "title": "TELEGRAM BUSINESS",
+        "body": lambda pro: (
+            ("" if pro else "🔒 <b>Pro tarifida.</b>\n\n")
+            + "Meni o'z profilingizga ulang: Sozlamalar → Telegram Business "
+            "→ Chatbotlar. Keyin istalgan shaxsiy chatingizda nuqta bilan "
+            "yozing — buyruq o'chadi, natija o'rniga chiqadi:\n\n"
+            "├ <code>.javob</code> nima demoqchisiz — chiroyli javob\n"
+            "├ <code>.en</code> / <code>.ru</code> / <code>.uz</code> — "
+            "tarjima qilib yuboraman\n"
+            "├ <code>.to'g'rila</code> — imlo va uslubni tuzataman\n"
+            "├ <code>.tarjima</code> [til] — oxirgi xabar tarjimasi (sizga)\n"
+            "├ <code>.xulosa</code> — chat xulosasi (sizga)\n"
+            "└ <code>.eslat</code> qachon nima — eslatma\n\n"
+            "🤝 <b>Yordamchi rejimi</b> (/biznes): mijoz yozsa, javob "
+            "loyihasini sizga yuboraman — «Yuborish», «Tahrirlash» yoki "
+            "«Bekor». Narx, manzil, ish vaqtini /biznes da bir marta yozib "
+            "qo'ysangiz, loyiha shularga tayanadi.\n\n"
+            "☀️ Har kuni ertalab — kechagi mijozlar hisoboti, javobsiz "
+            "qolganlar bilan. Mijoz bir soat javob kutsa — eslataman.\n"
+            "📇 /mijozlar — kartoteka (ism, telefon, nima so'radi), CSV "
+            "eksport bilan.\n"
+            "🖼 /biznes → Bio, Ism, Rasm, Story — so'z bilan ayting, "
+            "tayyorlab ko'rsataman, siz tasdiqlaganingizdan keyingina "
+            "qo'yaman.\n\n"
+            "Suhbatdoshingizga o'zim hech qachon yozmayman — faqat siz "
+            "buyruq berganda yoki «Yuborish»ni bosganingizda."
+        ),
+        "example": "",
+        "note": "💎 Kerak: Telegram Premium (ulash uchun) va bot Pro tarifi",
+    },
     "pro": {
         "button": "Pro",
         "emoji": ("pro", "💎"),
@@ -206,6 +242,8 @@ SECTIONS: dict[str, dict] = {
             "o'sha vaqtda o'zim yozaman\n"
             "├ 📰 <b>Kunlik daydjest</b> — tanlagan mavzularingiz bo'yicha "
             "(/kunlik)\n"
+            "├ 💼 <b>Telegram Business</b> — shaxsiy chatlaringizda "
+            "<code>.javob</code>, <code>.en</code>, <code>.xulosa</code>\n"
             f"├ 🧠 <b>Uzunroq xotira</b> ({CONTEXT_WINDOW_PRO} xabar) va "
             "chuqurroq fikrlash\n"
             "├ 🎙 <b>Tabiiyroq ovoz</b> — ovozli javoblarda\n"
@@ -233,7 +271,8 @@ SECTIONS: dict[str, dict] = {
             "• <b>Musiqa va audio fayllarni</b> tinglay olmayman "
             "(ovozli xabar esa ishlaydi)\n"
             "• <b>Internetdan fayl yuklab</b> bera olmayman\n"
-            "• Sizning nomingizdan hech kimga xabar yubora olmayman\n"
+            "• Sizning nomingizdan o'zim yozmayman — faqat Telegram "
+            "Business'da siz buyruq berganingizda\n"
             "• Javobni o'zim tanlab ovozda yubora olmayman — ovozli javob "
             "faqat siz ovozli xabar yuborganingizda keladi\n\n"
             "Qolgan hamma narsani — bemalol so'rang."
@@ -245,14 +284,14 @@ SECTIONS: dict[str, dict] = {
 
 # Asosiy ekranda tugmalar shu tartibda, ikkitadan qatorga.
 _ROWS = (("chat", "doc"), ("photo", "voice"), ("file", "guruh"),
-         ("joy", "pro"), ("limits",))
+         ("joy", "biznes"), ("pro", "limits"))
 
 # Pro'da ochiladigan, bepulda YO'Q imkoniyatlar soni — bosh ekrandagi
 # bitta qator uchun. Qo'lda emas, `pro` bo'limidagi qulflangan
 # imkoniyatlar ro'yxatidan olinadi, aks holda ro'yxat o'zgarganda bu
 # raqam jimgina yolg'on aytib turardi.
 _PRO_QULF = ("rasm chizish", "rasm tahrirlash", "chuqur tadqiqot",
-             "eslatmalar", "kunlik daydjest")
+             "eslatmalar", "kunlik daydjest", "telegram business")
 
 
 def _menu_text(is_pro: bool) -> str:

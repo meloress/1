@@ -128,6 +128,10 @@ def soxta_bazani_qoy(modul, **ustidan):
         # Sog'lom holat: guruh ulangan, yiqilish yo'q → banner yo'q.
         return {"guruh": True, "sabab": None, "vaqt": None}
 
+    async def biznes_panel_stats():
+        return {"ulanishlar": 3, "sorovlar": 41, "token": 460_000,
+                "token_jami": 1_840_000}
+
     joy = modul.database_module
     for nom, fn in list(locals().items()):
         if nom in ("modul", "ustidan", "joy", "nom", "fn"):

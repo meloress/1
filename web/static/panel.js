@@ -558,6 +558,16 @@
       : xavfsiz(qism.join(" · "));
   }
 
+  /* Telegram Business kartasi (REJA.md 4.5). Token yo'q kunda ulush
+     «—»: o'lchanmagan narsa 0% emas. */
+  function biznesChiz(b) {
+    if (!b || !$("b-ulanish")) return;
+    $("b-ulanish").textContent = son(b.ulanishlar);
+    $("b-sorov").textContent = son(b.sorovlar);
+    $("b-token").textContent = b.ulush === null || b.ulush === undefined
+      ? "—" : million(b.token) + " · " + b.ulush + "%";
+  }
+
   /* 1 840 000 -> «1.84M». Uzun raqam telefonda kartochkadan chiqib
      ketardi va uni bir qarashda o'qib ham bo'lmasdi. */
   function million(n) {
@@ -717,6 +727,7 @@
     $("k-pul-d").textContent = "30 kunda " + son(k.daromad.oy) + " ⭐";
 
     tokenChiz(k.token);
+    biznesChiz(d.biznes);
 
     kunChiplari(d.kun_variantlari, d.kun_oynasi);
     grafik(d.kunlar);

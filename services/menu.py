@@ -35,6 +35,9 @@ COMMON_COMMANDS = [
 PRO_COMMANDS = [
     BotCommand(command="kunlik", description="⏰ Kunlik daydjest"),
     BotCommand(command="research", description="🔬 Chuqur tadqiqot + PDF"),
+    # /biznes va /mijozlar ATAYLAB yo'q — sinov davrida menyuda
+    # ko'rinmaydi, buyruqlar esa yozib ishlatilsa ishlaydi. Hamma uchun
+    # ochilganda shu yerga qo'shiladi.
 ]
 
 # Faqat adminlarda. 7-bosqichda paydo bo'ldi va sababi aniq: reply

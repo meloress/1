@@ -35,7 +35,8 @@ def read(*parts):
 def written_activity_types() -> set:
     """Kod haqiqatda yozadigan barcha faollik turlari."""
     names = set()
-    for rel in (("handlers", "messages.py"), ("handlers", "guest.py")):
+    for rel in (("handlers", "messages.py"), ("handlers", "guest.py"),
+                ("handlers", "biznes.py")):
         src = read(*rel)
         # "def track_user_activity(" — bu ta'rif, chaqiruv emas
         for raw in re.findall(r'(?<!def )track_user_activity\(.*?f?"([^"]+)"\s*,?\s*\)',

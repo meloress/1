@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 import logging
 import re
 from functools import wraps
@@ -16,6 +17,7 @@ from core.config import (
     REMINDER_MAX_AHEAD_DAYS,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     INACTIVE_STEPS, ACTIVITY_TYPES,
+    BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
 )
 
 load_dotenv()
@@ -122,6 +124,11 @@ _INDEKSLAR = (
     ("idx_user_history_kun_user", "user_history (created_at, user_id)"),
     ("idx_error_log_kun", "error_log (created_at)"),
     ("idx_admin_audit_vaqt", "admin_audit (action_time)"),
+    # Javobsiz chat kuzatuvchisi (REJA.md 4.2) har 5 daqiqada faqat
+    # business tarixini (`thread_id < 0`) so'nggi soatlar bo'yicha o'qiydi.
+    # Qisman indeks: oddiy DM tarixi unga umuman kirmaydi.
+    ("idx_chat_messages_biznes",
+     "chat_messages (created_at) WHERE thread_id < 0"),
 )
 
 
@@ -412,6 +419,83 @@ async def create_users_table():
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 last_sent_at TIMESTAMPTZ
+            );
+        ''')
+
+        # Telegram Business ulanishlari (REJA.md 0.5). Har `business_message`
+        # ulanishni o'qiydi — shuning uchun RAM keshdan (`_biznes_kesh`),
+        # jadval esa deploy'dan keyin keshni tiklash uchun.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_ulanish (
+                conn_id     TEXT PRIMARY KEY,
+                owner_id    BIGINT NOT NULL,
+                owner_chat  BIGINT NOT NULL,
+                yoqilgan    BOOLEAN NOT NULL,
+                huquqlar    JSONB NOT NULL,
+                rejim       TEXT NOT NULL DEFAULT 'buyruq',
+                yangilangan TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        ''')
+        # Egasining biznes bilimi (REJA.md 2-bosqich) — har mijoz so'rovida
+        # `developer` xabar bo'lib ketadi, `instructions`'ga HECH QACHON.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_profil (
+                owner_id    BIGINT PRIMARY KEY,
+                bilim       TEXT NOT NULL,
+                yangilangan TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        ''')
+        # "Yordamchi" rejimi loyihalari. RAM'da emas: `callback_data` 64
+        # bayt, loyiha matni sig'maydi, va deploy tugmani o'lik qilmasin.
+        # holat: kutmoqda → yuborilmoqda → yuborildi | tahrirlandi;
+        #        yoki bekor | eskirgan. `tahrirlandi` va `yuborildi`
+        #        nisbati — 3-bosqichga o'tish mezoni (REJA.md).
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_loyiha (
+                id          BIGSERIAL PRIMARY KEY,
+                owner_id    BIGINT NOT NULL,
+                conn_id     TEXT NOT NULL,
+                chat_id     BIGINT NOT NULL,
+                mijoz_matni TEXT NOT NULL,
+                loyiha      TEXT NOT NULL,
+                yakuniy     TEXT,
+                holat       TEXT NOT NULL DEFAULT 'kutmoqda',
+                yaratilgan  TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        ''')
+        # Avtomat rejim: ish vaqti (NULL = doim) — egasi darajasida.
+        await conn.execute(
+            "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS ish_vaqti TEXT")
+        # Ertalabki hisobot (4.1) yuborilgan kun — qayta ishga tushishda
+        # ikkinchi marta ketmasin (`biznes_hisobot_band` atomik egallaydi).
+        await conn.execute(
+            "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS hisobot_sana DATE")
+        # Mijozlar kartotekasi (4.3). `tg_ism`/`username` — Telegram
+        # bergani (ishonchli), `ism`/`telefon`/`qiziqish` — MODEL yozgani
+        # (ishonchsiz, `clean_mijoz_maydon()` dan o'tadi).
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_mijoz (
+                owner_id  BIGINT NOT NULL,
+                chat_id   BIGINT NOT NULL,
+                tg_ism    TEXT,
+                username  TEXT,
+                ism       TEXT,
+                telefon   TEXT,
+                qiziqish  TEXT,
+                oxirgi    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (owner_id, chat_id)
+            );
+        ''')
+        # Chat bo'yicha holat: egasi o'chirgan chat va pauza (uzatishdan
+        # yoki egasi o'zi yozgandan keyin). RAM'da EMAS: deploy pauzani
+        # o'chirib yuborsa, bot egasi qo'lga olgan suhbatga qaytib kirardi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_chat (
+                owner_id    BIGINT NOT NULL,
+                chat_id     BIGINT NOT NULL,
+                ochirilgan  BOOLEAN NOT NULL DEFAULT FALSE,
+                pauza_gacha TIMESTAMPTZ,
+                PRIMARY KEY (owner_id, chat_id)
             );
         ''')
 
@@ -867,6 +951,522 @@ async def load_watch_cache() -> None:
         _watched_user_ids = {r['user_id'] for r in rows}
 
 
+# ─────────────────────────────────────────────────────────────
+# TELEGRAM BUSINESS ULANISHLARI — RAM kesh (REJA.md 0.5)
+# ─────────────────────────────────────────────────────────────
+# `load_watch_cache()` bilan bir xil naqsh: har `business_message`da
+# sinxron o'qiladi, startup'da yuklanadi va `business_connection`
+# update'ida O'SHA handlerning o'zida yangilanadi. Yangilanmasa — ulanish
+# uzilgan, bot esa javob berishda davom etadi va hech narsa xato bermaydi.
+_biznes_kesh: Dict[str, Dict[str, Any]] = {}
+
+
+def biznes_ulanish_ol(conn_id: str) -> Optional[Dict[str, Any]]:
+    """Sync, I/O yo'q. Keshda yo'q bo'lsa None."""
+    return _biznes_kesh.get(conn_id)
+
+
+@with_db_retry()
+async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
+                             yoqilgan: bool, huquqlar: Dict[str, bool]) -> Dict[str, Any]:
+    """Ulanishni yozadi VA keshni yangilaydi. `rejim` saqlanadi — qayta
+    ulanish egasi tanlagan rejimni tashlab yubormasin.
+
+    ⚠️ Kesh DB'dan OLDIN: baza yiqilsa ham uzilgan ulanish keshda
+    "yoqilgan" bo'lib qolmasin."""
+    eski = _biznes_kesh.get(conn_id) or {}
+    _biznes_kesh[conn_id] = {
+        "owner_id": owner_id, "owner_chat": owner_chat, "yoqilgan": yoqilgan,
+        "huquqlar": dict(huquqlar), "rejim": eski.get("rejim", "buyruq"),
+        "ish_vaqti": eski.get("ish_vaqti")}
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rejim = await conn.fetchrow(
+            '''
+            INSERT INTO biznes_ulanish (conn_id, owner_id, owner_chat, yoqilgan, huquqlar)
+            VALUES ($1, $2, $3, $4, $5::jsonb)
+            ON CONFLICT (conn_id) DO UPDATE SET
+                owner_id = EXCLUDED.owner_id, owner_chat = EXCLUDED.owner_chat,
+                yoqilgan = EXCLUDED.yoqilgan, huquqlar = EXCLUDED.huquqlar,
+                yangilangan = NOW()
+            RETURNING rejim, ish_vaqti
+            ''',
+            conn_id, owner_id, owner_chat, yoqilgan, json.dumps(huquqlar))
+    _biznes_kesh[conn_id]["rejim"] = rejim["rejim"]
+    _biznes_kesh[conn_id]["ish_vaqti"] = rejim["ish_vaqti"]
+    return _biznes_kesh[conn_id]
+
+
+@with_db_retry()
+async def biznes_keshni_yukla() -> None:
+    """Bot ishga tushganda bir marta — jadvaldagi holatni keshga yuklaydi."""
+    global pool, _biznes_kesh
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT conn_id, owner_id, owner_chat, yoqilgan, huquqlar, rejim, '
+            'ish_vaqti FROM biznes_ulanish')
+    _biznes_kesh = {
+        r['conn_id']: {
+            "owner_id": r['owner_id'], "owner_chat": r['owner_chat'],
+            "yoqilgan": r['yoqilgan'],
+            # asyncpg JSONB'ni kodeksiz satr qilib qaytaradi.
+            "huquqlar": (json.loads(r['huquqlar'])
+                         if isinstance(r['huquqlar'], str) else dict(r['huquqlar'])),
+            "rejim": r['rejim'],
+            "ish_vaqti": r['ish_vaqti'],
+        } for r in rows
+    }
+
+
+def biznes_faol_egalar() -> Dict[int, int]:
+    """{owner_id: owner_chat} — yoqilgan ulanishlar (hisobot, ogohlantirish)."""
+    return {v["owner_id"]: v["owner_chat"] for v in _biznes_kesh.values()
+            if v["yoqilgan"]}
+
+
+def biznes_egasi_ulanishi(owner_id: int) -> Optional[tuple]:
+    """(conn_id, yozuv) — egasining ulanishi (/biznes ekrani uchun).
+    Bir nechta bo'lsa yoqilgani afzal."""
+    topilgan = [(k, v) for k, v in _biznes_kesh.items() if v["owner_id"] == owner_id]
+    topilgan.sort(key=lambda kv: not kv[1]["yoqilgan"])
+    return topilgan[0] if topilgan else None
+
+
+@with_db_retry()
+async def biznes_rejim_yoz(owner_id: int, rejim: str) -> None:
+    if rejim not in BIZNES_REJIMLAR:
+        raise ValueError(rejim)
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE biznes_ulanish SET rejim = $2 WHERE owner_id = $1',
+            owner_id, rejim)
+    for yozuv in _biznes_kesh.values():
+        if yozuv["owner_id"] == owner_id:
+            yozuv["rejim"] = rejim
+
+
+# Karta (uzluksiz 13-19 raqam yoki 4-4-4-4 guruh) va pasport.
+# Telefon (12 raqam) ATAYLAB o'tadi — do'kon telefoni bilimning eng oddiy
+# qismi; `_SECRET_RE` (9+ raqam) uni ham rad etardi. "Istalgan ajratgichli
+# 13+ raqam" ham EMAS: narx ro'yxati "50 000 80 000 120 000" — 16 raqam.
+_BILIM_SIR_RE = re.compile(
+    r"(?<!\d)\d{13,19}(?!\d)"
+    r"|(?<!\d)\d{4}([ -])\d{4}\1\d{4}\1\d{4}(?!\d)"
+    r"|\b[A-Za-z]{2}\s?\d{7}\b")
+
+
+def clean_biznes_bilim(matn: str) -> tuple:
+    """(toza_matn, xato_sababi). Sof funksiya — testda tekshiriladi.
+
+    KESILMAYDI, rad etiladi: kesilgan bilim oxiridagi narxlarni jimgina
+    yo'qotardi va egasi buni bilmasdi. Yangi qatorlar SAQLANADI — bilimni
+    egasining o'zi yozadi va u `developer` xabarda chegaralangan blok.
+    """
+    matn = "\n".join(" ".join(q.split())
+                     for q in str(matn or "").strip().splitlines()).strip()
+    if not matn:
+        return "", "bo'sh"
+    if len(matn) > BIZNES_BILIM_MAX:
+        return "", f"juda uzun ({len(matn)} belgi, chegara {BIZNES_BILIM_MAX})"
+    if _BILIM_SIR_RE.search(matn):
+        return "", "karta yoki pasport raqami bor"
+    return matn, None
+
+
+@with_db_retry()
+async def biznes_bilim_ol(owner_id: int) -> str:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            'SELECT bilim FROM biznes_profil WHERE owner_id = $1', owner_id) or ""
+
+
+@with_db_retry()
+async def biznes_bilim_yoz(owner_id: int, bilim: str) -> None:
+    """`clean_biznes_bilim()` dan O'TGAN matn keladi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_profil (owner_id, bilim) VALUES ($1, $2) '
+            'ON CONFLICT (owner_id) DO UPDATE SET bilim = EXCLUDED.bilim, '
+            'yangilangan = NOW()', owner_id, bilim)
+
+
+@with_db_retry()
+async def biznes_loyiha_yarat(owner_id: int, conn_id: str, chat_id: int,
+                              mijoz_matni: str, loyiha: str) -> int:
+    """Yangi loyiha. O'sha chatdagi eski kutayotgan loyiha ESKIRADI —
+    yangisi butun suhbatni (eski xabarni ham) ko'rib yozilgan."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE biznes_loyiha SET holat = 'eskirgan' "
+                "WHERE owner_id = $1 AND chat_id = $2 AND holat = 'kutmoqda'",
+                owner_id, chat_id)
+            yangi = await conn.fetchval(
+                'INSERT INTO biznes_loyiha (owner_id, conn_id, chat_id, mijoz_matni, loyiha) '
+                'VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                owner_id, conn_id, chat_id, mijoz_matni, loyiha)
+            # O'zini o'zi kesadi (`error_log` kabi): 30 kun o'lchov uchun
+            # yetarli, undan eskisi hech kimga kerak emas.
+            await conn.execute(
+                'DELETE FROM biznes_loyiha '
+                'WHERE yaratilgan < NOW() - make_interval(days => $1::int)', 30)
+    return yangi
+
+
+@with_db_retry()
+async def biznes_loyiha_eskirt(owner_id: int, chat_id: int) -> None:
+    """Egasi mijozga o'zi yozdi — o'sha chatdagi loyiha endi o'rinsiz."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE biznes_loyiha SET holat = 'eskirgan' "
+            "WHERE owner_id = $1 AND chat_id = $2 AND holat = 'kutmoqda'",
+            owner_id, chat_id)
+
+
+@with_db_retry()
+async def biznes_loyiha_band(loyiha_id: int, owner_id: int,
+                             holat: str = "kutmoqda",
+                             yangi: str = "yuborilmoqda") -> Optional[Dict[str, Any]]:
+    """Loyihani ATOMIK egallaydi: `holat` → `yangi`. Yutqazgan so'rov None
+    oladi va hech narsa qilmaydi.
+
+    ⛔️ SELECT-keyin-UPDATE EMAS: tugmani ikki marta bosish — ikki parallel
+    so'rov, ikkalasi ham "kutmoqda" ni o'qib, ikki xabar yuborardi.
+    24 soat — Telegram qoidasi: eskisini baribir yuborib bo'lmaydi.
+    `AND owner_id` — begona loyiha id'si bilan bosilgan tugma ishlamasin.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'UPDATE biznes_loyiha SET holat = $4 '
+            'WHERE id = $1 AND owner_id = $2 AND holat = $3 '
+            'AND yaratilgan > NOW() - make_interval(hours => $5::int) '
+            'RETURNING id, conn_id, chat_id, mijoz_matni, loyiha',
+            loyiha_id, owner_id, holat, yangi, BIZNES_LOYIHA_TTL_SOAT)
+    return dict(row) if row else None
+
+
+@with_db_retry()
+async def biznes_loyiha_yakun(loyiha_id: int, holat: str,
+                              yakuniy: Optional[str] = None) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE biznes_loyiha SET holat = $2, yakuniy = COALESCE($3, yakuniy) '
+            'WHERE id = $1', loyiha_id, holat, yakuniy)
+
+
+@with_db_retry()
+async def biznes_ish_vaqti_yoz(owner_id: int, oraliq: Optional[str]) -> None:
+    """`oraliq` — "HH:MM-HH:MM" (biznes.vaqt_ajrat dan o'tgan) yoki None = doim."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE biznes_ulanish SET ish_vaqti = $2 WHERE owner_id = $1',
+            owner_id, oraliq)
+    for yozuv in _biznes_kesh.values():
+        if yozuv["owner_id"] == owner_id:
+            yozuv["ish_vaqti"] = oraliq
+
+
+@with_db_retry()
+async def biznes_chat_holati(owner_id: int, chat_id: int) -> Dict[str, Any]:
+    """{'ochirilgan': bool, 'pauza': bool} — pauza SQL'da NOW() bilan
+    solishtiriladi, ya'ni Python va baza soatlari ajralib qolmaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT ochirilgan, COALESCE(pauza_gacha > NOW(), FALSE) AS pauza '
+            'FROM biznes_chat WHERE owner_id = $1 AND chat_id = $2',
+            owner_id, chat_id)
+    return {"ochirilgan": bool(row and row['ochirilgan']),
+            "pauza": bool(row and row['pauza'])}
+
+
+@with_db_retry()
+async def biznes_pauza(owner_id: int, chat_id: int, soat: int) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_chat (owner_id, chat_id, pauza_gacha) '
+            'VALUES ($1, $2, NOW() + make_interval(hours => $3::int)) '
+            'ON CONFLICT (owner_id, chat_id) DO UPDATE SET '
+            'pauza_gacha = EXCLUDED.pauza_gacha', owner_id, chat_id, soat)
+
+
+@with_db_retry()
+async def biznes_chat_ochir(owner_id: int, chat_id: int, ochirilgan: bool) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_chat (owner_id, chat_id, ochirilgan) VALUES ($1, $2, $3) '
+            'ON CONFLICT (owner_id, chat_id) DO UPDATE SET ochirilgan = EXCLUDED.ochirilgan',
+            owner_id, chat_id, ochirilgan)
+
+
+@with_db_retry()
+async def biznes_chatlar(owner_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    """Egasining oxirgi business chatlari — `/biznes` → «Chatlar» ro'yxati.
+    Tarix kaliti `thread_id = -owner_id` (REJA.md 0.4)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''
+            SELECT m.chat_id, MAX(m.id) AS oxirgi,
+                   (SELECT x.content FROM chat_messages x
+                     WHERE x.chat_id = m.chat_id AND x.thread_id = $2
+                       AND x.role = 'user'
+                     ORDER BY x.id DESC LIMIT 1) AS matn,
+                   COALESCE(BOOL_OR(c.ochirilgan), FALSE) AS ochirilgan
+            FROM chat_messages m
+            LEFT JOIN biznes_chat c ON c.owner_id = $1 AND c.chat_id = m.chat_id
+            WHERE m.thread_id = $2
+            GROUP BY m.chat_id
+            ORDER BY oxirgi DESC
+            LIMIT $3
+            ''', owner_id, -owner_id, limit)
+    return [dict(r) for r in rows]
+
+
+# ── 4-BOSQICH: hisobot, javobsiz chatlar, kartoteka, panel ──────────
+_TELEFON_RE = re.compile(r"^\+?[\d\s\-()]{7,24}$")
+
+
+def clean_mijoz_maydon(ism, telefon, qiziqish) -> tuple:
+    """MODEL yozgan kartoteka maydonlari — ishonchsiz chegara (REJA.md 4.3).
+
+    Telefon regex bilan tekshiriladi va faqat raqamlarga keltiriladi
+    (9-15 raqam, bo'lmasa None — soxta raqam kartotekada yolg'on
+    bo'lardi). Qolgani bir qatorga yig'iladi va uzunligi kesiladi: yangi
+    qator CSV'da ham, egasiga ko'rsatishda ham shaklni buzardi.
+    Sof funksiya — testda tekshiriladi.
+    """
+    def _qator(q, n):
+        q = " ".join(str(q or "").split())[:n]
+        return q or None
+
+    tel = None
+    t = str(telefon or "").strip()
+    if t and _TELEFON_RE.match(t):
+        raqam = re.sub(r"\D", "", t)
+        if 9 <= len(raqam) <= 15:
+            tel = ("+" if t.startswith("+") or len(raqam) >= 12 else "") + raqam
+    return _qator(ism, 60), tel, _qator(qiziqish, 200)
+
+
+@with_db_retry()
+async def biznes_mijoz_korildi(owner_id: int, chat_id: int,
+                               tg_ism: Optional[str], username: Optional[str]) -> None:
+    """Mijoz yozdi — Telegram bergan ism/username va vaqt. Har mijoz
+    xabarida: bitta yengil UPSERT."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_mijoz (owner_id, chat_id, tg_ism, username) '
+            'VALUES ($1, $2, $3, $4) ON CONFLICT (owner_id, chat_id) DO UPDATE SET '
+            'tg_ism = EXCLUDED.tg_ism, username = EXCLUDED.username, oxirgi = NOW()',
+            owner_id, chat_id, (tg_ism or "")[:100] or None, (username or "")[:64] or None)
+
+
+@with_db_retry()
+async def biznes_mijoz_yangila(owner_id: int, chat_id: int, ism, telefon,
+                               qiziqish) -> None:
+    """Model ajratgan maydonlar. Bo'sh (None) maydon eskisini O'CHIRMAYDI —
+    kechagi yozishmada telefon yo'q degani mijozda telefon yo'q degani emas."""
+    ism, telefon, qiziqish = clean_mijoz_maydon(ism, telefon, qiziqish)
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE biznes_mijoz SET ism = COALESCE($3, ism), '
+            'telefon = COALESCE($4, telefon), qiziqish = COALESCE($5, qiziqish) '
+            'WHERE owner_id = $1 AND chat_id = $2',
+            owner_id, chat_id, ism, telefon, qiziqish)
+
+
+@with_db_retry()
+async def biznes_mijozlar(owner_id: int, limit: int = 1000) -> List[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT chat_id, tg_ism, username, ism, telefon, qiziqish, oxirgi '
+            'FROM biznes_mijoz WHERE owner_id = $1 ORDER BY oxirgi DESC LIMIT $2',
+            owner_id, limit)
+    return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def biznes_hisobot_band(owner_id: int, kun) -> bool:
+    """Bugungi ertalabki hisobotni ATOMIK egallaydi. Deploy yoki ikkinchi
+    aylanish uni ikki marta yubormasin (`digest_sent_date` naqshi)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        qator = await conn.fetch(
+            'UPDATE biznes_ulanish SET hisobot_sana = $2 '
+            'WHERE owner_id = $1 AND (hisobot_sana IS NULL OR hisobot_sana < $2) '
+            'RETURNING 1', owner_id, kun)
+    return bool(qator)
+
+
+@with_db_retry()
+async def biznes_kun_hisobi(owner_id: int, kun, chat_limit: int = 20,
+                            xabar_limit: int = 8) -> Dict[str, Any]:
+    """Bir kunlik (Toshkent) biznes hisobi. `chatlar` — mini model
+    xulosasi va kartoteka uchun: har chatdan oxirgi `xabar_limit` ta."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    thread = -owner_id
+    async with pool.acquire() as conn:
+        son = await conn.fetchrow(
+            '''
+            SELECT COUNT(DISTINCT chat_id) AS mijozlar, COUNT(*) AS xabarlar
+            FROM chat_messages
+            WHERE thread_id = $1 AND role = 'user'
+              AND (created_at AT TIME ZONE 'Asia/Tashkent')::date = $2
+            ''', thread, kun)
+        faollik = await conn.fetch(
+            '''
+            SELECT activity_type, COUNT(*) AS soni FROM user_activity
+            WHERE user_id = $1 AND activity_type = ANY($3::text[])
+              AND (activity_time AT TIME ZONE 'Asia/Tashkent')::date = $2
+            GROUP BY activity_type
+            ''', owner_id, kun,
+            ["biznes_avtojavob", "biznes_yuborildi", "biznes_uzatish", "biznes_loyiha"])
+        xabarlar = await conn.fetch(
+            '''
+            SELECT chat_id, role, content FROM (
+                SELECT chat_id, role, content, id,
+                       ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY id DESC) AS n
+                FROM chat_messages
+                WHERE thread_id = $1 AND chat_id IN (
+                    SELECT chat_id FROM chat_messages
+                    WHERE thread_id = $1 AND role = 'user'
+                      AND (created_at AT TIME ZONE 'Asia/Tashkent')::date = $2
+                    GROUP BY chat_id ORDER BY MAX(id) DESC LIMIT $3)
+            ) t WHERE n <= $4 ORDER BY chat_id, id
+            ''', thread, kun, chat_limit, xabar_limit)
+    f = {r['activity_type']: r['soni'] for r in faollik}
+    chatlar: Dict[int, list] = {}
+    for r in xabarlar:
+        chatlar.setdefault(r['chat_id'], []).append((r['role'], r['content']))
+    return {
+        "mijozlar": son['mijozlar'] or 0, "xabarlar": son['xabarlar'] or 0,
+        "javoblar": f.get("biznes_avtojavob", 0) + f.get("biznes_yuborildi", 0),
+        "uzatish": f.get("biznes_uzatish", 0), "loyiha": f.get("biznes_loyiha", 0),
+        "chatlar": chatlar,
+    }
+
+
+@with_db_retry()
+async def biznes_javobsizlar(dan_daqiqa: int, gacha_daqiqa: int,
+                             owner_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Oxirgi xabari MIJOZNIKI bo'lgan chatlar: u `gacha_daqiqa` dan
+    ko'proq, lekin `dan_daqiqa` dan kamroq oldin yozilgan.
+
+    Oyna ikki tomonlama ataylab: pastki chegara — "hali javob berishga
+    ulgurmagan" chatni ogohlantirmaslik; yuqorisi — deploy'dan keyin RAM
+    bayrog'i (`_javobsiz_aytilgan`) bo'sh bo'lganda eski chatlar yana
+    ogohlantirilmasin.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''
+            SELECT t.chat_id, -t.thread_id AS owner_id, t.content, t.created_at,
+                   m.tg_ism, m.username
+            FROM (SELECT DISTINCT ON (chat_id, thread_id)
+                         chat_id, thread_id, role, content, created_at
+                  FROM chat_messages
+                  WHERE thread_id < 0
+                    AND created_at > NOW() - make_interval(mins => $1::int)
+                    AND ($3::bigint IS NULL OR thread_id = $3)
+                  ORDER BY chat_id, thread_id, id DESC) t
+            LEFT JOIN biznes_mijoz m
+                   ON m.owner_id = -t.thread_id AND m.chat_id = t.chat_id
+            WHERE t.role = 'user'
+              AND t.created_at < NOW() - make_interval(mins => $2::int)
+            ORDER BY t.created_at LIMIT 50
+            ''', dan_daqiqa, gacha_daqiqa,
+            None if owner_id is None else -owner_id)
+    return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def biznes_panel_stats() -> Dict[str, Any]:
+    """Panel kartasi (REJA.md 4.5): faol ulanishlar, bugungi biznes
+    so'rovlari, bugungi token ichida biznes ulushi. Kun — Toshkent.
+
+    ⚠️ `user_history.created_at` mintaqasiz UTC (`token_stats` izohi),
+    `user_activity.activity_time` esa TIMESTAMPTZ — ikkisi ikki xil
+    ifoda bilan kesiladi, bittasi ikkinchisiga ko'chirilmasin.
+    ⛔️ SUM `::bigint` — aks holda `Decimal`, va panel 500 bilan yiqiladi.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        ulanish = await conn.fetchval(
+            'SELECT COUNT(DISTINCT owner_id) FROM biznes_ulanish WHERE yoqilgan')
+        sorov = await conn.fetchval(
+            '''SELECT COUNT(*) FROM user_activity
+               WHERE activity_type = ANY($1::text[])
+                 AND (activity_time AT TIME ZONE 'Asia/Tashkent')::date =
+                     (NOW() AT TIME ZONE 'Asia/Tashkent')::date''',
+            ["biznes_buyruq", "biznes_loyiha", "biznes_avtojavob"])
+        token = await conn.fetchrow(
+            '''SELECT COALESCE(SUM(kirish + chiqish), 0)::bigint AS jami,
+                      COALESCE(SUM(kirish + chiqish) FILTER
+                               (WHERE manba = 'biznes'), 0)::bigint AS biznes
+               FROM user_history
+               WHERE ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Tashkent')::date =
+                     (NOW() AT TIME ZONE 'Asia/Tashkent')::date''')
+    return {"ulanishlar": ulanish or 0, "sorovlar": sorov or 0,
+            "token": token['biznes'] or 0, "token_jami": token['jami'] or 0}
+
+
 # Oxirgi bazaga YOZILGAN kuzatuv holati. Faqat holat o'zgarganda
 # yoziladi.
 #
@@ -1034,7 +1634,10 @@ async def create_history_table():
         for ustun in ("kirish BIGINT DEFAULT 0",
                       "chiqish BIGINT DEFAULT 0",
                       "keshdan BIGINT DEFAULT 0",
-                      "model VARCHAR(60)"):
+                      "model VARCHAR(60)",
+                      # 'biznes' — Telegram Business yo'lidagi chaqiruv
+                      # (panelning biznes token ulushi, REJA.md 4.5).
+                      "manba VARCHAR(20)"):
             await conn.execute(
                 f"ALTER TABLE user_history ADD COLUMN IF NOT EXISTS {ustun}")
         # Kunlik yig'indi shu indeks ustida ishlaydi. Usiz har ochilishda
@@ -1130,6 +1733,9 @@ async def ensure_profile_columns():
             "ADD COLUMN IF NOT EXISTS daily_images_date DATE DEFAULT (NOW() AT TIME ZONE 'Asia/Tashkent')::DATE",
             "ADD COLUMN IF NOT EXISTS daily_research_used INTEGER DEFAULT 0",
             "ADD COLUMN IF NOT EXISTS daily_research_date DATE DEFAULT (NOW() AT TIME ZONE 'Asia/Tashkent')::DATE",
+            # Telegram Business avtojavoblari (REJA.md 3-bosqich).
+            "ADD COLUMN IF NOT EXISTS daily_biznes_used INTEGER DEFAULT 0",
+            "ADD COLUMN IF NOT EXISTS daily_biznes_date DATE DEFAULT (NOW() AT TIME ZONE 'Asia/Tashkent')::DATE",
             # Kunlik daydjest (Pro): digest_hour NULL = obuna o'chirilgan.
             # digest_sent_date takroriy yuborishdan himoya qiladi.
             "ADD COLUMN IF NOT EXISTS digest_hour SMALLINT",
@@ -3028,7 +3634,8 @@ TOKEN_SAQLASH_KUN = 90          # undan eskisi qirqiladi
 
 @with_db_retry()
 async def token_yoz(user_id: Optional[int], model: str, kirish: int,
-                    chiqish: int, keshdan: int = 0) -> None:
+                    chiqish: int, keshdan: int = 0,
+                    manba: Optional[str] = None) -> None:
     """Bitta model chaqiruvining sarfini yozadi."""
     global pool
     if pool is None:
@@ -3036,10 +3643,10 @@ async def token_yoz(user_id: Optional[int], model: str, kirish: int,
     async with pool.acquire() as conn:
         await conn.execute(
             '''INSERT INTO user_history
-                   (user_id, tokens_used, kirish, chiqish, keshdan, model)
-               VALUES ($1, $2, $3, $4, $5, $6)''',
+                   (user_id, tokens_used, kirish, chiqish, keshdan, model, manba)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)''',
             user_id, (kirish or 0) + (chiqish or 0),
-            kirish or 0, chiqish or 0, keshdan or 0, (model or "")[:60])
+            kirish or 0, chiqish or 0, keshdan or 0, (model or "")[:60], manba)
 
 
 @with_db_retry()

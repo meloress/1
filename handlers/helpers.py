@@ -47,10 +47,15 @@ def mavzu_kwargs(thread_id) -> dict:
 
 async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, prompt: str,
                                 original_text: str = "", reason: str = None,
-                                kind: str = "javob", thread_id: int = 0):
+                                kind: str = "javob", thread_id: int = 0,
+                                retry: bool = True):
     """
     Xatolik yuz berganda ekrandagi kutish xabarini tahrirlaydi,
     'Qayta urinish' tugmasini qo'shib xotiraga saqlaydi.
+
+    `retry=False` — faqat jurnal + xabar, tugmasiz. Telegram Business
+    avtojavobi uchun: "Qayta so'rash" mijozning savolini EGASINING DM'ida
+    oddiy savol sifatida qayta ishlatib yuborardi.
 
     ⚠️ Bu — FOYDALANUVCHI KO'RADIGAN xatoning yagona yo'li, shuning
     uchun jurnalga yozish ham aynan shu yerda: admin panelidagi
@@ -67,6 +72,13 @@ async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, pro
     except Exception:
         logger.exception("xato jurnalga yozilmadi")
         
+    if not retry:
+        try:
+            await bot.send_message(chat_id, text)
+        except Exception:
+            logger.exception("xato xabari yuborilmadi")
+        return
+
     kb = make_retry_keyboard(chat_id, attempts=0)
     
     try:

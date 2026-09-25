@@ -26,6 +26,8 @@ from handlers.profile import handle_profile
 from db.database import ensure_profile_columns
 
 from handlers.guest import router as guest_router
+from handlers.biznes import router as biznes_router
+from handlers import biznes as biznes_module
 from handlers import pro as pro_module
 from handlers import digest as digest_module
 from handlers.helpers import premium_expiry_watcher, reminder_watcher
@@ -48,6 +50,8 @@ async def main():
     # ishlashi uchun emas. Natija logda (`[indeks] …`).
     asyncio.create_task(database.indekslarni_qur())
     await database.load_watch_cache()
+    # Business ulanishlari — har `business_message` shu keshdan o'qiydi.
+    await database.biznes_keshni_yukla()
     # Admin panelida sozlangan kunlik limitlar. Bazadan BIR MARTA
     # o'qiladi va xotiraga qo'yiladi — `daily_limit()` har xabarda
     # chaqiriladi, u yerdan DB so'rovi qilib bo'lmaydi.
@@ -136,6 +140,16 @@ async def main():
                         pro_module.PromoStates.waiting_for_code)
     dp.message.register(digest_module.process_digest_topics,
                         digest_module.DigestStates.waiting_for_topics)
+    # /biznes: bilim matni va loyiha tahriri. Shu yerda bo'lmasa, egasi
+    # yozgan narxlar ro'yxati GPT'ga savol bo'lib ketardi.
+    dp.message.register(biznes_module.process_bilim,
+                        biznes_module.BiznesStates.bilim)
+    dp.message.register(biznes_module.process_tahrir,
+                        biznes_module.BiznesStates.tahrir)
+    dp.message.register(biznes_module.process_vaqt,
+                        biznes_module.BiznesStates.vaqt)
+    dp.message.register(biznes_module.process_profil,
+                        biznes_module.BiznesStates.profil)
 
     async def non_admin_predicate(message: types.Message):
         try:
@@ -175,6 +189,10 @@ async def main():
     general_router.message.register(pro_module.handle_pro, Command("pro"))
     general_router.message.register(pro_module.handle_promo, Command("promo"))
     general_router.message.register(pro_module.handle_gift, Command("gift"))
+    # /biznes — Pro sozlamasi, shuning uchun ta'til darvozasidan KEYIN
+    # (/pro, /kunlik bilan bir qatorda).
+    general_router.message.register(biznes_module.handle_biznes, Command("biznes"))
+    general_router.message.register(biznes_module.handle_mijozlar, Command("mijozlar"))
     general_router.message.register(handle_text, F.text, non_admin_predicate)
     general_router.message.register(handle_photo, F.photo, non_admin_predicate)
     general_router.message.register(handle_document, F.document, non_admin_predicate)
@@ -194,6 +212,11 @@ async def main():
         non_admin_predicate,
     )
     dp.include_router(guest_router)
+    # Telegram Business. TARTIB BU YERDA MUHIM EMAS: business update'lari
+    # (`business_message`, `business_connection`) `dp.message` zanjiridan
+    # umuman o'tmaydi — to'lov, FSM va maintenance tartibiga ta'siri yo'q.
+    # Ta'til tekshiruvi handler ichida (handlers/biznes.py::_bajar).
+    dp.include_router(biznes_router)
     # GeneratingState uchun spam-guard (busy_handler) ODDIY handlerlardan
     # OLDIN ro'yxatdan o'tishi SHART — aks holda javob kutilayotganda
     # kelgan yangi xabar to'g'ridan-to'g'ri handle_text/photo/... ga tushib,
@@ -208,6 +231,8 @@ async def main():
                                lambda q: q.data and q.data.startswith("dg:"))
     dp.callback_query.register(capabilities.handle_capabilities_callback,
                                lambda q: q.data and q.data.startswith("cap:"))
+    dp.callback_query.register(biznes_module.handle_biznes_callback,
+                               lambda q: q.data and q.data.startswith("bz:"))
     # Ulashish uchun inline rejim (@BotFather /setinline). Yoqilmagan bo'lsa
     # bu handlerga hech qachon update kelmaydi — zarari yo'q.
     dp.inline_query.register(pro_module.handle_inline_share)
@@ -222,6 +247,10 @@ async def main():
     # hisobot esa ertalab keladi — bu ikkalasining orasidagi
     # oynani yopadi (xatolar to'lqini va «bot jim»).
     asyncio.create_task(admin_daily.alert_watcher())
+    # Telegram Business (REJA.md 4.1-4.2): ertalabki hisobot va javobsiz
+    # chat ogohlantirishi — admin kuzatuvchilari bilan bir xil naqsh.
+    asyncio.create_task(biznes_module.biznes_hisobot_watcher())
+    asyncio.create_task(biznes_module.javobsiz_watcher())
 
     # Web admin panel (Mini App). Bot jarayonining ICHIDA — limit va
     # kuzatuv sozlamalari RAM keshida yashaydi, alohida jarayon ularni

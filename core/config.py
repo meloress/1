@@ -826,7 +826,46 @@ ACTIVITY_TYPES: Dict[str, tuple] = {
     "guest_voice_message":    ("🎤", "Ovoz · mehmon", MESSAGE_COST_VOICE),
     "file_task":              ("🛠", "Fayl yaratish", 0),
     "research":               ("🔎", "Chuqur tadqiqot", 0),
+    # Telegram Business (REJA.md 1-bosqich). Ulanish AI chaqiruvi emas;
+    # buyruq egasining oddiy ballidan yechiladi.
+    "biznes_ulanish":         ("🔌", "Biznes ulanishi", 0),
+    "biznes_buyruq":          ("💼", "Biznes buyrug'i", MESSAGE_COST_TEXT),
+    # 2-bosqich: loyiha — AI chaqiruvi (egasining balli); yuborish — yo'q.
+    "biznes_loyiha":          ("✍️", "Biznes loyihasi", MESSAGE_COST_TEXT),
+    "biznes_yuborildi":       ("📨", "Loyiha yuborildi", 0),
+    # 3-bosqich: `biznes` kunlik sanog'idan yechiladi, balldan emas.
+    "biznes_avtojavob":       ("🤖", "Biznes avtojavob", 0),
+    "biznes_uzatish":         ("🙋", "Egasiga uzatildi", 0),
 }
+
+# ── TELEGRAM BUSINESS (REJA.md) ─────────────────────────────────────
+# Bilim har mijoz so'rovida `developer` xabar bo'lib QAYTA yuboriladi:
+# 4000 belgi o'zbekcha matn ≈ 1 726 token (`tiktoken`, o200k_base) —
+# token o'lchovi CLAUDE.md'da. Oshirsangiz, `tiktoken` bilan qayta o'lchang.
+BIZNES_BILIM_MAX = 4000
+# buyruq    — faqat egasining nuqtali buyruqlari (1-bosqich)
+# yordamchi — mijozga javob LOYIHASI egasiga, yuborishni egasi hal qiladi
+# kuzatuv   — faqat tarix (4-bosqich hisobotining xom ashyosi)
+# avtomat   — bot mijozga O'ZI javob beradi (3-bosqich)
+BIZNES_REJIMLAR = ("buyruq", "yordamchi", "kuzatuv", "avtomat")
+# ⛔️ REJA.md: avtomat rejim FAQAT 2-bosqich o'lchovi yaxshi bo'lsa
+# (loyihalarning ≥60% i tahrirsiz yuboriladi) ochiladi. Kod tayyor, lekin
+# o'lchovgacha `/biznes` ekranida tugma ko'rinmaydi va callback ham
+# qabul qilinmaydi. O'lchovdan keyin — shu bitta qatorni True qiling.
+BIZNES_AVTOMAT_OCHIQ = False
+# Uzatishdan yoki egasi o'zi yozgandan keyin bot shu chatda jim turadi.
+BIZNES_PAUZA_SOAT = 3
+# 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
+# ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
+# javob bermagan bo'lsa — egasiga bitta xabar.
+BIZNES_HISOBOT_SOAT = 9
+BIZNES_JAVOBSIZ_DAQIQA = 60
+# Shu oraliqda ogohlantirish yuborilmaydi (egasi uxlaydi); tunda qolgan
+# javobsiz chatlar ertalabki hisobotga tushadi.
+BIZNES_TUNGI_SOAT = (22, 8)
+# Telegram 24 soatdan eski chatga bot javobini rad etadi — undan eski
+# loyihani yuborish tugmasi baribir ishlamasdi.
+BIZNES_LOYIHA_TTL_SOAT = 24
 
 
 # ── AUDIT AMALLARI — YAGONA MANBA ───────────────────────────────────
@@ -981,13 +1020,21 @@ DAILY_RESEARCH_LIMIT_PRO: int = 1
 # `images` va `research` uchun 0 = "bu tarifda umuman yo'q" (cheksiz emas!).
 # Shu tufayli bepul foydalanuvchi rasm so'raganda kvota tekshiruvi uni
 # oddiy "limit tugadi" emas, "bu Pro imkoniyati" holati bilan qaytaradi.
+# Telegram Business "Avtomat" rejimi: egasi boshiga kunlik avtojavoblar.
+# ⚠️ Har javob — to'liq so'rov (prompt + bilim + tarix, ~8-10k token).
+# 50 × ~9k ≈ 450k token = bitta faol egasi kunlik grantning ~18% ini
+# yeydi. REJA.md 3-bosqich o'lchovi shu raqamni tekshirish uchun: biznes
+# trafigi grantni yesa — tushiriladi (panelda ham o'zgartirsa bo'ladi).
+DAILY_BIZNES_LIMIT_PRO = 50
+
 PLAN_LIMITS: dict[str, dict[str, int | None]] = {
     "free":    {"points": DAILY_FREE_LIMIT, "files": DAILY_FILE_LIMIT_FREE,
-                "images": 0, "research": 0},
+                "images": 0, "research": 0, "biznes": 0},
     "pro":     {"points": 10000,            "files": 30,
-                "images": DAILY_IMAGE_LIMIT_PRO, "research": DAILY_RESEARCH_LIMIT_PRO},
+                "images": DAILY_IMAGE_LIMIT_PRO, "research": DAILY_RESEARCH_LIMIT_PRO,
+                "biznes": DAILY_BIZNES_LIMIT_PRO},
     "premium": {"points": None,             "files": None,
-                "images": None, "research": None},
+                "images": None, "research": None, "biznes": None},
 }
 
 # ── TARIF NOMLARI — YAGONA MANBA ────────────────────────────────────
@@ -1035,6 +1082,7 @@ DAILY_COUNTERS: dict[str, tuple[str, str, str]] = {
     "files":    ("daily_files_used",    "daily_files_date",    "files"),
     "images":   ("daily_images_used",   "daily_images_date",   "images"),
     "research": ("daily_research_used", "daily_research_date", "research"),
+    "biznes":   ("daily_biznes_used",   "daily_biznes_date",   "biznes"),
 }
 
 # Limit kalitining ODAM O'QIYDIGAN nomi — YAGONA ro'yxat.
@@ -1110,6 +1158,7 @@ LIMIT_NOMI: dict[str, str] = {
     "files":    "Fayl yaratish",
     "images":   "Rasm chizish",
     "research": "Chuqur tadqiqot",
+    "biznes":   "Biznes avtojavob",
 }
 
 # Limitning bir qatorlik izohi — Sozlamalar ekranida nom tagida turadi.
@@ -1127,6 +1176,8 @@ LIMIT_IZOHI: dict[str, str] = {
     "files":    "Kuniga nechta hujjat yaratish mumkin (PPTX, PDF, XLSX, DOCX).",
     "images":   "Kuniga nechta rasm chizish yoki tahrirlash mumkin.",
     "research": "Kuniga nechta chuqur tadqiqot (/research) qilish mumkin.",
+    "biznes":   ("Telegram Business «Avtomat» rejimida kuniga nechta mijoz "
+                 "xabariga bot o'zi javob beradi."),
 }
 
 
