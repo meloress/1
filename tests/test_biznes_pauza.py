@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Telegram Business — uzatish pauzasi va alifbo.
+"""Telegram Business — uzatishdan keyin jim qolmaslik va alifbo.
 
 Jonli sinov (2026-09-26): bot "10 da CS2 ga borasanmi?" savolini to'g'ri
 egasiga uzatdi va "кейин aytaman" (ikki alifbo aralash!) deb yozdi. Keyin
-suhbatdosh yana 4 marta yozdi — javobsiz qoldi, egasi esa bilmadi.
-Bu test ushlaydigan jim nosozliklar:
+suhbatdosh yana yozdi — javobsiz qoldi. Avval 3 soat pauza + bir marta
+"Hozir bandman" qilingan edi; egasi buni ham "javob bermayapti" deb ko'rdi
+va so'radi: "Og'abek online bo'lganda o'zi javob beradi" desin, keyin
+javob beraversin. Bu test ushlaydigan jim nosozliklar:
 
-  ⛔️ uzatish pauzasida suhbatdosh cheksiz javobsiz qoladi;
-  ⛔️ "bandman" har xabarga takrorlanadi (spam) yoki egasi o'zi yozgan
-     (uning qo'lidagi) suhbatga ham ketadi;
-  ⛔️ egasiga har xabarga alohida bildirishnoma (5 daqiqada bittadan);
+  ⛔️ uzatishdan keyin suhbatdosh javobsiz qoladi (pauza qaytib kelgan);
+  ⛔️ bazada qolgan eski 'uzatish' pauzasi botni jim qiladi;
+  ⛔️ egasi O'ZI yozgan suhbatga bot aralashadi (u pauza qolishi shart);
   ⛔️ lotinda yozgan suhbatdoshga kirill harfli javob ketadi.
 
 Tarmoqsiz va bazasiz ishlaydi.
@@ -132,7 +133,7 @@ for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_daily=ruxsat,
                    refund_daily=hech, biznes_bilim_ol=bilim, biznes_uslub_ol=bosh,
                    biznes_namuna_qosh=bosh, biznes_chat_holati=chat_holati,
-                   biznes_pauza=pauza, biznes_band_ol=band_ol,
+                   biznes_pauza=pauza,
                    biznes_kutayotgan_tanlov=kutayotgan, biznes_loyiha_eskirt=hech,
                    biznes_loyiha_yarat=yarat, biznes_mavzu_ol=hech).items():
     setattr(database, nom, f)
@@ -176,44 +177,39 @@ def egasiga():
     return [x for x in q if x[0] == "send" and not x[3]]
 
 
-# ── 4-5. Uzatish: kirill neytral gap lotinga, pauza «uzatish» ─────
+# ── 4-5. Uzatish: kirill neytral gap lotinga, pauza YO'Q ─────────
 holat["model"] = "[tanlov: 10 da borasizmi? | boraman | bugun yo'q] кейин aytaman."
 ishga(xabar("bugun kech 10 larda cs2 ga borasanmi?"))
 check(4, "uzatishdagi neytral gap lotinga o'girildi (suhbatdosh lotinda yozgan)",
       mijozga() == ["keyin aytaman."])
-check(5, "uzatish pauzasi sababi — «uzatish»", ("pauza", "uzatish") in q)
+check(5, "uzatishdan keyin pauza qo'yilmaydi", not any(x[0] == "pauza" for x in q))
 
-# ── 6-8. Pauzada yana yozdi ──────────────────────────────────────
-holat["tanlov"] = {"id": 7, "variantlar": ["boraman", "bugun yo'q"]}
-b._eslatilgan.clear()
-ishga(xabar("nimaga sen kimsan"), xabar("aloo kimsan sen"), xabar("borasanmi"),
-      xabar("aniq aytvor tezlashtirib"))
-check(6, "suhbatdoshga «bandman» BIR marta (4 xabarga 4 ta emas), savollarga javob yo'q",
-      mijozga() == [b.BAND_JAVOB])
-e = egasiga()
-check(7, "egasiga BITTA eslatma (5 daqiqada), kutayotgan tanlov tugmalari bilan",
-      len(e) == 1 and "yana yozdi" in e[0][2] and "nimaga sen kimsan" in e[0][2]
-      and "bz:yv:7:0" in str(e[0][4]))
-check(8, "pauzadagi hamma xabar tarixda (egasi keyin o'qiydi)",
-      sum(1 for x in q if x[0] == "tarix" and x[2] == "user") == 4
-      and ("tarix", b.BAND_JAVOB, "assistant") in q)
+# ── 6. Uzatishdan keyin yana yozdi — har biriga javob ────────────
+holat["model"] = "Salom!"
+ishga(xabar("nimaga sen kimsan"), xabar("aloo"))
+check(6, "uzatishdan keyin suhbatdosh yana yozsa — bot javob beraveradi",
+      mijozga() == ["Salom!", "Salom!"])
 
-# ── 9. 5 daqiqa o'tdi — yana eslatma, lekin «bandman» qayta yo'q ──
-for k in list(b._eslatilgan):
-    b._eslatilgan[k] -= 6 * 60
+# ── 7. Bazada qolgan eski 'uzatish' pauzasi e'tiborsiz ───────────
+holat["pauza"] = "uzatish"
 ishga(xabar("hali ham?"))
-check(9, "5 daqiqadan keyin yangi eslatma; «bandman» takrorlanmaydi",
-      len(egasiga()) == 1 and mijozga() == [])
+check(7, "eski 'uzatish' pauzasi botni jim qilmaydi", mijozga() == ["Salom!"])
 
-# ── 10. Egasi o'zi yozgan pauza — jimlik, eslatma ham yo'q ────────
+# ── 8. Egasi o'zi yozgan pauza — jimlik ──────────────────────────
 holat["pauza"] = None
-b._eslatilgan.clear()
 ishga(xabar("kelaman", kimdan=EGASI), xabar("zo'r, kutaman"))
-check(10, "egasi o'zi yozgan (uning qo'lidagi) suhbat: «bandman» ham, eslatma ham YO'Q",
-      ("pauza", "egasi") in q and mijozga() == [] and egasiga() == [])
+check(8, "egasi o'zi yozgan (uning qo'lidagi) suhbat: bot JIM",
+      ("pauza", "egasi") in q and mijozga() == [])
 
-# ── 11. Neytral gap standarti ────────────────────────────────────
-check(11, "neytral gaplar shaxsiy suhbatga ham mos, hech narsa va'da qilmaydi",
-      b.NEYTRAL_JAVOB == "Keyinroq yozaman." and "bandman" in b.BAND_JAVOB)
+# ── 9. Neytral gap ───────────────────────────────────────────────
+check(9, "neytral gap egasining ismi bilan, hech narsa va'da qilmaydi",
+      b.neytral_gap("Og'abek") == "Og'abek online bo'lganda o'zi javob beradi."
+      and b.neytral_gap(None).startswith("Akkaunt egasi")
+      and "Og'abek online" in b.mijoz_yoriqnomasi("", avtomat=True, ism="Og'abek"))
 
-print("\nHammasi o'tdi: 11/11")
+check(10, "variantdan neytral gap va egasining ismi olib tashlanadi (egasi bosadi)",
+      b.egasi_variantlari(["Ha, boraman", "Og'abek online bo'lganda o'zi javob beradi.",
+                           "Og'abek bormaydi", "Олимжон онлайн будет"], "Og'abek")
+      == ["Ha, boraman"])
+
+print("\nHammasi o'tdi: 10/10")

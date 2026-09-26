@@ -183,7 +183,7 @@ check(7, "avtomat modeldan BIZNES_SXEMA bilan so'raydi; javob suhbatdoshga",
 holat["model"] = '{"qaror":"javob","matn":"Futbolka 80'
 ishga("futbolka qancha")
 check(8, "avtomat: uzilgan JSON — suhbatdoshga neytral gap, xom JSON YO'Q, egasiga xabar",
-      mijozga() == [b.NEYTRAL_JAVOB] and egasiga() and "qaror" not in str(mijozga()))
+      mijozga() == [b.neytral_gap(None)] and egasiga() and "qaror" not in str(mijozga()))
 
 holat["model"] = j(qaror="tanlov", matn="keyinroq yozaman", savol="kelasanmi?",
                    variantlar=["kelaman", "bugun yo'q"])

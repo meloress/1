@@ -63,10 +63,10 @@ check(5, "instructions: biznes faqat yozilgan bo'lsa; suhbatdosh do'st/oila ham 
       and "(egasi hali yozmagan)" in b.mijoz_yoriqnomasi(""))
 
 # ── 6-7. Belgi ───────────────────────────────────────────────────
-check(6, "avto_matn: belgi yoqilgan — kursiv, matn html-escape; o'chiq — xom",
-      b.avto_matn("a<b>", True) == {"text": "a&lt;b&gt;\n\n<i>🤖 avtojavob</i>",
-                                    "parse_mode": "HTML"}
-      and b.avto_matn("a<b>", False) == {"text": "a<b>", "parse_mode": None})
+check(6, "avto_matn: belgi kichik, o'sha qatorda, HTML'siz (matn xom ketadi); o'chiq — xom",
+      b.avto_matn("a<b>", True) == {"text": "a<b>  ᵃᵛᵗᵒʲᵃᵛᵒᵇ", "parse_mode": None}
+      and b.avto_matn("a<b>", False) == {"text": "a<b>", "parse_mode": None}
+      and "\n" not in b.AVTO_BELGI)
 
 # ── Soxta dunyo ──────────────────────────────────────────────────
 q = []
@@ -266,11 +266,11 @@ holat["model"] = ("[tanlov: sigaret chekasizmi? | yo'q, chekmayman | ha] "
                   "keyinroq yozaman")
 ishga(xabar("sigareting bormi menda qolmadi"))
 m, e = mijozga(), egasiga()
-check(13, "avtomat: suhbatdoshga faqat neytral gap + 🤖 belgisi (HTML), marker yo'q",
-      len(m) == 1 and m[0][2] == "keyinroq yozaman\n\n<i>🤖 avtojavob</i>"
-      and m[0][4] == "HTML" and "tanlov" not in m[0][2])
-check(14, "avtomat: tarixga BELGISIZ matn; chat pauzada; egasiga tanlov tugmalari",
-      ("tarix", "keyinroq yozaman", "assistant") in q and ("pauza", MIJOZ) in q
+check(13, "avtomat: suhbatdoshga faqat neytral gap + kichik belgi, marker yo'q",
+      len(m) == 1 and m[0][2] == "keyinroq yozaman  " + b.AVTO_BELGI
+      and "tanlov" not in m[0][2])
+check(14, "avtomat: tarixga BELGISIZ matn; pauza YO'Q (javob beraveradi); egasiga tanlov tugmalari",
+      ("tarix", "keyinroq yozaman", "assistant") in q and ("pauza", MIJOZ) not in q
       and len(e) == 1 and any(t.startswith("bz:yv:") for t in tugmalar(e[0]))
       and "keyinroq yozaman" in e[0][2])
 
@@ -278,7 +278,7 @@ holat["model"] = "[tanlov: nimadir buzuq"
 ishga(xabar("ertaga kelasanmi"))
 m = mijozga()
 check(15, "avtomat: buzilgan marker — neytral gap, marker sizmaydi",
-      len(m) == 1 and m[0][2].startswith(b.NEYTRAL_JAVOB) and "tanlov" not in m[0][2])
+      len(m) == 1 and m[0][2].startswith(b.neytral_gap(None)) and "tanlov" not in m[0][2])
 
 UL["avto_belgi"] = False
 holat["model"] = "Salom!"
@@ -302,6 +302,6 @@ check(18, ".javob natijasidan marker olib tashlanadi",
 # ── 19. /biznes ekrani: avtomatda belgi tugmasi ──────────────────
 kb = str(b._sozlama_kb(UL))
 check(19, "avtomat Sozlamalarida «🤖 belgisi» tugmasi, ekranda holati",
-      "bz:bl" in kb and "avtojavob" in b.ekran_matni(UL, ""))
+      "bz:bl" in kb and b.AVTO_BELGI in b.ekran_matni(UL, ""))
 
 print("\nHammasi o'tdi: 19/19")

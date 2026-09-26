@@ -1560,21 +1560,6 @@ async def biznes_pauza(owner_id: int, chat_id: int, soat: int,
 
 
 @with_db_retry()
-async def biznes_band_ol(owner_id: int, chat_id: int) -> bool:
-    """Uzatish pauzasida "bandman" xabarini yuborish huquqi — ATOMIK, bir
-    pauzaga bir marta (ikki parallel xabar ikkita "bandman" yubormasin)."""
-    global pool
-    if pool is None:
-        await create_db_pool()
-    async with pool.acquire() as conn:
-        return bool(await conn.fetchval(
-            "UPDATE biznes_chat SET band_yuborildi = TRUE "
-            "WHERE owner_id = $1 AND chat_id = $2 AND pauza_sababi = 'uzatish' "
-            "AND NOT band_yuborildi AND pauza_gacha > NOW() RETURNING 1",
-            owner_id, chat_id))
-
-
-@with_db_retry()
 async def biznes_kutayotgan_tanlov(owner_id: int, chat_id: int) -> Optional[Dict[str, Any]]:
     """Shu chatdagi hal qilinmagan `[tanlov:]` (eslatmada tugmalari qayta)."""
     global pool

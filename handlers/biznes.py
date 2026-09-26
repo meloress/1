@@ -36,7 +36,7 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
                          BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
-                         BIZNES_ESLATMA_DAQIQA, BIZNES_MERGE_WAIT,
+                         BIZNES_MERGE_WAIT,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
@@ -760,7 +760,7 @@ _FAKT_QOIDASI = (
 
 
 def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
-                      uslub: dict | None = None) -> str:
+                      uslub: dict | None = None, ism: str | None = None) -> str:
     """Mijoz yo'lining `developer` xabari (REJA.md 0.7).
 
     ⛔️ `instructions`'ga EMAS — har egasining matni boshqa, u yerda
@@ -775,11 +775,11 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "• qaror=\"javob\": matn — tayyor xabar.\n"
         "• qaror=\"tanlov\" — faqat egasi biladigan narsa: savol — egasiga "
         "qisqa savol (o'zbekcha); variantlar — egasi bosib yuborishi mumkin "
-        "bo'lgan 2-3 ta TAYYOR, TO'LIQ javob (uning uslubida, suhbatdosh "
-        "tilida; «...» yoki bo'sh joy YO'Q — ma'lumot kerak bo'lsa, bunday "
-        "variantni yozma); matn — suhbatdoshga bitta qisqa neytral gap, "
-        "va'dasiz, savolsiz, BIRINCHI shaxsda, egasining ismini tilga olmay "
-        "(masalan «keyinroq yozaman»).\n"
+        "bo'lgan 2-3 ta TAYYOR, TO'LIQ javob (EGASINING O'ZI birinchi shaxsda "
+        "yozgandek, uning uslubida, suhbatdosh tilida; quyidagi neytral gap "
+        "va egasining ismi variantda YO'Q; «...» yoki bo'sh joy YO'Q — ma'lumot kerak bo'lsa, bunday "
+        f"variantni yozma); matn — aynan shu gap, suhbatdosh tilida: "
+        f"«{neytral_gap(ism)}»\n"
         "• qaror=\"egasiga\" — egasining biznesi bo'lsa va suhbatdosh sotib "
         "olmoqchi yoki buyurtma bermoqchi; jahli chiqqan yoki shikoyat "
         "qilyapti; savolga bilimda javob yo'q; chegirma, narx kelishuvi "
@@ -787,10 +787,10 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "manzil, ish vaqti — bilimda bor) — bu \"javob\", uzatish EMAS. Bu hollarda javobni bilsang ham (masalan narx "
         "bilimda bor) qaror BARIBIR \"egasiga\" — sotuv va shikoyatdan egasi "
         "albatta xabar topishi kerak. savol — egasiga qisqa sabab; matn — "
-        "bilimdagi aniq javob (bo'lsa) va bitta qisqa neytral gap (masalan "
-        "«Hozir aniqlashtirib javob beraman»); variantlar bo'sh.\n"
+        f"bilimdagi aniq javob (bo'lsa) va «{neytral_gap(ism)}» (suhbatdosh "
+        "tilida); variantlar bo'sh.\n"
         "• «botmisan?» deyilsa: qaror=\"javob\", matn — bu avtojavob ekani va "
-        "egasi keyinroq o'zi yozishi (suhbatdosh tilida).\n"
+        f"«{neytral_gap(ism)}» (suhbatdosh tilida).\n"
         if avtomat else
         "[QORALAMA] Sen javob LOYIHASINI yozasan; egasi uni ko'rib yuboradi. "
         "JSON qaytar:\n"
@@ -991,11 +991,38 @@ async def _loyiha(buf: dict) -> None:
 # ⛔️ Mijozga hech qachon: texnik xato matni, `[egasiga:]` markeri,
 # limit yoki pauza haqida xabar. Bular faqat EGASIGA.
 
-# Shaxsiy suhbatga ham mos (do'stga "aniqlashtirib javob beraman" g'alati).
-NEYTRAL_JAVOB = "Keyinroq yozaman."
-# Uzatish pauzasida suhbatdosh yana yozsa — BIR marta (`biznes_band_ol`).
-# Hech narsa va'da qilmaydi: vaqt ham, javob ham.
-BAND_JAVOB = "Hozir bandman, bo'shashim bilan yozaman."
+# Uzatish (tanlov / egasiga) paytida suhbatdoshga. Egasi so'radi (2026-09-26):
+# "Og'abek online bo'lsa o'zi javob beradi" — bot kimligini ochiq aytadi,
+# vaqt ham, mazmun ham va'da qilmaydi. Keyin bot JIM QOLMAYDI: suhbatdosh yana
+# yozsa, odatdagidek javob beradi (ilgari 3 soat pauza + "Hozir bandman" edi,
+# jonli sinovda bu "javob bermayapti" bo'lib ko'rindi).
+def neytral_gap(ism: str | None) -> str:
+    return f"{ism or 'Akkaunt egasi'} online bo'lganda o'zi javob beradi."
+
+
+def egasi_variantlari(variantlar: list, ism: str | None) -> list:
+    """Variant — EGASINING o'z javobi (u bosadi, uning nomidan ketadi). Eval'da
+    model neytral gapni ham variant qilib qo'ydi: egasi bossa, o'zi haqida
+    uchinchi shaxsda ("Olimjon online bo'lganda...") yozgan bo'lardi. Sof."""
+    def yot(v: str) -> bool:
+        k = v.lower()
+        return "online bo" in k or "онлайн" in k or bool(ism and ism.lower() in k)
+    return [v for v in variantlar if not yot(v)]
+
+
+# Egasining Telegram ismi — `get_chat` bir marta, keyin RAM.
+# ponytail: ism o'zgarsa qayta ishga tushguncha eskisi.
+_ism_kesh: dict = {}
+
+
+async def _egasi_ismi(egasi: int, dm: int) -> str | None:
+    if egasi not in _ism_kesh:
+        try:
+            _ism_kesh[egasi] = (await bot.get_chat(dm)).first_name or None
+        except Exception as e:
+            logger.debug(f"[BIZNES] egasi ismi olinmadi: {e}")
+            return None
+    return _ism_kesh[egasi]
 
 # ── Alifbo: suhbatdosh lotinda yozsa, javob ham lotinda ─────────────
 # Jonli sinovda model "кейин aytaman" yozdi — bitta gapda ikki alifbo.
@@ -1089,9 +1116,10 @@ async def _toxtash_sababi(ul: dict, chat_id: int) -> str | None:
     holat = await database.biznes_chat_holati(ul["owner_id"], chat_id)
     if holat["ochirilgan"]:
         return "chatda o'chirilgan"
-    if holat["pauza"]:
-        # 'pauza_uzatish' — bot savolni egasiga uzatgan, suhbatdosh kutyapti.
-        return "pauza_uzatish" if holat.get("uzatish") else "pauza"
+    # Faqat egasi o'zi yozgan pauza. 'uzatish' pauzasi endi qo'yilmaydi —
+    # bazada qolgan eskilari ham e'tiborsiz (bot jim qolmasin).
+    if holat["pauza"] and not holat.get("uzatish"):
+        return "pauza"
     return None
 
 
@@ -1136,8 +1164,6 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             olchov.qosh(natija="jim")
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
             logger.info(f"[BIZNES] avtomat jim chat={chat_id}: {sabab}")
-            if sabab == "pauza_uzatish":
-                await _pauza_paytida(message, matn, ul)
             return
         sanoq = await database.check_and_consume_daily(egasi, "biznes")
         olchov.belgi("sanoq")
@@ -1166,7 +1192,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             bilim, uslub = await asyncio.gather(database.biznes_bilim_ol(egasi),
                                                 biznes_uslub.uslub_ol(egasi))
             olchov.belgi("bilim_uslub")
-            yoriq = mijoz_yoriqnomasi(bilim, avtomat=True, uslub=uslub)
+            yoriq = mijoz_yoriqnomasi(bilim, avtomat=True, uslub=uslub,
+                                      ism=await _egasi_ismi(egasi, dm))
             if rasm is None:
                 javob = await _model(matn, chat_id, thread, egasi, biznes_yoriqnoma=yoriq,
                                      javob_formati=BIZNES_SXEMA)
@@ -1200,13 +1227,13 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
         # "tanlov" (faqat egasi biladigan savol) ham uzatish — suhbatdoshga
         # neytral gap, egasiga tayyor javob tugmalari. "egasiga" — biznes uzatishi.
         q = biznes_qaror_ajrat(javob)
-        toza, variantlar = q["matn"], q["variantlar"]
+        toza, variantlar = q["matn"], egasi_variantlari(q["variantlar"], _ism_kesh.get(egasi))
         savol = q["savol"] if q["qaror"] == "tanlov" else None
         uzat = q["savol"] if q["qaror"] != "javob" else None
         if uzat is None and not toza:
             uzat = "model javob yozmadi"
         if uzat is not None:
-            toza = toza or NEYTRAL_JAVOB
+            toza = toza or neytral_gap(_ism_kesh.get(egasi))
         toza = alifboga_mosla(toza, matn)
         variantlar = [alifboga_mosla(v, matn) for v in variantlar]
         try:
@@ -1224,8 +1251,6 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
         except Exception:
             pass
         await safe_update_history(chat_id, toza, role="assistant", thread_id=thread)
-        if uzat is not None:
-            await database.biznes_pauza(egasi, chat_id, BIZNES_PAUZA_SOAT, "uzatish")
         olchov.belgi("tarix")
 
     olchov.qosh(natija="tanlov" if savol is not None
@@ -1245,60 +1270,17 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
                 f"uzatildi={uzat is not None}")
 
 
-# Egasiga eslatma vaqti (monotonic, soniya) — chat bo'yicha.
-# ponytail: RAM — deploy'dan keyin birinchi xabarda yana bitta eslatma.
-_eslatilgan: dict = {}
-
-
-async def _pauza_paytida(message: Message, matn: str, ul: dict) -> None:
-    """Uzatish pauzasida suhbatdosh yana yozdi. Jonli sinovda u 4 marta
-    yozdi va javobsiz qoldi, egasi esa bilmadi. Endi:
-      1) suhbatdoshga BIR marta "bandman" (hech narsa va'da qilmaydi);
-      2) egasiga eslatma — chatga `BIZNES_ESLATMA_DAQIQA` da bittadan,
-         kutayotgan `[tanlov:]` tugmalari bilan.
-    Bot savollarga (masalan "kimsan sen") JAVOB BERMAYDI — suhbat egasida.
-    """
-    egasi, dm, chat_id = ul["owner_id"], ul["owner_chat"], message.chat.id
-    try:
-        if await database.biznes_band_ol(egasi, chat_id):
-            _bot_yubordi(await _qayta_429(lambda: bot.send_message(
-                chat_id, business_connection_id=message.business_connection_id,
-                **avto_matn(BAND_JAVOB, ul.get("avto_belgi", True)))))
-            await safe_update_history(chat_id, BAND_JAVOB, role="assistant",
-                                      thread_id=biznes_thread(egasi))
-    except Exception as e:
-        logger.warning(f"[BIZNES] «bandman» yuborilmadi chat={chat_id}: {e}")
-
-    kalit, hozir = (egasi, chat_id), time.monotonic()
-    if hozir - _eslatilgan.get(kalit, float("-inf")) < BIZNES_ESLATMA_DAQIQA * 60:
-        return
-    _eslatilgan[kalit] = hozir
-    try:
-        tanlov = await database.biznes_kutayotgan_tanlov(egasi, chat_id)
-    except Exception as e:
-        logger.warning(f"[BIZNES] kutayotgan tanlov o'qilmadi: {e}")
-        tanlov = None
-    u = message.from_user
-    matni = (f"🔔 <b>{escape(u.full_name if u else 'Suhbatdosh')}</b> yana yozdi — "
-             f"javobingizni kutyapti:\n<blockquote>{escape(matn[:800])}</blockquote>")
-    if tanlov:
-        matni += "\nTayyor javoblardan birini bosing yoki o'zingiz yozing."
-    await _egasiga(dm, matni, kb=_tanlov_kb(tanlov["id"], tanlov["variantlar"])
-                   if tanlov else None)
-
-
 async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> None:
     u = message.from_user
     qatorlar = []
     if u and u.username:
         qatorlar.append([pro_module.btn("Chatga o'tish", "", url=f"https://t.me/{u.username}")])
-    qatorlar.append([pro_module.btn("▶️ Botni qayta yoqish", f"bz:pz:{message.chat.id}")])
     qatorlar.append([pro_module.btn("Bu chatda avtomatni o'chirish",
                                     f"bz:o:{message.chat.id}", style=BTN_DANGER)])
     matni = (f"🙋 <b>{escape(u.full_name if u else 'Mijoz')}</b> sizni kutmoqda\n"
              f"Sabab: {escape(sabab)}\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
-             f"Bu chatda {BIZNES_PAUZA_SOAT} soat jim turaman — javobni o'zingiz "
-             "yozing yoki «▶️ Botni qayta yoqish».")
+             "Unga siz online bo'lganda javob berishingizni aytdim. U yana yozsa, "
+             "javob beraveraman.")
     try:
         await _dm_yubor(dm, matni, parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
@@ -1347,15 +1329,15 @@ async def _avto_rasm(message: Message, ul: dict) -> None:
 # oddiy xabar ko'radi. Bot o'zi (egasi ko'rmasdan) yozgan javobda buni
 # ochiq aytish kerak: xato bo'lsa "egasi shunday dedi" emas, "bot dedi".
 # Faqat AVTOMATda: Yordamchida egasi o'zi bosadi — bu uning so'zi.
-AVTO_BELGI = "🤖 avtojavob"
+# Egasi: "juda xunuk" (2026-09-26) — bo'sh qator + kursiv qator edi. Endi javob
+# oxirida, o'sha qatorda, ustki kichik harflar bilan: parse_mode ham kerak emas.
+AVTO_BELGI = "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"
 
 
 def avto_matn(toza: str, belgi: bool) -> dict:
     """`send_message` uchun text + parse_mode. Sof funksiya. Tarixga
     belgisiz `toza` yoziladi — model belgini o'z uslubi deb o'rganmasin."""
-    if not belgi:
-        return {"text": toza, "parse_mode": None}
-    return {"text": f"{escape(toza)}\n\n<i>{AVTO_BELGI}</i>", "parse_mode": "HTML"}
+    return {"text": f"{toza}  {AVTO_BELGI}" if belgi else toza, "parse_mode": None}
 
 
 def _tanlov_kb(lid: int, variantlar: list) -> InlineKeyboardMarkup:
@@ -1377,8 +1359,8 @@ async def _tanlov_korsat(dm: int, lid: int, ism: str, matn: str, savol: str,
     if variantlar:
         qator.append("\n".join(f"{i + 1}) {escape(v)}" for i, v in enumerate(variantlar)))
     if neytral:
-        qator.append(f"Unga «{escape(neytral[:200])}» deb yozdim va chatda "
-                     f"{BIZNES_PAUZA_SOAT} soat jim turaman.")
+        qator.append(f"Unga «{escape(neytral[:200])}» deb yozdim. U yana yozsa, "
+                     "javob beraveraman.")
     try:
         await _dm_yubor(dm, "\n\n".join(qator), parse_mode="HTML",
                         reply_markup=_tanlov_kb(lid, variantlar))
@@ -1449,11 +1431,6 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
     if ul.get("huquqlar", {}).get("can_read_messages"):
         await safe_update_history(r["chat_id"], matn, role="assistant",
                                   thread_id=biznes_thread(egasi))
-    if r.get("variantlar") is not None and ul.get("rejim") == "avtomat":
-        # Egasi tanlovga javob berdi. 'uzatish' pauzasi qolsa suhbatdoshning
-        # keyingi "ok" siga "Hozir bandman" ketardi — egasi hozirgina yozgan
-        # bo'lsa ham. Endi — egasi o'zi yozgandagi kabi jim pauza.
-        await database.biznes_pauza(egasi, r["chat_id"], BIZNES_PAUZA_SOAT)
     if not tahrirsiz:
         # Egasi qoralamani o'z so'zi bilan almashtirdi — bu uning haqiqiy
         # xabari. Juftlik (loyiha → yakuniy) `biznes_loyiha` da qoladi.
@@ -1490,8 +1467,7 @@ def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
         qator.append(f"Ish vaqti: <b>{ul.get('ish_vaqti') or 'doim'}</b> (Toshkent)")
         qator.append(f"Javob oxirida «{AVTO_BELGI}»: <b>"
                      f"{'bor' if ul.get('avto_belgi', True) else 'yo‘q'}</b>")
-        qator.append(f"Siz yozgan yoki sizga uzatilgan chatda "
-                     f"{BIZNES_PAUZA_SOAT} soat jim turaman.")
+        qator.append(f"Siz o'zingiz yozgan chatda {BIZNES_PAUZA_SOAT} soat jim turaman.")
     if ul["rejim"] in ("yordamchi", "avtomat"):
         if not bilim:
             qator.append("\n⚠️ Bilim yozilmagan — siz haqingizda hech narsa "
@@ -1694,11 +1670,6 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         if javob.startswith("✅"):
             await _tugmasiz(query, "\n\n💾 <i>Eslab qolindi</i>")
         await query.answer(javob[:200], show_alert=not javob.startswith("✅"))
-    elif amal == "pz" and len(qism) > 2 and qism[2].lstrip("-").isdigit():
-        # Uzatish pauzasini muddatidan oldin tugatish: egasi hal qildi.
-        await database.biznes_pauza(uid, int(qism[2]), 0)
-        await _tugmasiz(query, "\n\n▶️ <i>Bot bu chatda yana javob beradi</i>")
-        await query.answer("Bot yana javob beradi")
     elif amal in ("o", "a") and len(qism) > 2 and qism[2].lstrip("-").isdigit():
         await database.biznes_chat_ochir(uid, int(qism[2]), amal == "o")
         await query.answer("Bu chatda avtomat o'chirildi" if amal == "o"

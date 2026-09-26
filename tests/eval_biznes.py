@@ -124,7 +124,7 @@ TARIX = {
 def qaror(xom: str, xabar: str) -> tuple:
     """Prod bilan AYNAN bir xil: sxema parseri + alifbo moslash."""
     q = ai.biznes_qaror_ajrat(xom)
-    var = [b.alifboga_mosla(v, xabar) for v in q["variantlar"]]
+    var = [b.alifboga_mosla(v, xabar) for v in b.egasi_variantlari(q["variantlar"], "Olimjon")]
     return q["qaror"], b.alifboga_mosla(q["matn"], xabar), var, q["matn"]
 
 
@@ -158,7 +158,8 @@ async def bitta(hid, xabar, bilim, rejim_avto=True):
     ai.safe_get_chat_history = tarix_f
     ai.safe_history_summary_message = hech
     ai._token_saqla = hech
-    yoriq = b.mijoz_yoriqnomasi(bilim, avtomat=rejim_avto and not QORALAMA)
+    yoriq = b.mijoz_yoriqnomasi(bilim, avtomat=rejim_avto and not QORALAMA,
+                                 ism="Olimjon")
     t0 = time.perf_counter()
     javob = await b._model(xabar, 424242, -1, 1, biznes_yoriqnoma=yoriq,
                            javob_formati=ai.BIZNES_SXEMA)
@@ -200,8 +201,12 @@ async def main():
                 sabablar.append(f"kerakli fakt yo'q: /{shart}/")
             if tur == "tanlov" and not var:
                 sabablar.append("tanlov variantsiz")
-            if tur != "javob" and not QORALAMA and re.search(r"(?i)olimjon", tekshir):
-                sabablar.append("neytral gap uchinchi shaxsda (egasi ismi)")
+            # Egasi so'radi (2026-09-26): uzatishda "Olimjon online bo'lganda o'zi
+            # javob beradi" — bot kimligini aytadi, jim qolmaydi.
+            if tur != "javob" and not QORALAMA and not re.search(r"(?i)online|онлайн", tekshir):
+                sabablar.append("neytral gap yo'q («... online bo'lganda»)")
+            if any(re.search(r"(?i)olimjon|online|онлайн", v) for v in var):
+                sabablar.append("variantda neytral gap / egasi ismi")
             if any(re.search(r"\.\.\.|…|\[|<", v) for v in var):
                 sabablar.append("variantda shablon")
             if xom.strip().startswith("{") is False:

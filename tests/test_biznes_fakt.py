@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Telegram Business — «💾 Eslab qol», «▶️ Botni qayta yoqish», tanlovdan keyingi pauza.
+"""Telegram Business — «💾 Eslab qol».
 
-  ⛔️ egasi tanlovga javob bergach suhbatdoshning keyingi "ok" siga
-     "Hozir bandman" ketadi (uzatish pauzasi qolib ketgan);
+  ⛔️ egasi tanlovga tugma bilan javob bergach bot chatda jim qoladi;
   ⛔️ eslab qolingan javob Bilimni buzadi: takrorlanadi, chegaradan oshadi,
      karta raqami kiradi, yoki ko'p qatorli bo'lib boshqa qoidaga o'xshaydi;
   ⛔️ oddiy qoralamaga ham «Eslab qol» chiqadi (u bilimdan kelgan — aylanma);
@@ -124,11 +123,11 @@ def ishga(c):
 
 
 # ── 6-7. Tanlovga javob: pauza 'egasi' ga ────────────────────────
-check(6, "avtomat: tanlov yuborilgach pauza 'egasi' (jim), 'bandman' emas",
+check(6, "avtomat: tanlov tugma bilan yuborilgach pauza YO'Q — bot javob beraveradi",
       ishga(b.loyihani_yubor(1, EGASI, variant=0)).startswith("✅")
-      and ("pauza", 55, b.BIZNES_PAUZA_SOAT, "egasi") in q)
+      and not any(x[0] == "pauza" for x in q))
 q.clear()
-check(7, "oddiy qoralama (tanlov emas) pauzaga tegmaydi",
+check(7, "oddiy qoralama ham pauzaga tegmaydi",
       ishga(b.loyihani_yubor(2, EGASI)).startswith("✅")
       and not any(x[0] == "pauza" for x in q))
 
@@ -156,7 +155,8 @@ b._dm_yubor = dm_yubor
 xabar = NS(from_user=NS(full_name="Ali", username=None), chat=NS(id=55))
 ishga(b._uzatish_xabari(EGASI, xabar, "salom", "xarid"))
 tugmalar = [t.callback_data for r in yuborilgan[0].inline_keyboard for t in r]
-check(11, "uzatish xabarida «▶️ Botni qayta yoqish» (bz:pz:<chat>)", "bz:pz:55" in tugmalar)
+check(11, "uzatish xabarida «jim turaman» yo'q, «qayta yoqish» ham kerak emas",
+      "bz:pz:55" not in tugmalar and "bz:o:55" in tugmalar)
 
 # ── 12. Egasi tanlovga CHATDA o'zi javob berdi ───────────────────
 loyihalar[3] = dict(id=3, owner_id=EGASI, conn_id="c1", chat_id=57,

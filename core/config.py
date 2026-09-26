@@ -864,9 +864,6 @@ BIZNES_MERGE_WAIT = 3.0
 # raund odatda 2-8 s; `STREAM_IDLE_TIMEOUT` (180 s) esa chat qulfini
 # ushlab turib, shu chatning keyingi xabarlarini kutkazardi.
 BIZNES_MODEL_TIMEOUT = 60
-# Uzatish pauzasida suhbatdosh yana yozsa — egasiga eslatma, bitta chatga
-# shu oraliqda ko'pi bilan bittasi (ketma-ket 4 xabar = 4 bildirishnoma emas).
-BIZNES_ESLATMA_DAQIQA = 5
 # 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
 # ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
 # javob bermagan bo'lsa — egasiga bitta xabar.

@@ -104,9 +104,8 @@ savoli → javob; neytral gap birinchi shaxsda, savolsiz, egasining ismisiz. Nar
 - **Poyga:** model yozayotganda egasi o'zi yozsa, qoralama/avtojavob chiqmaydi. Soat emas,
   TARTIB RAQAMI (`time.monotonic()` Windows'da ~16 ms qadamli — test shunda yiqildi).
 - **429:** `_qayta_429` — ≤30 s kutib bir marta. **Qoralama yozilmasa** — egasiga soatiga bir.
-- **Uzatish pauzasi** (`biznes_chat.pauza_sababi`): 'uzatish' da suhbatdoshga BIR marta
-  `BAND_JAVOB` (atomik `biznes_band_ol`), egasiga chatga 5 daqiqada bitta eslatma kutayotgan
-  tanlov tugmalari bilan. 'egasi' (o'zi yozgan) pauzada ikkalasi ham yo'q.
+- **Pauza faqat egasi o'zi yozganda** ('egasi', 3 soat). Uzatish pauzasi OLIB TASHLANDI —
+  pastdagi «Uzatishdan keyin jim qolmaslik» bo'limi.
 - **Alifbo:** suhbatdosh lotinda yozsa, javob/qoralama/variantlardagi kirill `uz_lotinga()`
   bilan o'giriladi (kirillda yozganga tegilmaydi).
 - **Tezlik:** bilim/uslub RAM keshi (har yozuvchi bekor qiladi — `test_biznes_kesh.py`
@@ -128,7 +127,27 @@ savoli → javob; neytral gap birinchi shaxsda, savolsiz, egasining ismisiz. Nar
 - ATAYLAB qilinmadi: tarix oynasini qisqartirish (5.3) va "egasi faol — qoralama yo'q"
   (4.5) — ikkalasi ham aniqlikni tokenga almashtiradi. `AUDIT.md` jadvali.
 
-## «💾 Eslab qol» va «▶️ Botni qayta yoqish» (2026-09-26)
+## Uzatishdan keyin jim qolmaslik (2026-09-26)
+
+Egasi jonli sinovda: bot so'rashi kerak narsani so'radi, keyin suhbatdosh yana yozsa javob
+bermadi. Avval 3 soatlik 'uzatish' pauzasi + bir marta "Hozir bandman" + egasiga eslatma edi —
+egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
+
+- Uzatishda (tanlov / egasiga) suhbatdoshga `neytral_gap(ism)` — **"Og'abek online bo'lganda
+  o'zi javob beradi."** (suhbatdosh tilida). Ism — `bot.get_chat(owner_chat).first_name`,
+  RAM'da (`_egasi_ismi`). Prompt shu gapni aynan so'raydi; `matn` bo'sh bo'lsa kod qo'yadi.
+- ⛔️ **Pauza qo'yilmaydi** — suhbatdosh yana yozsa bot odatdagidek javob beradi (yangi shaxsiy
+  savol bo'lsa — yana tanlov). Bazada qolgan eski 'uzatish' pauzalari `_toxtash_sababi`da
+  e'tiborsiz. Egasi O'ZI chatga yozsa — 'egasi' pauzasi qoladi (suhbat uning qo'lida).
+- `egasi_variantlari()` — variantdan neytral gap va egasining ismi olib tashlanadi: model uni
+  variant qilib ham qo'ydi, egasi bossa o'zi haqida uchinchi shaxsda yozgan bo'lardi.
+- `BAND_JAVOB`, `_pauza_paytida`, `biznes_band_ol`, `BIZNES_ESLATMA_DAQIQA`, «▶️ Botni qayta
+  yoqish» o'chirildi (`band_yuborildi` ustuni bazada qoldi — ishlatilmaydi).
+- **Belgi:** `AVTO_BELGI = "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"` — javob oxirida, o'sha qatorda, HTML'siz ("🤖 avtojavob"
+  bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
+- Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
+
+## «💾 Eslab qol» (2026-09-26)
 
 **Muammo:** bot "chekasanmi?" ni har safar egasiga uzatadi — egasi bir marta javob bergan
 bo'lsa ham. Bot egasini o'rganmasdi.
@@ -144,10 +163,6 @@ bo'lsa ham. Bot egasini o'rganmasdi.
 - `_FAKT_QOIDASI` yo'riqnomaga faqat sarlavha bor bilimda qo'shiladi (qolganlarga 0 token):
   doimiy fakt → o'zi javob; vaqtga bog'liq ("hozir qayerdasan → uydaman") → baribir tanlov.
   Eval: `fakt_*` holatlari 12/12.
-- 🐞 **Tuzatildi:** avtomatda egasi tanlovga tugma bilan javob bergach 'uzatish' pauzasi
-  qolardi — suhbatdoshning keyingi "ok" siga "Hozir bandman" ketardi. Endi pauza 'egasi'
-  (jim), xuddi egasi o'zi yozgandagidek.
-- «▶️ Botni qayta yoqish» (`bz:pz:<chat>`) uzatish xabarida: pauzani 3 soat kutmasdan tugatadi.
 - `test_biznes_fakt.py`.
 
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)

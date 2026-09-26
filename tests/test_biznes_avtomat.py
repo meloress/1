@@ -329,17 +329,17 @@ check(7, "mijoz yozdi -> bitta javob, «yozmoqda», o'qildi, sanoq, tarix",
 # ── 8-10. Marker ─────────────────────────────────────────────────
 holat["model"] = "[egasiga: chegirma so'radi] Hozir aniqlab aytaman."
 ishga(xabar("10% chegirma bering"))
-check(8, "uzatish: mijozga faqat neytral gap, egasiga sabab + tugma, pauza",
+check(8, "uzatish: mijozga faqat neytral gap, egasiga sabab + tugma, PAUZASIZ",
       mijozga() == ["Hozir aniqlab aytaman."]
       and any("Sabab: chegirma so" in m for m in egasiga())
-      and ("pauza", MIJOZ, c.BIZNES_PAUZA_SOAT) in q
+      and not any(x[0] == "pauza" for x in q)
       and ("faollik", "biznes_uzatish") in q)
 pauza.clear()
 
 holat["model"] = "[egasiga: sotib olmoqchi]"
 ishga(xabar("olaman"))
 check(9, "faqat marker -> mijozga standart neytral javob",
-      mijozga() == [b.NEYTRAL_JAVOB])
+      mijozga() == [b.neytral_gap(None)])
 pauza.clear()
 
 holat["model"] = "Salom! [egasiga: narx so'radi"
