@@ -1329,15 +1329,16 @@ async def _avto_rasm(message: Message, ul: dict) -> None:
 # oddiy xabar ko'radi. Bot o'zi (egasi ko'rmasdan) yozgan javobda buni
 # ochiq aytish kerak: xato bo'lsa "egasi shunday dedi" emas, "bot dedi".
 # Faqat AVTOMATda: Yordamchida egasi o'zi bosadi — bu uning so'zi.
-# Egasi: "juda xunuk" (2026-09-26) — bo'sh qator + kursiv qator edi. Endi javob
-# oxirida, o'sha qatorda, ustki kichik harflar bilan: parse_mode ham kerak emas.
+# Egasi: "juda xunuk" (2026-09-26) — bo'sh qator + kursiv qator edi. Keyin
+# o'sha qatorga qo'yildi — egasi: "pastda chiqishi kerak". Endi javob OSTIDA,
+# bo'sh qatorsiz, ustki kichik harflar bilan: parse_mode ham kerak emas.
 AVTO_BELGI = "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"
 
 
 def avto_matn(toza: str, belgi: bool) -> dict:
     """`send_message` uchun text + parse_mode. Sof funksiya. Tarixga
     belgisiz `toza` yoziladi — model belgini o'z uslubi deb o'rganmasin."""
-    return {"text": f"{toza}  {AVTO_BELGI}" if belgi else toza, "parse_mode": None}
+    return {"text": f"{toza}\n{AVTO_BELGI}" if belgi else toza, "parse_mode": None}
 
 
 def _tanlov_kb(lid: int, variantlar: list) -> InlineKeyboardMarkup:
@@ -1465,7 +1466,7 @@ def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
                  + (f" · Uslub: <b>{namuna}</b> namuna" if namuna is not None else ""))
     if ul["rejim"] == "avtomat":
         qator.append(f"Ish vaqti: <b>{ul.get('ish_vaqti') or 'doim'}</b> (Toshkent)")
-        qator.append(f"Javob oxirida «{AVTO_BELGI}»: <b>"
+        qator.append(f"Javob ostida «{AVTO_BELGI}»: <b>"
                      f"{'bor' if ul.get('avto_belgi', True) else 'yo‘q'}</b>")
         qator.append(f"Siz o'zingiz yozgan chatda {BIZNES_PAUZA_SOAT} soat jim turaman.")
     if ul["rejim"] in ("yordamchi", "avtomat"):

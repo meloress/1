@@ -143,7 +143,7 @@ egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
   variant qilib ham qo'ydi, egasi bossa o'zi haqida uchinchi shaxsda yozgan bo'lardi.
 - `BAND_JAVOB`, `_pauza_paytida`, `biznes_band_ol`, `BIZNES_ESLATMA_DAQIQA`, «▶️ Botni qayta
   yoqish» o'chirildi (`band_yuborildi` ustuni bazada qoldi — ishlatilmaydi).
-- **Belgi:** `AVTO_BELGI = "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"` — javob oxirida, o'sha qatorda, HTML'siz ("🤖 avtojavob"
+- **Belgi:** `AVTO_BELGI = "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"` — javob OSTIDA, bo'sh qatorsiz, HTML'siz ("🤖 avtojavob"
   bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
 - Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
 

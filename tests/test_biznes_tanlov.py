@@ -63,8 +63,8 @@ check(5, "instructions: biznes faqat yozilgan bo'lsa; suhbatdosh do'st/oila ham 
       and "(egasi hali yozmagan)" in b.mijoz_yoriqnomasi(""))
 
 # ── 6-7. Belgi ───────────────────────────────────────────────────
-check(6, "avto_matn: belgi kichik, o'sha qatorda, HTML'siz (matn xom ketadi); o'chiq — xom",
-      b.avto_matn("a<b>", True) == {"text": "a<b>  ᵃᵛᵗᵒʲᵃᵛᵒᵇ", "parse_mode": None}
+check(6, "avto_matn: belgi kichik, javob OSTIDA (bo'sh qatorsiz), HTML'siz (matn xom ketadi); o'chiq — xom",
+      b.avto_matn("a<b>", True) == {"text": "a<b>\nᵃᵛᵗᵒʲᵃᵛᵒᵇ", "parse_mode": None}
       and b.avto_matn("a<b>", False) == {"text": "a<b>", "parse_mode": None}
       and "\n" not in b.AVTO_BELGI)
 
@@ -267,7 +267,7 @@ holat["model"] = ("[tanlov: sigaret chekasizmi? | yo'q, chekmayman | ha] "
 ishga(xabar("sigareting bormi menda qolmadi"))
 m, e = mijozga(), egasiga()
 check(13, "avtomat: suhbatdoshga faqat neytral gap + kichik belgi, marker yo'q",
-      len(m) == 1 and m[0][2] == "keyinroq yozaman  " + b.AVTO_BELGI
+      len(m) == 1 and m[0][2] == "keyinroq yozaman\n" + b.AVTO_BELGI
       and "tanlov" not in m[0][2])
 check(14, "avtomat: tarixga BELGISIZ matn; pauza YO'Q (javob beraveradi); egasiga tanlov tugmalari",
       ("tarix", "keyinroq yozaman", "assistant") in q and ("pauza", MIJOZ) not in q
