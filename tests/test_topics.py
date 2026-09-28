@@ -92,7 +92,6 @@ for nom, fn in (("safe_update_history", ai.safe_update_history),
                 ("safe_history_summary_message", ai.safe_history_summary_message),
                 ("clear_chat_history", ai.clear_chat_history),
                 ("get_openai_reply", ai.get_openai_reply),
-                ("get_vision_reply", ai.get_vision_reply),
                 ("get_gpt_reply", ai.get_gpt_reply)):
     assert "thread_id" in inspect.signature(fn).parameters, f"{nom} da yo'q"
 check(8, "ai.py o'rovlari ham mavzuni biladi", True)

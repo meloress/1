@@ -41,7 +41,7 @@ def check(n, nom, shart):
     print(f"[{n}] {nom} OK")
 
 
-# ── 1-4. Qaysi prompt ketadi (haqiqiy get_openai_reply / get_vision_reply) ──
+# ── 1-4. Qaysi prompt ketadi (haqiqiy get_openai_reply) ──
 class FakeFinal:
     status = "completed"
     incomplete_details = None
@@ -107,10 +107,10 @@ check(3, "oddiy yo'l o'zgarmagan (yordamchi prompti)",
       YORDAMCHI in ushlangan["instructions"]
       and ushlangan["instructions"] != ai.BIZNES_INSTRUCTIONS)
 
-asyncio.run(yig(ai.get_vision_reply(MIJOZ, "QUJD", "bu bormi?", user_id=EGASI,
-                                    is_pro=True, thread_id=-EGASI,
+asyncio.run(yig(ai.get_openai_reply(MIJOZ, "bu bormi?", input_image="QUJD",
+                                    user_id=EGASI, is_pro=True, thread_id=-EGASI,
                                     biznes_yoriqnoma="x")))
-check(4, "rasm yo'li ham BIZNES_INSTRUCTIONS bilan",
+check(4, "rasm bilan ham BIZNES_INSTRUCTIONS",
       ushlangan["instructions"] == ai.BIZNES_INSTRUCTIONS)
 (ai._open_response_stream, ai.safe_get_chat_history,
  ai.safe_history_summary_message, ai._memory_context) = asl

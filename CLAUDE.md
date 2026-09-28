@@ -328,7 +328,7 @@ never the tool behind it.
 
 **Pro gating is done by omission**: `image_enabled = ... and is_pro`, `reminder_enabled = is_pro and user_id is not None`. Free users never see the schema, so no tokens are spent advertising a tool they cannot use. Flipping a feature to free-with-upsell means removing `is_pro` from that condition; the task functions already validate independently.
 
-`get_vision_reply()` (guest mode only now — DM photos go through `get_openai_reply(input_image=)`) is a **separate, single-round** path — the memory tool call is harvested after the stream and its result is not fed back. Adding a full loop there means porting the `pending_calls` block.
+Photos (DM and guest) go through `get_openai_reply(input_image=)` — the old single-round `get_vision_reply()` is deleted.
 
 `[CLEAR_TEXT]` travels through the same chunk stream as content and is emitted **after every** tool round, throwing away the model's pre-tool chatter so it doesn't stick to the final answer. The condition used to exclude repeat searches, and the leftover text then glued itself to the next round's — users saw two "…tayyorlayapman" sentences in one message. Reaching that point already means a tool ran (`if not got_function_call: return` above it), so no condition is needed.
 
@@ -368,7 +368,7 @@ A photo in a **chat reply** and a photo **inside a document** share nothing but 
 - **In chat**: `internet_search(want_images=true)` searches, validates each URL is live, and stores the hits in `images_out`. `images_only=true` is the same path with the web search skipped entirely — it exists because a picture used to be possible only when the model happened to search, so any answer written from the model's own knowledge arrived with no image at all. It still spends a `search_rounds` slot (otherwise the model can ask for pictures forever), it implies `want_images` in code because the model forgets one of the two, and it never injects `_SYNTHESIS_SYSTEM` — that prompt demands a sources list, and an images-only call has no sources. The URL is deliberately **never shown to the model** — it costs 30-60 tokens each and the model rewrites them into dead links. The model only sees `[rasm:1]` / `[rasmlar]` tokens (~25 tokens total); `embed_images()` swaps them for real media blocks just before sending — one image as a bare block, 2 to `SEARCH_IMAGE_COLLAGE_MAX` (4) as a `<tg-collage>` (all on one screen), 5 to `SEARCH_IMAGE_MAX` (10) as a `<tg-slideshow>` — how many are fetched comes from the model's `image_count`, so "10 ta rasm topib ber" works and the slideshow branch is finally reachable. A collage carries a single caption, so its inner blocks are built without one and every source goes into one `<figcaption>`: the photo is someone else's and the credit is not optional, and `strip_image_tokens()` scrubs them from every fallback path and from the streaming draft. Telegram fetches the URL itself — nothing is downloaded.
 - **In a document**: see the Sandbox section. Bytes, not URLs.
 
-The routing between them is prompt-level and fragile: adding the word "rasm" to the file tool's description was enough to make *every* request ("olma haqida ma'lumot ber") turn into a file task. Both tool descriptions now carry an explicit ⛔️ pointing at the other one, and `IMAGE_CAPABILITY_NOTE` in the system prompt exists because the model would otherwise answer "I can't send pictures" without calling any tool at all. That note is added **only** in `get_openai_reply` — `get_vision_reply` has no search tool, so promising it there would be a lie.
+The routing between them is prompt-level and fragile: adding the word "rasm" to the file tool's description was enough to make *every* request ("olma haqida ma'lumot ber") turn into a file task. Both tool descriptions now carry an explicit ⛔️ pointing at the other one, and `IMAGE_CAPABILITY_NOTE` in the system prompt exists because the model would otherwise answer "I can't send pictures" without calling any tool at all.
 
 **The model picks the photos by looking at them.** `search_images()` gathers ~20 candidates, checks they are live, and then hands the thumbnails to `SEARCH_IMAGE_PICK_MODEL` (`gpt-4.1`, `detail: "low"` = 82 tokens each) in **one** call together with the user's actual request; the picker returns the indices it wants plus a short Uzbek description of each. That description is what makes "what colour is the car in the first photo" answerable, and it is deliberately written from the image, not from the request. The picker runs on a **different model from the main answer**; if it fails for any reason the first N candidates are used, i.e. the old behaviour, so a picture is never lost. An empty pick is a valid answer — an unrelated photo is worse than none.
 
@@ -527,7 +527,7 @@ mode off produces, so nothing changed for existing chats and existing rows migra
 `0`.
 
 `thread_id` is a **default argument** on every history function and on
-`get_openai_reply` / `get_vision_reply` / `get_gpt_reply`. That is what kept the change
+`get_openai_reply` / `get_gpt_reply`. That is what kept the change
 small: only the five reply paths in `handlers/messages.py` pass it, everything else
 (guest, digest, helpers) keeps working untouched.
 
@@ -665,7 +665,7 @@ missing feature but a silent bug: `IMAGE_CAPABILITY_NOTE` is added unconditional
 `internet_search(want_images=true)`, and the tool answered with **silence** — which the
 model reads as "no images found" and retries, the exact context-explosion path described
 above. `handle_guest_message` now owns one `images: list` and passes it to all three
-`get_gpt_reply` calls (not to `get_vision_reply` — single round, no search tool).
+`get_gpt_reply` calls, photos included.
 
 ⚠️ **A media send needs its own timeout, and a timeout is not a rejection.** The shared
 guest session is capped at 10s, tuned for 0.6s draft pings, while Telegram fetches every
@@ -1293,8 +1293,8 @@ internet images, files, `edit_image` and memory exactly like text. The single-ro
 guessing; live-tested after the switch, the model read the label, searched uzum/texnomart and
 cited them. The image goes **only into this request's user message** — history gets the text
 `[Rasm yuborildi]: …`, or every later request would re-pay the image tokens.
-`get_vision_reply` survives for guest mode and the Business tests. `tests/test_rasm_qidiruv.py`
-pins it.
+Guest photos take the same path (`images_out`, no `output_files`); `get_vision_reply` is deleted.
+`tests/test_rasm_qidiruv.py` pins it.
 
 ⚠️ `pending_file_note()` needed a picture branch. The generic note says "use
 run_python_sandbox to edit this file", and for a photo that sends "change the background"
@@ -1605,7 +1605,7 @@ empty it does nothing at all, so a deployment without a domain behaves exactly a
 
 ### Sandbox
 
-`services/sandbox.py` runs model-written Python with a scrubbed environment (no `BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`), a fresh temp cwd, a 60s timeout and RLIMITs on Linux. **Network is closed (2026-09-29)** — the same Railway project runs Postgres, `Web-panel` and other bots on the internal network, so model-written code could reach them. Two layers: an empty network namespace (`unshare` USER+NET in `preexec_fn`) where the container allows it, and `_qoriqchi.py`, which patches `socket`/DNS and then `runpy`s `script.py` (line numbers unchanged). The second layer alone is bypassable via `_socket`/ctypes; the startup log line `🔒 [Sandbox] tarmoq: …` says which layers are live — read it after a deploy. `tarmoq_tekshir()` turns layer 1 off if it breaks file writes. Tracebacks keep the **tail** (`[-3000:]`): the head-cut used to drop the actual error line. `tests/test_sandbox_tarmoq.py`.
+`services/sandbox.py` runs model-written Python with a scrubbed environment (no `BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`), a fresh temp cwd, a 60s timeout and RLIMITs on Linux. **Network is closed (2026-09-29)** — the same Railway project runs Postgres, `Web-panel` and other bots on the internal network, so model-written code could reach them. Two layers: a **seccomp** filter in `preexec_fn` (kernel rejects `socket(AF_INET/AF_INET6)` and `io_uring_setup`, inherited by subprocesses and ctypes — a network namespace was tried first and **Railway refuses `unshare`**), and `_qoriqchi.py`, which patches `socket`/DNS for a readable error and then `runpy`s `script.py` (line numbers unchanged). The second layer alone is bypassable via `_socket`/subprocess; the startup log line `🔒 [Sandbox] tarmoq: …` says which layers are live — read it after a deploy. `tarmoq_tekshir()` turns layer 1 off if it breaks file writes. Tracebacks keep the **tail** (`[-3000:]`): the head-cut used to drop the actual error line. `tests/test_sandbox_tarmoq.py`.
 
 `services/sandbox_helpers/` must stay next to `sandbox.py`; it is located via `Path(__file__).parent` and copied into each run.
 

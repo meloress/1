@@ -28,7 +28,6 @@ from handlers.messages import (
 from handlers.helpers import notify_watchers
 from services.ai import (
     get_gpt_reply,
-    get_vision_reply,
     extract_text_from_document,
     speech_to_text,
     text_to_speech,
@@ -683,7 +682,7 @@ else:
         v2 TUZATISH: avvalgi versiyada faqat matnli so'rovlar ishlardi.
         Endi content-type aniqlanadi va rasm/hujjat/ovoz uchun ham xuddi
         oddiy handlers/messages.py dagi pipeline'lar ishlatiladi:
-          photo    → get_vision_reply()               (vision)
+          photo    → get_gpt_reply(input_image=)      (to'liq halqa)
           document → extract_text_from_document() + get_gpt_reply()
           voice    → speech_to_text() + get_gpt_reply()
           text     → get_gpt_reply()                  (avvalgidek)
@@ -966,8 +965,6 @@ else:
         # qilardi, model `want_images` bilan chaqirardi, javobiga esa
         # JIMLIK olardi va uni "rasm topilmadi" deb tushunib qayta-qayta
         # qidirardi (services/ai.py dagi kontekst portlashi izohi).
-        # ⚠️ get_vision_reply() ga BERILMAYDI: u bir raundli va unda
-        # qidiruv tooli yo'q.
         images: list = []
 
         if skip_ai:
@@ -982,10 +979,15 @@ else:
                     buf = BytesIO()
                     await bot.download_file(file.file_path, buf)
                     base64_image = base64.b64encode(buf.getvalue()).decode("utf-8")
-                    stream_gen = get_vision_reply(caller_user_id, base64_image, clean_query,
-                                                  user_id=caller_user_id,
-                                                  is_pro=guest_is_pro,
-                                                  tg_name=_guest_name(message))
+                    # To'liq halqa (DM bilan bir xil): rasm + «narxi qancha?»
+                    # qidiruv bilan javob oladi. Fayl/tahrir guruhda yo'q
+                    # (`output_files` berilmaydi) — o'zi o'chadi.
+                    stream_gen = get_gpt_reply(caller_user_id, clean_query,
+                                               input_image=base64_image,
+                                               user_id=caller_user_id,
+                                               images_out=images,
+                                               is_pro=guest_is_pro,
+                                               tg_name=_guest_name(message))
 
                 elif content_type == "document":
                     document = media_msg.document

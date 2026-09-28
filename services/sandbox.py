@@ -19,10 +19,11 @@ IZOLYATSIYA (nima himoyalangan va nima yo'q — ochiq-oydin):
   ✓ Tarmoq YOPIQ (2026-09-29). Sabab: shu Railway loyihasida ichki
     tarmoqda Postgres, Web-panel va boshqa botlar turibdi — model yozgan
     kod (prompt-injection bilan) ularga ulana olardi. Ikki qatlam:
-      1) Linux: bo'sh tarmoq nomlar maydoni (`unshare` USER+NET) — haqiqiy
-         izolyatsiya. Konteyner ruxsat bermasa — 2-qatlam qoladi.
+      1) Linux seccomp: yadro socket(AF_INET/AF_INET6) ni rad etadi — bola
+         jarayonlar (subprocess, ctypes) ham. Nomlar maydoni (`unshare`)
+         sinab ko'rilgan: Railway ruxsat bermaydi.
       2) `_qoriqchi.py`: socket ulanishi va DNS Python darajasida taqiqlanadi.
-    ponytail: 2-qatlam `_socket`/ctypes orqali aylanib o'tiladi — 1-qatlam
+    ponytail: 2-qatlam `_socket`/subprocess orqali aylanib o'tiladi — 1-qatlam
     ishlamasa bu to'liq himoya EMAS; ishga tushishda logda qaysi biri
     ishlagani yoziladi (`tarmoq_tekshir`).
 """
@@ -111,29 +112,70 @@ def _build_child_env(work_dir: Path) -> dict:
     return env
 
 
-# 1-qatlam yoqilganmi. `tarmoq_tekshir()` uni o'chiradi, agar nomlar
-# maydoni ichida fayl yozish buzilsa (sandbox ishlamay qolgandan ko'ra
-# faqat 2-qatlam yaxshi).
-_NETNS = True
-_CLONE_NEWUSER, _CLONE_NEWNET = 0x10000000, 0x40000000
+# 1-qatlam yoqilganmi. `tarmoq_tekshir()` uni o'chiradi, agar filtr bilan
+# sandbox umuman ishlamay qolsa (tarmoqsiz sandbox'dan ko'ra ishlamaydigan
+# sandbox yomonroq — 2-qatlam baribir qoladi).
+_SECCOMP = True
+
+# (AUDIT_ARCH, socket syscall raqami). Railway'da nomlar maydoni YOPIQ
+# (2026-09-29 logi), seccomp esa imtiyozsiz ishlaydi va bola jarayonlarga
+# (subprocess, ctypes) MEROS o'tadi — Python qo'riqchisini aylanib o'tish
+# shu bilan yopiladi.
+_ARXITEKTURA = {"x86_64": (0xC000003E, 41), "aarch64": (0xC00000B7, 198)}
+
+
+def _seccomp_dasturi():
+    """BPF: socket(AF_INET|AF_INET6) va io_uring_setup → EACCES, qolgani ruxsat.
+    AF_UNIX qoladi (kutubxonalar ichki ishlatadi). x86_64 da x32 raqamlari
+    (>= 0x40000000) ham taqiqlanadi — aks holda socket'ning x32 varianti
+    filtrdan o'tib ketardi."""
+    import ctypes
+    import platform
+    arx = _ARXITEKTURA.get(platform.machine())
+    if arx is None:
+        return None
+
+    class Filtr(ctypes.Structure):
+        _fields_ = [("code", ctypes.c_ushort), ("jt", ctypes.c_ubyte),
+                    ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint)]
+
+    class Dastur(ctypes.Structure):
+        _fields_ = [("len", ctypes.c_ushort), ("filter", ctypes.POINTER(Filtr))]
+
+    LD, JEQ, JGE, RET = 0x20, 0x15, 0x35, 0x06
+    RUXSAT, RAD = 0x7FFF0000, 0x00050000 | 13          # SECCOMP_RET_ERRNO(EACCES)
+    q = [(LD, 0, 0, 4),                   # 0: arch
+         (JEQ, 0, 7, arx[0]),             # 1: boshqa arch → ruxsat (9)
+         (LD, 0, 0, 0),                   # 2: syscall raqami
+         (JGE, 6, 0, 0x40000000),         # 3: x32 → rad (10)
+         (JEQ, 5, 0, 425),                # 4: io_uring_setup → rad
+         (JEQ, 0, 3, arx[1]),             # 5: socket emas → ruxsat
+         (LD, 0, 0, 16),                  # 6: args[0] = domain
+         (JEQ, 2, 0, 2),                  # 7: AF_INET → rad
+         (JEQ, 1, 0, 10),                 # 8: AF_INET6 → rad
+         (RET, 0, 0, RUXSAT),             # 9
+         (RET, 0, 0, RAD)]                # 10
+    massiv = (Filtr * len(q))(*[Filtr(*x) for x in q])
+    return massiv, Dastur(len(q), ctypes.cast(massiv, ctypes.POINTER(Filtr)))
+
+
+# Ota jarayonda BIR MARTA quriladi — preexec_fn (fork'dan keyin) faqat
+# tayyor tuzilmani yadroga beradi. Havola saqlanadi: massiv xotirada qolsin.
+_DASTUR = _seccomp_dasturi() if _HAS_RESOURCE else None
 
 
 def _tarmoqni_yop() -> None:
-    """Bola-jarayonni tarmoq interfeysi yo'q nomlar maydoniga o'tkazadi.
-    Yiqilsa jim — 2-qatlam (`_qoriqchi.py`) baribir ishlaydi."""
+    """Bola-jarayonga seccomp filtri. Yiqilsa jim — 2-qatlam qoladi,
+    `tarmoq_tekshir()` esa logda buni aytadi."""
+    if _DASTUR is None:
+        return
     try:
         import ctypes
         libc = ctypes.CDLL(None, use_errno=True)
-        uid, gid = os.getuid(), os.getgid()
-        if libc.unshare(_CLONE_NEWUSER | _CLONE_NEWNET) != 0:
+        # NO_NEW_PRIVS — imtiyozsiz jarayonga filtr qo'yish sharti.
+        if libc.prctl(38, 1, 0, 0, 0) != 0:
             return
-        # Xaritasiz foydalanuvchi fayl yarata olmaydi (EOVERFLOW) — o'zini
-        # o'ziga moslaymiz.
-        for yol, matn in (("/proc/self/setgroups", "deny"),
-                          ("/proc/self/uid_map", f"{uid} {uid} 1"),
-                          ("/proc/self/gid_map", f"{gid} {gid} 1")):
-            with open(yol, "w") as f:
-                f.write(matn)
+        libc.prctl(22, 2, ctypes.byref(_DASTUR[1]), 0, 0)   # SET_SECCOMP, FILTER
     except Exception:
         pass
 
@@ -156,7 +198,7 @@ runpy.run_path("script.py", run_name="__main__")
 
 def _apply_limits() -> None:
     """Bola-jarayonda exec'dan OLDIN chaqiriladi (faqat POSIX)."""
-    if _NETNS:
+    if _SECCOMP:
         _tarmoqni_yop()
     # CPU: 55s yumshoq / 60s qattiq — timeout bilan bir xil tartibda.
     resource.setrlimit(resource.RLIMIT_CPU, (55, 60))
@@ -398,24 +440,24 @@ _TARMOQ_SINOV = (
 
 
 async def tarmoq_tekshir() -> str:
-    """Ishga tushishda: 1-qatlam (nomlar maydoni) HAQIQATDA ishlayaptimi.
+    """Ishga tushishda: 1-qatlam (seccomp) HAQIQATDA ishlayaptimi.
 
     `_socket` 2-qatlamni chetlab o'tadi — shuning uchun bu sinov faqat
     1-qatlamni o'lchaydi. Nomlar maydonida fayl yozish buzilsa, 1-qatlam
     o'chiriladi: tarmoqsiz sandbox'dan ko'ra ishlamaydigan sandbox yomonroq.
     """
-    global _NETNS
+    global _SECCOMP
     r = await run_in_sandbox(_TARMOQ_SINOV)
-    if _NETNS and not (r.success and r.output_files):
-        _NETNS = False
+    if _SECCOMP and not (r.success and r.output_files):
+        _SECCOMP = False
         r = await run_in_sandbox(_TARMOQ_SINOV)
         if r.success:
-            return "1-qatlam fayl yozishni buzdi va o'chirildi; faqat Python qo'riqchisi"
+            return "seccomp sandbox'ni buzdi va o'chirildi; faqat Python qo'riqchisi"
     if not r.success:
         return f"sinovning o'zi yiqildi: {r.traceback[:200]}"
     if "YOPIQ" in r.stdout:
-        return "yopiq (nomlar maydoni + Python qo'riqchisi)"
-    return "faqat Python qo'riqchisi (konteyner nomlar maydoniga ruxsat bermadi)"
+        return "yopiq (seccomp + Python qo'riqchisi)"
+    return "faqat Python qo'riqchisi (seccomp o'rnatilmadi)"
 
 
 def _kill_process_tree(proc) -> None:

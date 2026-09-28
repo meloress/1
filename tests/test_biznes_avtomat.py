@@ -75,7 +75,7 @@ check(5, "avtomat yo'riqnomasida uzatish (egasiga) qarori bor, qoralamada ishlat
       'qaror=\"egasiga\" — egasining biznesi' in yoriq_a and "TO'G'RIDAN-TO'G'RI" in yoriq_a
       and 'qaror=\"egasiga\" ishlatilmaydi' in yoriq_y and b.BUYRUQ_QOIDASI in yoriq_a)
 
-# ── 6. Rasm yo'li: tool'siz, xotirasiz (haqiqiy get_vision_reply) ──
+# ── 6. Mijoz yo'li (rasm bilan ham): tool'siz, xotirasiz (haqiqiy get_openai_reply) ──
 ushlangan, xotira = {}, []
 
 
@@ -116,10 +116,10 @@ asl = (ai._open_response_stream, ai.safe_get_chat_history,
 async def yig(gen):
     return [x async for x in gen]
 
-chiqish = asyncio.run(yig(ai.get_vision_reply(
-    MIJOZ, "QUJBQQ==", "bu nima?", user_id=EGASI, is_pro=True, thread_id=-EGASI,
-    output_files=[], biznes_yoriqnoma=yoriq_a)))
-check(6, "rasm yo'li: tool yo'q, egasi xotirasi yo'q, yo'riqnoma developer'da",
+chiqish = asyncio.run(yig(ai.get_openai_reply(
+    MIJOZ, "bu nima?", input_image="QUJBQQ==", user_id=EGASI, is_pro=True,
+    thread_id=-EGASI, output_files=[], biznes_yoriqnoma=yoriq_a)))
+check(6, "mijoz yo'li (rasm bilan): tool yo'q, egasi xotirasi yo'q, yo'riqnoma developer'da",
       not ushlangan.get("tools") and xotira == []
       and yoriq_a not in ushlangan["instructions"]
       and {"role": "developer", "content": yoriq_a} in ushlangan["input"]
@@ -177,11 +177,6 @@ async def soxta_gpt(chat_id, prompt, **kw):
     yield holat["model"]
 
 
-async def soxta_vision(chat_id, rasm, matn, **kw):
-    q.append(("vision", rasm, kw.get("biznes_yoriqnoma") is not None))
-    yield "Chiroyli gul!"
-
-
 async def soxta_tarix(chat_id, content, role="user", thread_id=0, **kw):
     q.append(("tarix", content, role))
 
@@ -231,7 +226,6 @@ async def soxta_pauza(owner, chat, s, sabab="egasi"):
 
 b.bot = SoxtaBot()
 b.get_gpt_reply = soxta_gpt
-b.get_vision_reply = soxta_vision
 b.safe_update_history = soxta_tarix
 b.send_error_with_retry = soxta_xato
 b.biznes_media.speech_to_text_smart = soxta_stt
