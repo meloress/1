@@ -147,6 +147,23 @@ egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
   bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
 - Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
 
+## Avtomatik tozalash: uzilgan yoki Pro'si tugagan ega (2026-09-28)
+
+Bot Business'dan uzilsa YOKI Pro tugasa — `BIZNES_TOZALASH_KUN` (3) kundan keyin suhbatdoshlar
+bilan bog'liq hamma narsa o'chadi (`database.biznes_egasini_tozala`, bitta tranzaksiya):
+yozishmalar va xulosasi (`thread_id = -owner`), qoralamalar, kartoteka, chat sozlamalari,
+dublikat izi, uslub namunalari. **Qoladi:** `biznes_profil` (egasining Bilimi, Uslubi) va ulanish
+qatori — qaytib kelsa qaytadan yozmasin.
+
+- `biznes_tozalash (owner_id, boshi)` — qachondan beri faol emas; qaytsa qator o'chadi
+  (`biznes_tozalash_bekor`). `biznes_hisobot_watcher` soatiga bir `egalarni_tozala()`.
+- ⛔️ Xato — o'chirmaslik tomonga: `pro_tarifmi` yiqilsa o'sha ega o'tkazib yuboriladi.
+- ⛔️ RAM ham: `history.biznes_keshini_tozala(-owner)` — aks holda bot o'chirilgan yozishmani
+  ko'radi va keyingi xabarda bazaga qayta yozadi.
+- Egasiga oldindan aytilmaydi (egasining qarori, 2026-09-28). ⚠️ Men tavsiya qilganim: ulanish
+  xabarida OpenAI'ga yuborilishi va shu tozalash haqida bitta qator — keyinga qoldirildi.
+- `test_biznes_tozalash.py`.
+
 ## Media → matn: ovoz, dumaloq video, rasm, hujjat (2026-09-28)
 
 `handlers/biznes_media.py::media_matn()` — har media BITTA matn ko'rinishiga, keyin oddiy

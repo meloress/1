@@ -572,6 +572,14 @@ async def create_users_table():
                 PRIMARY KEY (owner_id, chat_id)
             );
         ''')
+        # Avtomatik tozalash: egasi qachondan beri uzilgan yoki Pro'siz
+        # (`biznes.egalarni_tozala`). Qator yo'q — ega faol.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_tozalash (
+                owner_id BIGINT PRIMARY KEY,
+                boshi    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        ''')
 
         # Eski, ishlatib bo'lingan eslatmalarni tozalash. Ilgari ular
         # active=FALSE bo'lib jadvalda qolib ketardi; endi yuborilgach
@@ -1401,6 +1409,76 @@ async def biznes_birinchimi(owner_id: int, chat_id: int, message_id: int) -> boo
             'INSERT INTO biznes_korilgan (owner_id, chat_id, message_id) '
             'VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING 1',
             owner_id, chat_id, message_id))
+
+
+@with_db_retry()
+async def biznes_egalar() -> List[tuple]:
+    """(owner_id, ulangan) — Business'ni bir marta bo'lsa ham ulagan HAR ega.
+    Ulanish qatori o'chirilmaydi, shuning uchun ma'lumoti bor har ega shu yerda."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT owner_id, bool_or(yoqilgan) AS ulangan FROM biznes_ulanish '
+            'GROUP BY owner_id')
+    return [(r['owner_id'], r['ulangan']) for r in rows]
+
+
+@with_db_retry()
+async def biznes_tozalash_muddati(owner_id: int, kun: int) -> bool:
+    """Ega faol emas: birinchi marta — boshlanish vaqti yoziladi; `kun` kun
+    o'tgan bo'lsa True. Atomik (bitta so'rov)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            'INSERT INTO biznes_tozalash (owner_id) VALUES ($1) '
+            'ON CONFLICT (owner_id) DO UPDATE SET owner_id = EXCLUDED.owner_id '
+            'RETURNING boshi < NOW() - make_interval(days => $2::int)', owner_id, kun))
+
+
+@with_db_retry()
+async def biznes_tozalash_bekor(owner_id: int) -> None:
+    """Ega qaytdi (qayta ulandi yoki Pro uzaytirildi) — hisob to'xtaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('DELETE FROM biznes_tozalash WHERE owner_id = $1', owner_id)
+
+
+@with_db_retry()
+async def biznes_egasini_tozala(owner_id: int) -> int:
+    """Egasining suhbatdoshlar bilan bog'liq HAMMA ma'lumoti — bitta
+    tranzaksiyada. Qaytadi: o'chirilgan yozishma xabarlari soni.
+
+    O'chadi: yozishmalar va ularning xulosasi (`thread_id = -owner_id`),
+    qoralamalar (mijoz matni bor), kartoteka (ism, telefon), chat sozlamalari,
+    dublikat izi, uslub namunalari (egasining suhbatdoshlarga yozganlari).
+    QOLADI: `biznes_profil` (egasining o'z Bilimi va Uslubi) va ulanish —
+    qaytib kelsa hammasini qaytadan yozmasin.
+    """
+    global pool
+    if pool is None:
+        await create_db_pool()
+    thread = -abs(owner_id)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            n = await conn.fetchval(
+                'WITH o AS (DELETE FROM chat_messages WHERE thread_id = $1 '
+                'AND thread_id < 0 RETURNING 1) SELECT COUNT(*) FROM o', thread)
+            await conn.execute('DELETE FROM chat_summaries WHERE thread_id = $1 '
+                               'AND thread_id < 0', thread)
+            # Ochiq yozilgan — `test_biznes_owner.py` f-string SQL'ni ko'rmaydi.
+            await conn.execute('DELETE FROM biznes_loyiha WHERE owner_id = $1', owner_id)
+            await conn.execute('DELETE FROM biznes_mijoz WHERE owner_id = $1', owner_id)
+            await conn.execute('DELETE FROM biznes_chat WHERE owner_id = $1', owner_id)
+            await conn.execute('DELETE FROM biznes_korilgan WHERE owner_id = $1', owner_id)
+            await conn.execute('DELETE FROM biznes_namuna WHERE owner_id = $1', owner_id)
+    biznes_keshni_bekor(owner_id)
+    return n or 0
 
 
 @with_db_retry()

@@ -31,7 +31,7 @@ def check(n, nom, shart):
     print(f"[{n}] {nom} OK")
 
 
-JADVAL = re.compile(r"\bbiznes_(loyiha|chat|mijoz|namuna|profil|ulanish|korilgan)\b")
+JADVAL = re.compile(r"\bbiznes_(loyiha|chat|mijoz|namuna|profil|ulanish|korilgan|tozalash)\b")
 DML = re.compile(r"^\s*(SELECT|UPDATE|DELETE|INSERT|WITH)\b", re.I)
 
 # (funksiya, SQL boshidagi so'z) -> sabab. Faqat ATAYLAB global so'rovlar.
@@ -39,6 +39,7 @@ ISTISNO = {
     ("biznes_keshni_yukla", "SELECT"): "ishga tushishda butun kesh yuklanadi",
     ("biznes_panel_stats", "SELECT"): "admin paneli — hamma egalar soni",
     ("biznes_tozala", "DELETE"): "kunlik saqlash muddati (egasi kiritmasi yo'q)",
+    ("biznes_egalar", "SELECT"): "soatlik tozalash — hamma egalar ro'yxati (egasi kiritmasi yo'q)",
 }
 
 daraxt = ast.parse(kod(os.path.join(ROOT, "db", "database.py")))

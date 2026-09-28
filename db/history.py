@@ -356,6 +356,19 @@ async def _load_from_db(chat_id: int, limit: int = _STORE_LIMIT,
 # --------------------------------------------------
 # TARIXNI TOZALASH
 # --------------------------------------------------
+def biznes_keshini_tozala(thread_id: int) -> None:
+    """Business egasining barcha suhbatlari RAM'dan (`thread_id = -owner`).
+    Bazadan `database.biznes_egasini_tozala` o'chiradi — kesh qolsa, bot
+    o'chirilgan yozishmani ko'rishda va qayta yozishda davom etardi."""
+    if thread_id >= 0:
+        return
+    for d in (_cache, _summary_cache):
+        for k in [k for k in d if k[1] == thread_id]:
+            d.pop(k, None)
+    for k in [k for k in _long_warn if k[1] == thread_id]:
+        _long_warn.discard(k)
+
+
 async def clear_history(chat_id: int, thread_id: Optional[int] = 0):
     """Kesh va bazadan suhbat tarixini to'liq o'chiradi.
 

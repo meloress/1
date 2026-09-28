@@ -872,6 +872,10 @@ BIZNES_HUJJAT_BELGI = 3000
 # Egasi bo'yicha kuniga aylantirishlar (STT + rasm): bitta suhbatdosh 500 ta
 # ovoz yuborsa 500 ta to'lov bo'lmasin. Oshsa — faqat belgi ("[ovozli xabar]").
 BIZNES_MEDIA_KUNLIK = 150
+# Bot Business'dan uzilsa yoki Pro tugasa — shuncha kundan keyin suhbatdoshlar
+# bilan yozishmalar, qoralamalar va kartoteka o'chiriladi (egasining o'z
+# Bilimi/Uslubi qoladi). Muhlat: Pro bir kun kech uzaytirilsa yo'qolmasin.
+BIZNES_TOZALASH_KUN = 3
 # 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
 # ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
 # javob bermagan bo'lsa — egasiga bitta xabar.

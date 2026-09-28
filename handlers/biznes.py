@@ -33,7 +33,7 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
                          BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
-                         BIZNES_MERGE_WAIT,
+                         BIZNES_MERGE_WAIT, BIZNES_TOZALASH_KUN,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
@@ -46,7 +46,7 @@ from db import database
 from services.ai import (BIZNES_MANBA, BIZNES_SXEMA, biznes_kun_xulosasi,
                          biznes_qaror_ajrat, egasiga_ajrat, tanlov_ajrat,
                          get_gpt_reply, safe_update_history)
-from db.history import get_chat_history
+from db.history import biznes_keshini_tozala, get_chat_history
 from handlers import biznes_media, biznes_uslub
 from handlers import pro as pro_module
 from handlers.helpers import mavzu_kwargs, send_error_with_retry
@@ -1924,7 +1924,15 @@ async def biznes_hisobot_watcher():
     """
     await asyncio.sleep(60)
     tozalangan = None
+    egalar_tekshirildi = float("-inf")
     while True:
+        # Soatiga bir: tozalash 3 kundan keyin ~1 soat ichida bo'ladi.
+        if time.monotonic() - egalar_tekshirildi >= 3600:
+            egalar_tekshirildi = time.monotonic()
+            try:
+                await egalarni_tozala()
+            except Exception:
+                logger.exception("[BIZNES] egalarni tozalash yiqildi")
         if _hozir().hour >= BIZNES_HISOBOT_SOAT:
             # Kunlik tozalash (AUDIT S2) — kuniga bir marta, RAM bayroq:
             # qayta ishga tushishda ikkinchi DELETE zararsiz.
@@ -1940,6 +1948,31 @@ async def biznes_hisobot_watcher():
                 except Exception:
                     logger.exception(f"[BIZNES] hisobot yiqildi egasi={egasi}")
         await asyncio.sleep(600)
+
+
+async def egalarni_tozala() -> int:
+    """Bot uzilgan YOKI Pro tugagan egalar: `BIZNES_TOZALASH_KUN` kundan keyin
+    suhbatdoshlar bilan bog'liq ma'lumotlari o'chadi (`biznes_egasini_tozala`).
+    Qaytsa (qayta ulansa yoki Pro uzaytirsa) — hisob bekor.
+
+    ⛔️ Xato — O'CHIRMASLIK tomonga: Pro tekshiruvi yiqilsa, o'sha ega bu safar
+    o'tkazib yuboriladi. Faol egani o'chirish — tiklab bo'lmaydigan yo'qotish.
+    ponytail: har ega uchun alohida `pro_tarifmi` — soatiga bir, egalar kam.
+    """
+    tozalandi = 0
+    for egasi, ulangan in await database.biznes_egalar():
+        try:
+            if ulangan and await database.pro_tarifmi(egasi):
+                await database.biznes_tozalash_bekor(egasi)
+            elif await database.biznes_tozalash_muddati(egasi, BIZNES_TOZALASH_KUN):
+                n = await database.biznes_egasini_tozala(egasi)
+                biznes_keshini_tozala(biznes_thread(egasi))
+                tozalandi += 1
+                logger.info(f"[BIZNES] tozalandi egasi={egasi} xabarlar={n} "
+                            f"(uzilgan={not ulangan})")
+        except Exception:
+            logger.exception(f"[BIZNES] tozalash yiqildi egasi={egasi}")
+    return tozalandi
 
 
 # ── 4.2. Javobsiz chat ogohlantirishi ────────────────────────────────
