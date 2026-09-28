@@ -87,7 +87,7 @@ Endi `text.format` = `BIZNES_SXEMA`: `qaror` (javob | tanlov | egasiga), `matn`,
   qachon ketmaydi;
 - `...`, `…`, `[..]`, `<..>`, `___` li variant tashlanadi (egasi bossa aynan shu ketardi);
 - JSON bo'lmasa — eski markerlar zaxira (tarjimalari bilan).
-Qoralamada `egasiga` → variantsiz tanlov. Rasm yo'li ham sxema bilan (jonli tekshirilgan).
+Qoralamada `egasiga` → variantsiz tanlov. Rasm endi matn bo'lib keladi (`biznes_media`).
 
 **Prompt qoidalari eval'dan chiqdi:** odat haqida "ha" ham, "yo'q" ham fakt; faqat umumiy
 odob (salom, qalaysan, rahmat) istisno — "ovqatlandingmi" odob emas; bilimda yo'q mahsulotga
@@ -146,6 +146,37 @@ egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
 - **Belgi:** `AVTO_BELGI = "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"` — javob OSTIDA, bo'sh qatorsiz, HTML'siz ("🤖 avtojavob"
   bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
 - Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
+
+## Media → matn: ovoz, dumaloq video, rasm, hujjat (2026-09-28)
+
+`handlers/biznes_media.py::media_matn()` — har media BITTA matn ko'rinishiga, keyin oddiy
+yo'l (debounce, JSON qaror, Bilim, Uslub — eval'dan o'tgan yagona yo'l). Tarixga ham shu
+matn: keyin "o'sha rasm" nima ekanini model biladi, egasi qoralamada bot nimani tushunganini
+ko'radi. Avtomat-faqat `get_vision_reply` yo'li o'chirildi.
+
+| Media | Matn | Narx |
+|---|---|---|
+| ovoz / dumaloq video | `[ovozli xabar] …` / `[video-xabar] …` | `speech_to_text_smart` (Pro STT), > `BIZNES_OVOZ_MAX_SONIYA` — eshitilmaydi |
+| rasm | `[rasm: 1-3 gap]` | `rasm_tavsifi` — **mini** model (katta chelak emas), ≤800 px: **735 token** (1280 px = 1 605, o'lchangan) |
+| hujjat | `[hujjat: nom] boshidan 3000 belgi…` | `extract_text_from_document` — mahalliy, 0 token |
+| video / audio fayl | `[video]` / `[audio fayl]` | 0 |
+| stiker | — (LLM chaqirilmaydi) | 0 |
+
+- **Faqat kerak joyda pul:** `_aylantirsinmi()` — Yordamchi/Avtomat + o'qish huquqi + Pro.
+  Kuzatuv/Buyruq — faqat belgi (`[rasm]`). Egasining rasmi/hujjati — belgi (u biladi); egasining
+  OVOZI — matn, prefiks'siz (bot uning javobini bilishi kerak; uslubga kirmaydi).
+  `BIZNES_MEDIA_KUNLIK` — egasi bo'yicha kuniga (RAM).
+- ⛔️ **Tartib:** mijoz media'si navbatga VAZIFA bo'lib tushadi (`_navbatga` korutinani darhol
+  boshlaydi, `_kechiktir` kutadi) — sekin rasm + keyin "shu bormi?" bitta so'rov, rasm oldin.
+  Inline kutilsa, matn rasmdan oldin alohida so'rov bo'lib ketardi.
+- ⛔️ **Jim emas, taxmin ham emas:** "— eshitib/ko'rib/o'qib bo'lmadi" matni oqimga tushadi;
+  prompt: mazmunini TAXMIN QILMA.
+- ⛔️ **To'lov cheki:** tavsif prompti chekni «TO'LOV CHEKI:» bilan belgilaydi; `BIZNES_INSTRUCTIONS`
+  — "to'lov keldi" dema, biznesda egasiga. Karta raqami — model + `_KARTA_RE` (kafolat).
+  Yo'riqnoma: buyurtma/to'lovni «qabul qilindi» DEMA (eval'da hujjatdagi buyurtmaga shunday dedi).
+- Mini model `reasoning={"effort": "low"}` bilan — tavsif 4-5 s.
+- Eval: `chek*`, `ovoz_*`, `rasm_*`, `hujjat_injeksiya` + `QABUL` taqiqi; avtomat 102/102,
+  qoralama 51/51. `test_biznes_media.py` (17).
 
 ## «💾 Eslab qol» (2026-09-26)
 
@@ -313,9 +344,9 @@ active; `ish_vaqtimi()` handles the midnight crossing and treats the end as excl
 unverified (`REJA.md` 0.2.3); without this second layer an echoed auto-reply would read as the
 owner writing, and every reply would pause its own chat. Check 24 fails if it is removed.
 
-Voice (STT → the normal debounced flow) and photos (`get_vision_reply(..., biznes_yoriqnoma=)`,
-single round: no memory tool, no `edit_image`) are handled **only in avtomat** — in the other
-modes the transcription would cost money and give the owner nothing. One reply per chat at a
+Voice, photos and documents are converted to TEXT by `handlers/biznes_media.py` (2026-09-28,
+section «Media → matn» above) and take the ordinary debounced flow in both avtomat and
+yordamchi; the old avtomat-only `get_vision_reply` path is gone. One reply per chat at a
 time: the same per-chat lock as the drafts (`GeneratingState` is keyed by a user, and here there
 is no user to key it by).
 

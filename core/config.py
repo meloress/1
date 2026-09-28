@@ -864,6 +864,14 @@ BIZNES_MERGE_WAIT = 3.0
 # raund odatda 2-8 s; `STREAM_IDLE_TIMEOUT` (180 s) esa chat qulfini
 # ushlab turib, shu chatning keyingi xabarlarini kutkazardi.
 BIZNES_MODEL_TIMEOUT = 60
+# Media → matn (handlers/biznes_media.py). Ovoz chegarasi — STT narxi daqiqaga;
+# undan uzuni egasiga ("juda uzun, eshitilmadi"). Hujjatdan faqat boshi.
+BIZNES_OVOZ_MAX_SONIYA = 180
+BIZNES_HUJJAT_MAX_MB = 10
+BIZNES_HUJJAT_BELGI = 3000
+# Egasi bo'yicha kuniga aylantirishlar (STT + rasm): bitta suhbatdosh 500 ta
+# ovoz yuborsa 500 ta to'lov bo'lmasin. Oshsa — faqat belgi ("[ovozli xabar]").
+BIZNES_MEDIA_KUNLIK = 150
 # 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
 # ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
 # javob bermagan bo'lsa — egasiga bitta xabar.

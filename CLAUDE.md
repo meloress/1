@@ -55,7 +55,8 @@ Some are structural guards rather than feature tests, and they earn their keep o
   `test_biznes_hisobot.py` / `test_biznes_uslub.py` / `test_biznes_mavzu.py` /
   `test_biznes_tanlov.py` / `test_biznes_qaror.py` / `test_biznes_ishonch.py` /
   `test_biznes_pauza.py` / `test_biznes_kesh.py` / `test_biznes_owner.py` /
-  `test_biznes_ekran.py` / `test_biznes_tejash.py` / `test_biznes_fakt.py` — Telegram Business,
+  `test_biznes_ekran.py` / `test_biznes_tejash.py` / `test_biznes_fakt.py` /
+  `test_biznes_media.py` — Telegram Business,
   all offline. The loop guard (`biznes_kimdan` order), the atomic draft claim, "nothing
   technical reaches the customer", "the customer path never gets the assistant prompt", and
   "a `[tanlov:]` marker never reaches the other side". `test_biznes_owner.py` walks every
@@ -613,7 +614,7 @@ conversation genuinely changed — but it does mean a hand-typed name does not s
 ### Telegram Business
 
 ⛔️ **Read `BIZNES.md` before touching anything Business.** It holds every rule for
-`handlers/biznes.py` and `handlers/biznes_uslub.py` (phases 1-5: the loop guard, the atomic
+`handlers/biznes.py`, `handlers/biznes_uslub.py` and `handlers/biznes_media.py` (phases 1-5: the loop guard, the atomic
 draft claim, "nothing technical reaches the customer", the customer path's own prompt, the
 owner-style learning) and the planned next work. The four rules that break silently:
 

@@ -13,12 +13,9 @@ Ro'yxatga olish tartibi bu yerda MUHIM EMAS: business update'lari
 `dp.message` zanjiridan umuman o'tmaydi (main.py izohiga qarang).
 """
 import asyncio
-import base64
 import io
-import os
 import re
 import secrets
-import tempfile
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -48,10 +45,9 @@ from core.memory import get_text_merge_lock, text_merge_buffers
 from db import database
 from services.ai import (BIZNES_MANBA, BIZNES_SXEMA, biznes_kun_xulosasi,
                          biznes_qaror_ajrat, egasiga_ajrat, tanlov_ajrat,
-                         get_gpt_reply, get_vision_reply, safe_update_history,
-                         speech_to_text_smart)
+                         get_gpt_reply, safe_update_history)
 from db.history import get_chat_history
-from handlers import biznes_uslub
+from handlers import biznes_media, biznes_uslub
 from handlers import pro as pro_module
 from handlers.helpers import mavzu_kwargs, send_error_with_retry
 from handlers.messages import track_user_activity
@@ -211,6 +207,14 @@ _APOSTROF_RE = re.compile(r"[ʻʼ’‘`]")
 _MUQADDIMA_RE = re.compile(
     r"^\s*(mana|tarjima|javob|xulosa|tuzatilgan|here|translation|вот|перевод)"
     r"[^\n]{0,40}:\s*\n", re.I)
+
+
+async def _aylantirsinmi(ul: dict, egasi: int) -> bool:
+    """Media matnga aylantiriladimi: javob yoziladigan rejim, o'qish huquqi,
+    Pro. Qolgan hollarda faqat belgi — hech kimga hech narsa bermaydigan
+    STT/vision pul yemasin."""
+    return (ul["rejim"] in ("yordamchi", "avtomat")
+            and bool(ul["huquqlar"].get("can_read_messages")) and await _pro(egasi))
 
 
 def buyruq_ajrat(matn: str) -> tuple[str, str] | None:
@@ -433,6 +437,11 @@ async def biznes_xabar(message: Message):
             olchov.qosh(natija="buyruq")
             await _bajar(message, ul, *buyruq)
             return
+        if biznes_media.media_bormi(message) and not message.text:
+            # Egasi ovoz bilan javob berdi — bot buni bilmasa, hal bo'lgan
+            # savolni yana so'raydi. Rasm/hujjati — faqat belgi (u o'zi biladi).
+            matn = await biznes_media.media_matn(
+                message, egasi, await _aylantirsinmi(ul, egasi), mijoz=False)
         _egasi_yozdi(egasi, message.chat.id)
         # Egasi mijozga O'ZI javob berdi — kutayotgan loyiha endi o'rinsiz:
         # uni keyin "Yuborish" qilish mijozga ikkinchi, eski javob bo'lardi.
@@ -458,36 +467,36 @@ async def biznes_xabar(message: Message):
         olchov.qosh(natija="oqishsiz_yoki_bepul")
         return
     olchov.belgi("pro")
-    if kim == "egasi" and matn:
-        await biznes_uslub.namuna_saqla(egasi, matn)
+    if kim == "egasi" and (asl := message.text or message.caption):
+        # Uslub — faqat YOZGANIDAN: og'zaki gap (ovoz matni) yozuvdan farq qiladi.
+        await biznes_uslub.namuna_saqla(egasi, asl)
         olchov.belgi("namuna")
     if kim == "mijoz":
         _kartotekaga(egasi, message)
         olchov.belgi("kartoteka")
-    avtomat = kim == "mijoz" and ul["rejim"] == "avtomat"
-    # Ovoz va rasm — faqat avtomatda (REJA.md 3-bosqich 6-7): boshqa
-    # rejimlarda STT/vision egasiga hech narsa bermasdan pul yeyardi.
-    if avtomat and (message.voice or message.photo):
-        if ul["huquqlar"].get("can_reply"):
-            await (_avto_ovoz(message, ul) if message.voice
-                   else _avto_rasm(message, ul))
-        return
+    media = kim == "mijoz" and biznes_media.media_bormi(message)
     # Tarix: faqat o'qish huquqi va Pro bo'lsa — bepul egada xulosa (mini
     # model) behuda token yeyardi. "Kuzatuv" rejimi aynan shu va boshqa
     # hech narsa emas.
-    if not matn:
+    if not matn and not media:
         return
     if kim == "mijoz" and ul["rejim"] in ("yordamchi", "avtomat"):
         if ul["huquqlar"].get("can_reply"):
             # Tarix javobdan KEYIN yoziladi (`_loyiha`): model xabarni
             # oxirgi `user` sifatida oladi, oldin yozilsa ikki marta ko'rardi.
-            await _navbatga(message, matn, biznes_thread(egasi))
+            # Media — matnga aylanish VAZIFASI navbatga tushadi: "rasm" va
+            # undan keyingi "shu bormi?" bitta so'rov bo'ladi, tartib saqlanadi.
+            await _navbatga(message, biznes_media.media_matn(message, egasi, True)
+                            if media else matn, biznes_thread(egasi))
             olchov.qosh(natija="navbatga")
             return
         await _bir_marta(egasi, "can_reply", ul["owner_chat"],
                          f"⚠️ «{REJIM_NOMI[ul['rejim']][0]}» rejimi uchun «Xabarlarga "
                          "javob berish» huquqi kerak: Sozlamalar → Telegram "
                          "Business → Chatbotlar.")
+    if media:
+        # Kuzatuv/Buyruq — aylantirilmaydi, faqat belgi ("[rasm]" + izoh).
+        matn = await biznes_media.media_matn(message, egasi, False)
     await safe_update_history(
         message.chat.id, matn, role="user" if kim == "mijoz" else "assistant",
         thread_id=biznes_thread(egasi))
@@ -591,9 +600,6 @@ async def _model(prompt: str, chat_id: int, thread: int, egasi: int,
         return await asyncio.wait_for(_model_ichki(prompt, chat_id, thread, egasi, **kw),
                                       BIZNES_MODEL_TIMEOUT)
 
-
-async def _yig(oqim) -> list:
-    return [c async for c in oqim]
 
 
 async def _model_ichki(prompt: str, chat_id: int, thread: int, egasi: int,
@@ -788,7 +794,8 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "bilimda bor) qaror BARIBIR \"egasiga\" — sotuv va shikoyatdan egasi "
         "albatta xabar topishi kerak. savol — egasiga qisqa sabab; matn — "
         f"bilimdagi aniq javob (bo'lsa) va «{neytral_gap(ism)}» (suhbatdosh "
-        "tilida); variantlar bo'sh.\n"
+        "tilida); buyurtma yoki to'lovni «qabul qilindi» DEMA — buni egasi hal "
+        "qiladi; variantlar bo'sh.\n"
         "• «botmisan?» deyilsa: qaror=\"javob\", matn — bu avtojavob ekani va "
         f"«{neytral_gap(ism)}» (suhbatdosh tilida).\n"
         if avtomat else
@@ -824,7 +831,9 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
 # ⚠️ `messages._process_merged_text` navbatdagi buferni uyg'otganda
 # manfiy kalitni o'tkazib yuboradi — aks holda bu bufer mijozning o'z
 # DM'ida javoblanardi.
-async def _navbatga(message: Message, matn: str, thread: int) -> None:
+async def _navbatga(message: Message, matn, thread: int) -> None:
+    """`matn` — satr yoki media aylanishi (korutina): vazifa darhol boshlanadi,
+    natijasi `_kechiktir` da kutiladi — tartib kelish tartibida qoladi."""
     kalit = (message.chat.id, thread)
     async with get_text_merge_lock(*kalit):
         buf = text_merge_buffers.get(kalit)
@@ -835,7 +844,8 @@ async def _navbatga(message: Message, matn: str, thread: int) -> None:
         eski = buf.get("timer_task")
         if eski and not eski.done():
             eski.cancel()
-        buf["parts"].append(matn)
+        buf["parts"].append(asyncio.create_task(matn) if asyncio.iscoroutine(matn)
+                            else matn)
         buf["last_message"] = message
         buf["timer_task"] = asyncio.create_task(_kechiktir(kalit))
 
@@ -846,6 +856,8 @@ async def _kechiktir(kalit: tuple) -> None:
         async with get_text_merge_lock(*kalit):
             buf = text_merge_buffers.pop(kalit, None)
         if buf:
+            buf["parts"] = [await q if isinstance(q, asyncio.Task) else q
+                            for q in buf["parts"]]
             await _loyiha(buf)
     except asyncio.CancelledError:
         pass
@@ -875,8 +887,10 @@ _loyiha_qulf: dict = {}
 @olchov.oqim("loyiha")
 async def _loyiha(buf: dict) -> None:
     message: Message = buf["last_message"]
-    matn = "\n".join(buf["parts"])
+    matn = "\n".join(q for q in buf["parts"] if q)
     chat_id = message.chat.id
+    if not matn:
+        return
     # Debounce: birinchi qism kelganidan shu yergacha (BIZNES_MERGE_WAIT + navbat).
     olchov.qosh(kutish_ms=round((time.time() - buf.get("created_at", time.time())) * 1000),
                 qismlar=len(buf["parts"]), chat=chat_id)
@@ -1146,8 +1160,7 @@ async def _xato_egasiga(egasi: int, dm: int, xato, qoralama: bool = False) -> No
 
 
 @olchov.oqim("avtojavob")
-async def _avtojavob(message: Message, matn: str, ul: dict,
-                     rasm: str | None = None) -> None:
+async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
     chat_id = message.chat.id
     conn_id = message.business_connection_id
     egasi, dm = ul["owner_id"], ul["owner_chat"]
@@ -1157,7 +1170,7 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
     # ishlamaydi — FSM kaliti mijoz emas, egasi ham emas.
     async with _loyiha_qulf.setdefault((chat_id, thread), asyncio.Lock()):
         olchov.belgi("qulf")
-        olchov.qosh(egasi=egasi, chat=chat_id, rasm=rasm is not None)
+        olchov.qosh(egasi=egasi, chat=chat_id)
         sabab = await _toxtash_sababi(ul, chat_id)
         olchov.belgi("toxtash")
         if sabab:
@@ -1194,17 +1207,10 @@ async def _avtojavob(message: Message, matn: str, ul: dict,
             olchov.belgi("bilim_uslub")
             yoriq = mijoz_yoriqnomasi(bilim, avtomat=True, uslub=uslub,
                                       ism=await _egasi_ismi(egasi, dm))
-            if rasm is None:
-                javob = await _model(matn, chat_id, thread, egasi, biznes_yoriqnoma=yoriq,
-                                     javob_formati=BIZNES_SXEMA)
-            else:
-                with _biznes_hisobida():
-                    qismlar = await asyncio.wait_for(_yig(get_vision_reply(
-                        chat_id, rasm, message.caption or "Mijoz rasm yubordi.",
-                        user_id=egasi, is_pro=True, thread_id=thread,
-                        biznes_yoriqnoma=yoriq, javob_formati=BIZNES_SXEMA)),
-                        BIZNES_MODEL_TIMEOUT)
-                javob = _toza("".join(qismlar))
+            # Rasm ham shu yerga MATN bo'lib keladi (`biznes_media`) — javob
+            # modeli bitta, eval'dan o'tgan yo'l.
+            javob = await _model(matn, chat_id, thread, egasi, biznes_yoriqnoma=yoriq,
+                                 javob_formati=BIZNES_SXEMA)
         except Exception as e:
             olchov.belgi("model")
             olchov.qosh(natija="model_xatosi")
@@ -1289,40 +1295,6 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
         logger.warning(f"[BIZNES] uzatish tugmasi rad etildi: {e}")
         await _egasiga(dm, matni)
 
-
-@olchov.oqim("ovoz")
-async def _avto_ovoz(message: Message, ul: dict) -> None:
-    """Ovoz → matn → oddiy oqim (debounce ham). Javob matnda."""
-    yol = os.path.join(tempfile.gettempdir(), f"bz_{message.chat.id}_{message.message_id}.ogg")
-    try:
-        fayl = await bot.get_file(message.voice.file_id)
-        await bot.download_file(fayl.file_path, yol)
-        matn = (await speech_to_text_smart(yol, is_pro=True) or "").strip()
-    except Exception as e:
-        logger.warning(f"[BIZNES] ovoz o'qilmadi: {e}")
-        matn = ""
-    finally:
-        try:
-            os.remove(yol)
-        except OSError:
-            pass
-    if matn:
-        await _navbatga(message, matn, biznes_thread(ul["owner_id"]))
-    else:
-        await safe_update_history(message.chat.id, "[ovozli xabar]", role="user",
-                                  thread_id=biznes_thread(ul["owner_id"]))
-
-
-async def _avto_rasm(message: Message, ul: dict) -> None:
-    """Rasm — bir raundli `get_vision_reply`, tool'siz. Debounce'siz."""
-    try:
-        fayl = await bot.get_file(message.photo[-1].file_id)
-        oqim = await bot.download_file(fayl.file_path)
-        rasm = base64.b64encode(oqim.read()).decode()
-    except Exception as e:
-        logger.warning(f"[BIZNES] rasm yuklanmadi: {e}")
-        return
-    await _avtojavob(message, f"[rasm] {message.caption or ''}".strip(), ul, rasm=rasm)
 
 # ── Avtomat javob belgisi ────────────────────────────────────────────
 # Telegram'ning "ChatGPT AI" yozuvi faqat EGASIGA ko'rinadi — suhbatdosh

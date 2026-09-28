@@ -191,7 +191,13 @@ async def soxta_xato(chat_id, message_id, user_id, prompt, **kw):
 
 
 async def soxta_stt(yol, is_pro):
+    q.append(("stt", os.path.splitext(yol)[1]))
     return "atirgul bormi?"
+
+
+async def soxta_tavsif(baytlar, mime="image/jpeg"):
+    q.append(("tavsif", baytlar))
+    return "qizil atirgul guldastasi"
 
 
 async def rost(*a):
@@ -228,7 +234,9 @@ b.get_gpt_reply = soxta_gpt
 b.get_vision_reply = soxta_vision
 b.safe_update_history = soxta_tarix
 b.send_error_with_retry = soxta_xato
-b.speech_to_text_smart = soxta_stt
+b.biznes_media.speech_to_text_smart = soxta_stt
+b.biznes_media.rasm_tavsifi = soxta_tavsif
+b.biznes_media.bot = b.bot
 b.track_user_activity = lambda *a: q.append(("faollik", a[-1]))
 b.BIZNES_MERGE_WAIT = 0.01
 b.BIZNES_AVTOMAT_OCHIQ = True
@@ -288,7 +296,8 @@ b._ulanish = ulanish_bor
 def xabar(matn, kimdan=MIJOZ, **qosh):
     msg_id[0] += 1
     d = dict(business_connection_id="c1", text=matn, caption=None,
-             sender_business_bot=None, voice=None, photo=None,
+             sender_business_bot=None, voice=None, photo=None, video_note=None,
+             audio=None, document=None, video=None,
              from_user=NS(id=kimdan, username="ali", full_name="Ali"),
              chat=NS(id=MIJOZ), message_id=msg_id[0], reply_to_message=None)
     d.update(qosh)
@@ -460,17 +469,21 @@ check(24, "sender_business_bot yo'q bo'lsa ham bot yuborgani «bot» (pauza qo'y
       b.biznes_kimdan(qaytgan, UL) == "bot"
       and ishga(qaytgan) == [])
 
-# ── 25-26. Ovoz va rasm ──────────────────────────────────────────
-ishga(xabar(None, voice=NS(file_id="v1")))
-check(25, "ovoz -> matn -> javob matnda",
-      [x[1] for x in q if x[0] == "gpt"] == ["atirgul bormi?"] and len(mijozga()) == 1)
-ishga(xabar(None, photo=[NS(file_id="p1")], caption="shu bormi?"))
-check(26, "rasm -> vision (yo'riqnoma bilan) -> javob",
-      any(x[0] == "vision" and x[2] for x in q) and mijozga() == ["Chiroyli gul!"])
+# ── 25-27. Ovoz va rasm — MATN bo'lib oddiy yo'ldan (biznes_media) ──
+ishga(xabar(None, voice=NS(file_id="v1", duration=5)))
+check(25, "ovoz -> matn -> javob matnda (model ovoz ekanini biladi)",
+      [x[1] for x in q if x[0] == "gpt"] == ["[ovozli xabar] atirgul bormi?"]
+      and len(mijozga()) == 1)
+kichik, katta = NS(file_id="p_s", width=800, height=600), NS(file_id="p_l", width=1280, height=960)
+ishga(xabar(None, photo=[kichik, katta], caption="shu bormi?"))
+check(26, "rasm -> tavsif (800 px, 1280 emas) -> matn yo'li, izoh bilan birga",
+      [x[1] for x in q if x[0] == "gpt"] == ["[rasm: qizil atirgul guldastasi]\nshu bormi?"]
+      and any(x[0] == "tavsif" for x in q) and len(mijozga()) == 1)
 
-UL["rejim"] = "yordamchi"
-ishga(xabar(None, voice=NS(file_id="v1")))
-check(27, "ovoz boshqa rejimda qayta ishlanmaydi (STT puli behuda)", q == [])
+UL["rejim"] = "kuzatuv"
+ishga(xabar(None, voice=NS(file_id="v1", duration=5)))
+check(27, "kuzatuvda STT puli yo'q — tarixga faqat belgi",
+      not any(x[0] in ("stt", "gpt") for x in q) and ("tarix", "[ovozli xabar]", "user") in q)
 UL["rejim"] = "avtomat"
 
 # ── 28. Mijozga hech qachon texnik matn ──────────────────────────
