@@ -3037,13 +3037,17 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
     # biriktirilgan, shuning uchun manifest ham ikkalasini aytadi.
     bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"]]
     yoq: list[str] = []
+    pro: list[str] = []
     for shart, tool, sabab in (
         # ⚠️ Biriktirilgan asbob `start_file_task` (arzon "eshik"), fayl
         # qurish esa uning ortida. Manifest CHAQIRILADIGAN nomni aytishi
         # kerak — `run_python_sandbox` deb yozilsa model mavjud bo'lmagan
         # asbobni chaqirib, chaqiruv veb qidiruvga tushib ketardi.
         (file_task_enabled, _FILE_INTENT_TOOL, "not available in this chat type"),
-        (image_enabled, _IMAGE_TOOL, "Pro only"),
+        # ⚠️ "Pro only" yolg'iz yetmadi (eval_chat, 2026-09-29): model
+        # "funksiya mavjud emas" derdi yoki chizish o'rniga internetdan
+        # rasm yuborib jim turardi — foydalanuvchi Pro borligini bilmasdi.
+        (image_enabled, _IMAGE_TOOL, "PRO"),
         # ⚠️ Sabab matni `find_nearby` dagi bilan bir xil vazifada:
         # usiz model "rasmingizni tahrirlab beraman" deb va'da berardi,
         # foydalanuvchi rasm yuborardi va bot uni tahrirlamasdi.
@@ -3052,7 +3056,7 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
         # ⚠️ Eshik nomi, to'liq tool nomi EMAS: model AYNAN chaqira
         # oladigan asbobni bilishi kerak (start_file_task bilan bir xil).
         (memory_enabled, _MEMORY_INTENT_TOOL, "needs a known user"),
-        (reminder_enabled, _REMINDER_INTENT_TOOL, "Pro only"),
+        (reminder_enabled, _REMINDER_INTENT_TOOL, "PRO"),
         # ⚠️ Sabab matni MUHIM. Bu asbobsiz model "lokatsiyangizni
         # yuborsangiz eng yaqin zapravkani topaman" deb va'da berardi,
         # foydalanuvchi lokatsiya yuborardi va bot uni umuman ko'rmasdi.
@@ -3060,8 +3064,12 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
         (nearby_enabled, _NEARBY_TOOL,
          "the user has not sent a location yet — ask them to send one"),
     ):
-        (bor if shart else yoq).append(
-            tool["name"] if shart else f"{tool['name']} ({sabab})")
+        if shart:
+            bor.append(tool["name"])
+        elif sabab == "PRO":
+            pro.append(tool["name"])
+        else:
+            yoq.append(f"{tool['name']} ({sabab})")
 
     satrlar = [
         "[CAPABILITIES — GROUND TRUTH FOR THIS REQUEST]",
@@ -3069,6 +3077,15 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
     ]
     if yoq:
         satrlar.append("NOT available in this request: " + "; ".join(yoq) + ".")
+    # ⚠️ Alohida gap, qavs ichidagi sabab emas (eval_chat, 2026-09-29):
+    # "(Pro only)" bilan model "bu funksiya mavjud emas" derdi yoki chizish
+    # o'rniga internetdan rasm yuborib jim turardi — foydalanuvchi Pro
+    # borligini umuman bilmasdi.
+    if pro:
+        satrlar.append("PRO FEATURES, this user is on the free plan: " + ", ".join(pro)
+                       + ". When the user wants one, FIRST say in one sentence it "
+                       "needs Pro (/pro), then offer what you can — never call it "
+                       "unavailable; a found photo or ASCII art is not a drawing.")
     satrlar += [
         "Always available without any tool: reading the photo, document or "
         "voice message the user sends; translation; code; maths; tables; "

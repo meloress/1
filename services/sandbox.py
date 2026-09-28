@@ -431,8 +431,11 @@ async def check_libraries() -> list[str]:
 _TARMOQ_SINOV = (
     "import _socket\n"
     "open('output/ok.txt', 'w').write('ok')\n"
-    "s = _socket.socket(); s.settimeout(3)\n"
     "try:\n"
+    # socket() ning O'ZI try ichida: seccomp aynan yaratishni rad etadi.
+    # Tashqarida bo'lganda sinov yiqilib, ishlayotgan filtrni «buzdi» deb
+    # o'chirib qo'ygan edi (2026-09-29 logi).
+    "    s = _socket.socket(); s.settimeout(3)\n"
     "    s.connect(('1.1.1.1', 53)); print('OCHIQ')\n"
     "except Exception as e:\n"
     "    print('YOPIQ', type(e).__name__)\n"
@@ -448,7 +451,8 @@ async def tarmoq_tekshir() -> str:
     """
     global _SECCOMP
     r = await run_in_sandbox(_TARMOQ_SINOV)
-    if _SECCOMP and not (r.success and r.output_files):
+    # Faqat fayl yarata olmasa — filtr sandbox'ni buzgan.
+    if _SECCOMP and not r.output_files:
         _SECCOMP = False
         r = await run_in_sandbox(_TARMOQ_SINOV)
         if r.success:

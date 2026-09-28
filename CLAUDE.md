@@ -14,6 +14,8 @@ python tests/test_memory.py         # bitta testni ishga tushirish
 python services/sandbox.py          # sandbox izolyatsiyasini tekshirish
 python services/sandbox_helpers/deck.py   # PPTX maketlarini tekshirish
 python tests/test_tts_lang.py --live  # jonli TTS sintezi bilan
+python tests/eval_chat.py [--takror N] [id...]              # asosiy chat sifati — JONLI model
+python tests/eval_biznes.py [--takror N] [--qoralama] [id...]  # Business — JONLI model
 ```
 
 ```bash
@@ -63,6 +65,14 @@ Some are structural guards rather than feature tests, and they earn their keep o
   `biznes_*` SQL with `ast` and fails without an `owner_id` filter. `test_olchov.py` guards the
   business JSON measurement log (no message text in it). ⛔️ **`tests/eval_biznes.py` is not a
   unit test** — it calls the live model; run it before and after any Business prompt edit.
+- ⛔️ **`tests/eval_chat.py`** — the same for the main chat (25 cases, live model + live
+  search): which tool must / must not fire, and what the text must / must not contain.
+  `test_prompt_rules.py` proves a rule is *in* the prompt; this proves the model *follows*
+  it. Baseline 2026-09-29: **48/50 (96%)** with `--takror 2`; the two misses are random
+  (`\(` once instead of `$`, one generic capabilities answer). Its first run found the free
+  user never hearing "this needs Pro" for drawing and reminders — fixed by the separate
+  `PRO FEATURES` manifest line (+44 tokens/round, free plan only). Model text uses `‘` for
+  the Uzbek apostrophe; the harness normalises it before matching.
 - `test_nearby.py` — the untrusted-boundary guard on `find_nearby`: a model-written category must never reach the Overpass query intact, and "the source failed" must never be reported as "nothing nearby". Runs offline.
 - `test_image_edit.py` — `edit_image`'s three silent failure modes: the dispatch branch sitting above the bare `else`, the source bytes staying out of the tool schema, and the two API arguments (`size="auto"`, `input_fidelity="high"`) that only degrade the picture rather than raising. Runs offline.
 - `test_file_intent.py` / `test_emoji_pack.py` / `test_image_pick.py` — the three places where a config number silently changes behaviour (which tool schema is attached, which emoji map is live, how many photos come back). `test_image_pick.py` also pins the picker model to a tile-based one; a patch-based model there costs 23x per image.

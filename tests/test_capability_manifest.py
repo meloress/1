@@ -72,12 +72,16 @@ check(11, "rasm yo'q bo'lsa edit_image sababi bilan belgilanadi",
 
 # ── 3-4. BEPUL TARIF ──────────────────────────────────────────────
 bepul = manifest(image_enabled=False, reminder_enabled=False)
-check(3, "bepulda rasm chizish va eslatma MAVJUD EMAS deb belgilanadi",
-      "generate_image (Pro only)" in bepul
-      and "open_reminder (Pro only)" in bepul)
+# Alohida PRO gapi (eval_chat, 2026-09-29): qavs ichidagi "(Pro only)" bilan
+# model "mavjud emas" derdi va Pro'ni tilga olmasdi.
+pro_satr = next((s for s in bepul.splitlines() if s.startswith("PRO FEATURES")), "")
+check(3, "bepulda rasm chizish va eslatma PRO gapida, «Pro kerak» deyishi aytilgan",
+      "generate_image" in pro_satr and "open_reminder" in pro_satr
+      and "needs Pro (/pro)" in pro_satr and "never call it unavailable" in pro_satr)
+qila_olaman = next(s for s in bepul.splitlines() if s.startswith("Tools you CAN"))
 check(4, "bepulda ular 'qila olaman' ro'yxatiga TUSHMAYDI",
-      "generate_image" not in bepul.split("NOT available")[0]
-      and "start_file_task" in bepul.split("NOT available")[0])
+      "generate_image" not in qila_olaman and "open_reminder" not in qila_olaman
+      and "start_file_task" in qila_olaman)
 
 # ── 5. GUEST REJIMI ───────────────────────────────────────────────
 guest = manifest(file_task_enabled=False, image_enabled=False,
