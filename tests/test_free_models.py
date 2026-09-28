@@ -21,9 +21,9 @@ from core.config import (
 
 # OpenAI platformasidagi kunlik bepul kvota (data sharing yoqilganda).
 FREE_BIG = {          # ~250k token/kun
-    # 5.6 oilasi platformadagi ro'yxatda ko'rsatilmagan, lekin xuddi shu
-    # shartlarda bepul ishlaydi — loyiha egasi tasdiqlagan. 5.6 da mini
-    # variant yo'q, shuning uchun uchalasi ham katta chelakda.
+    # 5.6 oilasi platformadagi ro'yxatda ko'rsatilmagan, lekin bepul
+    # ishlaydi — loyiha egasi tasdiqlagan. ⚠️ Chegarasi 250k EMAS, 2.5M
+    # (egasi, 2026-09-29); bu yerda faqat "bepul ro'yxatda" ekani uchun.
     "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra",
     "gpt-5.4", "gpt-5.2", "gpt-5.1", "gpt-5.1-codex", "gpt-5", "gpt-5-codex",
     "gpt-5-chat-latest", "gpt-4.1", "gpt-4o", "o1", "o3",

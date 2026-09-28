@@ -226,7 +226,7 @@ fall back to unseen candidates.
 
 ### Token budget
 
-The bot runs on a free daily grant (2.5M tokens/day for `gpt-5.6-luna`). Before the September 2026 work the OpenAI usage dashboard showed **20.307M input tokens over 8 days — 2.54M/day, i.e. 101% of the grant on an average day and 248% on the busiest one**, so the model was silently falling through `MODEL_FALLBACKS` and the excess was billable.
+The bot runs on OpenAI's free data-sharing grant. The dashboard lists two buckets — ~250k tokens/day for the big models (gpt-5.4, 5.2, 5.1, 5, 4.1, 4o, o1, o3) and ~2.5M/day for the mini/nano ones — but **the 5.6 family is not on that list, and the owner confirmed (2026-09-29) that `gpt-5.6-luna` is free up to 2.5M/day**. Do not "correct" this to 250k from the dashboard text; `TOKEN_KUNLIK_GRANT` is 2.5M for that reason. Before the September 2026 work the dashboard showed **20.307M input tokens over 8 days — 2.54M/day, i.e. 101% of the grant on an average day and 248% on the busiest one**; the excess is billed at standard rates, and nothing errors or falls back when the grant runs out.
 
 ⚠️ **Caching does not reduce that count.** OpenAI support confirmed (2026-09-09) the complimentary allowance is a *token quota*, not a discounted rate: cached and uncached input count the same. Caching only changes money, which matters once you exceed the grant. So the only lever is fewer tokens per round.
 
@@ -328,7 +328,7 @@ never the tool behind it.
 
 **Pro gating is done by omission**: `image_enabled = ... and is_pro`, `reminder_enabled = is_pro and user_id is not None`. Free users never see the schema, so no tokens are spent advertising a tool they cannot use. Flipping a feature to free-with-upsell means removing `is_pro` from that condition; the task functions already validate independently.
 
-`get_vision_reply()` is a **separate, single-round** path — the memory tool call is harvested after the stream and its result is not fed back. Adding a full loop there means porting the `pending_calls` block.
+`get_vision_reply()` (guest mode only now — DM photos go through `get_openai_reply(input_image=)`) is a **separate, single-round** path — the memory tool call is harvested after the stream and its result is not fed back. Adding a full loop there means porting the `pending_calls` block.
 
 `[CLEAR_TEXT]` travels through the same chunk stream as content and is emitted **after every** tool round, throwing away the model's pre-tool chatter so it doesn't stick to the final answer. The condition used to exclude repeat searches, and the leftover text then glued itself to the next round's — users saw two "…tayyorlayapman" sentences in one message. Reaching that point already means a tool ran (`if not got_function_call: return` above it), so no condition is needed.
 
@@ -1286,14 +1286,15 @@ selfie is cropped square. `input_fidelity="high"` is what keeps the person's fac
 or text recognisably *the same*; below it the model redraws something similar, which
 defeats the whole feature. `tests/test_image_edit.py` checks 18-19 pin both.
 
-There are **two entry paths and both are needed.** A photo with a caption
-("fonini o'zgartir") lands in `get_vision_reply`, which is single-round; the tool call is
-harvested after the stream exactly as `update_memory` already was, and the result is not
-fed back — so when the edit fails, *the code* appends the apology, because the model has
-already written "here you go" above a message with no picture. A photo followed by a
-separate message goes the ordinary `get_openai_reply` route with the full loop. Skipping
-the vision path would have broken the most natural gesture there is: sending a picture and
-saying what to do with it in one message.
+**A DM photo takes the full loop** (2026-09-29): `handle_photo` calls `get_gpt_reply(...,
+input_image=<base64>, input_file_bytes=<bytes>)`, so a photo with a caption gets search,
+internet images, files, `edit_image` and memory exactly like text. The single-round
+`get_vision_reply` had no search tool, so "how much is this phone?" was answered by
+guessing; live-tested after the switch, the model read the label, searched uzum/texnomart and
+cited them. The image goes **only into this request's user message** — history gets the text
+`[Rasm yuborildi]: …`, or every later request would re-pay the image tokens.
+`get_vision_reply` survives for guest mode and the Business tests. `tests/test_rasm_qidiruv.py`
+pins it.
 
 ⚠️ `pending_file_note()` needed a picture branch. The generic note says "use
 run_python_sandbox to edit this file", and for a photo that sends "change the background"

@@ -1379,6 +1379,8 @@ SEARCH_IMAGE_PICK_TIMEOUT = 25
 # ⚠️ FAQAT KO'RSATISH uchun: hech narsani cheklamaydi, panel «bugun
 # grantning qanchasi yeyildi» deb ko'rsatishi uchun kerak. Grant
 # o'zgarsa shu yerni yangilang — panel o'zi bilib ololmaydi.
+# 2.5M — asosiy model gpt-5.6-luna uchun (loyiha egasi tasdiqlagan,
+# 2026-09-29: 5.6 oilasi platforma ro'yxatida yo'q, lekin 2.5M gacha bepul).
 TOKEN_KUNLIK_GRANT: int = 2_500_000
 
 HISTORY_SUMMARY_MODEL: str = "gpt-5.4-mini"

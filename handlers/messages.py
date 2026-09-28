@@ -43,7 +43,7 @@ from core.memory import (get_text_merge_lock, text_merge_buffers,
 from services.ai import (
     safe_update_history, get_gpt_reply,
     speech_to_text_smart, text_to_speech_smart,
-    get_vision_reply, extract_text_from_document,
+    extract_text_from_document,
     clear_chat_history, safe_get_chat_history,
     build_rich_markdown, embed_images, strip_image_tokens, strip_rich_tokens,
     strip_custom_emoji, code_fences_to_html, strip_internal_names,
@@ -2531,20 +2531,28 @@ async def handle_photo(message: Message, state: FSMContext):
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         caption = message.caption if message.caption else "Bu rasmda nimalar borligini to'liq tushuntirib ber."
 
-        # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
-        # get_vision_reply() ularni SYSTEM promptga o'zi qo'shadi (services/ai.py).
-        # Tarix esa javob muvaffaqiyatli olingandan keyin, birgalikda saqlanadi.
-        # Rasm izoh bilan kelsa ("fonini o'zgartir") vision oqimi
-        # edit_image ni chaqira oladi va natija shu ro'yxatga tushadi.
+        # Rasm matnli oqim bilan BIR XIL to'liq halqaga kiradi: qidiruv
+        # («shu mahsulot narxi?»), internet rasmlari, fayl, tahrir, xotira.
+        # Ilgari bir raundli get_vision_reply edi — unda qidiruv yo'q va
+        # model narxni taxmin qilardi. Rasm baytlari sandbox/edit_image
+        # uchun ham uzatiladi (`input_file_bytes`), izoh shuni aytadi.
         output_files: list = []
         file_quota_box: list = []
-        stream_gen = get_vision_reply(chat_id, base64_image, caption,
-                                      is_pro=_is_pro(quota), user_id=user_id,
-                                      tg_name=message.from_user.full_name,
-                                      output_files=output_files,
-                                      file_quota_out=file_quota_box,
-                                      thread_id=thread_id)
-        full_reply = await process_stream_draft(message, stream_gen, content_type="photo")
+        images: list = []
+        prompt_text = (f"{pending_file_note('rasm.jpg')}"
+                       f"\n\nFoydalanuvchi so'rovi: {caption}")
+        stream_gen = get_gpt_reply(chat_id, prompt_text, user_id=user_id,
+                                   input_image=base64_image,
+                                   input_file_bytes=image_bytes,
+                                   input_filename="rasm.jpg",
+                                   output_files=output_files,
+                                   file_quota_out=file_quota_box,
+                                   images_out=images,
+                                   is_pro=_is_pro(quota),
+                                   tg_name=message.from_user.full_name,
+                                   thread_id=thread_id)
+        full_reply = await process_stream_draft(message, stream_gen, content_type="photo",
+                                                images=images)
 
         # Tahrirlangan rasm shu yerda yuboriladi va `produced=True` bilan
         # eslab qolinadi — «yana biroz yorqinroq qil» zanjiri shu bilan
@@ -2558,10 +2566,9 @@ async def handle_photo(message: Message, state: FSMContext):
             try:
                 await safe_update_history(chat_id, f"[Rasm yuborildi]: {caption}",
                                           role="user", thread_id=thread_id)
-                # Vision yo'lida internetdan rasm qidirilmaydi (get_vision_reply
-                # bir raundli va unda qidiruv tooli yo'q) — `images` ham yo'q.
+                # `images` — [rasm:N] tarixga tavsif bo'lib yozilsin.
                 await safe_update_history(chat_id, full_reply, role="assistant",
-                                          thread_id=thread_id)
+                                          images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - rasm] chat={chat_id}: {e}")
             await _maybe_warn_long(message, thread_id)

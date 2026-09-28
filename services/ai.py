@@ -4299,6 +4299,10 @@ async def get_openai_reply(
     biznes_yoriqnoma: Optional[str] = None,
     # Tuzilgan javob (`BIZNES_SXEMA`) — faqat Business mijoz yo'li.
     javob_formati: Optional[dict] = None,
+    # Foydalanuvchi SHU xabarda yuborgan rasm (base64 JPEG). Rasm to'liq
+    # halqaga kiradi: «shu mahsulot narxi qancha?» — model rasmni ko'rib,
+    # keyin qidiradi. get_vision_reply bir raundli va qidiruvsiz edi.
+    input_image: Optional[str] = None,
 ):
     biznes = biznes_yoriqnoma is not None
     if biznes:
@@ -4375,7 +4379,13 @@ async def get_openai_reply(
     if biznes_yoriqnoma is not None:
         messages.append({"role": "developer", "content": biznes_yoriqnoma})
 
-    messages.append({"role": "user", "content": message_text})
+    # Rasm faqat SHU xabarda — tarixga matn yoziladi (`[Rasm yuborildi]`),
+    # aks holda har keyingi so'rov rasm tokenlarini qayta to'lardi.
+    messages.append({"role": "user", "content": message_text if not input_image else [
+        {"type": "input_text", "text": message_text},
+        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{input_image}",
+         "detail": "auto"},
+    ]})
 
     # Reasoning effort xabar murakkabligiga qarab tanlanadi (core/config.py:
     # pick_reasoning_effort) — soddasiga tez/arzon, murakkabiga chuqurroq.
@@ -4954,6 +4964,7 @@ async def get_gpt_reply(
     thread_id: int = 0,
     biznes_yoriqnoma: Optional[str] = None,
     javob_formati: Optional[dict] = None,
+    input_image: Optional[str] = None,
 ):
     async for chunk in get_openai_reply(
         chat_id,
@@ -4971,6 +4982,7 @@ async def get_gpt_reply(
         tools_enabled=tools_enabled,
         biznes_yoriqnoma=biznes_yoriqnoma,
         javob_formati=javob_formati,
+        input_image=input_image,
     ):
         yield chunk
 

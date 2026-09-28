@@ -297,8 +297,9 @@ async def main():
         t = ov["kpi"]["token"]
         assert t["bugun"] == 1_840_000, t          # kirish + chiqish
         assert t["grant"] == TOKEN_KUNLIK_GRANT, t
-        assert t["foiz"] == 74, t
-        assert t["oshgan"] is False, t
+        # Grant o'zgarsa (2.5M → 250k bo'ldi) test qayta yozilmasin.
+        assert t["foiz"] == round(1_840_000 / TOKEN_KUNLIK_GRANT * 100), t
+        assert t["oshgan"] is (1_840_000 > TOKEN_KUNLIK_GRANT), t
         # ⚠️ Keshlangan ulush KVOTANI KAMAYTIRMAYDI (OpenAI, 2026-09-09) —
         # u faqat so'rov boshi kun bo'yi bir xil qolayotganini ko'rsatadi.
         # Shuning uchun u `bugun` dan CHIQARILMAYDI.
