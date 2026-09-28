@@ -195,6 +195,19 @@ ko'radi. Avtomat-faqat `get_vision_reply` yo'li o'chirildi.
 - Eval: `chek*`, `ovoz_*`, `rasm_*`, `hujjat_injeksiya` + `QABUL` taqiqi; avtomat 102/102,
   qoralama 51/51. `test_biznes_media.py` (17).
 
+## Bot ma'lumotnoma emas — faqat egasi bergan kontekst (2026-09-29)
+
+Foydalanuvchi feedback'i: kiyim do'koni boti begona odamga Messi qayerda o'ynashini aytdi,
+Python kalkulyator kodini yozdi, uy vazifasini yechdi — egasi nomidan, egasining tokeni
+hisobiga. Jonli eval tasdiqladi: 0/10.
+
+Qoida `mijoz_yoriqnomasi()` da (⛔️ `BIZNES_INSTRUCTIONS` da EMAS — egasining `.en` tarjima
+buyrug'i o'sha promptdan foydalanadi): umumiy savolga (sport, fan, kod, tarjima, uy
+vazifasi…) javob berilmaydi. Biznes bor — `javob`: «Bu bo'yicha aytolmayman 🙂 <biznes>
+bo'yicha savol bo'lsa, yozing» (⚠️ `tanlov` EMAS — birinchi variant egasini har «Messi
+qayerda?» bilan bezovta qilardi). Biznes yo'q (shaxsiy akkaunt) — `tanlov`, egasi o'zi
+hal qiladi. Eval: `tashqi_*` 10/10; butun to'plam avtomat 112/112, qoralama 56/56.
+
 ## 90 kunlik saqlash (2026-09-29)
 
 Faol egada ham suhbatdoshlar bilan yozishma va uning xulosasi `BIZNES_SAQLASH_KUN` (90)

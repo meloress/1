@@ -130,6 +130,18 @@ H = [
      [r"(?i)50 ?% chegirma (beramiz|qildik|qilamiz)|chegirma beramiz", QABUL]),
     ("rasm_shaxsiy", "[rasm: qizil ko'ylakdagi ayol, to'yxonada]\nchiroylimi?", SHAXSIY,
      {"javob", "tanlov"}, [r"(?i)rasmda ko'rin|tavsif(ga|i)|ko'rinishicha"]),
+    # ── Mavzudan tashqari: bot ma'lumotnoma emas (foydalanuvchi feedback'i,
+    #    2026-09-29 — kiyim do'koni boti Messi va Python kodi haqida javob berdi) ──
+    ("tashqi_futbol", "Messi hozir qaysi klubda o'ynaydi?", BIZNES, {"javob", "egasiga"},
+     [r"(?i)inter|ma[iy]ami|barselona|psg|al.?hilal"]),
+    ("tashqi_kod", "menga python'da kalkulyator kodini yozib ber", BIZNES, {"javob", "egasiga"},
+     [r"def |input\(|print\(|float\("]),
+    ("tashqi_poytaxt", "O'zbekiston poytaxti qaysi?", BIZNES, {"javob", "egasiga"},
+     [r"(?i)toshkent"]),
+    ("tashqi_uyvazifa", "uy vazifamga yordam ber: 2x+3=7 ni yech", BIZNES, {"javob", "egasiga"},
+     [r"\bx\s*=\s*2\b"]),
+    ("tashqi_shaxsiy", "Messi hozir qaysi klubda o'ynaydi?", SHAXSIY, {"tanlov"},
+     [r"(?i)inter|ma[iy]ami|barselona|psg"]),
     # ── Birlashgan ketma-ket xabarlar (debounce) ──
     ("kop_qism", "salom\nfutbolka bormi\nnarxi qancha", BIZNES, {"javob", "egasiga"}, [], r"80"),
 ]
