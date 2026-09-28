@@ -1434,7 +1434,7 @@ def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
     """Sof funksiya — testda tekshiriladi. `stat` — `biznes_ekran_stat`,
     `namuna` — uslub namunalari soni (ikkalasi ixtiyoriy: o'qilmasa ekran
     baribir chiqadi)."""
-    qator = ["💼 <b>TELEGRAM BUSINESS</b>\n━━━━━━━━━━━━━━━━━━━━\n"]
+    qator = ["💼 <b>Telegram Business</b>\n"]
     if not ul or not ul["yoqilgan"]:
         qator.append("❌ Ulanmagan. Sozlamalar → Telegram Business → Chatbotlar "
                      "→ meni tanlang (Telegram Premium kerak).")
@@ -1465,23 +1465,40 @@ def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
     return "\n".join(qator)
 
 
+REJIM_BELGI = {"buyruq": "⌨️", "yordamchi": "✍️", "kuzatuv": "👀", "avtomat": "🤖"}
+
+
 def _ekran_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
+    # Ikki qator, rangsiz (egasi: "qo'pol tuyulyapti", 2026-09-29). Ilgari
+    # 7 tugma, 4 qator, yashil+ko'k: to'rt rejim bosh ekranni egallardi,
+    # holbuki u bir marta tanlanadi. Rejimlar endi `_rejim_kb` da.
     if not ul or not ul["yoqilgan"]:
         return None
+    r = ul["rejim"]
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [pro_module.btn(f"{REJIM_BELGI[r]} Rejim: {REJIM_NOMI[r][0]}", "bz:rm")],
+        [pro_module.btn("📝 Bilim", "bz:k"), pro_module.btn("🎨 Uslub", "bz:us"),
+         pro_module.btn("⚙️", "bz:s")],
+    ])
+
+
+def _rejim_kb(ul: dict) -> InlineKeyboardMarkup:
+    """Rejim tanlash — har biri o'z qatorida, tanlangani ✓ bilan."""
     # Avtomat — o'lchovgacha yashirin (`BIZNES_AVTOMAT_OCHIQ`). Egasi
     # allaqachon avtomatda bo'lsa tugma ko'rinadi: o'z rejimini ko'rsin.
-    rejimlar = [pro_module.btn(("✓ " if r == ul["rejim"] else "") + REJIM_NOMI[r][0],
-                               f"bz:r:{r}",
-                               style=BTN_SUCCESS if r == ul["rejim"] else None)
-                for r in BIZNES_REJIMLAR
-                if r != "avtomat" or BIZNES_AVTOMAT_OCHIQ or ul["rejim"] == r]
-    qatorlar = [rejimlar[i:i + 2] for i in range(0, len(rejimlar), 2)]
-    # Bosh ekranda faqat eng kerakli uchta: egasi "juda murakkab" dedi
-    # (2026-09-25) — qolgani «Sozlamalar» ichida.
-    qatorlar.append([pro_module.btn("📝 Bilim", "bz:k", style=BTN_PRIMARY),
-                     pro_module.btn("🎨 Uslubim", "bz:us")])
-    qatorlar.append([pro_module.btn("⚙️ Sozlamalar", "bz:s")])
-    return InlineKeyboardMarkup(inline_keyboard=qatorlar)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [pro_module.btn(("✓ " if r == ul["rejim"] else "") + f"{REJIM_BELGI[r]} "
+                        + REJIM_NOMI[r][0], f"bz:r:{r}")]
+        for r in BIZNES_REJIMLAR
+        if r != "avtomat" or BIZNES_AVTOMAT_OCHIQ or ul["rejim"] == r
+    ] + [[pro_module.btn("⬅️ Orqaga", "bz:e")]])
+
+
+def rejim_matni(ul: dict) -> str:
+    return "💼 <b>Rejim</b>\n\n" + "\n".join(
+        f"{REJIM_BELGI[r]} <b>{REJIM_NOMI[r][0]}</b> — {REJIM_NOMI[r][1]}"
+        for r in BIZNES_REJIMLAR
+        if r != "avtomat" or BIZNES_AVTOMAT_OCHIQ or ul["rejim"] == r)
 
 
 def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
@@ -1636,6 +1653,17 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         except Exception:
             pass
         await query.answer(f"🤖 belgisi {'yoqildi' if yangi else 'o‘chirildi'}")
+    elif amal == "rm":
+        topilgan = database.biznes_egasi_ulanishi(uid)
+        if not topilgan:
+            await query.answer("Avval ulang.", show_alert=True)
+            return
+        try:
+            await query.message.edit_text(rejim_matni(topilgan[1]),
+                                          reply_markup=_rejim_kb(topilgan[1]))
+        except Exception:
+            pass
+        await query.answer()
     elif amal == "r" and len(qism) > 2 and qism[2] in BIZNES_REJIMLAR:
         if not database.biznes_egasi_ulanishi(uid):
             await query.answer("Avval ulang.", show_alert=True)

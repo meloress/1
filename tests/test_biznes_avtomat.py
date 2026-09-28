@@ -445,15 +445,15 @@ UL["ish_vaqti"] = None
 
 b.BIZNES_AVTOMAT_OCHIQ = False
 ishga(xabar("salom"))
-kb = b._ekran_kb(dict(UL, rejim="buyruq"))
+kb = b._rejim_kb(dict(UL, rejim="buyruq"))
 tugmalar = [t.callback_data for qator in kb.inline_keyboard for t in qator]
 check(22, "bayroq yopiq: javob yo'q va «Avtomat» tugmasi ko'rinmaydi",
       not mijozga() and "bz:r:avtomat" not in tugmalar and "bz:r:yordamchi" in tugmalar)
 b.BIZNES_AVTOMAT_OCHIQ = True
-tugmalar = [t.callback_data for kb in (b._ekran_kb(UL), b._sozlama_kb(UL))
+tugmalar = [t.callback_data for kb in (b._ekran_kb(UL), b._rejim_kb(UL), b._sozlama_kb(UL))
             for qator in kb.inline_keyboard for t in qator]
-check(23, "avtomat: rejim tugmasi bosh ekranda, ish vaqti va chatlar Sozlamalarda",
-      {"bz:r:avtomat", "bz:w", "bz:c", "bz:s"} <= set(tugmalar))
+check(23, "avtomat: rejim menyusida, ish vaqti va chatlar Sozlamalarda",
+      {"bz:rm", "bz:r:avtomat", "bz:w", "bz:c", "bz:s"} <= set(tugmalar))
 
 # ── 24. Bot o'z xabarini taniydi ─────────────────────────────────
 ishga(xabar("salom"))

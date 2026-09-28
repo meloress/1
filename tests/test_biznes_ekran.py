@@ -32,10 +32,18 @@ def tugmalar(kb):
 UL = {"owner_id": 1, "owner_chat": 1, "yoqilgan": True, "rejim": "avtomat",
       "ish_vaqti": None, "avto_belgi": True, "huquqlar": {"can_reply": True}}
 
-bosh = tugmalar(b._ekran_kb(UL))
-check(1, "bosh ekran: rejimlar + Bilim + Uslubim + Sozlamalar, boshqa hech narsa",
-      set(bosh) - {f"bz:r:{r}" for r in b.BIZNES_REJIMLAR} == {"bz:k", "bz:us", "bz:s"}
-      and len(bosh) <= 7)
+kb = b._ekran_kb(UL)
+bosh = tugmalar(kb)
+# Egasi: "qo'pol tuyulyapti" (2026-09-29) — ikki qator, rangsiz, rejimlar ichkarida.
+check(1, "bosh ekran: Rejim + Bilim + Uslub + Sozlamalar, 2 qator, rangsiz",
+      bosh == ["bz:rm", "bz:k", "bz:us", "bz:s"] and len(kb.inline_keyboard) == 2
+      and all(t.style is None for q in kb.inline_keyboard for t in q)
+      and "Avtomat" in kb.inline_keyboard[0][0].text)
+rj = tugmalar(b._rejim_kb(UL))
+check("1b", "rejim menyusi: to'rt rejim + orqaga, tanlangani ✓",
+      rj == [f"bz:r:{r}" for r in b.BIZNES_REJIMLAR] + ["bz:e"]
+      and b._rejim_kb(UL).inline_keyboard[3][0].text.startswith("✓")
+      and all(b.REJIM_NOMI[r][0] in b.rejim_matni(UL) for r in b.BIZNES_REJIMLAR))
 soz = tugmalar(b._sozlama_kb(UL))
 check(2, "Sozlamalar: ish vaqti, chatlar, belgi, profil, orqaga",
       {"bz:w", "bz:c", "bz:bl", "bz:pf:bio", "bz:pf:story", "bz:e"} <= set(soz))
