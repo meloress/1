@@ -195,6 +195,14 @@ ko'radi. Avtomat-faqat `get_vision_reply` yo'li o'chirildi.
 - Eval: `chek*`, `ovoz_*`, `rasm_*`, `hujjat_injeksiya` + `QABUL` taqiqi; avtomat 102/102,
   qoralama 51/51. `test_biznes_media.py` (17).
 
+## 90 kunlik saqlash (2026-09-29)
+
+Faol egada ham suhbatdoshlar bilan yozishma va uning xulosasi `BIZNES_SAQLASH_KUN` (90)
+kundan eskisi har kuni o'chadi (`database.biznes_tozala()`, hisobot kuzatuvchisi). Bular
+begona odamlarning xabarlari; bot javob uchun ~80 xabar, hisobot — oxirgi sutkani o'qiydi.
+`thread_id < 0` — DM'ga tegmaydi; qisman indeks `idx_chat_messages_biznes` shu shart bilan.
+Kartoteka (`biznes_mijoz`) va egasining Bilimi qoladi. `test_biznes_tozalash.py` check 9.
+
 ## «💾 Eslab qol» (2026-09-26)
 
 **Muammo:** bot "chekasanmi?" ni har safar egasiga uzatadi — egasi bir marta javob bergan

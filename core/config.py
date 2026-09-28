@@ -878,6 +878,10 @@ BIZNES_MEDIA_KUNLIK = 150
 # bilan yozishmalar, qoralamalar va kartoteka o'chiriladi (egasining o'z
 # Bilimi/Uslubi qoladi). Muhlat: Pro bir kun kech uzaytirilsa yo'qolmasin.
 BIZNES_TOZALASH_KUN = 3
+# Faol egada ham: suhbatdoshlar bilan yozishma (va uning xulosasi) shuncha
+# kundan eskisi har kuni o'chadi. Bot javob uchun so'nggi ~80 xabarni
+# o'qiydi; ertalabki hisobot — oxirgi sutkani. 90 kun — bundan ancha keng.
+BIZNES_SAQLASH_KUN = 90
 # 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
 # ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
 # javob bermagan bo'lsa — egasiga bitta xabar.

@@ -138,4 +138,14 @@ w = bz[bz.index("async def biznes_hisobot_watcher("):bz.index("async def egalarn
 check(8, "hisobot kuzatuvchisi soatiga bir marta egalarni_tozala() ni chaqiradi",
       "await egalarni_tozala()" in w and ">= 3600" in w)
 
-print("\nHammasi o'tdi: 8/8")
+# ── 9. Faol egada ham: 90 kundan eski yozishma o'chadi, DM'ga tegmaydi ──
+sql.clear()
+asyncio.run(database.biznes_tozala())
+matnlar = [" ".join(x[0].split()) for x in sql if isinstance(x[0], str)]
+eski = [(m, x[1]) for m, x in zip(matnlar, sql) if "chat_messages" in m or "chat_summaries" in m]
+check(9, "kunlik: 90 kundan eski business yozishma + xulosa o'chadi, faqat thread_id < 0",
+      config.BIZNES_SAQLASH_KUN == 90 and len(eski) == 2
+      and all(m.startswith("DELETE FROM chat_") and "WHERE thread_id < 0 AND" in m
+              and a == (90,) for m, a in eski))
+
+print("\nHammasi o'tdi: 9/9")

@@ -1166,7 +1166,12 @@ controlled by `frame-ancestors` (`telegram.org` plus `*.telegram.org`, which cov
 `web.`, `webk.`, `webz.`, `weba.`); desktop and mobile use an embedded webview, where the
 directive does not apply at all.
 
-⚠️ **CSP ships as `Content-Security-Policy-Report-Only` on purpose.** Two unknowns can
+⚠️ **CSP is enforcing since 2026-09-29** — it shipped as `Content-Security-Policy-Report-Only`
+first, and three weeks of logs (all 60 deployments, searched through the GraphQL
+`deploymentLogs` API) held no real violation. `frame-ancestors` is **ignored** in
+Report-Only, so it was checked by hand instead (Web is `web.telegram.org`, covered by
+`*.telegram.org`). If the panel ever goes blank in one client, this header is the first
+suspect; `report-uri` is still on. The original reasoning: two unknowns can
 only be settled live: the inline `style=` attributes in `panel.html` (hence
 `'unsafe-inline'` on `style-src`) and how Telegram Desktop's webview answers
 `frame-ancestors`. `POST /csp-report` logs violations to Railway, because Report-Only
@@ -1174,8 +1179,8 @@ tells you nothing on a phone where the console cannot be opened. That endpoint i
 deliberately **not** under `/api/` and deliberately has no `@admin_only` — the browser
 sends the report without our header or cookie — so the "every `/api/*` is guarded" rule
 stays intact. Flip to enforcing only after the log stays quiet through every screen on
-iOS, Android, Desktop and Web; `test_web_xavfsizlik.py` check 6b pins the Report-Only
-state so the flip has to be deliberate.
+iOS, Android, Desktop and Web; `test_web_xavfsizlik.py` check 6b now pins the enforcing
+state.
 
 `del_cookie()` in aiohttp 3.9.5 takes only `domain`/`path`, so logout sets the cookie to
 `""` with `max_age=0` and the **same** `Secure`/`SameSite`/`HttpOnly` attributes instead.

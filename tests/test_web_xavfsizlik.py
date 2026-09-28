@@ -114,7 +114,7 @@ async def main():
         check(5, "sahifa xavfsizlik sarlavhalari bilan keladi",
               h.get("X-Content-Type-Options") == "nosniff"
               and h.get("Referrer-Policy") == "strict-origin-when-cross-origin"
-              and "Content-Security-Policy-Report-Only" in h)
+              and "Content-Security-Policy" in h)
 
         # 401 ham sarlavhali bo'lsin — xato javob ham javob.
         r = await c.get("/api/overview")
@@ -124,17 +124,16 @@ async def main():
         # ── 6) ⭐ X-Frame-Options YO'Q, frame-ancestors BOR ────────
         # `X-Frame-Options` qo'shilsa panel Telegram Web'da (iframe)
         # umuman ochilmay qoladi — CSP esa domen ro'yxatini oladi.
-        csp = r.headers["Content-Security-Policy-Report-Only"]
+        csp = r.headers["Content-Security-Policy"]
         check(6, "X-Frame-Options YO'Q (iframe kerak), frame-ancestors bor",
               "X-Frame-Options" not in r.headers
               and "frame-ancestors" in csp
               and "telegram.org" in csp)
 
-        # ⚠️ REPORT-ONLY. Majburlovchi `Content-Security-Policy`
-        # sarlavhasi hali YUBORILMAYDI: inline `style=` va Desktop
-        # webview'ining xatti-harakati jonli sinovdan o'tmagan.
-        check("6b", "CSP hozircha faqat report-only rejimda",
-              "Content-Security-Policy" not in r.headers)
+        # MAJBURIY (2026-09-29): 3 hafta report-only'da buzilish yo'q.
+        # Ikkalasi birga yuborilmaydi — qaysi amalda ekani aniq bo'lsin.
+        check("6b", "CSP majburiy rejimda, report-only nusxasi yo'q",
+              "Content-Security-Policy-Report-Only" not in r.headers)
         check("6c", "telegram.org skripti va Google Fonts ruxsat etilgan",
               "script-src 'self' https://telegram.org" in csp
               and "https://fonts.gstatic.com" in csp

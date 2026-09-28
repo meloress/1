@@ -20,7 +20,7 @@ from core.config import (
     INACTIVE_STEPS, ACTIVITY_TYPES,
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
     BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT,
-    BIZNES_USLUB_MAX,
+    BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN,
 )
 
 load_dotenv()
@@ -1516,6 +1516,16 @@ async def biznes_tozala() -> None:
         await conn.execute(
             'DELETE FROM biznes_korilgan '
             'WHERE vaqt < NOW() - make_interval(days => $1::int)', 2)
+        # Suhbatdoshlar bilan yozishma — `BIZNES_SAQLASH_KUN` dan eskisi.
+        # Bular BEGONA odamlarning xabarlari (egasi emas); cheksiz saqlash
+        # uchun sabab yo'q. `thread_id < 0` — faqat Business, DM'ga tegmaydi
+        # (qisman indeks `idx_chat_messages_biznes` shu shart bilan).
+        await conn.execute(
+            'DELETE FROM chat_messages WHERE thread_id < 0 '
+            'AND created_at < NOW() - make_interval(days => $1::int)', BIZNES_SAQLASH_KUN)
+        await conn.execute(
+            'DELETE FROM chat_summaries WHERE thread_id < 0 '
+            'AND updated_at < NOW() - make_interval(days => $1::int)', BIZNES_SAQLASH_KUN)
 
 
 @with_db_retry()

@@ -39,7 +39,7 @@ CSP_HISOBOT_LIMIT = 60
 # ishlamaydigan qilardi. Ramkani `frame-ancestors` boshqaradi, u esa
 # aniq domen ro'yxatini qabul qiladi.
 #
-# ⚠️ CSP dastlab REPORT-ONLY, ya'ni HECH NARSA BLOKLANMAYDI. Ikki
+# ⚠️ CSP dastlab REPORT-ONLY edi (endi majburiy — pastda). Ikki
 # noaniqlik bor va ikkalasini ham faqat jonli sinov hal qiladi:
 # panelda inline `style=…` atributlari bor (`panel.html` va JS yasagan
 # HTML), hamda Telegram Desktop'ning o'rnatilgan webview'i
@@ -78,7 +78,12 @@ _SARLAVHALAR = {
     "X-Content-Type-Options": "nosniff",
     # Tashqi saytga o'tilganda to'liq manzil (ID lar bilan) ketmasin.
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Content-Security-Policy-Report-Only": _CSP,
+    # 2026-09-29 dan MAJBURIY: 3 hafta (60 deploy logi) report-only'da
+    # birorta haqiqiy buzilish kelmadi. `frame-ancestors` report-only'da
+    # umuman ishlamaydi — u qo'lda tekshirildi (Web = web.telegram.org,
+    # `*.telegram.org` bilan qoplanadi). Panel oq ekran bo'lib qolsa —
+    # birinchi shu qator; `report-uri` qoldi, sabab Railway logida.
+    "Content-Security-Policy": _CSP,
 }
 
 
