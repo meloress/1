@@ -852,6 +852,8 @@ BIZNES_REJIMLAR = ("buyruq", "yordamchi", "kuzatuv", "avtomat")
 # ochishni aytgan edi. 2026-09-26 da egasi o'lchovsiz, ATAYLAB ochdi —
 # `[tanlov:]` (shaxsiy savol/va'da egasiga) va «🤖 avtojavob» belgisi
 # kiritilgandan keyin. False — tugma yashirinadi va avtomat to'xtaydi.
+# Bu faqat STANDART: jonli qiymat `handlers.biznes.BIZNES_AVTOMAT_OCHIQ`,
+# panel (texnik ta'til ekrani) uni deploy'siz o'zgartiradi.
 BIZNES_AVTOMAT_OCHIQ = True
 # Uzatishdan yoki egasi o'zi yozgandan keyin bot shu chatda jim turadi.
 BIZNES_PAUZA_SOAT = 3
@@ -947,6 +949,7 @@ AUDIT_ACTIONS: Dict[str, tuple[str, str]] = {
     # amallarni umuman auditga yozmasdi — ya'ni texnik ta'tilni kim yoqqani
     # va kim kuzatuvga qo'shilgani hech qayerda qolmasdi. Panel yozadi.
     "maintenance":       ("Texnik ta'til",              "tatil"),
+    "biznes_avtomat":    ("Business Avtomat o'chirgichi", "tatil"),
     "export":            ("Ma'lumot eksporti",         "yuklash"),
     "watch_add":         ("Kuzatuvga qo'shildi",        "kuzatuv"),
     "watch_remove":      ("Kuzatuvdan olindi",          "kuzatuv_ol"),

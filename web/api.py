@@ -1336,9 +1336,12 @@ async def maintenance(request: web.Request):
     t = await database_module.get_maintenance()
     from handlers import messages as messages_module    # sikl importni oldini olish
     ish = int(time.time() - BOSHLANGAN)
+    from handlers import biznes as biznes_module
     return web.json_response({
         "active": t["active"],
         "matn": t["message"],
+        # RAM'dagi qiymat — bot aynan shunga amal qiladi.
+        "avtomat": bool(biznes_module.BIZNES_AVTOMAT_OCHIQ),
         "holat": {
             # Maketda «Oxirgi deploy 44003a8 · 21:12» qotirilgandi. Bu
             # ma'lumot Railway muhit o'zgaruvchisida bor, LEKIN mahalliy
@@ -1373,12 +1376,23 @@ async def maintenance_set(request: web.Request):
     else:
         faol = (await database_module.get_maintenance())["active"]
 
+    from handlers import biznes as biznes_module
+    if "avtomat" in tana:
+        # Faqat Avtomat — ta'til holatiga tegilmaydi. Keshni SHU so'rovda
+        # yangilaymiz: busiz bazada «o'chiq», bot esa javob yozishda davom.
+        ochiq = bool(tana["avtomat"])
+        await database_module.set_biznes_avtomat(ochiq)
+        biznes_module.BIZNES_AVTOMAT_OCHIQ = ochiq
+        await _yoz(request, "biznes_avtomat", None, "ochildi" if ochiq else "yopildi")
+        return web.json_response({"ok": True, "avtomat": ochiq})
+
     await database_module.set_maintenance(faol, matn)
     await _yoz(request, "maintenance", None,
                ("yoqildi" if faol else "o'chirildi") + (" + matn" if matn else ""))
     yangi = await database_module.get_maintenance()
     return web.json_response({"ok": True, "active": yangi["active"],
-                              "matn": yangi["message"]})
+                              "matn": yangi["message"],
+                              "avtomat": bool(biznes_module.BIZNES_AVTOMAT_OCHIQ)})
 
 
 @admin_only

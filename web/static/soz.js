@@ -132,6 +132,7 @@ window.SOZ = {
     adminOl: "Admin huquqi olib tashlansinmi?",
     kuzatuvOl: "Kuzatuvdan olib tashlansinmi?",
     tatil:   "Texnik ta'til yoqilsinmi? Adminlardan boshqa hamma javob o'rniga ogohlantirish oladi.",
+    avtomat: "Business Avtomat HAMMA uchun o'chirilsinmi? Bot mijozlarga o'zi javob yozishni to'xtatadi.",
     sovga:   "Bepul Pro berilsinmi? Har biriga botdan xabar boradi.",
     tarqatma: "Rejalashtirilgan tarqatma bekor qilinsinmi?",
 
@@ -201,6 +202,8 @@ window.SOZ = {
     guruh:     "Kuzatuv guruhi yangilandi.",
     tatilYoq:  "Texnik ta'til o'chirildi.",
     tatilBor:  "Texnik ta'til YOQILDI.",
+    avtoOchiq: "Business Avtomat ochildi.",
+    avtoYopiq: "Business Avtomat hamma uchun TO'XTATILDI.",
     matn:      "Matn saqlandi.",
     bajarilmadi: "Bajarilmadi"
   },

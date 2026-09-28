@@ -280,6 +280,12 @@ async def create_users_table():
             ALTER TABLE bot_settings
                 ADD COLUMN IF NOT EXISTS limit_overrides JSONB
         ''')
+        # Business Avtomat — HAMMA egalar uchun o'chirgich (panel, texnik
+        # ta'til ekrani). NULL = `BIZNES_AVTOMAT_OCHIQ` standarti.
+        await conn.execute('''
+            ALTER TABLE bot_settings
+                ADD COLUMN IF NOT EXISTS biznes_avtomat BOOLEAN
+        ''')
         # Xatolar jurnali. Ilgari xato FAQAT Railway logida qolardi —
         # ya'ni admin bot buzilganini foydalanuvchi aytgandan keyin
         # bilardi. Jadval ataylab kichik: eng eskilari `log_error()`
@@ -957,12 +963,16 @@ async def get_maintenance() -> Dict[str, Any]:
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow('SELECT maintenance_active, maintenance_message FROM bot_settings WHERE id = 1')
+        row = await conn.fetchrow('SELECT maintenance_active, maintenance_message, '
+                                  'biznes_avtomat FROM bot_settings WHERE id = 1')
         if not row:
-            return {'active': False, 'message': DEFAULT_MAINTENANCE_MESSAGE}
+            return {'active': False, 'message': DEFAULT_MAINTENANCE_MESSAGE,
+                    'avtomat': None}
         return {
             'active': bool(row['maintenance_active']),
             'message': row['maintenance_message'] or DEFAULT_MAINTENANCE_MESSAGE,
+            # None — panelda hech qachon bosilmagan (standart qoladi).
+            'avtomat': row['biznes_avtomat'],
         }
 
 
@@ -1009,6 +1019,16 @@ async def set_maintenance(active: bool, message: Optional[str] = None) -> None:
             ''',
             active, message,
         )
+
+
+@with_db_retry()
+async def set_biznes_avtomat(ochiq: bool) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('UPDATE bot_settings SET biznes_avtomat = $1 WHERE id = 1',
+                           ochiq)
 
 
 def get_watch_target(user_id: int) -> Optional[int]:

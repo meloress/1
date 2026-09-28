@@ -1744,6 +1744,7 @@
   async function tatil() {
     var d = await ol("/api/maintenance");
     $("maintSw").setAttribute("aria-pressed", d.active ? "true" : "false");
+    $("avtoSw").setAttribute("aria-pressed", d.avtomat ? "true" : "false");
     $("m-matn").textContent = d.matn;
     $("m-textarea").value = d.matn;
     var h = d.holat, q = [];
@@ -1921,6 +1922,18 @@
       natijaChiz("m-natija", j.d.active ? S.natija.tatilBor : S.natija.tatilYoq);
       toast(S.saqlandi);
       yuklangan.dash = false;      // sarlavhadagi holat yangilansin
+    });
+
+    $("avtoSw").addEventListener("click", async function () {
+      var sw = $("avtoSw");
+      var ochiq = sw.getAttribute("aria-pressed") !== "true";
+      if (!ochiq && !await tasdiq(S.savol.avtomat)) return;
+      var j = await so_rov("/api/maintenance", { avtomat: ochiq }, null, sw);
+      if (!j.ok) return natijaChiz("m-natija", j.xato, true);
+      // Javobdan keyin — so'rov yiqilsa ekran yolg'on gapirmasin.
+      sw.setAttribute("aria-pressed", j.d.avtomat ? "true" : "false");
+      natijaChiz("m-natija", j.d.avtomat ? S.natija.avtoOchiq : S.natija.avtoYopiq);
+      toast(S.saqlandi);
     });
 
     $("m-tahrir").addEventListener("click", function () {

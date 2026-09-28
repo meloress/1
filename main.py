@@ -58,6 +58,12 @@ async def main():
     # chaqiriladi, u yerdan DB so'rovi qilib bo'lmaydi.
     try:
         config.apply_limit_overrides(await database.get_limit_overrides())
+        # Avtomat o'chirgichi — panelda qo'yilgan bo'lsa (RAM, har xabarda o'qiladi).
+        from handlers import biznes as _biznes
+        _av = (await database.get_maintenance()).get("avtomat")
+        if _av is not None:
+            _biznes.BIZNES_AVTOMAT_OCHIQ = _av
+            logger.info(f"[BIZNES] avtomat (panel): {'ochiq' if _av else 'YOPIQ'}")
     except Exception:
         logger.exception("limit sozlamalari yuklanmadi — config'dagi qiymat ishlatiladi")
     # AI javobidagi emojilarni animatsiyali nusxasiga almashtiruvchi paket.
@@ -84,6 +90,12 @@ async def main():
     # Yiqilsa bot baribir ishlaydi (tekshiruv hech narsani to'xtatmaydi),
     # lekin sabab logda ANIQ ko'rinadi. Ilgari python-pptx import
     # bo'lmay qolganda model jimgina PDF ga o'tib ketardi.
+    # Tarmoq izolyatsiyasi — kutubxona tekshiruvidan OLDIN: u 1-qatlamni
+    # o'chirishi mumkin, kutubxonalar esa yakuniy rejimda tekshirilsin.
+    try:
+        logger.info(f"🔒 [Sandbox] tarmoq: {await sandbox.tarmoq_tekshir()}")
+    except Exception as e:
+        logger.warning(f"[Sandbox] tarmoq tekshiruvi bajarilmadi: {e}")
     try:
         nosozliklar = await sandbox.check_libraries()
         if nosozliklar:

@@ -1605,7 +1605,7 @@ empty it does nothing at all, so a deployment without a domain behaves exactly a
 
 ### Sandbox
 
-`services/sandbox.py` runs model-written Python with a scrubbed environment (no `BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`), a fresh temp cwd, a 60s timeout and RLIMITs on Linux. **Network is not blocked** — Railway offers no container isolation; the mitigation is that there are no secrets to steal and the timeout caps abuse.
+`services/sandbox.py` runs model-written Python with a scrubbed environment (no `BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`), a fresh temp cwd, a 60s timeout and RLIMITs on Linux. **Network is closed (2026-09-29)** — the same Railway project runs Postgres, `Web-panel` and other bots on the internal network, so model-written code could reach them. Two layers: an empty network namespace (`unshare` USER+NET in `preexec_fn`) where the container allows it, and `_qoriqchi.py`, which patches `socket`/DNS and then `runpy`s `script.py` (line numbers unchanged). The second layer alone is bypassable via `_socket`/ctypes; the startup log line `🔒 [Sandbox] tarmoq: …` says which layers are live — read it after a deploy. `tarmoq_tekshir()` turns layer 1 off if it breaks file writes. Tracebacks keep the **tail** (`[-3000:]`): the head-cut used to drop the actual error line. `tests/test_sandbox_tarmoq.py`.
 
 `services/sandbox_helpers/` must stay next to `sandbox.py`; it is located via `Path(__file__).parent` and copied into each run.
 

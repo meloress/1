@@ -89,6 +89,9 @@ def soxta_baza():
         if message is not None:            # COALESCE: None matnni o'zgartirmaydi
             HOLAT["maintenance"]["message"] = message
 
+    async def set_biznes_avtomat(ochiq):
+        HOLAT["avtomat_db"] = ochiq
+
     async def get_watch_group_id():
         return HOLAT["guruh"]
 
@@ -269,6 +272,21 @@ async def main():
         await c.post("/api/maintenance", headers=h, json={"active": False})
         assert len(amal("maintenance")) == 3, AUDIT
         print("[6] ta'til: matn tahriri rejimni o'zgartirmaydi, hammasi auditda OK")
+
+        # 6b) Business Avtomat o'chirgichi: bot RAM'dagi qiymatga amal qiladi,
+        #     shuning uchun panel uni SHU so'rovda yangilashi shart; ta'tilga
+        #     tegmaydi va auditda qoladi.
+        from handlers import biznes as biznes_m
+        oldin_tatil = (await (await c.get("/api/maintenance", headers=h)).json())["active"]
+        r = await c.post("/api/maintenance", headers=h, json={"avtomat": False})
+        assert r.status == 200 and (await r.json())["avtomat"] is False
+        assert biznes_m.BIZNES_AVTOMAT_OCHIQ is False, "RAM yangilanmadi — bot javob yozishda davom etadi"
+        assert HOLAT.get("avtomat_db") is False
+        d = await (await c.get("/api/maintenance", headers=h)).json()
+        assert d["avtomat"] is False and d["active"] == oldin_tatil, d
+        await c.post("/api/maintenance", headers=h, json={"avtomat": True})
+        assert biznes_m.BIZNES_AVTOMAT_OCHIQ is True and len(amal("biznes_avtomat")) == 2
+        print("[6b] Avtomat o'chirgichi: RAM shu so'rovda, ta'tilga tegmaydi, auditda OK")
 
         # 7) Holat kartochkasi SOXTA raqam ko'rsatmaydi.
         d = await (await c.get("/api/maintenance", headers=h)).json()

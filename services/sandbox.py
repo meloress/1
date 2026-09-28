@@ -16,10 +16,15 @@ IZOLYATSIYA (nima himoyalangan va nima yo'q — ochiq-oydin):
     RLIMIT orqali; Windows'da bu chegaralar ishlamaydi, faqat timeout).
   ✓ `python -s -E` — PYTHONPATH va foydalanuvchi site-packages
     e'tiborga olinmaydi.
-  ✗ Tarmoq BLOKLANMAGAN. Haqiqiy konteyner/namespace izolyatsiyasisiz
-    (Railway'da Docker-in-Docker mavjud emas) buni ta'minlab bo'lmaydi.
-    Xavf cheklangan, chunki muhit tozalangani uchun o'g'irlanadigan
-    sir yo'q, timeout esa suiiste'molni 60 soniya bilan cheklaydi.
+  ✓ Tarmoq YOPIQ (2026-09-29). Sabab: shu Railway loyihasida ichki
+    tarmoqda Postgres, Web-panel va boshqa botlar turibdi — model yozgan
+    kod (prompt-injection bilan) ularga ulana olardi. Ikki qatlam:
+      1) Linux: bo'sh tarmoq nomlar maydoni (`unshare` USER+NET) — haqiqiy
+         izolyatsiya. Konteyner ruxsat bermasa — 2-qatlam qoladi.
+      2) `_qoriqchi.py`: socket ulanishi va DNS Python darajasida taqiqlanadi.
+    ponytail: 2-qatlam `_socket`/ctypes orqali aylanib o'tiladi — 1-qatlam
+    ishlamasa bu to'liq himoya EMAS; ishga tushishda logda qaysi biri
+    ishlagani yoziladi (`tarmoq_tekshir`).
 """
 import asyncio
 import logging
@@ -106,8 +111,53 @@ def _build_child_env(work_dir: Path) -> dict:
     return env
 
 
+# 1-qatlam yoqilganmi. `tarmoq_tekshir()` uni o'chiradi, agar nomlar
+# maydoni ichida fayl yozish buzilsa (sandbox ishlamay qolgandan ko'ra
+# faqat 2-qatlam yaxshi).
+_NETNS = True
+_CLONE_NEWUSER, _CLONE_NEWNET = 0x10000000, 0x40000000
+
+
+def _tarmoqni_yop() -> None:
+    """Bola-jarayonni tarmoq interfeysi yo'q nomlar maydoniga o'tkazadi.
+    Yiqilsa jim — 2-qatlam (`_qoriqchi.py`) baribir ishlaydi."""
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        uid, gid = os.getuid(), os.getgid()
+        if libc.unshare(_CLONE_NEWUSER | _CLONE_NEWNET) != 0:
+            return
+        # Xaritasiz foydalanuvchi fayl yarata olmaydi (EOVERFLOW) — o'zini
+        # o'ziga moslaymiz.
+        for yol, matn in (("/proc/self/setgroups", "deny"),
+                          ("/proc/self/uid_map", f"{uid} {uid} 1"),
+                          ("/proc/self/gid_map", f"{gid} {gid} 1")):
+            with open(yol, "w") as f:
+                f.write(matn)
+    except Exception:
+        pass
+
+
+# 2-qatlam: skriptdan OLDIN ishlaydi, keyin `script.py` ni `__main__`
+# sifatida bajaradi — traceback'dagi qator raqamlari o'zgarmaydi (model
+# xatosini aynan o'sha qatordan tuzatadi).
+_QORIQCHI = '''import socket, _socket, runpy, sys
+def _yopiq(*a, **k):
+    raise PermissionError("Sandbox: internet yopiq. Kerakli fayllar oldindan berilgan.")
+for _n in ("getaddrinfo", "gethostbyname", "gethostbyname_ex", "create_connection"):
+    setattr(socket, _n, _yopiq)
+for _n in ("getaddrinfo", "gethostbyname", "gethostbyname_ex"):
+    setattr(_socket, _n, _yopiq)
+socket.socket.connect = socket.socket.connect_ex = _yopiq
+sys.argv = ["script.py"]
+runpy.run_path("script.py", run_name="__main__")
+'''
+
+
 def _apply_limits() -> None:
     """Bola-jarayonda exec'dan OLDIN chaqiriladi (faqat POSIX)."""
+    if _NETNS:
+        _tarmoqni_yop()
     # CPU: 55s yumshoq / 60s qattiq — timeout bilan bir xil tartibda.
     resource.setrlimit(resource.RLIMIT_CPU, (55, 60))
     # ⚠️ XOTIRA: RLIMIT_AS ISHLATILMAYDI, RLIMIT_DATA ishlatiladi.
@@ -230,6 +280,7 @@ async def run_in_sandbox(
             (work_dir / _safe_extra_name(raw_name)).write_bytes(content)
 
         (work_dir / "script.py").write_text(code, encoding="utf-8")
+        (work_dir / "_qoriqchi.py").write_text(_QORIQCHI, encoding="utf-8")
 
         # `-s -E`: foydalanuvchi site-packages va muhit o'zgaruvchilari
         # e'tiborga olinmaydi. `-I` ISHLATILMAYDI, chunki u skript papkasini
@@ -245,7 +296,7 @@ async def run_in_sandbox(
         # raundlarini behuda sarflaydi. Bu bayroq env emas, shuning uchun
         # `-E` uni bosa olmaydi.
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-s", "-E", "-X", "utf8", "script.py",
+            sys.executable, "-s", "-E", "-X", "utf8", "_qoriqchi.py",
             cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -278,8 +329,11 @@ async def run_in_sandbox(
             return SandboxResult(
                 success=False,
                 stdout=stdout[:2000],
-                stderr=stderr[:3000],
-                traceback=(stderr or stdout or "Noma'lum xatolik")[:3000],
+                # OXIRI qoldiriladi: xatoning o'zi traceback'ning oxirgi
+                # qatorida. Boshidan kesilganda model "nima yiqildi"ni
+                # ko'rmay, kodni ko'r-ko'rona qayta yozardi.
+                stderr=stderr[-3000:],
+                traceback=(stderr or stdout or "Noma'lum xatolik")[-3000:],
             )
 
         files, warnings = _collect_output_files(output_dir)
@@ -330,6 +384,38 @@ async def check_libraries() -> list[str]:
     if not result.success:
         return [f"tekshiruvning o'zi yiqildi: {result.traceback[:300]}"]
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+_TARMOQ_SINOV = (
+    "import _socket\n"
+    "open('output/ok.txt', 'w').write('ok')\n"
+    "s = _socket.socket(); s.settimeout(3)\n"
+    "try:\n"
+    "    s.connect(('1.1.1.1', 53)); print('OCHIQ')\n"
+    "except Exception as e:\n"
+    "    print('YOPIQ', type(e).__name__)\n"
+)
+
+
+async def tarmoq_tekshir() -> str:
+    """Ishga tushishda: 1-qatlam (nomlar maydoni) HAQIQATDA ishlayaptimi.
+
+    `_socket` 2-qatlamni chetlab o'tadi — shuning uchun bu sinov faqat
+    1-qatlamni o'lchaydi. Nomlar maydonida fayl yozish buzilsa, 1-qatlam
+    o'chiriladi: tarmoqsiz sandbox'dan ko'ra ishlamaydigan sandbox yomonroq.
+    """
+    global _NETNS
+    r = await run_in_sandbox(_TARMOQ_SINOV)
+    if _NETNS and not (r.success and r.output_files):
+        _NETNS = False
+        r = await run_in_sandbox(_TARMOQ_SINOV)
+        if r.success:
+            return "1-qatlam fayl yozishni buzdi va o'chirildi; faqat Python qo'riqchisi"
+    if not r.success:
+        return f"sinovning o'zi yiqildi: {r.traceback[:200]}"
+    if "YOPIQ" in r.stdout:
+        return "yopiq (nomlar maydoni + Python qo'riqchisi)"
+    return "faqat Python qo'riqchisi (konteyner nomlar maydoniga ruxsat bermadi)"
 
 
 def _kill_process_tree(proc) -> None:
