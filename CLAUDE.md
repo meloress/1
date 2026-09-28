@@ -629,6 +629,15 @@ returns that row count, which it was computing anyway for the trim limits, so th
 costs no extra query. `tests/test_topic_nom.py` check 3 is the one holding the line: it
 runs two full exchanges and asserts Telegram was called once.
 
+**The icon comes in the same call** (2026-09-29). Telegram only accepts icons from its own
+set (`getForumTopicIconStickers`, 112 emoji, fetched once into `_IKONKALAR`), so the
+naming prompt lists them (+269 tokens, once per topic, mini bucket) and the model answers
+`EMOJI | Sarlavha`. `_ikonka_ajrat()` matches ignoring U+FE0F; an emoji outside the set
+(live: 🐙) means no icon, never no name, and a rejected icon retries with the name alone.
+Same once-only rule as the name — the bot cannot see an icon the user picked.
+`tests/test_topic_nom.py` checks 20-25. ⚠️ Not yet live-tested inside a real private-chat
+topic; the fallback is what makes that safe.
+
 One consequence is deliberate: `/new` empties the topic's history, so the next exchange
 starts from row 1 and the topic is renamed again. That is the right behaviour — the
 conversation genuinely changed — but it does mean a hand-typed name does not survive

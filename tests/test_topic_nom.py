@@ -178,6 +178,68 @@ check(19, "har bir return `jami` ni qaytaradi",
       len(qaytish) >= 2 and all(isinstance(r.value, ast.Name)
                                 and r.value.id == "jami" for r in qaytish))
 
+# --------------------------------------------------
+# 5. Ikonka — Telegram to'plamidan, nom bilan BIR chaqiruvda
+# --------------------------------------------------
+class Stiker:
+    def __init__(self, emoji, cid):
+        self.emoji, self.custom_emoji_id = emoji, cid
+
+
+IKON = [Stiker("💻", "id-kod"), Stiker("💰", "id-pul"), Stiker("✈️", "id-sayohat")]
+
+
+class IkonkaliBot(SoxtaBot):
+    def __init__(self, xato_ikonkaga=False):
+        super().__init__()
+        self.xato_ikonkaga = xato_ikonkaga
+
+    async def get_forum_topic_icon_stickers(self):
+        return IKON
+
+    async def edit_forum_topic(self, **kw):
+        self.chaqiruvlar.append(kw)
+        if self.xato_ikonkaga and "icon_custom_emoji_id" in kw:
+            raise RuntimeError("ICON_INVALID")
+
+
+def ikonka_yur(matn, xato_ikonkaga=False):
+    asl_bot, asl_kesh = ai.bot, ai._IKONKALAR
+    bot_ = IkonkaliBot(xato_ikonkaga)
+    ai.bot, ai._IKONKALAR = bot_, None
+    oai = SoxtaOpenAI(matn)
+    asl_oai, ai.openai_client = ai.openai_client, oai
+    try:
+        asyncio.run(ai.nomla_mavzu(111, 55, "python ro'yxati nima?"))
+        return bot_.chaqiruvlar, oai.responses.chaqiruvlar
+    finally:
+        ai.bot, ai._IKONKALAR, ai.openai_client = asl_bot, asl_kesh, asl_oai
+
+# (bloklanmagan — `biznes_mavzumi` fayl boshida soxtalashtirilgan)
+if True:
+    tg, model = ikonka_yur("💻 | Python ro'yxatlari")
+    check(20, "ikonka nom bilan birga qo'yiladi",
+          len(tg) == 1 and tg[0].get("icon_custom_emoji_id") == "id-kod"
+          and tg[0].get("name") == "Python ro'yxatlari")
+    check(21, "modelga ruxsat etilgan emoji ro'yxati beriladi, chaqiruv BITTA",
+          len(model) == 1 and "💻" in model[0]["instructions"]
+          and "✈" in model[0]["instructions"])
+    tg, _ = ikonka_yur("✈ | Samarqandga sayohat")      # U+FE0F'siz
+    check(22, "emoji U+FE0F'siz yozilsa ham topiladi",
+          tg and tg[0].get("icon_custom_emoji_id") == "id-sayohat")
+    tg, _ = ikonka_yur("🐙 | Sakkizoyoqlar")
+    check(23, "ro'yxatda yo'q emoji — ikonkasiz, nom baribir",
+          len(tg) == 1 and "icon_custom_emoji_id" not in tg[0]
+          and tg[0].get("name") == "Sakkizoyoqlar")
+    tg, _ = ikonka_yur("💰 Oylik byudjet")
+    check(24, "ajratgichsiz «💰 Nom» ham tushuniladi",
+          tg and tg[0].get("icon_custom_emoji_id") == "id-pul"
+          and tg[0].get("name") == "Oylik byudjet")
+    tg, _ = ikonka_yur("💻 | Python ro'yxatlari", xato_ikonkaga=True)
+    check(25, "Telegram ikonkani rad etsa — nom ikonkasiz qayta qo'yiladi",
+          len(tg) == 2 and "icon_custom_emoji_id" not in tg[1]
+          and tg[1].get("name") == "Python ro'yxatlari")
+
 print()
 print("XATO YO'Q" if not _xato else f"{_xato} TA XATO")
 sys.exit(1 if _xato else 0)

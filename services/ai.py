@@ -181,6 +181,48 @@ _MAVZU_NOM_PROMPT = (
 )
 
 
+# Mavzu ikonkasi FAQAT Telegram'ning tayyor to'plamidan bo'ladi
+# (`getForumTopicIconStickers`) — ixtiyoriy emoji rad etiladi. Ro'yxat
+# o'zgarmaydi: bir marta olinadi, xato bo'lsa keyingi mavzuda qayta.
+_IKONKALAR: Optional[dict] = None
+
+
+def _emoji_kaliti(e: str) -> str:
+    # U+FE0F (rangli ko'rinish belgisi) modelda bor-yo'qligi tasodifiy.
+    return (e or "").replace(chr(0xFE0F), "").strip()
+
+
+async def _mavzu_ikonkalari() -> dict:
+    """{emoji: custom_emoji_id}. Olib bo'lmasa — bo'sh (nom ikonkasiz)."""
+    global _IKONKALAR
+    if _IKONKALAR is None:
+        try:
+            st = await bot.get_forum_topic_icon_stickers()
+            _IKONKALAR = {_emoji_kaliti(s.emoji): s.custom_emoji_id
+                          for s in st if s.emoji and s.custom_emoji_id}
+        except Exception as e:
+            logger.info(f"[MAVZU] ikonkalar olinmadi: {str(e) or type(e).__name__}")
+            return {}
+    return _IKONKALAR
+
+
+def _ikonka_ajrat(matn: str, ikonkalar: dict) -> tuple:
+    """«💻 | Python ro'yxatlari» → (custom_emoji_id | None, qolgan matn).
+    Ro'yxatda yo'q emoji — ikonkasiz, nom baribir qoladi."""
+    satrlar = (matn or "").strip().splitlines()
+    if not satrlar or not ikonkalar:
+        return None, matn
+    birinchi = satrlar[0]
+    if "|" in birinchi:
+        e, nom = birinchi.split("|", 1)
+    else:
+        # Model ajratgichni unutsa: «💻 Python ro'yxatlari».
+        e, _, nom = birinchi.strip().partition(" ")
+        if _emoji_kaliti(e) not in ikonkalar:
+            return None, matn
+    return ikonkalar.get(_emoji_kaliti(e)), nom.strip()
+
+
 def nomlash_kerakmi(chat_id: int, thread_id: int, role: str,
                     jami: int) -> bool:
     """Shu yozuvdan keyin mavzuga nom qo'yiladimi?
@@ -246,21 +288,41 @@ async def nomla_mavzu(chat_id: int, thread_id: int, savol: str) -> None:
     if await biznes_mavzumi(chat_id, thread_id):
         return
     try:
+        # Ikonka nom bilan BIR chaqiruvda so'raladi — qo'shimcha model
+        # chaqiruvi yo'q. U ham faqat bir marta qo'yiladi (nom bilan bir xil
+        # sabab: bot foydalanuvchi tanlagan ikonkani ko'ra olmaydi).
+        ikonkalar = await _mavzu_ikonkalari()
+        yoriq = _MAVZU_NOM_PROMPT
+        if ikonkalar:
+            yoriq += ("\n\nSarlavha oldidan mavzuga eng mos BITTA emoji qo'ying, "
+                      "shu ko'rinishda: «EMOJI | Sarlavha». Emoji FAQAT shu "
+                      "ro'yxatdan: " + " ".join(ikonkalar) + ". Mosi bo'lmasa "
+                      "— «- | Sarlavha».")
         resp = await asyncio.wait_for(
             openai_client.responses.create(
                 model=HISTORY_SUMMARY_MODEL,
-                instructions=_MAVZU_NOM_PROMPT,
+                instructions=yoriq,
                 input=[{"role": "user", "content": savol}],
                 store=False,
             ),
             timeout=30,
         )
-        nom = _nom_tozala(resp.output_text or "")
+        ikonka, matn = _ikonka_ajrat(resp.output_text or "", ikonkalar)
+        nom = _nom_tozala(matn)
         if not nom:
             return
-        await bot.edit_forum_topic(chat_id=chat_id,
-                                   message_thread_id=thread_id, name=nom)
-        logger.info(f"[MAVZU] chat={chat_id} mavzu={thread_id} -> «{nom}»")
+        kw = {"chat_id": chat_id, "message_thread_id": thread_id, "name": nom}
+        try:
+            await bot.edit_forum_topic(**kw, **(
+                {"icon_custom_emoji_id": ikonka} if ikonka else {}))
+        except Exception:
+            if not ikonka:
+                raise
+            # Ikonka rad etilsa — nom baribir qo'yilsin (bezak nomdan kam).
+            ikonka = None
+            await bot.edit_forum_topic(**kw)
+        logger.info(f"[MAVZU] chat={chat_id} mavzu={thread_id} -> «{nom}»"
+                    + (" + ikonka" if ikonka else ""))
     except Exception as e:
         # Nom qo'yilmasligi — bezak yo'qotilishi, javob emas. Telegram
         # rad etsa (huquq yo'q, mavzu o'chirilgan) qayta urinmaymiz.
