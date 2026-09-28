@@ -443,6 +443,12 @@ async def create_users_table():
                 last_sent_at TIMESTAMPTZ
             );
         ''')
+        # TRUE — vaqti kelganda bot ishni O'ZI bajaradi (qidiradi, javob
+        # yozadi); FALSE — oddiy eslatma. Eski qatorlar eslatma bo'lib qoladi.
+        await conn.execute('''
+            ALTER TABLE scheduled_tasks
+                ADD COLUMN IF NOT EXISTS vazifa BOOLEAN NOT NULL DEFAULT FALSE
+        ''')
 
         # Telegram Business ulanishlari (REJA.md 0.5). Har `business_message`
         # ulanishni o'qiydi — shuning uchun RAM keshdan (`_biznes_kesh`),
@@ -2519,7 +2525,7 @@ def next_run_at(current: datetime, repeat: str,
 
 @with_db_retry()
 async def create_scheduled_task(user_id: int, text: str, when: str,
-                                repeat: str = "once") -> str:
+                                repeat: str = "once", vazifa: bool = False) -> str:
     """Eslatma yaratadi. Qaytgan satr to'g'ridan-to'g'ri modelga boradi."""
     text = clean_reminder_text(text)
     if not text:
@@ -2542,11 +2548,12 @@ async def create_scheduled_task(user_id: int, text: str, when: str,
             return (f"eslatmalar to'la ({MAX_ACTIVE_REMINDERS} ta) — "
                     "avval keraksizini bekor qiling")
         await conn.execute(
-            'INSERT INTO scheduled_tasks (user_id, text, run_at, repeat) '
-            'VALUES ($1, $2, $3, $4)',
-            user_id, text, run_at, repeat)
+            'INSERT INTO scheduled_tasks (user_id, text, run_at, repeat, vazifa) '
+            'VALUES ($1, $2, $3, $4, $5)',
+            user_id, text, run_at, repeat, bool(vazifa))
     return f"qo'yildi: {run_at:%Y-%m-%d %H:%M}" + (
-        f" ({repeat})" if repeat != "once" else "")
+        f" ({repeat})" if repeat != "once" else "") + (
+        " — vaqti kelganda bajarib, natijani yuboraman" if vazifa else "")
 
 
 @with_db_retry()
@@ -2556,7 +2563,7 @@ async def list_scheduled_tasks(user_id: int) -> List[Dict[str, Any]]:
         await create_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            'SELECT id, text, run_at, repeat FROM scheduled_tasks '
+            'SELECT id, text, run_at, repeat, vazifa FROM scheduled_tasks '
             'WHERE user_id = $1 AND active ORDER BY run_at', user_id)
     return [dict(r) for r in rows]
 
@@ -2588,7 +2595,7 @@ async def due_scheduled_tasks(limit: int = 100) -> List[Dict[str, Any]]:
         await create_db_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            'SELECT id, user_id, text, run_at, repeat FROM scheduled_tasks '
+            'SELECT id, user_id, text, run_at, repeat, vazifa FROM scheduled_tasks '
             'WHERE active AND run_at <= NOW() ORDER BY run_at LIMIT $1', limit)
     return [dict(r) for r in rows]
 

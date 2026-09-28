@@ -240,6 +240,8 @@ SECTIONS: dict[str, dict] = {
             "(/research)\n"
             "├ ⏰ <b>Eslatmalar</b> — «ertaga soat 9 da eslat» desangiz, "
             "o'sha vaqtda o'zim yozaman\n"
+            "├ 🔁 <b>Vazifalar</b> — «har kuni 9 da dollar kursini yubor»: "
+            "vaqti kelganda o'zim qidirib, natijani yuboraman\n"
             "├ 📰 <b>Kunlik daydjest</b> — tanlagan mavzularingiz bo'yicha "
             "(/kunlik)\n"
             "├ 💼 <b>Telegram Business</b> — shaxsiy chatlaringizda "

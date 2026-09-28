@@ -3748,6 +3748,14 @@ _REMINDER_TOOL = {
                      "description": "'YYYY-MM-DD HH:MM' Toshkent vaqti (create uchun)."},
             "repeat": {"type": "string",
                        "enum": ["once", "daily", "weekly", "monthly"]},
+            "task": {"type": "boolean",
+                     "description": (
+                         "true — vaqti kelganda bot ishni O'ZI BAJARADI va "
+                         "natijani yuboradi (internetdan qidiradi): «har kuni "
+                         "9 da dollar kursini yubor», «har dushanba "
+                         "yangiliklarni ayt». Unda `text` — bajariladigan "
+                         "so'rov: «Bugungi USD/UZS kursi». false (standart) — "
+                         "faqat eslatish: «qo'ng'iroq qilishni eslat».")},
             "index": {"type": "integer",
                       "description": "Ro'yxatdagi raqam (cancel uchun)."},
         },
@@ -3814,7 +3822,7 @@ async def _run_reminder_task(user_id: Optional[int], args: dict) -> str:
         if action == "create":
             return await create_scheduled_task(
                 user_id, args.get("text", ""), args.get("when", ""),
-                args.get("repeat", "once"))
+                args.get("repeat", "once"), vazifa=args.get("task") is True)
 
         rows = await list_scheduled_tasks(user_id)
         if action == "list":
@@ -3823,6 +3831,7 @@ async def _run_reminder_task(user_id: Optional[int], args: dict) -> str:
             return "; ".join(
                 f"{i}. {r['run_at']:%Y-%m-%d %H:%M}"
                 + (f" ({r['repeat']})" if r["repeat"] != "once" else "")
+                + (" [bajaradi]" if r.get("vazifa") else "")
                 + f" — {r['text']}"
                 for i, r in enumerate(rows, 1))
 

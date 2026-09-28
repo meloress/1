@@ -501,6 +501,19 @@ Whatever the model writes into a tool call reaches the database. Validation live
 - `parse_run_at()` rejects past times, unparseable strings and dates beyond `REMINDER_MAX_AHEAD_DAYS`.
 - Every `UPDATE`/`DELETE` driven by a model-supplied index carries `AND user_id = $N`; the index is bounds-checked against the list actually shown to the model *before* touching the DB (note `isinstance(idx, bool)` — `True` is an `int` in Python).
 
+### A reminder can do the work, not just announce it
+
+`manage_reminder(task=true)` (2026-09-29) stores `scheduled_tasks.vazifa = TRUE`; at fire
+time `helpers._vazifani_bajar()` runs the text through the **full loop** (search, internet
+images) and sends the answer — "har kuni 9 da dollar kursini yubor" used to deliver the
+words "dollar kursi" every morning. Three rules, `tests/test_reminders.py` checks 18-22:
+the run uses `chat_id=0` (the user's history is not re-sent each morning) but the **result
+is written to the user's history**, so "tell me more" works; a lapsed Pro gets the cheap
+plain reminder, not a paid search; and any failure falls back to the plain reminder —
+someone relying on it must never get nothing. It runs as a background task so one slow
+search does not delay everyone else's 09:00. Live-tested: the model sets `task` for
+"yuborib tur" and leaves it off for "qo'ng'iroq qilishni eslat".
+
 ### Two kinds of memory
 
 - **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Keyed on `(chat_id, thread_id)`, see the Topics section. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.

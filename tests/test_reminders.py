@@ -15,6 +15,8 @@ Uchta narsa qo'riqlanadi, uchalasi ham ISHONCH CHEGARASI:
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import asyncio
 from datetime import datetime, timedelta
 
@@ -214,6 +216,101 @@ async def test_ai_body():
     print("[17] model yiqilsa ham eslatma yetib boradi OK")
 
 
+async def test_vazifa():
+    """Rejalashtirilgan VAZIFA: vaqti kelganda bot ishni o'zi bajaradi.
+
+    ⛔️ vazifa oddiy eslatma bo'lib ketadi (faqat matn qaytadi);
+    ⛔️ oddiy eslatma qimmat qidiruvli so'rovga aylanadi;
+    ⛔️ Pro tugagan odamga har kuni qidiruvli so'rov (pul) ketaveradi;
+    ⛔️ yiqilganda odam HECH NARSA olmaydi;
+    ⛔️ natija tarixga yozilmaydi — «batafsil ayt» ishlamaydi.
+    """
+    from handlers import helpers
+    import handlers.messages as msg
+    import services.ai as ai_mod
+
+    # 18) Model `task` ni faqat aniq True bo'lganda vazifa qiladi.
+    q = []
+
+    async def fake_create(user_id, text, when, repeat="once", vazifa=False):
+        q.append(vazifa)
+        return "qo'yildi"
+
+    real_create = ai_mod.create_scheduled_task
+    ai_mod.create_scheduled_task = fake_create
+    try:
+        for t in (True, "true", None):
+            await ai_mod._run_reminder_task(5, {"action": "create", "text": "x",
+                                                "when": "2099-01-01 09:00", "task": t})
+    finally:
+        ai_mod.create_scheduled_task = real_create
+    sxema = ai_mod._REMINDER_TOOL["parameters"]["properties"]
+    assert q == [True, False, False] and sxema["task"]["type"] == "boolean", q
+    print("[18] `task` maydoni: faqat true — vazifa OK")
+
+    # 19-21) Bajaruvchi.
+    j = {"pro": True, "chaqiruv": None, "yuborildi": [], "tarix": [], "eslatma": []}
+
+    async def pro(uid):
+        return j["pro"]
+
+    async def reply(chat_id, prompt, **kw):
+        j["chaqiruv"] = (chat_id, prompt, kw)
+        yield "[STATUS]search"
+        yield "qidiryapman…"
+        yield "[CLEAR_TEXT]⏰ Dollar kursi\n\n1 USD = 12 000 so'm"
+
+    async def rich(chat_id, **kw):
+        j["yuborildi"].append((chat_id, kw.get("markdown", "")))
+        return object()
+
+    async def tarix(chat_id, content, role="user", **kw):
+        j["tarix"].append((chat_id, role, content))
+
+    async def eslat(user_id, text):
+        j["eslatma"].append(text)
+
+    asl = (helpers.database.pro_tarifmi, ai_mod.get_gpt_reply, msg._send_rich_message,
+           ai_mod.safe_update_history, helpers._send_reminder)
+    helpers.database.pro_tarifmi, ai_mod.get_gpt_reply = pro, reply
+    msg._send_rich_message, ai_mod.safe_update_history = rich, tarix
+    helpers._send_reminder = eslat
+    try:
+        await helpers._vazifani_bajar(7, "Bugungi USD/UZS kursi")
+        chat, prompt, kw = j["chaqiruv"]
+        assert chat == 0 and "user_id" not in kw and isinstance(kw.get("images_out"), list), kw
+        assert "Bugungi USD/UZS kursi" in prompt and kw.get("tools_enabled", True) is True
+        assert j["yuborildi"] and j["yuborildi"][0][0] == 7
+        assert "qidiryapman" not in j["yuborildi"][0][1] and "12 000" in j["yuborildi"][0][1]
+        assert [(c, r) for c, r, _ in j["tarix"]] == [(7, "user"), (7, "assistant")], j["tarix"]
+        assert not j["eslatma"]
+        print("[19] vazifa: qidiruvli halqa, natija odamga va uning tarixiga OK")
+
+        j["pro"], j["chaqiruv"] = False, None
+        await helpers._vazifani_bajar(7, "Bugungi USD/UZS kursi")
+        assert j["chaqiruv"] is None and j["eslatma"] == ["Bugungi USD/UZS kursi"]
+        print("[20] Pro tugagan — model chaqirilmaydi, oddiy eslatma OK")
+
+        async def yiqil(*a, **k):
+            raise RuntimeError("model yiqildi")
+            yield ""
+        j["pro"], j["eslatma"] = True, []
+        ai_mod.get_gpt_reply = yiqil
+        await helpers._vazifani_bajar(7, "Bugungi USD/UZS kursi")
+        assert j["eslatma"] == ["Bugungi USD/UZS kursi"], "yiqilganda odam hech narsa olmadi"
+        print("[21] yiqilsa — oddiy eslatma baribir yetib boradi OK")
+    finally:
+        (helpers.database.pro_tarifmi, ai_mod.get_gpt_reply, msg._send_rich_message,
+         ai_mod.safe_update_history, helpers._send_reminder) = asl
+
+    # 22) Kuzatuvchi: vazifa — bajaruvchiga, eslatma — eslatmaga.
+    from _manba import kod
+    w = kod(os.path.join(ROOT, "handlers", "helpers.py"))
+    w = w[w.index("async def reminder_watcher("):w.index("async def premium_expiry_watcher(")]
+    assert 'if row.get("vazifa"):' in w and "_vazifani_bajar(" in w and "_send_reminder(" in w
+    print("[22] kuzatuvchi vazifani bajaruvchiga, eslatmani eslatmaga yuboradi OK")
+
+
 async def main():
     test_clean_text()
     test_parse_run_at()
@@ -221,7 +318,8 @@ async def main():
     await test_index_bounds()
     await test_cleanup_and_limits()
     await test_ai_body()
-    print("\neslatmalar: barcha tekshiruvlar o'tdi (17/17).")
+    await test_vazifa()
+    print("\neslatmalar: barcha tekshiruvlar o'tdi (22/22).")
 
 
 if __name__ == "__main__":

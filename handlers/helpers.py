@@ -423,6 +423,59 @@ async def _send_reminder(user_id: int, task_text: str) -> None:
         user_id, _REMINDER_FALLBACK.format(html_escape(body or task_text)))
 
 
+async def _vazifani_bajar(user_id: int, task_text: str) -> None:
+    """Rejalashtirilgan VAZIFA: vaqti kelganda so'rovni to'liq halqada
+    bajaradi (qidiruv, internet rasmlari) va natijani yuboradi.
+
+    - chat_id=0: foydalanuvchi tarixi so'rovga qo'shilmaydi (har ishga
+      tushishda ~8k token bo'lardi) — lekin NATIJA tarixga yoziladi, ya'ni
+      «shu kurs haqida batafsil» degan keyingi savol ishlaydi.
+    - user_id=None: kvota/xotira bazasiga tegilmaydi; fayl yo'q.
+    - Pro tugagan bo'lsa — oddiy eslatma (arzon): vazifa Pro imkoniyati,
+      eslatma esa yetib borishi kerak (`reminder_watcher` izohi).
+    Nimadir yiqilsa — oddiy eslatma: odam kutgan xabarsiz qolmasin.
+    """
+    from handlers.messages import (MAX_RICH_CHARS, RICH_MEDIA_TIMEOUT,  # ⚠️ tsiklik
+                                   _send_rich_message)
+    from services.ai import (build_rich_markdown, embed_images, get_gpt_reply,
+                             safe_update_history, strip_custom_emoji,
+                             strip_image_tokens, strip_internal_names)
+
+    try:
+        if not await database.pro_tarifmi(user_id):
+            return await _send_reminder(user_id, task_text)
+        prompt = (f"[REJALASHTIRILGAN VAZIFA] Foydalanuvchi shu ishni aynan "
+                  f"hozirga topshirgan: «{task_text}». Uni HOZIR bajar va "
+                  f"natijani yoz. Birinchi qator: ⏰ va qisqa sarlavha. "
+                  f"Savol berma — foydalanuvchi hozir chatda emas.")
+        rasmlar: list = []
+        qismlar: list[str] = []
+        async for chunk in get_gpt_reply(0, prompt, is_pro=True, images_out=rasmlar):
+            if not isinstance(chunk, str) or chunk.startswith("[STATUS]"):
+                continue
+            if "[CLEAR_TEXT]" in chunk:
+                qismlar.clear()
+                chunk = chunk.replace("[CLEAR_TEXT]", "")
+            qismlar.append(chunk)
+        matn = strip_internal_names("".join(qismlar).strip())[:MAX_RICH_CHARS]
+        if not matn:
+            raise ValueError("bo'sh javob")
+        asos = build_rich_markdown(matn)
+        yuborildi = await _send_rich_message(
+            user_id, markdown=embed_images(asos, rasmlar), timeout=RICH_MEDIA_TIMEOUT)
+        if yuborildi is None:
+            yuborildi = await _send_rich_message(
+                user_id, markdown=strip_custom_emoji(strip_image_tokens(asos)))
+        if yuborildi is None:
+            raise ValueError("yuborilmadi")
+        await safe_update_history(user_id, f"[Rejalashtirilgan vazifa]: {task_text}",
+                                  role="user")
+        await safe_update_history(user_id, matn, role="assistant", images=rasmlar)
+    except Exception as e:
+        logger.warning(f"[Vazifa] bajarilmadi (user={user_id}): {e}")
+        await _send_reminder(user_id, task_text)
+
+
 async def reminder_watcher():
     """Muddati kelgan eslatmalarni yuboradi va keyingi vaqtga suradi.
 
@@ -454,7 +507,12 @@ async def reminder_watcher():
                     logger.error(f"[Eslatma] surishda xatolik id={row['id']}: {e}")
                     continue
 
-                await _send_reminder(row["user_id"], row["text"])
+                if row.get("vazifa"):
+                    # Fonda: qidiruvli javob 10-60 s — shu vaqt ichida
+                    # boshqalarning eslatmasi kechikmasin.
+                    asyncio.create_task(_vazifani_bajar(row["user_id"], row["text"]))
+                else:
+                    await _send_reminder(row["user_id"], row["text"])
                 await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"[Eslatma] fon vazifasida xatolik: {e}")
