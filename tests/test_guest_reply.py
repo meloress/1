@@ -377,7 +377,8 @@ async def flood_tests():
     finally:
         guest.bot, dbm.get_superadmin_id = asl
         guest.LOGO_EMOJI_ID = ""
-    assert os.path.getsize(guest._LOGO_FAYL) <= 256 * 1024, "Telegram: emoji ≤ 256 KB"
+    # Jonli: 207 KB «file is too big» bilan rad etildi — emoji uchun chegara 64 KB.
+    assert os.path.getsize(guest._LOGO_FAYL) <= 64 * 1024, "Telegram: video emoji ≤ 64 KB"
     print("[14l] logo emoji bir marta yaratiladi, statusda ishlatiladi, xatoda jim OK")
 
     # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi
