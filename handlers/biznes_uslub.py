@@ -29,7 +29,8 @@ from core import olchov
 from core.loader import logger, openai_client
 from db import database
 from handlers import pro as pro_module
-from services.ai import BIZNES_MANBA, HISTORY_SUMMARY_MODEL, _log_token_usage
+from services.ai import (BIZNES_MANBA, HISTORY_SUMMARY_MODEL, _log_token_usage,
+                         premium_biznes)
 
 
 class UslubStates(StatesGroup):
@@ -232,7 +233,6 @@ _SOROV = (
 async def process_uslub(message: Message, state: FSMContext) -> None:
     """FSM: egasi o'z uslub qoidalarini yozdi. main.py'da AI handlerlaridan
     OLDIN — aks holda bu matn GPT'ga savol bo'lib ketardi."""
-    from handlers.biznes import premium_biznes   # ⚠️ tsiklik import
     premium_biznes()
     if (message.text or "").startswith("/"):
         await state.clear()

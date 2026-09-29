@@ -317,7 +317,7 @@ b.bot.xato = "Bad Request: BUSINESS_PEER_USAGE_MISSING"
 q.clear()
 javob = asyncio.run(b.loyihani_yubor(lid2, EGASI))
 check(16, "rad etilsa egasiga aniq sabab, holat «yuborildi» EMAS (qayta bosish mumkin)",
-      javob.startswith("⚠️") and "BUSINESS_PEER_USAGE_MISSING" in javob
+      javob.startswith("❗") and "BUSINESS_PEER_USAGE_MISSING" in javob
       and loyihalar[lid2]["holat"] == "kutmoqda"
       and not any(x[0] == "tarix" for x in q))
 b.bot.xato = None

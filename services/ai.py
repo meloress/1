@@ -1207,6 +1207,16 @@ def html_premium(matn: str) -> str:
                    for i, q in enumerate(_HTML_HIMOYA_RE.split(matn)))
 
 
+# Business: shu vazifa (handler / watcher) egasiga yuboradigan xabarlar
+# premium emoji oladi (`handlers/biznes.py::PremiumEmojiMiddleware`). Bu
+# yerda — `biznes_uslub` `handlers.biznes` ni import qila olmaydi (aylana).
+BIZNES_PREMIUM = ContextVar("biznes_premium", default=False)
+
+
+def premium_biznes() -> None:
+    BIZNES_PREMIUM.set(True)
+
+
 def bosh_emoji_id(matn: str) -> tuple[str | None, str]:
     """Tugma matni paketdagi emoji bilan boshlansa — (id, qolgan matn).
     Tugmada emoji ikonka bo'lib chiqadi, matnda takrorlanmaydi. Sof."""

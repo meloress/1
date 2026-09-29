@@ -66,20 +66,12 @@ router = Router(name="biznes")
 #    (egasining nomidan, oddiy matn).
 # ⚠️ Telegram rad etsa (masalan egasining Premium'i tugagan) — asl xabar
 #    qayta yuboriladi: bezak xabarni hech qachon yo'qotmaydi.
-from contextvars import ContextVar                              # noqa: E402
-
 from aiogram.client.default import Default                      # noqa: E402
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware  # noqa: E402
 from aiogram.exceptions import TelegramBadRequest               # noqa: E402
 
-from services.ai import bosh_emoji_id, html_premium              # noqa: E402
-
-_PREMIUM = ContextVar("biznes_premium", default=False)
-
-
-def premium_biznes() -> None:
-    """Shu vazifa (handler / watcher) yuboradigan xabarlar premium emoji oladi."""
-    _PREMIUM.set(True)
+from services.ai import (BIZNES_PREMIUM, bosh_emoji_id,          # noqa: E402
+                         html_premium, premium_biznes)
 
 
 def _tugmalar_premium(kb):
@@ -119,7 +111,7 @@ def premiumlash(method):
 
 class PremiumEmojiMiddleware(BaseRequestMiddleware):
     async def __call__(self, make_request, bot_, method):
-        nusxa = premiumlash(method) if _PREMIUM.get() else None
+        nusxa = premiumlash(method) if BIZNES_PREMIUM.get() else None
         if nusxa is None:
             return await make_request(bot_, method)
         try:
