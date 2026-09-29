@@ -109,6 +109,26 @@ def premiumlash(method):
     return method.model_copy(update=yangi) if yangi else None
 
 
+async def _mijozga(chat_id: int, conn_id: str, matn: str):
+    """MIJOZGA (egasining nomidan) — AI javobidagi emoji paketdagi animatsiyali
+    nusxasida, xuddi botdagi javoblar kabi (egasi so'radi, 2026-09-29).
+    Matn o'zi oddiy: HTML'ga faqat escape bilan o'tadi, ya'ni mijoz aynan
+    shu so'zlarni ko'radi. Rad etilsa (Business akkauntda Premium yo'q) —
+    oddiy matn: javob hech qachon yo'qolmaydi. 429 — chaqiruvchiga."""
+    oddiy = escape(matn, quote=False)
+    html = html_premium(oddiy)
+    if html != oddiy:
+        try:
+            return await bot.send_message(chat_id, html, business_connection_id=conn_id,
+                                          parse_mode="HTML")
+        except TelegramRetryAfter:
+            raise
+        except TelegramBadRequest as e:
+            logger.info(f"[BIZNES] mijozga premium emoji rad etildi, oddiy qayta: {e}")
+    return await bot.send_message(chat_id, matn, business_connection_id=conn_id,
+                                  parse_mode=None)
+
+
 class PremiumEmojiMiddleware(BaseRequestMiddleware):
     async def __call__(self, make_request, bot_, method):
         nusxa = premiumlash(method) if BIZNES_PREMIUM.get() else None
@@ -812,8 +832,7 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
 
     if qayerga == "chat":
         try:
-            _bot_yubordi(await bot.send_message(
-                chat_id, natija, business_connection_id=conn_id, parse_mode=None))
+            _bot_yubordi(await _mijozga(chat_id, conn_id, natija))
         except Exception as e:
             # Masalan 24 soat qoidasi. Matn yo'qolmasin — egasi o'zi yuborsin.
             logger.warning(f"[BIZNES] chatga yuborilmadi: {e}")
@@ -1392,9 +1411,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
         toza = alifboga_mosla(toza, matn)
         variantlar = [alifboga_mosla(v, matn) for v in variantlar]
         try:
-            _bot_yubordi(await _qayta_429(lambda: bot.send_message(
-                chat_id, business_connection_id=conn_id,
-                **avto_matn(toza, ul.get("avto_belgi", True)))))
+            _bot_yubordi(await _qayta_429(lambda: _mijozga(
+                chat_id, conn_id, avto_matn(toza, ul.get("avto_belgi", True))["text"])))
         except Exception as e:
             olchov.qosh(natija="yuborilmadi")
             await _qaytar()
@@ -1542,8 +1560,7 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
         await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         return "Tayyor javob yo'q — «O'zim yozaman» ni bosing."
     try:
-        _bot_yubordi(await _qayta_429(lambda: bot.send_message(
-            r["chat_id"], matn, business_connection_id=r["conn_id"], parse_mode=None)))
+        _bot_yubordi(await _qayta_429(lambda: _mijozga(r["chat_id"], r["conn_id"], matn)))
     except Exception as e:
         await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         logger.warning(f"[BIZNES] loyiha id={lid} yuborilmadi: {e}")

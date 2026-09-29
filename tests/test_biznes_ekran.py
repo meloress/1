@@ -151,4 +151,36 @@ asyncio.run(kontekstsiz())
 check(17, "Business'dan tashqaridagi xabarga (kontekst yoqilmagan) tegilmaydi",
       yuborildi == ["✅ Salom"])
 
-print("\nHammasi o'tdi: 17/17")
+# ── 18-19. AI javobi MIJOZGA ham premium emoji bilan ─────────────
+mijoz_q = []
+
+
+class MijozBot:
+    rad = False
+
+    async def send_message(self, chat_id, text, business_connection_id=None, parse_mode=None):
+        mijoz_q.append((text, parse_mode, business_connection_id))
+        if self.rad and parse_mode == "HTML":
+            raise TelegramBadRequest(method=None, message="Bad Request: premium yo'q")
+        return "ok"
+
+asl_bot, b.bot = b.bot, MijozBot()
+try:
+    asyncio.run(b._mijozga(5, "c1", "Narxi 5 < 10 ✅"))
+    birinchi = list(mijoz_q)
+    mijoz_q.clear()
+    b.bot.rad = True
+    asyncio.run(b._mijozga(5, "c1", "Tayyor ✅"))
+    rad = list(mijoz_q)
+    mijoz_q.clear()
+    asyncio.run(b._mijozga(5, "c1", "Salom <b>"))
+    emojisiz = list(mijoz_q)
+finally:
+    b.bot = asl_bot
+check(18, "mijozga: emoji animatsiyali (HTML), matn escape — «<» buzilmaydi, ulanish orqali",
+      birinchi == [('Narxi 5 &lt; 10 <tg-emoji emoji-id="111">✅</tg-emoji>', "HTML", "c1")])
+check(19, "rad etilsa — o'sha matn oddiy qayta; emojisiz javob — to'g'ridan oddiy (bitta so'rov)",
+      rad[-1] == ("Tayyor ✅", None, "c1") and len(rad) == 2
+      and emojisiz == [("Salom <b>", None, "c1")])
+
+print("\nHammasi o'tdi: 19/19")

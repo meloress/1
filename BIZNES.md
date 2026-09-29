@@ -153,7 +153,10 @@ Egasi so'radi: Business'dagi hamma emoji `TEXT_EMOJI_PACK` (RestrictedEmoji) dan
 `PremiumEmojiMiddleware` (bot sessiyasi, `main.py`): matndagi emoji → `<tg-emoji>`
 (`services/ai.html_premium`), tugma boshidagi emoji → `icon_custom_emoji_id`. Faqat
 `premium_biznes()` chaqirilgan vazifada (har Business handler/watcher boshida).
-- ⛔️ `business_connection_id` bor so'rov (MIJOZGA) va `parse_mode=None` — tegilmaydi.
+- ⛔️ `business_connection_id` bor so'rov (MIJOZGA) va `parse_mode=None` — middleware tegmaydi.
+- MIJOZGA ketadigan AI javobi (avtojavob, «Yuborish», `.javob`/`.en`…) — `_mijozga()`:
+  matn escape + `html_premium`, rad etilsa (Business akkauntda Premium yo'q) oddiy matn.
+  Emojisiz javob — to'g'ridan oddiy, bitta so'rov. Tarixga belgisiz oddiy matn yoziladi.
 - Rad etilsa (egasining Premium'i tugagan) — asl xabar qayta ketadi.
 - Paketda YO'Q emojilar UI satrlarida muqobiliga almashtirildi: ⚙→🧰, ⚠→❗, ⛔→🔕, ⬅→👈,
   ⏱→⏳, ⏸→💤, 🏷→🤖, 💾→🧠, 📇→👥, 📸→🎬, 🔌→❗, 🕘→⏰, 🗑→❌, 🙋→✋, ✉→📨. Yangi matn
