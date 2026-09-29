@@ -228,4 +228,71 @@ check(21, "logo rad etilsa — havola qoladi; HTML ham rad etilsa — oddiy belg
       "tg-emoji" not in logosiz[-1][0] and "t.me/uzchatgptaibot" in logosiz[-1][0]
       and oddiy[-1] == ("Salom\n" + b.AVTO_BELGI, None, None))
 
-print("\nHammasi o'tdi: 21/21")
+# ── 22-24. Bekor qilish: tugma, qaytish ekrani, tashlab ketilgan holat ──
+import handlers.biznes_uslub as bu  # noqa: E402
+
+
+class Holat:
+    def __init__(self, h=None):
+        self.h = h
+
+    async def get_state(self):
+        return self.h
+
+    async def set_state(self, h):
+        self.h = getattr(h, "state", h)
+
+    async def clear(self):
+        self.h = None
+
+    async def get_data(self):
+        return {}
+
+
+class Xabar:
+    def __init__(self):
+        self.tahrir = self.yangi = None
+
+    async def edit_text(self, matn, reply_markup=None):
+        self.tahrir = (matn, reply_markup)
+
+    async def answer(self, matn, reply_markup=None):
+        self.yangi = (matn, reply_markup)
+
+
+class So:
+    def __init__(self, data):
+        self.data, self.from_user, self.message = data, NS(id=1, language_code="uz"), Xabar()
+        self.alert = None
+
+    async def answer(self, *a, **k):
+        self.alert = a
+
+
+async def uslub(uid, n=None):
+    return {"namunalar": [], "tahrirlar": [], "uslub": "", "uslub_egasi": "siz deb yoz"}
+
+async def _rost(*_):
+    return True
+
+database.biznes_uslub_ol = uslub
+database.pro_tarifmi = _rost
+
+h = Holat(bu.UslubStates.qoidalar.state)
+q1 = So("bz:bk")
+asyncio.run(b.handle_biznes_callback(q1, h))
+check(22, "«✖️ Bekor qilish»: holat tozalanadi, so'rov o'rniga Uslubim ekrani chiqadi",
+      h.h is None and q1.message.tahrir and "USLUBIM" in q1.message.tahrir[0])
+
+h = Holat(bu.UslubStates.qoidalar.state)
+asyncio.run(b.handle_biznes_callback(So("bz:e"), h))
+check(23, "qoida kutilayotganda boshqa tugma (Orqaga) — holat tozalanadi (gap qoida bo'lib ketmaydi)",
+      h.h is None)
+
+kb = bu._sorov_kb(True)
+tugma = [t.callback_data for q in kb.inline_keyboard for t in q]
+check(24, "qoidalar so'rovida: «❌ Qoidalarni o'chirish» va «✖️ Bekor qilish» tugmalari, /bekor matni yo'q",
+      tugma == ["bz:uyx", "bz:bk"] and "/bekor" not in bu._SOROV
+      and "/bekor" not in b._BILIM_SOROVI)
+
+print("\nHammasi o'tdi: 24/24")

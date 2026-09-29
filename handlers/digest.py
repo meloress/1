@@ -152,6 +152,10 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
     user_id = query.from_user.id
 
     if action == "close":
+        # «✖️ Bekor qilish» mavzu so'rovida ham shu: holatdan CHIQISH kerak,
+        # aks holda keyingi har qanday gap mavzu bo'lib saqlanardi.
+        if await state.get_state() == DigestStates.waiting_for_topics.state:
+            await state.clear()
         await query.answer()
         try:
             await query.message.delete()

@@ -1825,7 +1825,7 @@ _BILIM_SOROVI = (
     "yetkazib berish, qoidalar.\n"
     "Biznes yozilmasa, bot narx va mahsulot haqida umuman gapirmaydi.\n\n"
     f"Chegara — {BIZNES_BILIM_MAX} belgi. Yangi matn eskisining o'rniga "
-    "yoziladi. Karta va pasport raqamini yozmang.\n\nBekor qilish: /bekor"
+    "yoziladi. Karta va pasport raqamini yozmang."
 )
 
 
@@ -1835,6 +1835,23 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
     amal = qism[1] if len(qism) > 1 else ""
     uid = query.from_user.id
     til_eslab(query.from_user)
+
+    holat = await state.get_state()
+    if amal == "bk":
+        # «✖️ Bekor qilish» — so'rov xabari o'rniga qaytiladigan ekran.
+        await state.clear()
+        await query.answer("Bekor qilindi")
+        matn, kb = await _bekor_ekrani(uid, holat if holat in _biznes_holatlari() else None)
+        try:
+            await query.message.edit_text(matn, reply_markup=kb)
+        except Exception:
+            await query.message.answer(matn, reply_markup=kb)
+        return
+    # Matn kutib turgan holatda BOSHQA tugma bosildi (Orqaga, Sozlamalar …) —
+    # so'rov tashlab ketilgan. Holat qolsa, keyingi har qanday gap jimgina
+    # qoida/bilim bo'lib saqlanardi.
+    if holat in _biznes_holatlari() and amal not in ("k", "uy", "t", "wk", "pf"):
+        await state.clear()
 
     if amal == "yv":
         try:
@@ -1871,8 +1888,8 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             await state.update_data(loyiha_id=lid)
             await query.answer()
             await query.message.answer(
-                "✏️ Mijozga yuboriladigan matnni yozing — o'sha holida ketadi.\n"
-                "Bekor qilish: /bekor")
+                "✏️ Mijozga yuboriladigan matnni yozing — o'sha holida ketadi.",
+                reply_markup=biznes_uslub.bekor_kb())
         return
 
     if not await database.pro_tarifmi(uid):
@@ -1994,7 +2011,8 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         await state.set_state(BiznesStates.vaqt)
         await query.answer()
         await query.message.answer("Qaysi soatdan qaysi soatgacha? Masalan: "
-                                   "<code>21:00-08:00</code>\nBekor qilish: /bekor")
+                                   "<code>21:00-08:00</code>",
+                                   reply_markup=biznes_uslub.bekor_kb())
     elif amal == "pf" and len(qism) > 2 and qism[2] in PROFIL_HUQUQI:
         topilgan = database.biznes_egasi_ulanishi(uid)
         huquq = PROFIL_HUQUQI[qism[2]][0]
@@ -2007,7 +2025,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         await state.set_state(BiznesStates.profil)
         await state.update_data(tur=qism[2])
         await query.answer()
-        await query.message.answer(_PROFIL_SOROV[qism[2]] + "\nBekor qilish: /bekor")
+        await query.message.answer(_PROFIL_SOROV[qism[2]], reply_markup=biznes_uslub.bekor_kb())
     elif amal in ("ok", "no") and len(qism) > 2:
         if amal == "ok":
             javob = await _tasdiqla(qism[2], uid)
@@ -2031,7 +2049,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         bilim = await database.biznes_bilim_ol(uid)
         joriy = (f"Hozirgi bilim:\n<blockquote expandable>{escape(bilim)}</blockquote>\n\n"
                  if bilim else "")
-        await query.message.answer(joriy + _BILIM_SOROVI)
+        await query.message.answer(joriy + _BILIM_SOROVI, reply_markup=biznes_uslub.bekor_kb())
     elif amal == "v":
         bilim = await database.biznes_bilim_ol(uid)
         await query.answer()
@@ -2100,17 +2118,50 @@ def _bekormi(message: Message) -> bool:
     return (message.text or "").startswith("/")
 
 
+def _biznes_holatlari() -> set:
+    return {BiznesStates.bilim.state, BiznesStates.tahrir.state, BiznesStates.vaqt.state,
+            BiznesStates.profil.state, biznes_uslub.UslubStates.qoidalar.state}
+
+
+async def _bekor_ekrani(uid: int, holat: str | None) -> tuple:
+    """Bekor qilingandan keyin qaytiladigan joy — so'rov qaysi ekrandan
+    boshlangan bo'lsa, o'sha. Ilgari faqat quruq «Bekor qilindi.» edi."""
+    if holat == biznes_uslub.UslubStates.qoidalar.state:
+        return await biznes_uslub._ekran(uid)
+    if holat == BiznesStates.tahrir.state:
+        return ("Qoralama o'z joyida kutib turibdi — «✅ Yuborish» yoki "
+                "«✏️ O'zgartirib yuborish» ni istalgan payt bosishingiz mumkin.", None)
+    matn, kb = await _ekran(uid)
+    if holat in (BiznesStates.vaqt.state, BiznesStates.profil.state):
+        topilgan = database.biznes_egasi_ulanishi(uid)
+        ul = topilgan[1] if topilgan else None
+        return sozlama_matni(matn, ul), _sozlama_kb(ul)
+    return matn, kb
+
+
+async def _matn_bilan_bekor(message: Message, state: FSMContext) -> None:
+    """Holat ichida buyruq yozildi (`/bekor`, `/biznes`, …) — chiqamiz va
+    tegishli ekranni ko'rsatamiz."""
+    holat = await state.get_state()
+    await state.clear()
+    matn, kb = await _bekor_ekrani(message.from_user.id, holat)
+    await message.answer("↩️ Bekor qilindi.\n\n" + matn, reply_markup=kb)
+
+
 async def process_bilim(message: Message, state: FSMContext) -> None:
     """FSM: egasi bilim matnini yubordi. Main.py'da boshqa FSM'lar yonida —
     AI handlerlaridan OLDIN, aks holda bu matn GPT'ga savol bo'lib ketardi."""
     premium_biznes()
     if _bekormi(message):
-        await state.clear()
-        await message.answer("Bekor qilindi.")
+        await _matn_bilan_bekor(message, state)
+        return
+    if not message.text:
+        await message.answer("Bilimni matn bilan yozing.", reply_markup=biznes_uslub.bekor_kb())
         return
     toza, xato = database.clean_biznes_bilim(message.text or "")
     if xato:
-        await message.answer(f"❗ Saqlanmadi: {xato}. Qayta yozing yoki /bekor.")
+        await message.answer(f"❗ Saqlanmadi: {xato}. Qayta yozing.",
+                             reply_markup=biznes_uslub.bekor_kb())
         return
     await database.biznes_bilim_yoz(message.from_user.id, toza)
     await state.clear()
@@ -2125,7 +2176,8 @@ async def process_tahrir(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
     if _bekormi(message):
-        await message.answer("Bekor qilindi — qoralama kutib turibdi.")
+        await message.answer("↩️ Bekor qilindi. " + (await _bekor_ekrani(
+            message.from_user.id, BiznesStates.tahrir.state))[0])
         return
     if not message.text:
         await message.answer("Faqat matn yuborsa bo'ladi. Qoralama kutib turibdi.")
@@ -2140,13 +2192,12 @@ async def process_vaqt(message: Message, state: FSMContext) -> None:
     """FSM: egasi avtomat ish vaqtini yozdi ("21:00-08:00")."""
     premium_biznes()
     if _bekormi(message):
-        await state.clear()
-        await message.answer("Bekor qilindi.")
+        await _matn_bilan_bekor(message, state)
         return
     oraliq = vaqt_ajrat(message.text or "")
     if not oraliq:
-        await message.answer("❗ Tushunmadim. Masalan: <code>21:00-08:00</code> "
-                             "yoki /bekor.")
+        await message.answer("❗ Tushunmadim. Masalan: <code>21:00-08:00</code>",
+                             reply_markup=biznes_uslub.bekor_kb())
         return
     await database.biznes_ish_vaqti_yoz(message.from_user.id, oraliq)
     await state.clear()
@@ -2484,8 +2535,7 @@ async def process_profil(message: Message, state: FSMContext) -> None:
     tur = data.get("tur")
     uid = message.from_user.id
     if _bekormi(message) or tur not in PROFIL_HUQUQI:
-        await state.clear()
-        await message.answer("Bekor qilindi.")
+        await _matn_bilan_bekor(message, state)
         return
     matn = (message.text or message.caption or "").strip()
     token = secrets.token_hex(4)
@@ -2493,7 +2543,7 @@ async def process_profil(message: Message, state: FSMContext) -> None:
 
     if tur in ("bio", "ism"):
         if not matn:
-            await message.answer("Matn yozing yoki /bekor.")
+            await message.answer("Matn bilan yozing.", reply_markup=biznes_uslub.bekor_kb())
             return
         narx = message_cost("text")
         kvota = await database.check_and_consume_quota(uid, narx)
@@ -2542,7 +2592,8 @@ async def process_profil(message: Message, state: FSMContext) -> None:
             await message.answer(f"❗ {xato}")
             return
     else:
-        await message.answer("Rasm yuboring yoki so'z bilan yozing, yoki /bekor.")
+        await message.answer("Rasm yuboring yoki so'z bilan yozing.",
+                             reply_markup=biznes_uslub.bekor_kb())
         return
     try:
         yozuv["rasm"] = _jpeg(baytlar, (1080, 1920) if story else None)

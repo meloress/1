@@ -190,7 +190,15 @@ async def _organ_fonda(egasi: int) -> None:
 # ── «Uslubim» ekrani ─────────────────────────────────────────────────
 # `bz:` callback'lari `handlers/biznes.py::handle_biznes_callback` ga
 # keladi (Pro tekshiruvi o'sha yerda) va `AMALLAR` dagilari shu yerga.
-AMALLAR = ("us", "uy", "uo", "ud", "udh")
+AMALLAR = ("us", "uy", "uo", "ud", "udh", "uyx")
+
+
+def bekor_kb(*qator) -> InlineKeyboardMarkup:
+    """Matn kutayotgan har bir Business so'rovining ostida — «✖️ Bekor qilish»
+    (`bz:bk`, `handlers/biznes.py`). `/bekor` ni qo'lda yozish shart emas."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        *([list(qator)] if qator else []),
+        [pro_module.btn("✖️ Bekor qilish", "bz:bk")]])
 
 
 def uslub_ekrani(u: dict) -> str:
@@ -226,8 +234,14 @@ _SOROV = (
     "<i>doim «siz» deb yoz; salomni «Assalomu alaykum» bilan boshla; emoji "
     "ishlatma; qisqa yoz; narxni so'ramaguncha aytma.</i>\n\n"
     "Namuna javoblar ham qo'shsangiz bo'ladi. Yangi matn eskisining o'rniga "
-    "yoziladi. O'chirish: <code>-</code>\nBekor qilish: /bekor"
+    "yoziladi."
 )
+
+
+def _sorov_kb(qoidalar_bor: bool) -> InlineKeyboardMarkup:
+    # Yozilgan qoida bo'lsa — o'chirish tugmasi (ilgari yashirin «-» yozish kerak edi).
+    return bekor_kb(*([pro_module.btn("❌ Qoidalarni o'chirish", "bz:uyx")]
+                      if qoidalar_bor else []))
 
 
 async def process_uslub(message: Message, state: FSMContext) -> None:
@@ -235,15 +249,21 @@ async def process_uslub(message: Message, state: FSMContext) -> None:
     OLDIN — aks holda bu matn GPT'ga savol bo'lib ketardi."""
     premium_biznes()
     if (message.text or "").startswith("/"):
+        # Buyruq — qoida emas: holatdan chiqib, Uslubim ekraniga qaytamiz.
         await state.clear()
-        await message.answer("Bekor qilindi.")
+        matn, kb = await _ekran(message.from_user.id)
+        await message.answer("↩️ Bekor qilindi.\n\n" + matn, reply_markup=kb)
         return
-    matn = (message.text or "").strip()
+    if not message.text:
+        await message.answer("Qoidalarni matn bilan yozing.", reply_markup=bekor_kb())
+        return
+    matn = message.text.strip()
     toza = None
-    if matn != "-":
+    if matn != "-":           # eski usul ham ishlayversin
         toza, xato = database.clean_uslub_egasi(matn)
         if xato:
-            await message.answer(f"❗ Saqlanmadi: {xato}. Qayta yozing yoki /bekor.")
+            await message.answer(f"❗ Saqlanmadi: {xato}. Qayta yozing.",
+                                 reply_markup=bekor_kb())
             return
     await database.biznes_uslub_egasi_yoz(message.from_user.id, toza)
     await state.clear()
@@ -260,7 +280,20 @@ async def uslub_callback(query: CallbackQuery, state: FSMContext, amal: str) -> 
     elif amal == "uy":
         await state.set_state(UslubStates.qoidalar)
         await query.answer()
-        await query.message.answer(_SOROV)
+        u = await database.biznes_uslub_ol(uid, BIZNES_NAMUNA_MAX)
+        joriy = (f"Hozirgi qoidalaringiz:\n<blockquote expandable>"
+                 f"{escape(u['uslub_egasi'])}</blockquote>\n\n" if u.get("uslub_egasi") else "")
+        await query.message.answer(joriy + _SOROV,
+                                   reply_markup=_sorov_kb(bool(u.get("uslub_egasi"))))
+    elif amal == "uyx":
+        await state.clear()
+        await database.biznes_uslub_egasi_yoz(uid, None)
+        await query.answer("Qoidalar o'chirildi")
+        matn, kb = await _ekran(uid)
+        try:
+            await query.message.edit_text(matn, reply_markup=kb)
+        except Exception:
+            await query.message.answer(matn, reply_markup=kb)
     elif amal == "uo":
         await query.answer("O'rganilmoqda…")
         natija = await organ(uid)
