@@ -353,37 +353,41 @@ async def flood_tests():
         async def get_sticker_set(self, nom):
             if not self.bor:
                 raise RuntimeError("STICKERSET_INVALID")
-            return NS(stickers=[NS(custom_emoji_id=f"LOGO_{t}") for t in guest._LOGO_TURLAR])
+            return NS(stickers=[NS(custom_emoji_id=f"LOGO_{t}") for t in hm._LOGO_TURLAR])
         async def create_new_sticker_set(self, **kw):
             yaratildi.append(kw); self.bor = True
 
     async def superadmin():
         return 777
     import db.database as dbm
-    asl = (guest.bot, dbm.get_superadmin_id)
-    guest.bot, dbm.get_superadmin_id = LogoBot(), superadmin
+    import handlers.messages as hm
+    asl = (hm.bot, dbm.get_superadmin_id)
+    hm.bot, dbm.get_superadmin_id = LogoBot(), superadmin
     try:
-        await guest.logo_emojini_tayyorla("uzchatgptaibot")
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")
         assert (len(yaratildi) == 1 and yaratildi[0]["user_id"] == 777
                 and yaratildi[0]["name"].endswith("_by_uzchatgptaibot")
                 and yaratildi[0]["sticker_type"] == "custom_emoji"
-                and len(yaratildi[0]["stickers"]) == len(guest._LOGO_TURLAR)), yaratildi
+                and len(yaratildi[0]["stickers"]) == len(hm._LOGO_TURLAR)), yaratildi
         # Har status o'z animatsiyasini oladi; mos kelmagani — umumiy aylanish.
         for tur, kutilgan in (("search", "search"), ("research", "search"),
-                              ("file_task", "document"), ("image", "photo"),
-                              ("tts", "voice"), ("memory", "text"), ("text", "text")):
+                              ("file_task", "document"), ("image", "image"),
+                              ("photo", "photo"), ("tts", "voice"), ("reminder", "reminder"),
+                              ("memory", "memory"), ("yoq", "text"), ("text", "text")):
             assert f"tg://emoji?id=LOGO_{kutilgan})" in guest._guest_status_md(tur, 1.0), tur
-        await guest.logo_emojini_tayyorla("uzchatgptaibot")      # bor — qayta yaratilmaydi
+            # Shaxsiy chatdagi <tg-thinking> ham AYNAN shu emojini oladi.
+            assert f'emoji-id="LOGO_{kutilgan}"' in hm._thinking_html_for(tur, 1.0), tur
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")      # bor — qayta yaratilmaydi
         assert len(yaratildi) == 1, yaratildi
-        guest.LOGO_EMOJI.clear()
-        guest.bot = NS()                                          # hamma chaqiruv yiqiladi
-        await guest.logo_emojini_tayyorla("uzchatgptaibot")
-        assert not guest.LOGO_EMOJI and "tg://emoji?id=" in guest._guest_status_md("text", 0)
+        hm.LOGO_EMOJI.clear()
+        hm.bot = NS()                                          # hamma chaqiruv yiqiladi
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")
+        assert not hm.LOGO_EMOJI and "tg://emoji?id=" in guest._guest_status_md("text", 0)
     finally:
-        guest.bot, dbm.get_superadmin_id = asl
-        guest.LOGO_EMOJI.clear()
+        hm.bot, dbm.get_superadmin_id = asl
+        hm.LOGO_EMOJI.clear()
     # Jonli: 207 KB «file is too big» bilan rad etildi — emoji uchun chegara 64 KB.
-    for yol in guest._LOGO_FAYLLAR.values():
+    for yol in hm._LOGO_FAYLLAR.values():
         assert os.path.getsize(yol) <= 64 * 1024, f"Telegram: video emoji ≤ 64 KB — {yol}"
     print("[14l] logo emoji to'plami bir marta yaratiladi, har status o'z animatsiyasini oladi, xatoda jim OK")
 

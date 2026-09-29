@@ -10,7 +10,7 @@ import html as html_lib
 import aiohttp
 from aiogram import Router
 from aiogram.types import (
-    Message, FSInputFile, BufferedInputFile,
+    Message, FSInputFile, BufferedInputFile, InputSticker,
     InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove,
 )
 from aiogram.fsm.context import FSMContext
@@ -850,6 +850,67 @@ EMOJI_ID_BY_TYPE: dict[str, str] = {
 }
 
 
+# Bot logosidan yasalgan animatsiyali custom emoji — har status turiga
+# o'zinikiga mos (lupa, hujjat, rasm ramkasi, ovoz to'lqini, qalam, soat yoyi,
+# xotiraga uchgan nuqtalar; qolgani aylanish). Shaxsiy chat ham, guest ham.
+# main.py ishga tushganda `logo_emojini_tayyorla()` to'ldiradi; bo'sh qolsa
+# (to'plam yaratilmadi) oddiy botdagi emojilar ishlatiladi.
+LOGO_EMOJI: dict[str, str] = {}
+# To'plamdagi TARTIB = shu ro'yxat tartibi; birinchisi — umumiy (aylanish).
+_LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
+                "image", "reminder", "memory")
+# Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
+_LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
+# ⚠️ Nomdagi raqam — ANIMATSIYA VERSIYASI. Telegram mavjud to'plamni
+# qayta yaratmaydi: webm o'zgarsa, raqamni oshiring (yangi to'plam).
+_LOGO_TOPLAM = "holat3"
+_ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+_LOGO_FAYLLAR = {t: os.path.join(_ASSETS, "status_emoji.webm" if t == "text"
+                                 else f"status_{t}.webm") for t in _LOGO_TURLAR}
+
+
+def status_emoji_id(content_type: str) -> str:
+    """Status kadridagi emoji: logo animatsiyasi, to'plam bo'lmasa — eskisi."""
+    tur = _LOGO_MOS.get(content_type, content_type)
+    return (LOGO_EMOJI.get(tur) or LOGO_EMOJI.get("text")
+            or EMOJI_ID_BY_TYPE.get(content_type, EMOJI_ID_BY_TYPE["text"]))
+
+
+async def logo_emojini_tayyorla(bot_username: str) -> None:
+    """Logo emoji to'plamini topadi yoki BIR MARTA yaratadi. Hech qachon
+    yiqilmaydi — bu bezak, bot usiz ham to'liq ishlaydi."""
+    if not bot_username:
+        return
+    nom = f"{_LOGO_TOPLAM}_by_{bot_username}"
+    try:
+        try:
+            toplam = await bot.get_sticker_set(nom)
+        except Exception:
+            # Telegram to'plamni haqiqiy odamga bog'laydi — bot egasiga.
+            from db.database import get_superadmin_id
+            egasi = await get_superadmin_id()
+            if not egasi:
+                logger.warning("[Logo emoji] superadmin yo'q — to'plam yaratilmadi")
+                return
+            stikerlar = []
+            for tur in _LOGO_TURLAR:
+                with open(_LOGO_FAYLLAR[tur], "rb") as f:
+                    stikerlar.append(InputSticker(
+                        sticker=BufferedInputFile(f.read(), filename=f"{tur}.webm"),
+                        format="video", emoji_list=["🤖"]))
+            await bot.create_new_sticker_set(
+                user_id=egasi, name=nom, title="ChatGPT AI",
+                stickers=stikerlar, sticker_type="custom_emoji")
+            toplam = await bot.get_sticker_set(nom)
+            logger.info(f"[Logo emoji] to'plam yaratildi: t.me/addemoji/{nom}")
+        LOGO_EMOJI.clear()
+        LOGO_EMOJI.update({tur: s.custom_emoji_id for tur, s in
+                           zip(_LOGO_TURLAR, toplam.stickers) if s.custom_emoji_id})
+        logger.info(f"[Logo emoji] tayyor: {len(LOGO_EMOJI)} ta")
+    except Exception as e:
+        logger.warning(f"[Logo emoji] tayyorlanmadi — oddiy emoji qoladi: {e}")
+
+
 # ── Status animatsiyasining umumiy qismi ────────────────────────────
 # Bu to'rttasi ilgari process_stream_draft() ichida, lokal o'zgaruvchi
 # edi. Ovoz sintezi uchun ham AYNAN shu ko'rsatkich kerak bo'lgach,
@@ -869,7 +930,7 @@ def _status_texts_for(active_type: str) -> list[str]:
 def _thinking_html_for(active_type: str, elapsed: float) -> str:
     """Rich draft uchun xira (`<tg-thinking>`) status bloki."""
     status_texts = _status_texts_for(active_type)
-    emoji_id = EMOJI_ID_BY_TYPE.get(active_type, EMOJI_ID_BY_TYPE["text"])
+    emoji_id = status_emoji_id(active_type)
     status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
     dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
     safe_status = html_lib.escape(status_texts[status_index])
