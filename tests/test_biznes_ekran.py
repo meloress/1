@@ -158,7 +158,8 @@ mijoz_q = []
 class MijozBot:
     rad = False
 
-    async def send_message(self, chat_id, text, business_connection_id=None, parse_mode=None):
+    async def send_message(self, chat_id, text, business_connection_id=None, parse_mode=None,
+                           link_preview_options=None):
         mijoz_q.append((text, parse_mode, business_connection_id))
         if self.rad and parse_mode == "HTML":
             raise TelegramBadRequest(method=None, message="Bad Request: premium yo'q")
@@ -183,4 +184,48 @@ check(19, "rad etilsa — o'sha matn oddiy qayta; emojisiz javob — to'g'ridan 
       rad[-1] == ("Tayyor ✅", None, "c1") and len(rad) == 2
       and emojisiz == [("Salom <b>", None, "c1")])
 
-print("\nHammasi o'tdi: 19/19")
+# ── 20-21. Avtojavob belgisi: bot havolasi + logo, pog'onali zaxira ──
+from types import SimpleNamespace as NS2  # noqa: E402
+
+
+class BelgiBot(MijozBot):
+    rad_logo = rad_html = False
+
+    async def me(self):
+        return NS2(username="uzchatgptaibot")
+
+    async def send_message(self, chat_id, text, business_connection_id=None, parse_mode=None,
+                           link_preview_options=None):
+        mijoz_q.append((text, parse_mode, link_preview_options))
+        if parse_mode == "HTML" and (self.rad_html or (self.rad_logo and "tg-emoji" in text)):
+            raise TelegramBadRequest(method=None, message="Bad Request: rad")
+        return "ok"
+
+b.LOGO_EMOJI["text"] = "LOGO1"
+asl_bot, b.bot = b.bot, BelgiBot()
+try:
+    mijoz_q.clear()
+    asyncio.run(b._mijozga(5, "c1", "Salom", belgi=True))
+    toliq = list(mijoz_q)
+    mijoz_q.clear()
+    b.bot.rad_logo = True
+    asyncio.run(b._mijozga(5, "c1", "Salom", belgi=True))
+    logosiz = list(mijoz_q)
+    mijoz_q.clear()
+    b.bot.rad_html = True
+    asyncio.run(b._mijozga(5, "c1", "Salom", belgi=True))
+    oddiy = list(mijoz_q)
+finally:
+    b.bot = asl_bot
+    b.LOGO_EMOJI.clear()
+t = toliq[0][0]
+check(20, "belgi — t.me/uzchatgptaibot havolasi, oxirida bot logosi; preview o'chiq",
+      len(toliq) == 1 and t.startswith("Salom\n")
+      and f'<a href="https://t.me/uzchatgptaibot">{b.AVTO_BELGI}</a>' in t
+      and t.endswith('<tg-emoji emoji-id="LOGO1">🤖</tg-emoji>')
+      and toliq[0][2].is_disabled)
+check(21, "logo rad etilsa — havola qoladi; HTML ham rad etilsa — oddiy belgi, javob yo'qolmaydi",
+      "tg-emoji" not in logosiz[-1][0] and "t.me/uzchatgptaibot" in logosiz[-1][0]
+      and oddiy[-1] == ("Salom\n" + b.AVTO_BELGI, None, None))
+
+print("\nHammasi o'tdi: 21/21")

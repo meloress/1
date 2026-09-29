@@ -29,6 +29,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.methods import PostStory
 from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
                            InlineKeyboardMarkup, InputProfilePhotoStatic,
+                           LinkPreviewOptions,
                            InputStoryContentPhoto, Message)
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
@@ -52,7 +53,7 @@ from db.history import biznes_keshini_tozala, get_chat_history
 from handlers import biznes_media, biznes_uslub
 from handlers import pro as pro_module
 from handlers.helpers import mavzu_kwargs, send_error_with_retry
-from handlers.messages import track_user_activity
+from handlers.messages import LOGO_EMOJI, track_user_activity
 
 router = Router(name="biznes")
 
@@ -109,24 +110,47 @@ def premiumlash(method):
     return method.model_copy(update=yangi) if yangi else None
 
 
-async def _mijozga(chat_id: int, conn_id: str, matn: str):
+def avto_belgi_html(bot_nomi: str, logo_id: str) -> str:
+    """«ᵃᵛᵗᵒʲᵃᵛᵒᵇ» — bot havolasi (suhbatdosh bosib botni ko'radi) + oxirida
+    bot logosi (animatsiyali custom emoji). Ikkalasi ham ixtiyoriy. Sof."""
+    belgi = (f'<a href="https://t.me/{escape(bot_nomi)}">{AVTO_BELGI}</a>'
+             if bot_nomi else AVTO_BELGI)
+    return belgi + (f' <tg-emoji emoji-id="{logo_id}">🤖</tg-emoji>' if logo_id else "")
+
+
+async def _mijozga(chat_id: int, conn_id: str, matn: str, belgi: bool = False):
     """MIJOZGA (egasining nomidan) — AI javobidagi emoji paketdagi animatsiyali
     nusxasida, xuddi botdagi javoblar kabi (egasi so'radi, 2026-09-29).
     Matn o'zi oddiy: HTML'ga faqat escape bilan o'tadi, ya'ni mijoz aynan
-    shu so'zlarni ko'radi. Rad etilsa (Business akkauntda Premium yo'q) —
-    oddiy matn: javob hech qachon yo'qolmaydi. 429 — chaqiruvchiga."""
+    shu so'zlarni ko'radi. `belgi` — avtojavob ostidagi «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» (bot
+    havolasi + logo). Rad etilsa pog'onama-pog'ona soddalashadi: premiumsiz
+    HTML (havola qoladi) → oddiy matn. Javob hech qachon yo'qolmaydi.
+    429 — chaqiruvchiga."""
     oddiy = escape(matn, quote=False)
-    html = html_premium(oddiy)
-    if html != oddiy:
+    bot_nomi = logo = ""
+    if belgi:
         try:
-            return await bot.send_message(chat_id, html, business_connection_id=conn_id,
-                                          parse_mode="HTML")
+            bot_nomi = (await bot.me()).username or ""
+        except Exception:
+            pass
+        logo = LOGO_EMOJI.get("text", "")
+    pogonalar = [html_premium(oddiy) + (f"\n{avto_belgi_html(bot_nomi, logo)}" if belgi else "")]
+    if belgi and bot_nomi:
+        pogonalar.append(oddiy + f"\n{avto_belgi_html(bot_nomi, '')}")
+    for html in dict.fromkeys(pogonalar):
+        if html == oddiy or (belgi and html == f"{oddiy}\n{AVTO_BELGI}"):
+            continue              # bezaksiz — pastdagi oddiy matn yetarli
+        try:
+            return await bot.send_message(
+                chat_id, html, business_connection_id=conn_id, parse_mode="HTML",
+                # Havola ostida bot kartochkasi chiqmasin — javobdan katta bo'lardi.
+                link_preview_options=LinkPreviewOptions(is_disabled=True))
         except TelegramRetryAfter:
             raise
         except TelegramBadRequest as e:
-            logger.info(f"[BIZNES] mijozga premium emoji rad etildi, oddiy qayta: {e}")
-    return await bot.send_message(chat_id, matn, business_connection_id=conn_id,
-                                  parse_mode=None)
+            logger.info(f"[BIZNES] mijozga bezakli javob rad etildi, soddaroq qayta: {e}")
+    return await bot.send_message(chat_id, avto_matn(matn, belgi)["text"],
+                                  business_connection_id=conn_id, parse_mode=None)
 
 
 class PremiumEmojiMiddleware(BaseRequestMiddleware):
@@ -1412,7 +1436,7 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
         variantlar = [alifboga_mosla(v, matn) for v in variantlar]
         try:
             _bot_yubordi(await _qayta_429(lambda: _mijozga(
-                chat_id, conn_id, avto_matn(toza, ul.get("avto_belgi", True))["text"])))
+                chat_id, conn_id, toza, belgi=ul.get("avto_belgi", True))))
         except Exception as e:
             olchov.qosh(natija="yuborilmadi")
             await _qaytar()

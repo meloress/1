@@ -157,6 +157,9 @@ Egasi so'radi: Business'dagi hamma emoji `TEXT_EMOJI_PACK` (RestrictedEmoji) dan
 - MIJOZGA ketadigan AI javobi (avtojavob, «Yuborish», `.javob`/`.en`…) — `_mijozga()`:
   matn escape + `html_premium`, rad etilsa (Business akkauntda Premium yo'q) oddiy matn.
   Emojisiz javob — to'g'ridan oddiy, bitta so'rov. Tarixga belgisiz oddiy matn yoziladi.
+- Avtojavob belgisi (`belgi=True`): «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» — `t.me/<bot>` havolasi (preview o'chiq) + bot
+  logosi (`messages.LOGO_EMOJI["text"]`). Pog'onalar: to'liq → logosiz havola → oddiy
+  `avto_matn()`. Custom emoji kichraytirilmaydi — logo oddiy emoji o'lchamida.
 - Rad etilsa (egasining Premium'i tugagan) — asl xabar qayta ketadi.
 - Paketda YO'Q emojilar UI satrlarida muqobiliga almashtirildi: ⚙→🧰, ⚠→❗, ⛔→🔕, ⬅→👈,
   ⏱→⏳, ⏸→💤, 🏷→🤖, 💾→🧠, 📇→👥, 📸→🎬, 🔌→❗, 🕘→⏰, 🗑→❌, 🙋→✋, ✉→📨. Yangi matn
