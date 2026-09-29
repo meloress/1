@@ -287,6 +287,10 @@ async def main():
     try:
         me = await bot.get_me()
         pro_module.BOT_USERNAME = me.username or ""
+        # Guest statusidagi aylanuvchi logo emoji — fonda, ishga tushishni
+        # kutdirmaydi (birinchi marta to'plam yaratiladi, keyin faqat o'qiladi).
+        from handlers import guest as guest_module
+        asyncio.create_task(guest_module.logo_emojini_tayyorla(me.username or ""))
         # ⛔️ INLINE REJIM ATAYLAB O'CHIQ — YOQMANG.
         # Jonli sinov (2026-09-10): /setinline yoqilganda GUEST MODE
         # ISHLAMAY QOLADI. Telegram "@bot savol" ni inline so'rov deb

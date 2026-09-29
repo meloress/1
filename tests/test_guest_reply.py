@@ -343,6 +343,43 @@ async def flood_tests():
     assert "tg://emoji?id=" in kadrlar[0] and qidiruv.split()[0] in kadrlar[1], kadrlar
     print("[14j] qidiruv boshlanganda status «qidiruv» ga almashdi OK")
 
+    # ── 14l) Logo emoji: to'plam yo'q bo'lsa BIR MARTA yaratiladi va status
+    # o'shani ishlatadi; xato bo'lsa jim — oddiy emoji qoladi.
+    from types import SimpleNamespace as NS
+    yaratildi = []
+
+    class LogoBot:
+        def __init__(self): self.bor = False
+        async def get_sticker_set(self, nom):
+            if not self.bor:
+                raise RuntimeError("STICKERSET_INVALID")
+            return NS(stickers=[NS(custom_emoji_id="LOGO42")])
+        async def create_new_sticker_set(self, **kw):
+            yaratildi.append(kw); self.bor = True
+
+    async def superadmin():
+        return 777
+    import db.database as dbm
+    asl = (guest.bot, dbm.get_superadmin_id)
+    guest.bot, dbm.get_superadmin_id = LogoBot(), superadmin
+    try:
+        await guest.logo_emojini_tayyorla("uzchatgptaibot")
+        assert (len(yaratildi) == 1 and yaratildi[0]["user_id"] == 777
+                and yaratildi[0]["name"].endswith("_by_uzchatgptaibot")
+                and yaratildi[0]["sticker_type"] == "custom_emoji"), yaratildi
+        assert "tg://emoji?id=LOGO42" in guest._guest_status_md("search", 1.0)
+        await guest.logo_emojini_tayyorla("uzchatgptaibot")      # bor — qayta yaratilmaydi
+        assert len(yaratildi) == 1, yaratildi
+        guest.LOGO_EMOJI_ID = ""
+        guest.bot = NS()                                          # hamma chaqiruv yiqiladi
+        await guest.logo_emojini_tayyorla("uzchatgptaibot")
+        assert guest.LOGO_EMOJI_ID == "" and "tg://emoji?id=" in guest._guest_status_md("text", 0)
+    finally:
+        guest.bot, dbm.get_superadmin_id = asl
+        guest.LOGO_EMOJI_ID = ""
+    assert os.path.getsize(guest._LOGO_FAYL) <= 256 * 1024, "Telegram: emoji ≤ 256 KB"
+    print("[14l] logo emoji bir marta yaratiladi, statusda ishlatiladi, xatoda jim OK")
+
     # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi
     import inspect
     manba = inspect.getsource(guest)
@@ -385,7 +422,7 @@ async def flood_tests():
     assert len(calls2) >= 3, calls2
     print("[16] oddiy holatda animatsiya ishlashda davom etdi OK")
 
-    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (16/16).")
+    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (17/17).")
 
 
 async def _ready(value):

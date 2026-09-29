@@ -8,7 +8,7 @@ from io import BytesIO
 
 import aiohttp
 from aiogram import Router
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, BufferedInputFile, InputSticker
 
 from core.loader import bot, logger
 from core.config import (
@@ -183,6 +183,49 @@ def _guest_thinking_html(content_type: str, elapsed: float) -> str:
     )
 
 
+# Bot logosidan yasalgan aylanuvchi custom emoji (assets/status_emoji.webm).
+# main.py ishga tushganda `logo_emojini_tayyorla()` to'ldiradi; bo'sh qolsa
+# (to'plam yaratilmadi) oddiy botdagi emojilar ishlatiladi.
+LOGO_EMOJI_ID = ""
+# ⚠️ Nomdagi raqam — ANIMATSIYA VERSIYASI. Telegram mavjud to'plamni
+# qayta yaratmaydi: webm o'zgarsa, raqamni oshiring (yangi to'plam).
+_LOGO_TOPLAM = "holat1"
+_LOGO_FAYL = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                          "assets", "status_emoji.webm")
+
+
+async def logo_emojini_tayyorla(bot_username: str) -> None:
+    """Logo emoji to'plamini topadi yoki BIR MARTA yaratadi. Hech qachon
+    yiqilmaydi — bu bezak, bot usiz ham to'liq ishlaydi."""
+    global LOGO_EMOJI_ID
+    if not bot_username:
+        return
+    nom = f"{_LOGO_TOPLAM}_by_{bot_username}"
+    try:
+        try:
+            toplam = await bot.get_sticker_set(nom)
+        except Exception:
+            # Telegram to'plamni haqiqiy odamga bog'laydi — bot egasiga.
+            from db.database import get_superadmin_id
+            egasi = await get_superadmin_id()
+            if not egasi:
+                logger.warning("[Logo emoji] superadmin yo'q — to'plam yaratilmadi")
+                return
+            with open(_LOGO_FAYL, "rb") as f:
+                fayl = BufferedInputFile(f.read(), filename="status_emoji.webm")
+            await bot.create_new_sticker_set(
+                user_id=egasi, name=nom, title="ChatGPT AI",
+                stickers=[InputSticker(sticker=fayl, format="video",
+                                       emoji_list=["🤖"])],
+                sticker_type="custom_emoji")
+            toplam = await bot.get_sticker_set(nom)
+            logger.info(f"[Logo emoji] to'plam yaratildi: t.me/addemoji/{nom}")
+        LOGO_EMOJI_ID = toplam.stickers[0].custom_emoji_id or ""
+        logger.info(f"[Logo emoji] tayyor: {LOGO_EMOJI_ID}")
+    except Exception as e:
+        logger.warning(f"[Logo emoji] tayyorlanmadi — oddiy emoji qoladi: {e}")
+
+
 def _guest_status_md(content_type: str, elapsed: float) -> str:
     """Guest INLINE xabar uchun status kadri — oddiy botdagi animatsiyali
     premium emoji + qalin matn + vaqt.
@@ -192,7 +235,7 @@ def _guest_status_md(content_type: str, elapsed: float) -> str:
     faqat shaxsiy chat DRAFT'i uchun. Premium emoji esa guruhdagi yakuniy
     javoblarda allaqachon ishlab turibdi (`![ ](tg://emoji?id=…)`)."""
     status_texts = STATUS_TEXTS_BY_TYPE.get(content_type, STATUS_TEXTS_BY_TYPE["text"])
-    emoji_id = EMOJI_ID_BY_TYPE.get(content_type, EMOJI_ID_BY_TYPE["text"])
+    emoji_id = LOGO_EMOJI_ID or EMOJI_ID_BY_TYPE.get(content_type, EMOJI_ID_BY_TYPE["text"])
     status_index = int(elapsed // _STATUS_ANIM_INTERVAL) % len(status_texts)
     dots = "." * (int(elapsed // _DOT_ANIM_INTERVAL) % 4 + 1)
     return (f"![ ](tg://emoji?id={emoji_id}) **{status_texts[status_index]}{dots}**"

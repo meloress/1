@@ -696,7 +696,10 @@ draft path never runs and the inline message IS the whole UX. Since 2026-09-29 i
 the DM: the placeholder and every status frame carry the DM's animated premium emoji
 (`_guest_status_md`, markdown `![ ](tg://emoji?id=…)`) — ⛔️ **not** `<tg-thinking>`: Telegram
 rejects that block outside a private-chat draft with `RICH_MESSAGE_BLOCK_UNSUPPORTED`
-(live, 2026-09-29). `[STATUS]search` switches the wording, and
+(live, 2026-09-29). The emoji is the bot's own logo, spinning (`assets/status_emoji.webm`, a
+custom-emoji set `holat1_by_<bot>` created once at startup by `logo_emojini_tayyorla()`, owned by
+the superadmin; bump `_LOGO_TOPLAM` when the animation changes — Telegram never re-creates an
+existing set). `[STATUS]search` switches the wording, and
 once ≥`_JONLI_MIN_BELGI` characters exist the answer streams into the message (" ✍️"),
 falling back to status on the next tool round. Two budget rules hold it together: a
 rejected premium frame sets `rad` and the rest of the request goes plain (never two
