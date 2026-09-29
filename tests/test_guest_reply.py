@@ -294,7 +294,9 @@ async def flood_tests():
         oddiy = session.calls[1]["text"]
         assert "[rasm" not in oddiy and "rasm" in oddiy, oddiy
         print("[14g] zaxira matnda rasm belgisi xom qolmadi OK")
-        # ── 14h) STATUS oddiy botdagidek: premium <tg-thinking> kadri
+        # ── 14h) STATUS oddiy botdagidek: animatsiyali premium emoji.
+        # ⚠️ <tg-thinking> YO'Q: jonli sinovda Telegram uni inline xabarda
+        # RICH_MESSAGE_BLOCK_UNSUPPORTED bilan rad etdi (faqat DM draft).
         # (jonli log: guest'da caller_chat_id DOIM None — draft yo'q, hamma
         # so'rov inline xabardan o'tadi).
         session = FakeSession([OK])
@@ -302,11 +304,12 @@ async def flood_tests():
         rad = []
         await _edit_guest_inline_message(
             "iid", "*O'ylayapman...*",
-            html=guest._guest_thinking_html("text", 1.0), rad=rad)
+            html=guest._guest_status_md("text", 1.0), rad=rad)
         birinchi = session.calls[0]["rich_message"]
-        assert "<tg-thinking>" in birinchi.get("html", ""), birinchi
+        assert "tg://emoji?id=" in birinchi.get("markdown", ""), birinchi
+        assert "tg-thinking" not in str(birinchi) and "html" not in birinchi, birinchi
         assert not rad, rad
-        print("[14h] status premium <tg-thinking> kadri bilan ketdi OK")
+        print("[14h] status premium emoji bilan, <tg-thinking>siz ketdi OK")
 
         # ── 14i) Premium kadr rad etilsa — o'sha kadr oddiy matn bo'lib
         # yetadi va `rad` belgisi chaqiruvchiga keyingi kadrlarda
@@ -316,7 +319,7 @@ async def flood_tests():
         rad = []
         ok, _ = await _edit_guest_inline_message(
             "iid", "*O'ylayapman...*",
-            html=guest._guest_thinking_html("text", 1.0), rad=rad)
+            html=guest._guest_status_md("text", 1.0), rad=rad)
         assert ok and rad == [True] and "text" in session.calls[1], (ok, rad)
         print("[14i] premium rad etilsa oddiy matnga tushdi va belgilandi OK")
     finally:
@@ -337,7 +340,7 @@ async def flood_tests():
     await asyncio.wait_for(_run_guest_status_animator(
         rich_edit, lambda: tur["t"], stop3, interval=0.01, rich=True), timeout=2)
     qidiruv = guest.STATUS_TEXTS_BY_TYPE["search"][0]
-    assert "<tg-thinking>" in kadrlar[0] and qidiruv.split()[0] in kadrlar[1], kadrlar
+    assert "tg://emoji?id=" in kadrlar[0] and qidiruv.split()[0] in kadrlar[1], kadrlar
     print("[14j] qidiruv boshlanganda status «qidiruv» ga almashdi OK")
 
     # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi

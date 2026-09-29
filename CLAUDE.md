@@ -693,8 +693,10 @@ information stays.
 
 ⚠️ **In production `caller_chat_id` is always `None`** (every `[Guest]` log line), so the
 draft path never runs and the inline message IS the whole UX. Since 2026-09-29 it mimics
-the DM: the placeholder and every status frame go out as the DM's `<tg-thinking>` +
-premium-emoji HTML (`_guest_thinking_html`), `[STATUS]search` switches the wording, and
+the DM: the placeholder and every status frame carry the DM's animated premium emoji
+(`_guest_status_md`, markdown `![ ](tg://emoji?id=…)`) — ⛔️ **not** `<tg-thinking>`: Telegram
+rejects that block outside a private-chat draft with `RICH_MESSAGE_BLOCK_UNSUPPORTED`
+(live, 2026-09-29). `[STATUS]search` switches the wording, and
 once ≥`_JONLI_MIN_BELGI` characters exist the answer streams into the message (" ✍️"),
 falling back to status on the next tool round. Two budget rules hold it together: a
 rejected premium frame sets `rad` and the rest of the request goes plain (never two

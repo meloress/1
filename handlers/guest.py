@@ -154,7 +154,7 @@ async def _run_guest_status_animator(
         text = _guest_status_frame(tur, elapsed)
         if text != last_text:
             try:
-                natija = (edit_fn(text, _guest_thinking_html(tur, elapsed)) if rich
+                natija = (edit_fn(text, _guest_status_md(tur, elapsed)) if rich
                           else edit_fn(text))
                 if await natija:
                     return
@@ -181,6 +181,22 @@ def _guest_thinking_html(content_type: str, elapsed: float) -> str:
         f"<b>{safe_status}{dots}</b><br/>"
         f"{elapsed_label}</tg-thinking>"
     )
+
+
+def _guest_status_md(content_type: str, elapsed: float) -> str:
+    """Guest INLINE xabar uchun status kadri — oddiy botdagi animatsiyali
+    premium emoji + qalin matn + vaqt.
+
+    ⚠️ `<tg-thinking>` EMAS: jonli sinov (2026-09-29) — Telegram uni oddiy
+    (inline) xabarda `RICH_MESSAGE_BLOCK_UNSUPPORTED` bilan rad etadi, u
+    faqat shaxsiy chat DRAFT'i uchun. Premium emoji esa guruhdagi yakuniy
+    javoblarda allaqachon ishlab turibdi (`![ ](tg://emoji?id=…)`)."""
+    status_texts = STATUS_TEXTS_BY_TYPE.get(content_type, STATUS_TEXTS_BY_TYPE["text"])
+    emoji_id = EMOJI_ID_BY_TYPE.get(content_type, EMOJI_ID_BY_TYPE["text"])
+    status_index = int(elapsed // _STATUS_ANIM_INTERVAL) % len(status_texts)
+    dots = "." * (int(elapsed // _DOT_ANIM_INTERVAL) % 4 + 1)
+    return (f"![ ](tg://emoji?id={emoji_id}) **{status_texts[status_index]}{dots}**"
+            f"\n\n_{_format_elapsed(elapsed)}_")
 
 
 async def _run_guest_chat_status_animator(
@@ -526,7 +542,7 @@ else:
         # Rad etilsa javob berilmagan hisoblanadi, pastdagi oddiy matn sinaladi.
         if html:
             inline_id = await _raw_answer_guest_query(
-                guest_query_id, {"html": html, "skip_entity_detection": True})
+                guest_query_id, {"markdown": html, "skip_entity_detection": True})
             if inline_id:
                 return inline_id
         inline_id = await _raw_answer_guest_query(
@@ -636,8 +652,7 @@ else:
         # `html` — STATUS kadri (premium emoji + <tg-thinking>, oddiy botdagi
         # draft bilan bir xil). Rad etilsa `rad` ga belgi tushadi va chaqiruvchi
         # qolgan kadrlarda uni ishlatmaydi — har kadrda ikki so'rov ketmasin.
-        birinchi = ({"html": html, "skip_entity_detection": True} if html
-                    else {"markdown": boy_matn, "skip_entity_detection": True})
+        birinchi = {"markdown": html or boy_matn, "skip_entity_detection": True}
         payloads = (
             {
                 "inline_message_id": inline_message_id,
@@ -1050,7 +1065,7 @@ else:
             guest_inline_message_id = await _answer_guest_query_placeholder(
                 str(guest_query_id),
                 f"*{_guest_status_text(content_type)}...*",
-                html=_guest_thinking_html(content_type, 0.0),
+                html=_guest_status_md(content_type, 0.0),
             )
             inline["oxirgi"] = time.monotonic()
             if guest_inline_message_id is None:
