@@ -294,8 +294,57 @@ async def flood_tests():
         oddiy = session.calls[1]["text"]
         assert "[rasm" not in oddiy and "rasm" in oddiy, oddiy
         print("[14g] zaxira matnda rasm belgisi xom qolmadi OK")
+        # ── 14h) STATUS oddiy botdagidek: premium <tg-thinking> kadri
+        # (jonli log: guest'da caller_chat_id DOIM None — draft yo'q, hamma
+        # so'rov inline xabardan o'tadi).
+        session = FakeSession([OK])
+        guest._get_http_session = lambda: _ready(session)
+        rad = []
+        await _edit_guest_inline_message(
+            "iid", "*O'ylayapman...*",
+            html=guest._guest_thinking_html("text", 1.0), rad=rad)
+        birinchi = session.calls[0]["rich_message"]
+        assert "<tg-thinking>" in birinchi.get("html", ""), birinchi
+        assert not rad, rad
+        print("[14h] status premium <tg-thinking> kadri bilan ketdi OK")
+
+        # ── 14i) Premium kadr rad etilsa — o'sha kadr oddiy matn bo'lib
+        # yetadi va `rad` belgisi chaqiruvchiga keyingi kadrlarda
+        # ishlatmaslikni aytadi (kadr boshiga 2 so'rov ketmasin).
+        session = FakeSession([{"ok": False, "description": "can't parse"}, OK])
+        guest._get_http_session = lambda: _ready(session)
+        rad = []
+        ok, _ = await _edit_guest_inline_message(
+            "iid", "*O'ylayapman...*",
+            html=guest._guest_thinking_html("text", 1.0), rad=rad)
+        assert ok and rad == [True] and "text" in session.calls[1], (ok, rad)
+        print("[14i] premium rad etilsa oddiy matnga tushdi va belgilandi OK")
     finally:
         asyncio.sleep = real_sleep
+
+    # ── 14j) Qidiruv boshlansa status turi almashadi (callable tur) ──
+    kadrlar = []
+    tur = {"t": "text"}
+
+    async def rich_edit(text, html):
+        kadrlar.append(html)
+        tur["t"] = "search"
+        if len(kadrlar) >= 2:
+            stop3.set()
+        return False
+
+    stop3 = asyncio.Event()
+    await asyncio.wait_for(_run_guest_status_animator(
+        rich_edit, lambda: tur["t"], stop3, interval=0.01, rich=True), timeout=2)
+    qidiruv = guest.STATUS_TEXTS_BY_TYPE["search"][0]
+    assert "<tg-thinking>" in kadrlar[0] and qidiruv.split()[0] in kadrlar[1], kadrlar
+    print("[14j] qidiruv boshlanganda status «qidiruv» ga almashdi OK")
+
+    # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi
+    import inspect
+    manba = inspect.getsource(guest)
+    assert "await _jonli(full_text)" in manba and "_status_boshla()" in manba
+    print("[14k] guest javobi jonli oqim bilan yoziladi OK")
 
     # ═══════════════════════════════════════════════════════════════
     # 15) ANIMATSIYA FLOOD'DA DARHOL TO'XTAYDI
@@ -333,7 +382,7 @@ async def flood_tests():
     assert len(calls2) >= 3, calls2
     print("[16] oddiy holatda animatsiya ishlashda davom etdi OK")
 
-    print("\nflood himoyasi: barcha tekshiruvlar o'tdi (12/12).")
+    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (16/16).")
 
 
 async def _ready(value):

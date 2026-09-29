@@ -85,6 +85,9 @@ _RICH_DRAFT_FAILURE_LIMIT = 2
 # javob ham yo'qoldi. Bezak uchun 4s yetarli, yakuniy javob esa
 # tahrirlash budjetini bo'sh topadi.
 _INLINE_PING_INTERVAL = 4.0
+# Jonli javob shundan qisqa bo'lsa status turaveradi: tool'dan oldingi
+# «hozir qidiraman» gapi ekranga chiqib, keyin status bilan almashmasin.
+_JONLI_MIN_BELGI = 60
 # Javob TAYYOR bo'lgan holda flood limitga urilsak — shuncha vaqtgacha
 # kutib qayta yuboramiz. Telegram odatda 30s atrofida so'raydi.
 _GUEST_FLOOD_MAX_WAIT = 40.0
@@ -119,8 +122,9 @@ def _guest_status_frame(content_type: str, elapsed: float) -> str:
 
 
 async def _run_guest_status_animator(
-    edit_fn, content_type: str, stop_event: asyncio.Event,
-    interval: float = _STATUS_PING_INTERVAL,
+    edit_fn, content_type, stop_event: asyncio.Event,
+    interval: float = _STATUS_PING_INTERVAL, *, rich: bool = False,
+    kutib: bool = False,
 ) -> None:
     """AI javobini kutish paytida placeholder xabarni davriy yangilab,
     "miltillab turadigan" status effektini beradi. `edit_fn(text)` chaqiruvchi
@@ -129,15 +133,30 @@ async def _run_guest_status_animator(
 
     `edit_fn` True qaytarsa animatsiya BUTUNLAY to'xtaydi. Shu orqali flood
     limitga urilgan inline yo'l tahrirlash budjetini yakuniy javobga bo'shatib
-    beradi — animatsiya bezak, javob esa bezak emas."""
+    beradi — animatsiya bezak, javob esa bezak emas.
+
+    `content_type` — satr yoki uni qaytaradigan funksiya: qidiruv boshlansa
+    (`[STATUS]search`) status matni oddiy botdagidek almashadi.
+    `rich=True` — `edit_fn(text, html)`: html — oddiy botdagi premium
+    `<tg-thinking>` kadri, text — uning zaxirasi.
+    `kutib=True` — birinchi kadr allaqachon ekranda (placeholder), darhol
+    qayta tahrirlash tahrir byudjetini bekorga yeydi."""
     start_ts = time.monotonic()
     last_text = None
+    if kutib:
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
     while not stop_event.is_set():
         elapsed = time.monotonic() - start_ts
-        text = _guest_status_frame(content_type, elapsed)
+        tur = content_type() if callable(content_type) else content_type
+        text = _guest_status_frame(tur, elapsed)
         if text != last_text:
             try:
-                if await edit_fn(text):
+                natija = (edit_fn(text, _guest_thinking_html(tur, elapsed)) if rich
+                          else edit_fn(text))
+                if await natija:
                     return
                 last_text = text
             except Exception:
@@ -486,7 +505,8 @@ else:
             logger.warning(f"Guest placeholder-answer xatosi ({list(rich_message)}): {e}")
             return None
 
-    async def _answer_guest_query_placeholder(guest_query_id: str, plain_text: str) -> str | None:
+    async def _answer_guest_query_placeholder(guest_query_id: str, plain_text: str,
+                                              html: str | None = None) -> str | None:
         """
         AnswerGuestQuery'ni DARHOL status (thinking) matni bilan chaqiradi.
 
@@ -502,6 +522,13 @@ else:
           2) aiogram'ning typed AnswerGuestQuery (InputTextMessageContent)
         Birinchi muvaffaqiyatli bo'lgani ishlatiladi.
         """
+        # Premium kadr (oddiy botdagi <tg-thinking>) — birinchi soniyadan.
+        # Rad etilsa javob berilmagan hisoblanadi, pastdagi oddiy matn sinaladi.
+        if html:
+            inline_id = await _raw_answer_guest_query(
+                guest_query_id, {"html": html, "skip_entity_detection": True})
+            if inline_id:
+                return inline_id
         inline_id = await _raw_answer_guest_query(
             guest_query_id, {"markdown": plain_text, "skip_entity_detection": True}
         )
@@ -530,7 +557,8 @@ else:
     async def _edit_guest_inline_message(
         inline_message_id: str, markdown_text: str, *,
         wait_on_flood: bool = False, rich: bool = False,
-        images: list | None = None
+        images: list | None = None, html: str | None = None,
+        rad: list | None = None,
     ) -> tuple[bool, float]:
         """Placeholder sifatida yuborilgan guest inline xabarni tahrirlaydi.
         Avval rich markdown bilan, muvaffaqiyatsiz bo'lsa oddiy `text` maydoni
@@ -605,6 +633,11 @@ else:
         # timeout — ya'ni yuqoridagi NOANIQ holat.
         media_timeout = (aiohttp.ClientTimeout(total=RICH_MEDIA_TIMEOUT, connect=5)
                          if (rich and images) else None)
+        # `html` — STATUS kadri (premium emoji + <tg-thinking>, oddiy botdagi
+        # draft bilan bir xil). Rad etilsa `rad` ga belgi tushadi va chaqiruvchi
+        # qolgan kadrlarda uni ishlatmaydi — har kadrda ikki so'rov ketmasin.
+        birinchi = ({"html": html, "skip_entity_detection": True} if html
+                    else {"markdown": boy_matn, "skip_entity_detection": True})
         payloads = (
             {
                 "inline_message_id": inline_message_id,
@@ -613,8 +646,7 @@ else:
                 # (build_rich_markdown uni o'z ichida chaqiradi.) Pastdagi
                 # zaxira `text` yo'lida esa fence O'Z holida qoladi:
                 # u Markdown parse_mode bilan ketadi.
-                "rich_message": {"markdown": boy_matn,
-                                 "skip_entity_detection": True},
+                "rich_message": birinchi,
             },
             {
                 "inline_message_id": inline_message_id,
@@ -642,6 +674,8 @@ else:
                     # sinash faqat yana bitta 429 qo'shadi.
                     flood = retry_after
                     break
+                if idx == 0 and rad is not None:
+                    rad.append(True)
             if not (wait_on_flood and flood):
                 return False, flood
             wait = min(flood + 1, _GUEST_FLOOD_MAX_WAIT)
@@ -904,6 +938,88 @@ else:
         status_anim_stop = asyncio.Event()
         use_chat_draft = not skip_ai and caller_chat_id is not None
 
+        # ── INLINE YO'L: oddiy botdagidek status + jonli javob ──────────
+        # Jonli log: guest'da `caller_chat_id` DOIM None, ya'ni draft yo'li
+        # hech qachon ishlamaydi — hamma so'rov shu inline xabardan o'tadi.
+        # Shuning uchun uning o'zi oddiy bot kabi ko'rinishi kerak:
+        #   * status — premium emoji + <tg-thinking> (DM draft kadri); rad
+        #     etilsa shu so'rovda oddiy matnga tushadi (kadr boshiga 2 so'rov
+        #     ketmasin);
+        #   * qidiruv boshlansa status «Qidirilmoqda» ga almashadi;
+        #   * javob yozila boshlagach — matn JONLI chiqadi (har
+        #     _INLINE_PING_INTERVAL da), keyingi tool raundida status qaytadi.
+        # ⚠️ Barcha tahrirlar bitta `inline["oxirgi"]` vaqtiga bo'ysunadi:
+        # inline tahrir byudjeti qattiq (429 «retry after 33»), yakuniy
+        # javobga joy qolishi shart.
+        inline = {"tur": content_type, "html": True, "oxirgi": 0.0,
+                  "yopiq": False}
+
+        async def _edit_thinking_inline(text: str, html: str | None = None) -> bool:
+            """True qaytarish = animatsiyani to'xtatish. Flood limitga
+            urilsak darhol to'xtaymiz: qolgan tahrirlash budjeti
+            yakuniy javobga kerak."""
+            rad: list = []
+            ok, flood = await _edit_guest_inline_message(
+                guest_inline_message_id, text,
+                html=html if inline["html"] else None, rad=rad)
+            inline["oxirgi"] = time.monotonic()
+            if rad and inline["html"]:
+                inline["html"] = False
+                logger.info("Guest: premium status rad etildi — oddiy matnga o'tildi")
+            if flood:
+                inline["yopiq"] = True
+                logger.info(
+                    f"Guest: status animatsiyasi to'xtatildi (flood {flood:.0f}s) — "
+                    "yakuniy javob uchun budjet saqlanadi"
+                )
+            return bool(flood)
+
+        def _status_boshla(kutib: bool = False) -> None:
+            nonlocal status_anim_task, status_anim_stop
+            if inline["yopiq"] or status_anim_task is not None:
+                return
+            # Jonli matn hozirgina yozilgan bo'lsa — birinchi kadr ham
+            # intervalni kutadi (byudjet; yuqoridagi ⚠️).
+            kutib = kutib or (time.monotonic() - inline["oxirgi"]
+                              < _INLINE_PING_INTERVAL)
+            status_anim_stop = asyncio.Event()
+            status_anim_task = asyncio.create_task(
+                _run_guest_status_animator(
+                    _edit_thinking_inline, lambda: inline["tur"], status_anim_stop,
+                    interval=_INLINE_PING_INTERVAL, rich=True, kutib=kutib,
+                )
+            )
+
+        async def _status_toxtat() -> None:
+            nonlocal status_anim_task
+            if status_anim_task is not None:
+                status_anim_stop.set()
+                await status_anim_task
+                status_anim_task = None
+
+        async def _jonli(matn: str) -> None:
+            """Javobning shu paytgacha yozilgan qismini inline xabarga qo'yadi."""
+            if guest_inline_message_id is None or inline["yopiq"]:
+                return
+            if time.monotonic() - inline["oxirgi"] < _INLINE_PING_INTERVAL:
+                return
+            korinish = strip_internal_names(
+                strip_rich_tokens(strip_image_tokens(matn))).strip()
+            if len(korinish) < _JONLI_MIN_BELGI:
+                return          # «Qidiryapman» kabi qisqa gap — status tursin
+            await _status_toxtat()
+            # To'xtatish paytida animator o'z kadrini yozib ulgurgan bo'lishi
+            # mumkin — ketma-ket ikki tahrir yubormaymiz, keyingi bo'lak kutadi.
+            if time.monotonic() - inline["oxirgi"] < _INLINE_PING_INTERVAL:
+                return
+            if len(korinish) > MAX_GUEST_REPLY_LEN:
+                korinish = korinish[:MAX_GUEST_REPLY_LEN].rstrip() + "…"
+            _ok, flood = await _edit_guest_inline_message(
+                guest_inline_message_id, _balance_markdown_fences(korinish + " ✍️"))
+            inline["oxirgi"] = time.monotonic()
+            if flood:
+                inline["yopiq"] = True
+
         if use_chat_draft:
             async def _chat_fallback_edit(text: str) -> None:
                 nonlocal chat_fallback_msg
@@ -934,30 +1050,16 @@ else:
             guest_inline_message_id = await _answer_guest_query_placeholder(
                 str(guest_query_id),
                 f"*{_guest_status_text(content_type)}...*",
+                html=_guest_thinking_html(content_type, 0.0),
             )
+            inline["oxirgi"] = time.monotonic()
             if guest_inline_message_id is None:
                 logger.warning(
                     f"[Guest] status placeholder umuman yuborilmadi (query_id={guest_query_id}) — "
                     "yakuniy javob bitta martalik answerGuestQuery orqali yuboriladi."
                 )
             else:
-                async def _edit_thinking_inline(text: str) -> bool:
-                    """True qaytarish = animatsiyani to'xtatish. Flood limitga
-                    urilsak darhol to'xtaymiz: qolgan tahrirlash budjeti
-                    yakuniy javobga kerak."""
-                    ok, flood = await _edit_guest_inline_message(guest_inline_message_id, text)
-                    if flood:
-                        logger.info(
-                            f"Guest: status animatsiyasi to'xtatildi (flood {flood:.0f}s) — "
-                            "yakuniy javob uchun budjet saqlanadi"
-                        )
-                    return bool(flood)
-                status_anim_task = asyncio.create_task(
-                    _run_guest_status_animator(
-                        _edit_thinking_inline, content_type, status_anim_stop,
-                        interval=_INLINE_PING_INTERVAL,
-                    )
-                )
+                _status_boshla(kutib=True)
 
         # --------------------------------------------------
         # 2. AI javobni olish (agar /start yoki kredit bo'yicha
@@ -1075,11 +1177,19 @@ else:
                         if not chunk:
                             continue
                         if chunk.startswith("[STATUS]"):
+                            tur = chunk[len("[STATUS]"):].strip()
+                            if tur in STATUS_TEXTS_BY_TYPE:
+                                inline["tur"] = tur
+                            # Tool raundi: jonli matn o'rniga yana status
+                            # (oddiy botdagi animatsiya qayta boshlanishi).
+                            if guest_inline_message_id is not None:
+                                _status_boshla()
                             continue
                         if "[CLEAR_TEXT]" in chunk:
                             full_text = ""
                             chunk = chunk.replace("[CLEAR_TEXT]", "")
                         full_text += chunk
+                        await _jonli(full_text)
                     ai_attempted = True
 
             except Exception as e:

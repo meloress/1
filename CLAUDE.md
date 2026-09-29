@@ -689,9 +689,19 @@ not.** `_edit_guest_inline_message(..., rich=True)` is the switch. It used to ca
 buttons, collapsed sources and premium emoji — and, worse, the markers the model writes
 anyway (`[batafsil: …]`, `[xarita:…]`) reached the reader as raw text. The plain-`text`
 fallback rung takes `strip_rich_tokens()` for the same reason: the marker disappears, the
-information stays. Status frames stay on the cheap path — they are re-sent every 4s and
-every extra decoration only raises the chance of a rejection that would cost the
-animation.
+information stays.
+
+⚠️ **In production `caller_chat_id` is always `None`** (every `[Guest]` log line), so the
+draft path never runs and the inline message IS the whole UX. Since 2026-09-29 it mimics
+the DM: the placeholder and every status frame go out as the DM's `<tg-thinking>` +
+premium-emoji HTML (`_guest_thinking_html`), `[STATUS]search` switches the wording, and
+once ≥`_JONLI_MIN_BELGI` characters exist the answer streams into the message (" ✍️"),
+falling back to status on the next tool round. Two budget rules hold it together: a
+rejected premium frame sets `rad` and the rest of the request goes plain (never two
+requests per frame), and **every** edit — status, stream, restart — waits
+`_INLINE_PING_INTERVAL` after the last one (`inline["oxirgi"]`); a 429 stops both and
+leaves the budget to the final answer. There is still no stop button: that is a draft
+feature, and drafts need a private chat id Telegram does not give guest mode.
 
 Guest also uses `speech_to_text_smart` / `text_to_speech_smart`, so a Pro user gets the
 natural voice in a group instead of the free edge-tts one.
