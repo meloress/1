@@ -28,9 +28,38 @@ No test framework, no linter, no build step — but the panel's JavaScript has n
 parses it, so `node --check` is the only thing standing between a typo and a blank screen
 for every admin. Run it after every `panel.js` / `soz.js` edit. Each `tests/test_*.py` is a standalone `assert`-based script with numbered `print("[N] ... OK")` lines and a final summary. New tests follow that shape. On Windows, prefix with `PYTHONIOENCODING=utf-8` — some tests print emoji and the console codepage will otherwise raise `UnicodeEncodeError` (a false failure, not a real one).
 
-Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is the slow one.
+Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is the slow one:
+
+```bash
+fail=0; for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 timeout 300 python "$f" >/dev/null 2>&1 || { echo "FAIL $f"; fail=1; }; done; echo done $fail
+```
+
+It takes ~10 minutes, so it usually runs in the background. ⛔️ **Read its output
+(`done 0`) before committing.** Chaining `commit && push` onto a background run, or
+pushing while it is still going, shipped two failing tests on 2026-09-29 — `git push
+meloress main` deploys, so there is no review step after it.
+
+⚠️ **Never write text containing `\n`, `\\` or other backslash escapes through a bash
+heredoc.** The shell mangles them: a Python replace script written as `<<'EOF'` still put
+a real newline inside a string literal (`SyntaxError: unterminated string literal`) or
+failed its own `assert s.count(old) == 1`. This happened half a dozen times in one
+session. Use the Edit tool for such edits, or write the script to a file with Write and
+run the file.
+
+⚠️ **The local `.env` points `DATABASE_URL` at the production database.** A test that
+does not fake a `database.*` call it reaches is reading (or writing) live data — which is
+why the Business tests fake `b._birinchi_marta` and friends explicitly.
 
 Some are structural guards rather than feature tests, and they earn their keep on refactors:
+
+- `test_retry.py` — the «↻ Qayta so'rash» button: one `query.answer` per callback (a
+  second one is rejected and the cooldown alert disappears), the retry charges points
+  (the original request was refunded on failure, so a free retry would be a free channel),
+  Pro gets `user_id`/`is_pro`/`images_out`, and history gets the question *and* the answer.
+- `test_biznes_ekran.py` — the `/biznes` screens plus the owner-facing premium-emoji
+  middleware (a request carrying `business_connection_id` is never touched by it), the
+  customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the
+  «✖️ Bekor qilish» button, and pressing any *other* button clears a waiting FSM state).
 
 - `test_admin_registry.py` — every admin handler still registered, in order, **and none of
   the 31 screens that moved to the web panel registered again**. A returning screen fails
@@ -229,6 +258,16 @@ serviceId})` → `node.meta.commitHash` / `commitMessage` / `createdAt` (UTC; Ta
 UTC+5). Use it before concluding anything from a screenshot — a table complaint was
 nearly misdiagnosed because it was unclear whether the fix had deployed yet.
 
+⚠️ **Poll that query with `first: 1` and wait for `SUCCESS <the hash you pushed>`.**
+`railway status` right after a push can still report the *previous* deployment's
+`SUCCESS`, which reads as "deployed" when the build has not started.
+
+- One `TelegramConflictError` right after a deploy is normal: the old container keeps
+  polling for a few seconds while the new one starts. Only a repeating one is a problem.
+- A build stuck in BUILDING / DEPLOYING for 15+ minutes is usually Railway itself — check
+  status.railway.com before debugging the code (2026-09-29: "API degradation causing slow
+  or stuck deployments", every region).
+
 The logs are the best source of work. Both of the largest problems found on 2026-09-10
 came from reading them, not from guessing: the image picker burning 47 843 tokens on one
 request, and a silent `asyncio.TimeoutError` (whose `str()` is empty) making the picker
@@ -242,15 +281,20 @@ The bot runs on OpenAI's free data-sharing grant. The dashboard lists two bucket
 
 Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o200k_base`) — never estimate from character counts, that was 11% off:
 
-| | tokens |
-|---|---|
-| `instructions` (prompt + concise + image note) | 5 521 |
-| tool schemas (Pro, all four doors closed) | 2 603 |
-| capability manifest | 461 |
-| **fixed total per round** | **8 585** |
-| history | 0 → ~8 200, then capped by the summary (~300) |
-| median user message | ~10 |
-| median reply | ~70 |
+| | free | Pro |
+|---|---|---|
+| `instructions` (prompt + concise + image note) | 5 521 | 5 521 |
+| tool schemas (all doors closed) | 2 231 | 2 604 |
+| capability manifest | 495 | 445 |
+| **fixed total per round** | **8 247** | **8 570** |
+| history | 0 → ~8 200, then capped by the summary (~300) | |
+| median user message | ~10 | |
+| median reply | ~70 | |
+
+Re-measured 2026-09-30 by capturing the real request (`_open_response_stream` faked, a
+DM with `output_files` and `images_out`). Free has no `generate_image` but, since the
+one-time reminder went free, it does carry `open_reminder`; its manifest is longer
+because of the `PRO FEATURES` line.
 
 That fixed total grew by 226 tokens on 2026-09-14/15 and both increases were deliberate,
 paid for by a live bug: `internet_search` gained the `url` field (+136, reading a pasted
@@ -461,7 +505,7 @@ The prompt also carries a phishing/social-engineering section that fixes the *sh
 
 ### The prompt is sent whole on every round, so duplication is expensive
 
-The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated: instructions 5 521 tokens, tool schemas 2 603, capability manifest 461.
+The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated — see the table in "Token budget" (8 247 free / 8 570 Pro per round).
 
 `STRICT_MATH_RULES` used to be appended after the whole prompt and was a near-verbatim copy of the template's own `MATH, PHYSICS & CHEMISTRY` section — nine rules stated twice, side by side in one string, 274 tokens per round. It is gone; the two phrases that were unique to it ("This is a hard requirement", "There are no other acceptable delimiters") were folded into the section that remains. `CONCISE_INSTRUCTION` likewise lost the three sentences that repeated `OUTPUT CONTRACT` rule 4.
 

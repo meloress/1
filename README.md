@@ -1,96 +1,69 @@
-# Telegram AI bot
+# Telegram AI bot (@uzchatgptaibot)
 
-aiogram 3.29 + OpenAI Responses API. Railway'da `worker: python main.py`
-sifatida ishlaydi (`Procfile`).
+aiogram 3.31 + OpenAI Responses API. Railway'da bitta jarayon —
+`worker: python main.py` (`Procfile`): polling va web admin panel birga.
+`git push meloress main` — deploy.
+
+Qoidalar va arxitektura — **`CLAUDE.md`**; Telegram Business — **`BIZNES.md`**;
+Bot API 10.3 va undan keyingilar — **`BOT_API_103.md`**.
 
 ## Papkalar tuzilishi
 
 ```
-main.py                      kirish nuqtasi: handlerlarni ro'yxatdan
-                             o'tkazadi va polling'ni boshlaydi
+main.py                      kirish nuqtasi: handlerlar TARTIBI (xavfsizlik
+                             sharti — CLAUDE.md), polling, web panel
 
 core/                        umumiy infratuzilma
-  config.py                  sozlamalar, system prompt, limit/narxlar
+  config.py                  sozlamalar, prompt, limitlar (daily_limit),
+                             yorliq lug'atlari (ACTIVITY_TYPES, AUDIT_ACTIONS …)
   loader.py                  bot, dispatcher, OpenAI mijozi, logger
-  keyboards.py               klaviaturalar
-  memory.py                  jarayon ichidagi vaqtinchalik holat
-                             (xabar buferi, qayta urinish keshi)
+  memory.py                  RAM holati (xabar buferi, qayta urinish, rasmlar)
+  olchov.py                  Business o'lchov jurnali
+  csv_fayl.py                CSV eksport (formula in'eksiyasidan himoya)
 
-db/                          ma'lumotlar bazasi (PostgreSQL / asyncpg)
-  database.py                foydalanuvchilar, kvotalar, admin, ban
-  history.py                 suhbat tarixi
+db/                          PostgreSQL / asyncpg
+  database.py                foydalanuvchilar, kvota, eslatmalar, Business …
+  history.py                 suhbat tarixi va xulosa (mavzular bo'yicha)
 
-handlers/                    Telegram voqealariga javob beruvchi qatlam
-  messages.py                matn, rasm, hujjat, ovoz
-  callbacks.py               tugma bosishlari (qayta urinish)
+handlers/                    Telegram voqealari
+  messages.py                matn, rasm/albom, hujjat, ovoz; status animatsiyasi
   guest.py                   guest mode (bot a'zo bo'lmagan chatlarda)
-  admin/                     admin panel (paket)
-    __init__.py              FAQAT handlerlarni ro'yxatdan o'tkazish
-    common.py                qo'riqchilar va umumiy yordamchilar
-    broadcast.py             ommaviy xabar
-    promo.py                 promokod, referal, "Bepul Pro"
-    users.py                 ro'yxat, kartochka, ban/premium, to'lov
-    stats.py                 statistika va faol foydalanuvchilar
-    system.py                texnik ta'til, kuzatish, adminlar, report
-    journal.py               audit, xatolar, daromad, limitlar
-    menu.py                  klaviatura ostidagi inline menyular
-    daily.py                 kunlik hisobot, rejali tarqatma (fonda)
-  profile.py                 /profile
-  helpers.py                 handlerlar uchun yordamchilar
-                             (xatolik xabari, kuzatuv, kunlik pin)
+  callbacks.py               «Qayta so'rash»
+  pro.py                     Pro, to'lov, sovg'a, promokod
+  profile.py, capabilities.py, digest.py (/kunlik)
+  biznes.py, biznes_uslub.py, biznes_media.py   Telegram Business
+  helpers.py                 umumiy yordamchilar, eslatma va fon kuzatuvchilari
+  admin/                     botda qolgan admin qismi: /xabar, /kod, report,
+                             kunlik hisobot (qolgani web panelda)
 
-services/                    tashqi servislar va og'ir ishlar
-  ai.py                      OpenAI oqimi, tool-loop, qidiruv, STT/TTS,
-                             hujjatdan matn ajratish
-  sandbox.py                 GPT yozgan Python kodini izolyatsiyada
-                             bajarish
-  file_task_quota.py         fayl yaratish sanog'i (bir marta yechish,
-                             fayl chiqmasa qaytarish)
-  sandbox_helpers/           sandbox ICHIGA nusxalanadigan modullar
-    docgen.py                PDF/PPTX joylashuvini o'lchab chizish
-    xledit.py                Excel'ni formatni buzmasdan tahrirlash
+services/
+  ai.py                      OpenAI oqimi, tool-loop, qidiruv, rasm, STT/TTS
+  sandbox.py                 model yozgan Python'ni izolyatsiyada bajarish
+  sandbox_helpers/           sandbox ICHIGA nusxalanadi (docgen, deck, xledit)
+  places.py                  yaqin atrofdagi joylar (Overpass)
+  menu.py                    / buyruqlar menyusi va Mini App tugmasi
+  file_task_quota.py         fayl sanog'i (bir marta yechish, qaytarish)
 
-tests/                       qo'lda ishga tushiriladigan tekshiruvlar
-docs/                        spetsifikatsiya va rejalar
+web/                         admin panel (aiohttp, bot jarayoni ichida)
+tests/                       mustaqil assert-skriptlar (~100 ta)
+assets/                      status emoji animatsiyalari (webm, ≤ 64 KB)
 ```
 
 `services/sandbox_helpers/` `services/sandbox.py` yonida turishi **shart** —
-sandbox uni `Path(__file__).parent / "sandbox_helpers"` orqali topadi va
-har bir ishga tushirishda vaqtinchalik ish papkasiga nusxalaydi.
+sandbox uni `Path(__file__).parent` orqali topadi.
 
 ## Testlar
 
-Test freymvorki ishlatilmaydi — har bir fayl `assert` bilan yozilgan va
-mustaqil ishga tushadi:
+Freymvork yo'q — har fayl `assert` bilan yozilgan va mustaqil ishga tushadi:
 
 ```bash
-python tests/test_extract.py            # hujjatdan matn ajratish
-python tests/test_file_task_loop.py     # tool-loop, kvota, bosqich byudjeti
-python tests/test_file_task_quota.py    # fayl sanog'i
-python tests/test_pending_file.py       # fayl + alohida ko'rsatma
-python tests/test_refund_quota.py       # kvota qaytarish
-python tests/test_tts_lang.py           # TTS til aniqlash (--live bilan sintez)
-python tests/test_activity_tracking.py  # statistikada hamma faollik ko'rinishi
-
-python services/sandbox.py                    # sandbox izolyatsiyasi
-python services/sandbox_helpers/docgen.py     # hujjat chizish
-python services/sandbox_helpers/xledit.py     # Excel tahriri
+PYTHONIOENCODING=utf-8 python tests/test_memory.py        # bitta test
+node --check web/static/panel.js                          # panel JS sintaksisi
 ```
 
-## Faollik turlari
-
-Admin statistikasi `user_activity` jadvaliga tayanadi. Kod yozadigan
-har bir tur `handlers/admin/stats.py` dagi SQL filtri va `type_labels` da
-bo'lishi shart — aks holda u statistikada ko'rinmay qoladi.
-`tests/test_activity_tracking.py` shuni qo'riqlaydi.
-
-| Tur | Qayerda yoziladi |
-|---|---|
-| `text_message`, `photo_message`, `document_message`, `voice_message` | `handlers/messages.py` |
-| `guest_*_message` | `handlers/guest.py` (kvota ruxsat bergan holatda) |
-| `file_task` | `handlers/messages.py` (fayl haqiqatan chiqqanda) |
-| `start` | statistikaga kirmaydi — AI chaqiruvi emas |
+Hammasini ishga tushirish va qaysilari nimani qo'riqlashi — `CLAUDE.md`.
 
 ## Muhit o'zgaruvchilari
 
-`.env` faylida: `BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`.
+`.env`: `BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL` (⚠️ mahalliy `.env`
+jonli bazaga ulangan), ixtiyoriy `TEXT_EMOJI_PACK`, `WEB_APP_URL`.
