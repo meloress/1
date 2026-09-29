@@ -336,7 +336,11 @@ never the tool behind it.
 
 `RateLimitError` arrives **mid-stream**, not when the stream opens: the SDK sends the request on the first iteration, so `_open_response_stream()`'s fallback ladder never sees a 429 and the answer died outright. The round is retried once after `RATE_LIMIT_RETRY_DELAY` — but only if no text has been yielded yet, otherwise the user would see the start of the answer twice.
 
-**Pro gating is done by omission**: `image_enabled = ... and is_pro`, `reminder_enabled = is_pro and user_id is not None`. Free users never see the schema, so no tokens are spent advertising a tool they cannot use. Flipping a feature to free-with-upsell means removing `is_pro` from that condition; the task functions already validate independently.
+**Pro gating is done by omission**: `image_enabled = ... and is_pro`. Free users never see the schema, so no tokens are spent advertising a tool they cannot use. Flipping a feature to free-with-upsell means removing `is_pro` from that condition; the task functions already validate independently.
+
+⚠️ **Reminders are the one feature that did flip (2026-09-29):** `reminder_enabled = user_id is not None`, so a free user can set a **one-time** reminder. Recurring (`repeat != "once"`) and `task=true` stay Pro, and that gate is in `_run_reminder_task(is_pro=…)`, not in the schema — the model is told "Pro only" and the DB is never touched (`test_reminders.py` check 23). The cost is the `open_reminder` door (212 tokens) on every free round.
+
+⚠️ **A reminder comes back to the topic it was set in.** `scheduled_tasks.thread_id` (0 = no topic, and always 0 from guest mode), passed only when `chat_id == user_id`. Delivery tries the topic first and falls back to the plain DM (`_mavzular()`), because a deleted topic must not swallow a reminder someone relies on; a task's result is written to the history of the topic it actually landed in (check 24).
 
 Photos (DM and guest) go through `get_openai_reply(input_image=)` — the old single-round `get_vision_reply()` is deleted.
 

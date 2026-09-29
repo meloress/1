@@ -249,8 +249,8 @@ SECTIONS: dict[str, dict] = {
             "o'zgartirish\n"
             "├ 🔎 <b>Chuqur tadqiqot</b> — 10+ manba, tayyor PDF hisobot "
             "(/research)\n"
-            "├ ⏰ <b>Eslatmalar</b> — «ertaga soat 9 da eslat» desangiz, "
-            "o'sha vaqtda o'zim yozaman\n"
+            "├ ⏰ <b>Takroriy eslatmalar</b> — «har kuni soat 9 da eslat» "
+            "(bir martalik eslatma bepulda ham bor)\n"
             "├ 🔁 <b>Vazifalar</b> — «har kuni 9 da dollar kursini yubor»: "
             "vaqti kelganda o'zim qidirib, natijani yuboraman\n"
             "├ 📰 <b>Kunlik daydjest</b> — tanlagan mavzularingiz bo'yicha "
@@ -304,7 +304,7 @@ _ROWS = (("chat", "doc"), ("photo", "voice"), ("file", "guruh"),
 # imkoniyatlar ro'yxatidan olinadi, aks holda ro'yxat o'zgarganda bu
 # raqam jimgina yolg'on aytib turardi.
 _PRO_QULF = ("rasm chizish", "rasm tahrirlash", "chuqur tadqiqot",
-             "eslatmalar", "kunlik daydjest", "telegram business")
+             "takroriy eslatmalar", "kunlik daydjest", "telegram business")
 
 
 def _menu_text(is_pro: bool) -> str:

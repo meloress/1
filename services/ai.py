@@ -3867,8 +3867,13 @@ async def _run_nearby_task(coords, args: dict) -> str:
             f"(eng yaqinidan boshlab):\n" + format_places(joylar))
 
 
-async def _run_reminder_task(user_id: Optional[int], args: dict) -> str:
+async def _run_reminder_task(user_id: Optional[int], args: dict, *,
+                             is_pro: bool = True, thread_id: int = 0) -> str:
     """manage_reminder chaqiruvi — modelga qisqa MATN natija qaytaradi.
+
+    Bepul tarif: faqat BIR MARTALIK eslatma. Takroriy va bajariladigan
+    vazifa (qidiruvli, qimmat) — Pro; buni tavsif emas, KOD tekshiradi.
+    `thread_id` — eslatma o'sha mavzuga qaytib kelsin.
 
     `index` modelning bergan raqami, ya'ni ishonchsiz: chegaradan chiqsa
     DB'ga umuman tegilmaydi (xotira asbobidagi bilan bir xil himoya).
@@ -3882,9 +3887,16 @@ async def _run_reminder_task(user_id: Optional[int], args: dict) -> str:
 
     try:
         if action == "create":
+            if not is_pro and (args.get("repeat", "once") != "once"
+                               or args.get("task") is True):
+                return ("qo'yilmadi: takroriy eslatma va bajariladigan vazifa "
+                        "faqat Pro'da (/pro). Bepulda bir martalik eslatma "
+                        "qo'yish mumkin — foydalanuvchiga shuni ayting va "
+                        "xohlasa bir martalik qilib qo'ying.")
             return await create_scheduled_task(
                 user_id, args.get("text", ""), args.get("when", ""),
-                args.get("repeat", "once"), vazifa=args.get("task") is True)
+                args.get("repeat", "once"), vazifa=args.get("task") is True,
+                thread_id=thread_id)
 
         rows = await list_scheduled_tasks(user_id)
         if action == "list":
@@ -4431,7 +4443,8 @@ async def get_openai_reply(
     # rejimda user_id=None → o'zi o'chadi.
     # 2: bitta eslatma qo'yish + ro'yxatni ko'rib bekor qilish bir xabarga
     # sig'adi; undan ortig'i odatda modelning aylanib qolgani.
-    reminder_enabled = is_pro and user_id is not None
+    # Hamma tarifda: bepulda bir martalik (`_run_reminder_task` tekshiradi).
+    reminder_enabled = user_id is not None
     MAX_REMINDER_ROUNDS = 2
     reminder_rounds = 0
     # Status animatsiyasi bir marta almashadi (qidiruv/rasm bilan bir xil).
@@ -4674,7 +4687,11 @@ async def get_openai_reply(
             elif call_item.name == "manage_reminder":
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 reminder_ran = True
-                tool_output = await _run_reminder_task(user_id, args)
+                # Mavzu faqat shaxsiy chatda (chat_id == user_id): guest'da
+                # chat_id ham user_id, lekin thread_id doim 0.
+                tool_output = await _run_reminder_task(
+                    user_id, args, is_pro=is_pro,
+                    thread_id=thread_id if chat_id == user_id else 0)
             elif call_item.name == "open_capabilities":
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 # Boshqa eshiklardan farqi: bu asbob BIRIKTIRMAYDI, javobni

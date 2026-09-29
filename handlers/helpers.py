@@ -338,14 +338,24 @@ async def notify_inactive_users():
         await asyncio.sleep(INACTIVE_TICK)
 
 
-async def _dm_or_deactivate(user_id: int, text: str, kb=None) -> None:
+async def _dm_or_deactivate(user_id: int, text: str, kb=None,
+                            thread_id: int = 0) -> None:
     """Xabar yuboradi; foydalanuvchi botni bloklagan bo'lsa is_active=FALSE.
 
     handlers/admin.py'dagi broadcast bilan bir xil naqsh — bloklagan
     foydalanuvchilar ro'yxatda "faol" bo'lib qolib ketmasin.
+    `thread_id` — mavzu; u o'chirilgan bo'lsa, mavzusiz qayta yuboriladi.
     """
     try:
-        await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=kb)
+        try:
+            await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=kb,
+                                   **mavzu_kwargs(thread_id))
+        except TelegramForbiddenError:
+            raise
+        except Exception:
+            if not thread_id:
+                raise
+            await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=kb)
     except TelegramForbiddenError:
         try:
             await database.deactivate_user(user_id)
@@ -395,7 +405,13 @@ async def _reminder_body(task_text: str) -> str:
     return "".join(parts).strip()
 
 
-async def _send_reminder(user_id: int, task_text: str) -> None:
+# Mavzudagi eslatma: avval o'sha mavzuga, u o'chirilgan bo'lsa — mavzusiz
+# (eslatma YETIB BORISHI mavzudan muhimroq).
+def _mavzular(thread_id: int) -> tuple:
+    return (thread_id, None) if thread_id else (None,)
+
+
+async def _send_reminder(user_id: int, task_text: str, thread_id: int = 0) -> None:
     """Eslatmani ODDIY JAVOB bilan bir xil ko'rinishda yuboradi.
 
     Model matn yozolmasa yoki yuborish yiqilsa — eski oddiy shablon
@@ -413,17 +429,20 @@ async def _send_reminder(user_id: int, task_text: str) -> None:
 
     if body:
         try:
-            if await _send_rich_message(
-                    user_id, markdown=build_rich_markdown(body)) is not None:
-                return
+            for mavzu in _mavzular(thread_id):
+                if await _send_rich_message(
+                        user_id, markdown=build_rich_markdown(body),
+                        message_thread_id=mavzu) is not None:
+                    return
         except Exception as e:
             logger.warning(f"[Eslatma] rich yuborilmadi (user={user_id}): {e}")
 
     await _dm_or_deactivate(
-        user_id, _REMINDER_FALLBACK.format(html_escape(body or task_text)))
+        user_id, _REMINDER_FALLBACK.format(html_escape(body or task_text)),
+        thread_id=thread_id)
 
 
-async def _vazifani_bajar(user_id: int, task_text: str) -> None:
+async def _vazifani_bajar(user_id: int, task_text: str, thread_id: int = 0) -> None:
     """Rejalashtirilgan VAZIFA: vaqti kelganda so'rovni to'liq halqada
     bajaradi (qidiruv, internet rasmlari) va natijani yuboradi.
 
@@ -446,7 +465,7 @@ async def _vazifani_bajar(user_id: int, task_text: str) -> None:
 
     try:
         if not await database.pro_tarifmi(user_id):
-            return await _send_reminder(user_id, task_text)
+            return await _send_reminder(user_id, task_text, thread_id)
         prompt = (f"[REJALASHTIRILGAN VAZIFA] Foydalanuvchi shu ishni aynan "
                   f"hozirga topshirgan: «{task_text}». Uni HOZIR bajar va "
                   f"natijani yoz. Birinchi qator: ⏰ va qisqa sarlavha. "
@@ -465,19 +484,28 @@ async def _vazifani_bajar(user_id: int, task_text: str) -> None:
         if not matn:
             raise ValueError("bo'sh javob")
         asos = build_rich_markdown(matn)
-        yuborildi = await _send_rich_message(
-            user_id, markdown=embed_images(asos, rasmlar), timeout=RICH_MEDIA_TIMEOUT)
-        if yuborildi is None:
+        yuborildi = None
+        for mavzu in _mavzular(thread_id):
             yuborildi = await _send_rich_message(
-                user_id, markdown=strip_custom_emoji(strip_image_tokens(asos)))
+                user_id, markdown=embed_images(asos, rasmlar), timeout=RICH_MEDIA_TIMEOUT,
+                message_thread_id=mavzu)
+            if yuborildi is None:
+                yuborildi = await _send_rich_message(
+                    user_id, markdown=strip_custom_emoji(strip_image_tokens(asos)),
+                    message_thread_id=mavzu)
+            if yuborildi is not None:
+                break
         if yuborildi is None:
             raise ValueError("yuborilmadi")
+        # Tarix — javob TUSHGAN mavzuga («shu haqda batafsil» o'sha yerda ishlasin).
+        tarix_mavzu = mavzu or 0
         await safe_update_history(user_id, f"[Rejalashtirilgan vazifa]: {task_text}",
-                                  role="user")
-        await safe_update_history(user_id, matn, role="assistant", images=rasmlar)
+                                  role="user", thread_id=tarix_mavzu)
+        await safe_update_history(user_id, matn, role="assistant", images=rasmlar,
+                                  thread_id=tarix_mavzu)
     except Exception as e:
         logger.warning(f"[Vazifa] bajarilmadi (user={user_id}): {e}")
-        await _send_reminder(user_id, task_text)
+        await _send_reminder(user_id, task_text, thread_id)
 
 
 async def reminder_watcher():
@@ -514,9 +542,11 @@ async def reminder_watcher():
                 if row.get("vazifa"):
                     # Fonda: qidiruvli javob 10-60 s — shu vaqt ichida
                     # boshqalarning eslatmasi kechikmasin.
-                    asyncio.create_task(_vazifani_bajar(row["user_id"], row["text"]))
+                    asyncio.create_task(_vazifani_bajar(
+                        row["user_id"], row["text"], row.get("thread_id") or 0))
                 else:
-                    await _send_reminder(row["user_id"], row["text"])
+                    await _send_reminder(row["user_id"], row["text"],
+                                         row.get("thread_id") or 0)
                 await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"[Eslatma] fon vazifasida xatolik: {e}")

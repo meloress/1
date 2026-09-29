@@ -95,7 +95,7 @@ async def run_case(rounds, *, is_pro=True):
     async def fake_memory(user_id, mem_rows, args):
         return "saqlandi"
 
-    async def fake_reminder(user_id, args):
+    async def fake_reminder(user_id, args, **kw):
         return "eslatma qo'yildi"
 
     async def fake_history(*a, **k):

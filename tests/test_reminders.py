@@ -201,7 +201,7 @@ async def test_ai_body():
         raise RuntimeError("model yiqildi")
         yield ""
 
-    async def fake_dm(user_id, text, kb=None):
+    async def fake_dm(user_id, text, kb=None, thread_id=0):
         yuborilgan["text"] = text
 
     real_dm = helpers._dm_or_deactivate
@@ -232,7 +232,7 @@ async def test_vazifa():
     # 18) Model `task` ni faqat aniq True bo'lganda vazifa qiladi.
     q = []
 
-    async def fake_create(user_id, text, when, repeat="once", vazifa=False):
+    async def fake_create(user_id, text, when, repeat="once", vazifa=False, thread_id=0):
         q.append(vazifa)
         return "qo'yildi"
 
@@ -267,7 +267,7 @@ async def test_vazifa():
     async def tarix(chat_id, content, role="user", **kw):
         j["tarix"].append((chat_id, role, content))
 
-    async def eslat(user_id, text):
+    async def eslat(user_id, text, thread_id=0):
         j["eslatma"].append(text)
 
     asl = (helpers.database.pro_tarifmi, ai_mod.get_gpt_reply, msg._send_rich_message,
@@ -313,6 +313,65 @@ async def test_vazifa():
     print("[22] kuzatuvchi vazifani bajaruvchiga, eslatmani eslatmaga yuboradi OK")
 
 
+async def test_bepul_va_mavzu():
+    """Bepul tarif — faqat BIR MARTALIK; eslatma qo'yilgan MAVZUGA qaytadi.
+
+    ⛔️ bepul odam "har kuni eslat" deb Pro imkoniyatini tekin oladi;
+    ⛔️ mavzuda qo'yilgan eslatma chatning asosiy oqimiga tushadi;
+    ⛔️ mavzu o'chirilgan — eslatma umuman yetib bormaydi.
+    """
+    from handlers import helpers
+    import handlers.messages as msg
+    import services.ai as ai_mod
+
+    # 23) Bepul: takroriy / vazifa — rad, bazaga tegilmaydi; bir martalik — o'tadi.
+    yozildi = []
+
+    async def fake_create(user_id, text, when, repeat="once", vazifa=False, thread_id=0):
+        yozildi.append((repeat, vazifa, thread_id))
+        return "qo'yildi"
+
+    real_create = ai_mod.create_scheduled_task
+    ai_mod.create_scheduled_task = fake_create
+    try:
+        r1 = await ai_mod._run_reminder_task(5, {"action": "create", "text": "x",
+                                                 "when": "2099-01-01 09:00",
+                                                 "repeat": "daily"}, is_pro=False)
+        r2 = await ai_mod._run_reminder_task(5, {"action": "create", "text": "x",
+                                                 "when": "2099-01-01 09:00",
+                                                 "task": True}, is_pro=False)
+        assert not yozildi and "Pro" in r1 and "Pro" in r2, (r1, r2)
+        await ai_mod._run_reminder_task(5, {"action": "create", "text": "ishga ketish",
+                                            "when": "2099-01-01 10:00"},
+                                        is_pro=False, thread_id=42)
+        assert yozildi == [("once", False, 42)], yozildi
+    finally:
+        ai_mod.create_scheduled_task = real_create
+    from _manba import kod
+    m = kod(os.path.join(ROOT, "services", "ai.py"))
+    assert "reminder_enabled = user_id is not None" in m
+    print("[23] bepul: faqat bir martalik, mavzu raqami bilan saqlanadi OK")
+
+    # 24) Yuborish: avval mavzuga, u rad etsa — mavzusiz.
+    yuborish = []
+
+    async def rich(chat_id, **kw):
+        yuborish.append(kw.get("message_thread_id"))
+        return None if kw.get("message_thread_id") else object()
+
+    async def body(_):
+        return "⏰ Ishga ketish vaqti!"
+
+    asl = (msg._send_rich_message, helpers._reminder_body)
+    msg._send_rich_message, helpers._reminder_body = rich, body
+    try:
+        await helpers._send_reminder(7, "Ishga ketish", 42)
+    finally:
+        msg._send_rich_message, helpers._reminder_body = asl
+    assert yuborish == [42, None], yuborish
+    print("[24] eslatma mavzuga boradi, mavzu yo'q bo'lsa — mavzusiz OK")
+
+
 async def main():
     test_clean_text()
     test_parse_run_at()
@@ -321,7 +380,8 @@ async def main():
     await test_cleanup_and_limits()
     await test_ai_body()
     await test_vazifa()
-    print("\neslatmalar: barcha tekshiruvlar o'tdi (22/22).")
+    await test_bepul_va_mavzu()
+    print("\neslatmalar: barcha tekshiruvlar o'tdi (24/24).")
 
 
 if __name__ == "__main__":
