@@ -353,7 +353,7 @@ async def flood_tests():
         async def get_sticker_set(self, nom):
             if not self.bor:
                 raise RuntimeError("STICKERSET_INVALID")
-            return NS(stickers=[NS(custom_emoji_id="LOGO42")])
+            return NS(stickers=[NS(custom_emoji_id=f"LOGO_{t}") for t in guest._LOGO_TURLAR])
         async def create_new_sticker_set(self, **kw):
             yaratildi.append(kw); self.bor = True
 
@@ -366,20 +366,26 @@ async def flood_tests():
         await guest.logo_emojini_tayyorla("uzchatgptaibot")
         assert (len(yaratildi) == 1 and yaratildi[0]["user_id"] == 777
                 and yaratildi[0]["name"].endswith("_by_uzchatgptaibot")
-                and yaratildi[0]["sticker_type"] == "custom_emoji"), yaratildi
-        assert "tg://emoji?id=LOGO42" in guest._guest_status_md("search", 1.0)
+                and yaratildi[0]["sticker_type"] == "custom_emoji"
+                and len(yaratildi[0]["stickers"]) == len(guest._LOGO_TURLAR)), yaratildi
+        # Har status o'z animatsiyasini oladi; mos kelmagani — umumiy aylanish.
+        for tur, kutilgan in (("search", "search"), ("research", "search"),
+                              ("file_task", "document"), ("image", "photo"),
+                              ("tts", "voice"), ("memory", "text"), ("text", "text")):
+            assert f"tg://emoji?id=LOGO_{kutilgan})" in guest._guest_status_md(tur, 1.0), tur
         await guest.logo_emojini_tayyorla("uzchatgptaibot")      # bor — qayta yaratilmaydi
         assert len(yaratildi) == 1, yaratildi
-        guest.LOGO_EMOJI_ID = ""
+        guest.LOGO_EMOJI.clear()
         guest.bot = NS()                                          # hamma chaqiruv yiqiladi
         await guest.logo_emojini_tayyorla("uzchatgptaibot")
-        assert guest.LOGO_EMOJI_ID == "" and "tg://emoji?id=" in guest._guest_status_md("text", 0)
+        assert not guest.LOGO_EMOJI and "tg://emoji?id=" in guest._guest_status_md("text", 0)
     finally:
         guest.bot, dbm.get_superadmin_id = asl
-        guest.LOGO_EMOJI_ID = ""
+        guest.LOGO_EMOJI.clear()
     # Jonli: 207 KB «file is too big» bilan rad etildi — emoji uchun chegara 64 KB.
-    assert os.path.getsize(guest._LOGO_FAYL) <= 64 * 1024, "Telegram: video emoji ≤ 64 KB"
-    print("[14l] logo emoji bir marta yaratiladi, statusda ishlatiladi, xatoda jim OK")
+    for yol in guest._LOGO_FAYLLAR.values():
+        assert os.path.getsize(yol) <= 64 * 1024, f"Telegram: video emoji ≤ 64 KB — {yol}"
+    print("[14l] logo emoji to'plami bir marta yaratiladi, har status o'z animatsiyasini oladi, xatoda jim OK")
 
     # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi
     import inspect
