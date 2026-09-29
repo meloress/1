@@ -17,9 +17,8 @@ oldin shu faylni o'qing. Bosqichlar rejasi va asl qarorlar — `REJA.md`.
 | `tests/test_biznes*.py` | har bosqichga bitta test, hammasi oflayn |
 | `tests/eval_biznes.py` | ANIQLIK — jonli model, qo'lda (prompt o'zgarsa oldin/keyin) |
 
-Sinov davri: `/biznes` va `/mijozlar` ATAYLAB menyuda yo'q
-(`services/menu.py`), yozib ishlatilsa ishlaydi. Hamma uchun ochilganda
-`PRO_COMMANDS` ga qo'shiladi. Avtomat rejim ochiq (`BIZNES_AVTOMAT_OCHIQ = True`, egasi 2026-09-26 da o'lchovsiz ochdi).
+Menyu (2026-09-30, sinov davri tugadi): `/biznes` — HAMMAGA (`COMMON_COMMANDS`; bepul
+bossa ulanish holati va /pro), `/mijozlar` — faqat Pro (`PRO_COMMANDS`). Avtomat rejim ochiq (`BIZNES_AVTOMAT_OCHIQ = True`, egasi 2026-09-26 da o'lchovsiz ochdi).
 
 ## Egasining bot DM'i: bitta «💼 Biznes» mavzusi
 
@@ -170,10 +169,13 @@ Egasi so'radi: Business'dagi hamma emoji `TEXT_EMOJI_PACK` (RestrictedEmoji) dan
 
 Tushuntirish o'zbekcha, lekin BOSILADIGAN nomlar (menyu yo'li, huquq nomlari) egasining
 `language_code` bo'yicha: `sozlama_yoli(uid)`, `huquq_nomi(uid, kalit)` — `_YOL` / `_HUQUQ_TIL`
-(uz, en, ru; tanilmagan til → en). Til RAM'da (`til_eslab`, /biznes, callback, ulanish,
+(uz, en, ru; tanilmagan til → en). ⛔️ Nomlar Telegram'ning RASMIY tarjimalaridan
+(translations.telegram.org, 2026-09-30): bo'lim endi "Chat Automation" / "Автоматизация
+чатов" / "Chatni avtomatlashtirish" — taxminiy "Chatbots/Чат-боты/Chatbotlar" uchala tilda
+xato edi. Til RAM'da (`til_eslab`, /biznes, callback, ulanish,
 egasining xabari). "Telegram Premium kerak" gapi olib tashlandi (egasi: kerak emas). Bepul
 egaga ulanmagan bo'lsa «✅ ulandim» chiqmaydi (`_probez_matni`). `test_biznes_ekran.py` 8-12.
-⚠️ ru/en huquq nomlari ilovadan tekshirilmagan. `/help` dagi Business bo'limi hali o'zbekcha.
+`/help` dagi Business bo'limi o'zbekcha (Premium haqida gap yo'q — egasi tekshirdi: kerak emas).
 
 ## Avtomat kutishi va egasining vaqtlari (2026-09-29)
 

@@ -28,6 +28,9 @@ COMMON_COMMANDS = [
     BotCommand(command="pro", description="💎 Pro tarif"),
     BotCommand(command="promo", description="🎟 Promokod kiritish"),
     BotCommand(command="gift", description="🎁 Do'stga Pro sovg'a qilish"),
+    # Pro imkoniyati bo'lsa ham HAMMAGA (egasi, 2026-09-30): kanal e'loni
+    # /biznes ga yo'naltiradi, bepul odam bossa — ulanish holati va /pro.
+    BotCommand(command="biznes", description="💼 Telegram Business"),
 ]
 
 # Faqat Pro'da. Yangi Pro buyrug'i qo'shilsa — SHU ro'yxatga bitta qator,
@@ -35,9 +38,7 @@ COMMON_COMMANDS = [
 PRO_COMMANDS = [
     BotCommand(command="kunlik", description="⏰ Kunlik daydjest"),
     BotCommand(command="research", description="🔬 Chuqur tadqiqot + PDF"),
-    # /biznes va /mijozlar ATAYLAB yo'q — sinov davrida menyuda
-    # ko'rinmaydi, buyruqlar esa yozib ishlatilsa ishlaydi. Hamma uchun
-    # ochilganda shu yerga qo'shiladi.
+    BotCommand(command="mijozlar", description="👥 Business mijozlari ro'yxati"),
 ]
 
 # Faqat adminlarda. 7-bosqichda paydo bo'ldi va sababi aniq: reply

@@ -707,7 +707,9 @@ owner-style learning) and the planned next work. The four rules that break silen
 - History is keyed `(customer_chat_id, -owner_id)`; the DM queue wake-up skips negative keys.
 - `biznes_yoriqnoma=` forces tools off, skips the owner's memory, and swaps `instructions`
   for `BIZNES_INSTRUCTIONS` — per-owner text only ever goes into a `developer` message.
-- `/biznes` and `/mijozlar` are deliberately absent from the menu during testing.
+- Menu (2026-09-30): `/biznes` is shown to **everyone** (a free user gets the status and
+  /pro), `/mijozlar` to Pro only. Menu path and right names come from Telegram's official
+  translations — see `BIZNES.md`; the guessed "Chatbots" was wrong in all three languages.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

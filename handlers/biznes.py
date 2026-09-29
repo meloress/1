@@ -1,7 +1,7 @@
 """Telegram Business — 1-bosqich: ulanish va egasining «nuqtali buyruqlari».
 
-Egasi botni o'z profiliga ulaydi (Sozlamalar → Telegram Business →
-Chatbotlar) va istalgan shaxsiy chatida `.en Salom` yozadi — buyruq
+Egasi botni o'z profiliga ulaydi (Sozlamalar → Telegram Biznes →
+Chatni avtomatlashtirish) va istalgan shaxsiy chatida `.en Salom` yozadi — buyruq
 o'chadi, o'rniga "Hello" chiqadi. Mijozga bot bu bosqichda O'Z-O'ZIDAN
 hech qachon yozmaydi: hamma narsa egasining buyrug'i bilan (REJA.md).
 
@@ -309,22 +309,26 @@ HUQUQ_NOMI = {
 
 # ── Telegram menyusidagi nomlar EGASINING Telegram tilida ────────────
 # Tushuntirish o'zbekcha qoladi, lekin odam BOSADIGAN narsa (Sozlamalar →
-# Telegram Business → Chatbotlar, huquq nomlari) uning ekranida qanday
-# yozilgan bo'lsa, shunday: rus tilidagi Telegram'da «Sozlamalar» degan
+# Telegram Biznes → Chatni avtomatlashtirish, huquq nomlari) uning ekranida
+# qanday yozilgan bo'lsa, shunday: rus tilidagi Telegram'da «Sozlamalar» degan
 # tugma yo'q. O'zbekchasi — `HUQUQ_NOMI` (pastda profil huquqlari ham qo'shiladi).
-# ⚠️ ru/en huquq nomlari Telegram ilovasidan tekshirilmagan — farq qilsa, shu yerda.
+# ⚠️ Hammasi Telegram'ning RASMIY tarjimalaridan (translations.telegram.org,
+# Android kalitlari TelegramBusiness, BusinessBots2, BusinessBotPermissions*;
+# 2026-09-30). Taxmin qilib yozilgani uchala tilda ham xato edi: bo'lim
+# endi "Chatbots" emas, "Chat Automation". O'zgartirishdan oldin o'sha
+# saytdan qayta tekshiring.
 _YOL = {
-    "uz": ("Sozlamalar", "Telegram Business", "Chatbotlar"),
-    "en": ("Settings", "Telegram Business", "Chatbots"),
-    "ru": ("Настройки", "Telegram для бизнеса", "Чат-боты"),
+    "uz": ("Sozlamalar", "Telegram Biznes", "Chatni avtomatlashtirish"),
+    "en": ("Settings", "Telegram Business", "Chat Automation"),
+    "ru": ("Настройки", "Telegram для бизнеса", "Автоматизация чатов"),
 }
 _HUQUQ_TIL = {
     "en": {"can_reply": "Reply to Messages", "can_read_messages": "Read Messages",
            "can_edit_bio": "Edit Bio", "can_edit_name": "Edit Name",
-           "can_edit_profile_photo": "Edit Profile Photo",
+           "can_edit_profile_photo": "Edit Profile Picture",
            "can_manage_stories": "Manage Stories"},
-    "ru": {"can_reply": "Ответ на сообщения", "can_read_messages": "Чтение сообщений",
-           "can_edit_bio": "Изменение описания", "can_edit_name": "Изменение имени",
+    "ru": {"can_reply": "Ответы на сообщения", "can_read_messages": "Чтение сообщений",
+           "can_edit_bio": "Изменение раздела «О себе»", "can_edit_name": "Изменение имени",
            "can_edit_profile_photo": "Изменение фото профиля",
            "can_manage_stories": "Управление историями"},
 }
@@ -2459,10 +2463,10 @@ PROFIL_HUQUQI = {
     "story": ("can_manage_stories", "Story"),
 }
 HUQUQ_NOMI.update({
-    "can_edit_bio": "Bio'ni o'zgartirish",
-    "can_edit_name": "Ismni o'zgartirish",
-    "can_edit_profile_photo": "Profil rasmini o'zgartirish",
-    "can_manage_stories": "Story'larni boshqarish",
+    "can_edit_bio": "Tarjimayi holni tahrirlash",
+    "can_edit_name": "Ismni tahrirlash",
+    "can_edit_profile_photo": "Profil rasmini tahrirlash",
+    "can_manage_stories": "Hikoyalarni boshqarish",
 })
 _PROFIL_SOROV = {
     "bio": "📝 Bio'da nima bo'lsin? Erkin yozing — men 140 belgilik matn tayyorlayman.",

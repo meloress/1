@@ -293,7 +293,7 @@ check(19, "1 soatdan eski tasdiq ishlamaydi",
 
 b._tasdiq["st"] = {"egasi": EGASI, "tur": "story", "rasm": b"x", "vaqt": 9e18}
 check(20, "huquq yo'q (story) -> Telegram'ga yozilmaydi, qaysi huquq kerakligi aytiladi",
-      "Story'larni boshqarish" in asyncio.run(b._tasdiqla("st", EGASI))
+      "Hikoyalarni boshqarish" in asyncio.run(b._tasdiqla("st", EGASI))
       and not [x for x in q if x[0] == "metod"])
 
 check(21, "ism: `Ism|Familiya`, familiyasiz ham; bo'sh -> None; bio bir qator",

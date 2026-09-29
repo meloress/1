@@ -210,8 +210,9 @@ SECTIONS: dict[str, dict] = {
         "title": "TELEGRAM BUSINESS",
         "body": lambda pro: (
             ("" if pro else "🔒 <b>Pro tarifida.</b>\n\n")
-            + "Meni o'z profilingizga ulang: Sozlamalar → Telegram Business "
-            "→ Chatbotlar. Keyin istalgan shaxsiy chatingizda nuqta bilan "
+            + "Meni o'z profilingizga ulang: Sozlamalar → Telegram Biznes "
+            "→ Chatni avtomatlashtirish → @uzchatgptaibot. Ulandimmi — /biznes "
+            "o'zi ko'rsatadi. Istalgan shaxsiy chatingizda nuqta bilan "
             "yozing — buyruq o'chadi, natija o'rniga chiqadi:\n\n"
             "├ <code>.javob</code> nima demoqchisiz — chiroyli javob\n"
             "├ <code>.en</code> / <code>.ru</code> / <code>.uz</code> — "
@@ -220,10 +221,18 @@ SECTIONS: dict[str, dict] = {
             "├ <code>.tarjima</code> [til] — oxirgi xabar tarjimasi (sizga)\n"
             "├ <code>.xulosa</code> — chat xulosasi (sizga)\n"
             "└ <code>.eslat</code> qachon nima — eslatma\n\n"
-            "🤝 <b>Yordamchi rejimi</b> (/biznes): mijoz yozsa, javob "
-            "loyihasini sizga yuboraman — «Yuborish», «Tahrirlash» yoki "
-            "«Bekor». Narx, manzil, ish vaqtini /biznes da bir marta yozib "
-            "qo'ysangiz, loyiha shularga tayanadi.\n\n"
+            "🤖 <b>Avtomat rejimi</b> (/biznes): mijozga o'zim javob beraman. "
+            "Avval 30 soniya kutaman — shu orada o'zingiz yozsangiz, jim "
+            "turaman va o'sha chatga 3 soat aralashmayman (ikkala vaqtni "
+            "⚙️ Sozlamalarda o'zgartirasiz). Faqat siz biladigan savolni "
+            "variant tugmalari bilan sizga o'tkazaman; «Eslab qol» bossangiz, "
+            "keyingi safar o'zim javob beraman.\n"
+            "🤝 <b>Yordamchi rejimi</b>: javob qoralamasini sizga yuboraman — "
+            "«Yuborish», «O'zgartirib yuborish» yoki «Kerak emas».\n"
+            "📝 <b>Bilim</b> — narx, manzil, ish vaqtini bir marta yozasiz, "
+            "javoblar faqat shunga tayanadi. 🎨 <b>Uslub</b> — sizning "
+            "yozish uslubingizni o'rganaman. Ovoz, rasm va hujjatni ham "
+            "tushunaman.\n\n"
             "☀️ Har kuni ertalab — kechagi mijozlar hisoboti, javobsiz "
             "qolganlar bilan. Mijoz bir soat javob kutsa — eslataman.\n"
             "📇 /mijozlar — kartoteka (ism, telefon, nima so'radi), CSV "
@@ -231,11 +240,13 @@ SECTIONS: dict[str, dict] = {
             "🖼 /biznes → Bio, Ism, Rasm, Story — so'z bilan ayting, "
             "tayyorlab ko'rsataman, siz tasdiqlaganingizdan keyingina "
             "qo'yaman.\n\n"
-            "Suhbatdoshingizga o'zim hech qachon yozmayman — faqat siz "
-            "buyruq berganda yoki «Yuborish»ni bosganingizda."
+            "Avtomat rejimidan boshqa rejimlarda suhbatdoshingizga o'zim "
+            "yozmayman — faqat siz buyruq berganda yoki «Yuborish»ni "
+            "bosganingizda."
         ),
         "example": "",
-        "note": "💎 Kerak: Telegram Premium (ulash uchun) va bot Pro tarifi",
+        "note": lambda pro: ("💎 Kerak: bot Pro tarifi (Avtomat — kuniga "
+                             f"{daily_limit('pro', 'biznes')} ta javob)"),
     },
     "pro": {
         "button": "Pro",
