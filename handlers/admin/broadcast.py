@@ -722,6 +722,5 @@ async def process_broadcast_schedule(message: Message, state: FSMContext):
         f"🕒 Rejalashtirildi: <b>#{bid}</b>\n"
         f"Vaqt: <b>{database_module.format_dt_for_tashkent(run_at)}</b>\n"
         f"Kimga: {nom}\n\n"
-        "<i>«📋 Jurnal va sozlamalar» → «Rejalashtirilgan tarqatmalar» "
-        "bo'limidan bekor qilsa bo'ladi.</i>",
+        "<i>Bekor qilish: Panel → «Tarqatma» → «Rejalashtirilgan tarqatmalar».</i>",
         parse_mode=ParseMode.HTML)

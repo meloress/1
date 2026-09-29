@@ -15,6 +15,7 @@ odamdan boshlanadi va javobi ham botdan ketadi (REJA 2).
 
 import logging
 import json
+from html import escape
 from datetime import datetime, timezone
 from aiogram.types import (
     Message,
@@ -77,20 +78,30 @@ async def process_report_message(message: Message, state: FSMContext):
     Foydalanuvchi adminga yuborish uchun yozgan matn shu yerga keladi.
     Biz uni superadminga yuboramiz (agar mavjud bo'lsa) yoki barcha adminlarga.
     """
+    keep_state = False
     try:
         data = await state.get_data()
         reported_chat_id = data.get("reported_chat_id")
         reporter_chat_id = data.get("reporter_chat_id") or message.chat.id
 
-        report_text = (message.text or "").strip()
+        report_text = (message.text or message.caption or "").strip()
+        if report_text.startswith("/"):
+            # Buyruq — report emas (ilgari adminga «/start» matni ketardi).
+            await message.answer("↩️ Bekor qilindi.")
+            return
         if not report_text:
-            await message.answer("❗ Xabar bo'sh. Iltimos, matn kiriting yoki amalni bekor qilish uchun /cancel yozing.")
+            # ⚠️ Holat SAQLANADI — keyingi xabar ham report bo'lsin
+            # (ilgari `finally` uni tozalab, keyingi xabar AI ga ketardi).
+            await message.answer("❗ Xabar bo'sh. Muammoni matn bilan yozing yoki /bekor.")
+            keep_state = True
             return
 
         # prepare message for admin
         reporter = message.from_user
         reporter_name = f"@{reporter.username}" if reporter.username else f"User {reporter.id}"
-        reporter_link = f'<a href="tg://user?id={reporter.id}">{reporter.first_name}</a>'
+        # ⚠️ escape: foydalanuvchi matni HTML emas — «<» yoki «&» bo'lsa
+        # Telegram xabarni rad etib, report adminga umuman yetmasdi.
+        reporter_link = f'<a href="tg://user?id={reporter.id}">{escape(reporter.first_name or "")}</a>'
 
         report_payload = (
             f"📣 <b>Foydalanuvchi xabari</b>\n\n"
@@ -100,7 +111,7 @@ async def process_report_message(message: Message, state: FSMContext):
         if reported_chat_id:
             report_payload += f"🆔 Asosiy chat id: <code>{reported_chat_id}</code>\n"
         report_payload += f"🕒 Vaqt: {format_dt(datetime.now(timezone.utc))}\n\n"
-        report_payload += f"✏️ Xabar:\n{report_text}"
+        report_payload += f"✏️ Xabar:\n{escape(report_text)}"
 
         # Try to send to superadmin first
         try:
@@ -170,4 +181,5 @@ async def process_report_message(message: Message, state: FSMContext):
         except Exception:
             pass
     finally:
-        await state.clear()
+        if not keep_state:
+            await state.clear()

@@ -138,7 +138,7 @@ def _build_file_section(files_used: int, limit: int | None, plan_type: str) -> s
             "\n💬 Oddiy savollar hozir ham ishlaydi."
         )
         if plan_type == 'free':
-            lines.append("💎 <b>Pro</b>'da kuniga 30 ta — /pro")
+            lines.append(f"💎 <b>Pro</b>'da kuniga {daily_limit('pro', 'files')} ta — /pro")
     else:
         lines.append(f"\n✅ Bugun yana <b>{remaining} ta</b> fayl yaratishingiz mumkin"
                      "\n<i>(PPTX, PDF, Word, Excel, format o'girish)</i>")
@@ -187,6 +187,11 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
         username = "Mavjud emas"
     status_text = "🟢 Faol" if profile_data['is_active'] else "🔴 Bloklangan"
     plan_type = profile_data['plan_type'] or 'free'
+    # Muddati o'tgan, lekin watcher hali free'ga tushirmagan Pro — bot uni
+    # allaqachon bepul deb hisoblaydi (check_and_consume_quota); ekran ham shunday.
+    tugash = profile_data.get('premium_until')
+    if plan_type != 'free' and tugash is not None and tugash < datetime.now(timezone.utc):
+        plan_type = 'free'
     plan_label = _plan_label(plan_type, profile_data.get('premium_until'))
     media_status = "Faol" if profile_data['media_analysis_active'] else "O'chirilgan"
     daily_used = profile_data['daily_requests_used']

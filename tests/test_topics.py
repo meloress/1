@@ -246,10 +246,18 @@ check(21, "har mavzuning navbati AYRIM buferda",
 # Navbat uyg'otilganda CHATDAGI istalgan mavzu olinadi, lekin BITTASI:
 # "bir vaqtda bitta javob" qoidasi (GeneratingState) chat bo'yicha
 # ishlaydi, uyg'otilganning o'zi keyingisini uyg'otadi.
+_UYGOT = inspect.getsource(m._navbatni_uygot)
 _MERGED = inspect.getsource(m._process_merged_text)
 check(22, "navbatdan bitta mavzu uyg'otiladi",
-      "k[0] == chat_id" in _MERGED
-      and "_schedule_merged_processing(keyingi" in _MERGED)
+      "k[0] == chat_id" in _UYGOT
+      and "_schedule_merged_processing(keyingi" in _UYGOT)
+# busy_handler rasm/hujjat/ovoz/research paytida ham «Navbatga oldim»
+# deydi — ularning HAR BIRI tugagach navbatni uyg'otishi shart, aks holda
+# xabar jimgina yo'qolardi (ilgari faqat matn yo'li uyg'otardi).
+for _fn in (m._process_merged_text, m.handle_research, m.handle_photo,
+            m.handle_document, m.handle_voice):
+    check(f"22{_fn.__name__[:10]}", f"{_fn.__name__} navbatni uyg'otadi",
+          "_navbatni_uygot(" in inspect.getsource(_fn))
 for _t in (10, 20):
     mem.text_merge_buffers.pop((500, _t), None)
 
@@ -288,8 +296,9 @@ check(24, "xato yozuvi mavzuni saqlaydi",
 _RETRY = inspect.getsource(cb.handle_retry_callback)
 check(25, "retry mavzuni modelga ham, tarixga ham uzatadi",
       'fr.get("thread_id")' in _RETRY
-      and "get_gpt_reply(chat_id, prompt, thread_id=thread_id)" in _RETRY
-      and _RETRY.count("thread_id=thread_id") >= 2)
+      and "get_gpt_reply(chat_id, prompt," in _RETRY
+      # model + savol tarixi + javob tarixi — uchalasi ham shu mavzuda
+      and _RETRY.count("thread_id=thread_id") >= 3)
 mem.failed_requests.clear()
 
 

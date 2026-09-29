@@ -19,7 +19,8 @@ from db import database
 from handlers.helpers import _dm_or_deactivate
 from handlers.messages import _send_rich_message
 from handlers.pro import btn, send_rich, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
-from services.ai import get_gpt_reply, build_rich_markdown
+from services.ai import (get_gpt_reply, build_rich_markdown, strip_image_tokens,
+                         strip_internal_names)
 
 # Kunning HAMMA soati tanlanadi va bir nechtasi birga bo'lishi mumkin.
 # Ilgari 6 ta "mazmunli" soat bor edi va bittasigina saqlanardi.
@@ -29,6 +30,11 @@ _HOURS_PER_ROW = 6
 _DEFAULT_HOUR = 8
 
 _MAX_TOPICS_LEN = 200
+
+# ⚠️ Kuniga ko'pi bilan shuncha daydjest. Har biri internet qidiruvli
+# to'liq javob (~15k token); «Barcha soatlar» bitta odamga kuniga 24 ta,
+# ya'ni bepul grantning ~15% ini berardi — va 24 xabarda bir xil yangilik.
+_MAX_HOURS = 4
 
 # 10 daqiqa. sleep(3600) bo'lsa 08:00 so'ragan odam 08:57 da olishi
 # mumkin edi — so'rov bitta indeksli UPDATE, arzon.
@@ -86,7 +92,6 @@ def _hours_keyboard(selected, *, locked: bool = False) -> InlineKeyboardMarkup:
                      btn("🧹 Tozalash", "dg:clear")])
         rows.append([btn("🔕 Daydjestni to'xtatish", "dg:off", style=BTN_DANGER)])
     else:
-        rows.append([btn("🕐 Barcha soatlar", "dg:all", style=BTN_PRIMARY)])
         rows.append([btn("✖️ Yopish", "dg:close", style=BTN_DANGER)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -131,12 +136,12 @@ async def handle_digest(message: Message, state: FSMContext):
     topics = profile.get("digest_topics")
     if hours:
         status = (f"✅ <b>Faol:</b> har kuni <b>{_hours_label(hours)}</b>\n"
-                  f"📌 <b>Mavzular:</b> {topics or '—'}\n\n"
+                  f"📌 <b>Mavzular:</b> {html_escape(topics or '—')}\n\n"
                   f"<i>Soatni bosib qo'shasiz, qayta bosib olib tashlaysiz.</i>")
     else:
         status = ("🔕 Hozircha o'chirilgan.\n\n"
-                  "<i>Kerakli soatlarni bosing — bir nechtasini birga "
-                  "tanlash mumkin (Toshkent vaqti).</i>")
+                  f"<i>Kerakli soatlarni bosing — {_MAX_HOURS} tagacha "
+                  "(Toshkent vaqti).</i>")
 
     await send_rich(message, _INTRO + status, _hours_keyboard(hours))
 
@@ -191,8 +196,10 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
 
         hours = set(_user_hours(profile))
         if action == "all":
-            hours = set(DIGEST_HOURS)
-            javob = "✅ Barcha soatlar tanlandi"
+            # Eski xabarlardagi tugma — endi yo'q (`_MAX_HOURS` izohi).
+            await query.answer(f"Kuniga ko'pi bilan {_MAX_HOURS} ta soat tanlanadi.",
+                               show_alert=True)
+            return
         elif action == "clear":
             hours = set()
             javob = "🧹 Tozalandi"
@@ -213,6 +220,10 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
             if hour in hours:
                 hours.discard(hour)
                 javob = f"➖ {hour:02d}:00 olib tashlandi"
+            elif len(hours) >= _MAX_HOURS:
+                await query.answer(f"Kuniga ko'pi bilan {_MAX_HOURS} ta soat — "
+                                   "avval birini olib tashlang.", show_alert=True)
+                return
             else:
                 hours.add(hour)
                 javob = f"✅ {hour:02d}:00 qo'shildi"
@@ -281,7 +292,7 @@ async def process_digest_topics(message: Message, state: FSMContext):
     await send_rich(message, (
         f"✅ <b>Daydjest sozlandi!</b>\n\n"
         f"<blockquote>⏰ Har kuni: <b>{_hours_label(hours)}</b>\n"
-        f"📌 Mavzular: {topics}</blockquote>\n\n"
+        f"📌 Mavzular: {html_escape(topics)}</blockquote>\n\n"
         f"<i>Birinchi daydjest keyingi belgilangan soatda keladi.</i>"
     ), InlineKeyboardMarkup(inline_keyboard=[
         [btn("⚙️ Soatlarni o'zgartirish", "dg:menu", style=BTN_PRIMARY)],
@@ -344,7 +355,9 @@ async def _build_digest(topics: str) -> str:
             chunk = chunk.replace("[CLEAR_TEXT]", "")
         if chunk:
             parts.append(chunk)
-    return "".join(parts).strip()
+    # Oddiy javob yo'lidagi ikki himoya: vosita nomlari sizmasin, rasmlar
+    # esa bu yerda yuborilmaydi — `[rasm:N]` xom matn bo'lib qolmasin.
+    return strip_image_tokens(strip_internal_names("".join(parts))).strip()
 
 
 async def daily_digest_watcher():

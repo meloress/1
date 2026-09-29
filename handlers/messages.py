@@ -22,7 +22,7 @@ from core.config import (
     TEXT_MERGE_WAIT, TEXT_MERGE_MAX_PARTS,
     TEXT_MERGE_MAX_CHARS, MAX_TEXT_LENGTH, STREAM_IDLE_TIMEOUT,
     DAILY_FREE_LIMIT, MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO,
-    MESSAGE_COST_DOCUMENT, MESSAGE_COST_VOICE, PLAN_LIMITS, CUSTOM_EMOJI,
+    MESSAGE_COST_DOCUMENT, MESSAGE_COST_VOICE, CUSTOM_EMOJI, daily_limit,
     message_cost, pick_reasoning_effort,
     DOCUMENT_MAX_SIZE_FREE, DOCUMENT_MAX_SIZE_PRO, document_max_size,
 )
@@ -537,6 +537,7 @@ async def _send_rich_message(
     reply_markup=None,
     outcome: list | None = None,
     timeout: float | None = None,
+    reply_to: int | None = None,
 ):
     payload = {
         "chat_id": chat_id,
@@ -544,6 +545,9 @@ async def _send_rich_message(
     }
     if message_thread_id:
         payload["message_thread_id"] = message_thread_id
+    if reply_to:
+        payload["reply_parameters"] = {"message_id": reply_to,
+                                       "allow_sending_without_reply": True}
     if reply_markup is not None:
         # aiogram modeli -> JSON. exclude_none SHART: bo'sh maydonlar
         # yuborilsa Telegram butun klaviaturani rad etadi.
@@ -1706,7 +1710,7 @@ async def _after_file_task(message: Message, quota_box: list, produced_files: bo
         if quota.limit_hit and quota.limit == 0:
             text = (
                 f"🖼 <b>Rasm chizish — Pro imkoniyati</b>\n\n"
-                f"<blockquote>Pro tarifda kuniga <b>{PLAN_LIMITS['pro']['images']} ta</b> "
+                f"<blockquote>Pro tarifda kuniga <b>{daily_limit('pro', 'images')} ta</b> "
                 f"rasm chizib beraman: manzara, logotip, illyustratsiya — "
                 f"istagan tasviringizni.</blockquote>\n\n"
                 f"💬 Qolgan hamma narsa hozir ham ishlaydi."
@@ -1728,7 +1732,7 @@ async def _after_file_task(message: Message, quota_box: list, produced_files: bo
             f"Bepul tarifda kuniga <b>{quota.limit} ta</b> fayl yaratish "
             f"mumkin va bugungisi ishlatib bo'lindi.\n"
             f"🕛 Yangi limit ertaga soat <b>00:00</b> da avtomatik yangilanadi.\n\n"
-            f"💎 <b>Pro</b> tarifda kuniga <b>{PLAN_LIMITS['pro']['files']} ta</b>:\n"
+            f"💎 <b>Pro</b> tarifda kuniga <b>{daily_limit('pro', 'files')} ta</b>:\n"
             f"├ 📊 Prezentatsiya — PPTX\n"
             f"├ 📄 Hujjat — PDF, Word\n"
             f"├ 📈 Jadval va diagramma — Excel\n"
@@ -1747,7 +1751,7 @@ async def _after_file_task(message: Message, quota_box: list, produced_files: bo
         text = (
             f"ℹ️ Bu bugungi <b>oxirgi bepul faylingiz</b> edi.\n"
             f"🕛 Ertaga soat <b>00:00</b> da yana <b>{quota.limit} ta</b> beriladi.\n"
-            f"💎 Pro'da kuniga <b>{PLAN_LIMITS['pro']['files']} ta</b>."
+            f"💎 Pro'da kuniga <b>{daily_limit('pro', 'files')} ta</b>."
         )
     else:
         return
@@ -1803,7 +1807,7 @@ async def _send_limit_reached_message(message: Message, quota: dict, feature: st
             f"⏳ <b>Bugungi bepul limitingiz tugadi</b> ({used}/{limit} ball).\n"
             f"🕛 Yangi limit ertaga soat <b>00:00</b> da avtomatik yangilanadi.\n\n"
             f"💎 <b>Pro</b> tarifda kuniga "
-            f"<b>{PLAN_LIMITS['pro']['points']} ball</b> — {PLAN_LIMITS['pro']['points'] // limit if limit else 10}× ko'p."
+            f"<b>{daily_limit('pro', 'points')} ball</b> — {daily_limit('pro', 'points') // limit if limit else 10}× ko'p."
         )
     else:
         lines = "\n".join(f"├ {label}: {count} ta" for label, count in affordable)
@@ -2208,6 +2212,36 @@ async def _schedule_merged_processing(kalit: tuple, delay: float, state: FSMCont
         logger.error(f"[Text Merge Error] {e}")
 
 
+def _navbatni_uygot(chat_id: int, state: FSMContext) -> None:
+    """Javob tugagach navbatdagi (busy_handler yig'gan) matnni ishga tushiradi.
+
+    ⚠️ HAR generatsiya yo'lining `finally` sida, `state.clear()` dan KEYIN:
+    rasm/hujjat/ovoz/research paytida yozilgan matnga ham «Navbatga oldim»
+    deyiladi — ilgari faqat matn yo'li uyg'otardi va qolganlarida xabar
+    jimgina yo'qolardi.
+    """
+    # busy_handler javob ketayotganda kelgan xabarlarni shu buferga
+    # yig'adi. Taymeri yo'q, ya'ni uni shu yerda uyg'otish kerak.
+    #
+    # BITTASI uygotiladi, hammasi emas: navbat CHATDAGI istalgan
+    # mavzudan kelgan bolishi mumkin, lekin "bir vaqtda bitta javob"
+    # qoidasi (GeneratingState) chat boyicha ishlaydi. Uygotilgan
+    # sorovning oz `finally` bloki keyingisini uygotadi, yani navbat
+    # ketma-ket boshaydi.
+    # ⛔️ `k[1] >= 0`: manfiy kalit — Telegram Business buferi
+    # (mijoz chati, -egasi). `chat_id` bir xil (mijozning o'z DM'i),
+    # lekin u buferni bu yerda uyg'otish mijozning biznes xabarini
+    # uning DM'ida javoblab yuborardi.
+    keyingi = next((k for k, v in text_merge_buffers.items()
+                    if k[0] == chat_id and k[1] >= 0
+                    and (v or {}).get("parts")), None)
+    if keyingi:
+        logger.info(f"[Navbat] chat={chat_id} mavzu={keyingi[1]}: "
+                    f"kutib turgan xabar(lar) qayta ishlanmoqda")
+        asyncio.create_task(
+            _schedule_merged_processing(keyingi, 0.0, state))
+
+
 async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
     parts = buf.get("parts") or []
     last_message: Message = buf.get("last_message")
@@ -2360,26 +2394,7 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         # GeneratingState ichida qolib, busy_handler uni yana navbatga
         # qo'yardi — cheksiz aylanish.
         await state.clear()
-        # busy_handler javob ketayotganda kelgan xabarlarni shu buferga
-        # yig'adi. Taymeri yo'q, ya'ni uni shu yerda uyg'otish kerak.
-        #
-        # BITTASI uygotiladi, hammasi emas: navbat CHATDAGI istalgan
-        # mavzudan kelgan bolishi mumkin, lekin "bir vaqtda bitta javob"
-        # qoidasi (GeneratingState) chat boyicha ishlaydi. Uygotilgan
-        # sorovning oz `finally` bloki keyingisini uygotadi, yani navbat
-        # ketma-ket boshaydi.
-        # ⛔️ `k[1] >= 0`: manfiy kalit — Telegram Business buferi
-        # (mijoz chati, -egasi). `chat_id` bir xil (mijozning o'z DM'i),
-        # lekin u buferni bu yerda uyg'otish mijozning biznes xabarini
-        # uning DM'ida javoblab yuborardi.
-        keyingi = next((k for k, v in text_merge_buffers.items()
-                        if k[0] == chat_id and k[1] >= 0
-                        and (v or {}).get("parts")), None)
-        if keyingi:
-            logger.info(f"[Navbat] chat={chat_id} mavzu={keyingi[1]}: "
-                        f"kutib turgan xabar(lar) qayta ishlanmoqda")
-            asyncio.create_task(
-                _schedule_merged_processing(keyingi, 0.0, state))
+        _navbatni_uygot(chat_id, state)
 
 
 # --------------------------------------------------
@@ -2404,7 +2419,7 @@ def _research_limit_text(quota) -> str:
         return (
             "🔎 <b>Chuqur tadqiqot — Pro imkoniyati</b>\n\n"
             "<blockquote>Pro tarifda kuniga "
-            f"<b>{PLAN_LIMITS['pro']['research']} ta</b> chuqur tadqiqot: "
+            f"<b>{daily_limit('pro', 'research')} ta</b> chuqur tadqiqot: "
             "10+ manba, taqqoslash va tayyor PDF hisobot.</blockquote>\n\n"
             "💬 Oddiy savollar hozir ham ishlaydi."
         )
@@ -2488,6 +2503,7 @@ async def handle_research(message: Message, state: FSMContext,
         # Muvaffaqiyat bo'lmagan bo'lsa sanoqni o'zi qaytaradi.
         await quota.refund_if_unused()
         await state.clear()
+        _navbatni_uygot(message.chat.id, state)
 
 
 # --------------------------------------------------
@@ -2560,6 +2576,10 @@ async def handle_photo(message: Message, state: FSMContext):
         if output_files:
             await _send_output_files(chat_id, output_files, thread_id)
         await _after_file_task(message, file_quota_box, bool(output_files))
+        # Matn yo'li bilan bir xil: hech narsa yetkazilmagan (masalan
+        # «To'xtatish» birinchi harfdan oldin) — ball qaytadi.
+        if not full_reply and not output_files:
+            await _refund_quota(user_id, MESSAGE_COST_PHOTO, quota)
 
         if full_reply:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
@@ -2579,6 +2599,7 @@ async def handle_photo(message: Message, state: FSMContext):
         await _refund_quota(user_id, MESSAGE_COST_PHOTO, quota)
     finally:
         await state.clear()
+        _navbatni_uygot(message.chat.id, state)
 
 
 # --------------------------------------------------
@@ -2634,7 +2655,11 @@ async def handle_document(message: Message, state: FSMContext):
     # hozircha o'rnatilmaydi — u busy_handler'ni yoqib, aynan o'sha
     # ko'rsatmani "iltimos kuting" javobi bilan yutib yuborardi.
     if not message.caption:
-        _pending_files[chat_id] = {"ts": time.time(), "event": asyncio.Event()}
+        # ⚠️ Kalit (chat, mavzu) JUFTLIGI — `_capture_instruction` ham,
+        # `_wait_for_instruction` ham shunday qidiradi. Ilgari bu yerda
+        # faqat chat_id edi: bayroq hech qachon topilmas, bot ko'rsatmani
+        # kutmay umumiy xulosa berar, ko'rsatma esa alohida so'rov bo'lardi.
+        _pending_files[(chat_id, thread_id)] = {"ts": time.time(), "event": asyncio.Event()}
 
     try:
         await bot.send_chat_action(chat_id, "upload_document")
@@ -2745,8 +2770,9 @@ async def handle_document(message: Message, state: FSMContext):
     finally:
         # Osilib qolgan "ko'rsatma kutilmoqda" bayrog'i keyingi xabarlarni
         # javobsiz yutib yuborardi — har qanday holatda tozalaymiz.
-        _pending_files.get(chat_id, {}).pop("event", None)
+        _pending_files.get((chat_id, thread_id), {}).pop("event", None)
         await state.clear()
+        _navbatni_uygot(message.chat.id, state)
 
 
 # --------------------------------------------------
@@ -2837,7 +2863,9 @@ async def handle_voice(message: Message, state: FSMContext):
             await _refund_quota(user_id, MESSAGE_COST_VOICE, quota)
             return
 
-        await message.reply(f"🗣 <b>Siz:</b> \"{user_text}\"", parse_mode="HTML")
+        # ⚠️ escape: transkripsiyadagi «<» yoki «&» HTML'ni buzib, butun
+        # so'rovni xatoga tushirardi.
+        await message.reply(f"🗣 <b>Siz:</b> \"{html_lib.escape(user_text)}\"", parse_mode="HTML")
 
         # CONCISE_INSTRUCTION bu yerga qo'shilmaydi —
         # get_openai_reply() ularni SYSTEM promptga o'zi qo'shadi (services/ai.py).
@@ -2864,6 +2892,8 @@ async def handle_voice(message: Message, state: FSMContext):
         if not full_reply_text and not output_files:
             await _refund_quota(user_id, MESSAGE_COST_VOICE, quota)
             return
+        if not full_reply_text:
+            return        # faqat fayl — ovozga aylantiradigan matn yo'q
 
         if full_reply_text:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply_text)
@@ -2931,3 +2961,4 @@ async def handle_voice(message: Message, state: FSMContext):
             logger.debug(f"generated_audio tozalashda xatolik: {cleanup_err}")
 
         await state.clear()
+        _navbatni_uygot(message.chat.id, state)

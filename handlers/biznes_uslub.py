@@ -212,7 +212,8 @@ def _kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [pro_module.btn("Qoidalarni yozish", "bz:uy", style=BTN_PRIMARY)],
         [pro_module.btn("Hozir o'rganish", "bz:uo"),
-         pro_module.btn("Namunalarni o'chirish", "bz:ud")]])
+         pro_module.btn("Namunalarni o'chirish", "bz:ud")],
+        [pro_module.btn("⬅️ Orqaga", "bz:e")]])
 
 
 async def _ekran(uid: int):

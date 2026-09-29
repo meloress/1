@@ -152,6 +152,13 @@ kunlik = [ishga(xabar(voice=ovoz)) for _ in range(3)]
 m.BIZNES_MEDIA_KUNLIK = asl
 check(13, "kunlik chegara: oshgach STT yo'q, faqat belgi",
       kunlik[2] == "[ovozli xabar]" and kunlik[0].startswith("[ovozli xabar] "))
+# Aylantirilmaydigan media (egasining rasmi, video, audio) sanoqni YEMAYDI —
+# aks holda faol egada chegara tugab, mijozning ovozi eshitilmay qolardi.
+m._sanoq.clear()
+ishga(xabar(photo=rasmlar), mijoz=False)
+ishga(xabar(video=NS(file_id="v")))
+ishga(xabar(audio=NS(file_id="a")))
+check("13b", "aylantirilmaydigan media kunlik sanoqqa tegmaydi", not m._sanoq)
 check(14, "stiker kabi narsa — bo'sh (LLM chaqirilmaydi); oddiy matn — o'zi",
       ishga(xabar()) == "" and ishga(xabar(text="salom")) == "salom" and not q)
 

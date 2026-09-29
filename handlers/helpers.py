@@ -529,8 +529,11 @@ async def premium_expiry_watcher():
     va bu watcher ishlamay qolsa ham tizim to'g'ri qoladi. Ikkalasi ham
     idempotent, shuning uchun ikkovi birga turishi xato emas.
     """
+    # ⚠️ Uyqu sikl OXIRIDA (notify_inactive_users bilan bir xil dars):
+    # boshida 6 soat uxlasa, kuniga bir necha deploy bo'lganda tekshiruv
+    # hech qachon ishlamasdi — «3 kun qoldi» eslatmasi ketmasdi.
+    await asyncio.sleep(120)
     while True:
-        await asyncio.sleep(6 * 3600)
         try:
             # 1) Muddati tugayotganlar. take_expiry_reminders() belgilashni
             #    va olishni BITTA so'rovda qiladi (RETURNING), shuning uchun
@@ -566,3 +569,4 @@ async def premium_expiry_watcher():
                 await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"[Tarif muddati] fon vazifasida xatolik: {e}")
+        await asyncio.sleep(6 * 3600)

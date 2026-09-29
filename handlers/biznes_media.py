@@ -48,7 +48,10 @@ def media_bormi(message: Message) -> bool:
 
 
 def _ruxsat(egasi: int) -> bool:
-    kalit = (egasi, date.today())
+    bugun = date.today()
+    for eski in [k for k in _sanoq if k[1] != bugun]:
+        _sanoq.pop(eski, None)          # kechagi sanoqlar RAMda qolmasin
+    kalit = (egasi, bugun)
     if _sanoq.get(kalit, 0) >= BIZNES_MEDIA_KUNLIK:
         return False
     _sanoq[kalit] = _sanoq.get(kalit, 0) + 1
@@ -122,7 +125,13 @@ async def media_matn(message: Message, egasi: int, aylantir: bool,
         return message.text
     if not media_bormi(message):
         return izoh
-    ol = aylantir and _ruxsat(egasi)
+    # ⚠️ Sanoq FAQAT haqiqatan aylantiriladigan media uchun yechiladi.
+    # Ilgari tur tekshiruvidan oldin yechilardi: egasining rasmi/hujjati,
+    # audio va video (hech qachon aylantirilmaydi) ham kunlik chegarani
+    # yeb, mijozning ovozi «[ovozli xabar]» bo'lib qolardi.
+    aylanadi = bool(message.voice or message.video_note
+                    or (mijoz and (message.photo or message.document)))
+    ol = aylantir and aylanadi and _ruxsat(egasi)
     if message.voice or message.video_note:
         ovoz = message.voice or message.video_note
         belgi = "ovozli xabar" if message.voice else "video-xabar"

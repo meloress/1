@@ -124,8 +124,6 @@ async def main():
             logger.debug(f"[Stop] noma'lum draft_id={event.draft_id} — "
                          "javob allaqachon tugagan bo'lishi mumkin")
 
-    admin_module.register_admin_handlers(dp, bot)
-
     # ═══════════════════════════════════════════════════════════════
     #  TO'LOV HANDLERLARI — dp.message'ga TO'G'RIDAN-TO'G'RI
     # ═══════════════════════════════════════════════════════════════
@@ -144,6 +142,12 @@ async def main():
     # ta'til yoqilgan paytda kelsa ham qabul qilinishi shart.
     dp.message.register(pro_module.handle_successful_payment, F.successful_payment)
     dp.pre_checkout_query.register(pro_module.handle_pre_checkout)
+
+    # ⚠️ Admin handlerlari TO'LOVDAN KEYIN. Ular ham `dp.message` da va
+    # ichida kontent filtrisiz FSM holati bor (report: ODDIY foydalanuvchi
+    # «Adminga xabar» bosib, keyin to'lasa successful_payment o'sha yerga
+    # tushib yo'qolardi — pul olinib, Pro berilmasdi).
+    admin_module.register_admin_handlers(dp, bot)
 
     # FSM holatlari ham oddiy AI handlerlaridan oldin turishi kerak, aks
     # holda "kimga sovg'a qilay?" javobi GPT'ga savol bo'lib ketardi.
@@ -192,7 +196,8 @@ async def main():
     # Texnik ta'til yoqilganda AI javob handlerlaridan OLDIN ishga tushishi shart —
     # aks holda oddiy foydalanuvchi xabari baribir GPT'ga yuborilib ketadi.
     general_router.message.register(
-        handle_maintenance_notice, F.text | F.photo | F.document | F.voice, maintenance_gate
+        handle_maintenance_notice, F.text | F.photo | F.document | F.voice | F.location,
+        maintenance_gate
     )
     # /pro, /promo, /gift ATAYLAB maintenance darvozasidan KEYIN: texnik
     # ta'til paytida o'chirilgan botga obuna sotish — refund manbai.

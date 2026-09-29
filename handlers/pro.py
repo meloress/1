@@ -30,8 +30,7 @@ from aiogram.exceptions import TelegramForbiddenError
 
 from core.loader import bot, logger
 from core.config import (
-    PRO_PLANS, PRO_PLANS_BY_DAYS, PRO_PAYLOAD_VERSION, PLAN_LIMITS,
-    DAILY_FREE_LIMIT, DAILY_FILE_LIMIT_FREE,
+    PRO_PLANS, PRO_PLANS_BY_DAYS, PRO_PAYLOAD_VERSION, daily_limit,
     MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO, MESSAGE_COST_VOICE, MESSAGE_COST_DOCUMENT,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     CUSTOM_EMOJI, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
@@ -342,14 +341,14 @@ def _perks_block() -> str:
     Raqamlar PLAN_LIMITS dan HISOBLANADI: limitni o'zgartirsangiz reklama
     matni ham o'zi to'g'rilanadi va yolg'on va'da paydo bo'lmaydi.
     """
-    pro_pts, pro_files = PLAN_LIMITS['pro']['points'], PLAN_LIMITS['pro']['files']
+    pro_pts, pro_files = daily_limit('pro', 'points'), daily_limit('pro', 'files')
     return (
         "<blockquote>"
         f"⚡️ <b>{pro_pts:,} ball</b> har kuni\n"
-        f"    <i>bepulda {DAILY_FREE_LIMIT:,} — {pro_pts // DAILY_FREE_LIMIT}× ko'p</i>\n"
+        f"    <i>bepulda {daily_limit('free', 'points'):,} — {pro_pts // max(1, daily_limit('free', 'points') or 1)}× ko'p</i>\n"
         f"{pe('document', '📄')} <b>{pro_files} ta fayl</b> har kuni\n"
-        f"    <i>bepulda {DAILY_FILE_LIMIT_FREE} ta — {pro_files // DAILY_FILE_LIMIT_FREE}× ko'p</i>\n"
-        f"{pe('photo', '🖼')} <b>{PLAN_LIMITS['pro']['images']} ta rasm</b> har kuni\n"
+        f"    <i>bepulda {daily_limit('free', 'files')} ta — {pro_files // max(1, daily_limit('free', 'files') or 1)}× ko'p</i>\n"
+        f"{pe('photo', '🖼')} <b>{daily_limit('pro', 'images')} ta rasm</b> har kuni\n"
         f"    <i>bepulda YO'Q — istagan tasviringizni chizib beraman</i>\n"
         f"{pe('voice', '🎙')} <b>Tabiiy ovoz</b>\n"
         f"    <i>aniqroq tushunadi, tirik ovozda javob beradi</i>\n"
@@ -365,7 +364,7 @@ def _perks_block() -> str:
 
 def _daily_table() -> str:
     """Kunlik hisobda "bepul → Pro" taqqoslashi, premium emoji bilan."""
-    pro_pts = PLAN_LIMITS['pro']['points']
+    pro_pts = daily_limit('pro', 'points')
     rows = [
         (pe('text', '✉️'), "Matnli savol", MESSAGE_COST_TEXT),
         (pe('photo', '🖼'), "Rasm tahlili", MESSAGE_COST_PHOTO),
@@ -373,7 +372,7 @@ def _daily_table() -> str:
         (pe('document', '📄'), "Hujjat tahlili", MESSAGE_COST_DOCUMENT),
     ]
     lines = [
-        f"{icon} {name} — <s>{DAILY_FREE_LIMIT // cost}</s> → <b>{pro_pts // cost} ta</b>"
+        f"{icon} {name} — <s>{(daily_limit('free', 'points') or 0) // cost}</s> → <b>{pro_pts // cost} ta</b>"
         for icon, name, cost in rows
     ]
     return "<blockquote expandable>" + "\n".join(lines) + "</blockquote>"
@@ -398,6 +397,10 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     profile = await database.get_full_user_profile(user_id)
     plan_type = (profile or {}).get('plan_type') or 'free'
     premium_until = (profile or {}).get('premium_until')
+    # Muddati o'tgan, watcher hali tushirmagan — «FAOL · 0 kun» emas, sotuv ekrani.
+    if plan_type != 'free' and premium_until is not None \
+            and premium_until < datetime.now(timezone.utc):
+        plan_type = 'free'
 
     # Muddatsiz tarif — sotib olishning ma'nosi yo'q va uni toza qo'llash
     # ham mumkin emas, shuning uchun narx tugmalari umuman ko'rsatilmaydi.
@@ -483,8 +486,8 @@ async def _send_invoice(chat_id: int, days: int, beneficiary_id: int,
         chat_id=chat_id,
         title=f"{prefix} — {title}",
         description=(
-            f"{PLAN_LIMITS['pro']['points']} ball/kun · "
-            f"{PLAN_LIMITS['pro']['files']} fayl/kun · "
+            f"{daily_limit('pro', 'points')} ball/kun · "
+            f"{daily_limit('pro', 'files')} fayl/kun · "
             f"chuqur fikrlash · 2× xotira"
         ),
         payload=build_payload(days, beneficiary_id),
@@ -566,7 +569,7 @@ async def _alert_admin(payer_id: int, charge_id: str, payload: str,
         f"Miqdor: <b>{stars} ⭐</b>\n"
         f"Chek: <code>{charge_id}</code>\n"
         f"Payload: <code>{payload}</code>\n\n"
-        f"➡️ Tarifni qo'lda berish: 🔍 Foydalanuvchini boshqarish → 💎 Premium qilish"
+        f"➡️ Tarifni qo'lda berish: Panel → Foydalanuvchilar → shu ID → Muddatni belgilash"
     )
     try:
         admin_id = await database.get_superadmin_id()
@@ -670,8 +673,8 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
             f"<blockquote>"
             f"📦 Muddat: <b>{title}</b> ({days} kun)\n"
-            f"⚡️ Kunlik ball: <b>{PLAN_LIMITS['pro']['points']}</b>\n"
-            f"{pe('document', '📄')} Kunlik fayl: <b>{PLAN_LIMITS['pro']['files']} ta</b>\n"
+            f"⚡️ Kunlik ball: <b>{daily_limit('pro', 'points')}</b>\n"
+            f"{pe('document', '📄')} Kunlik fayl: <b>{daily_limit('pro', 'files')} ta</b>\n"
             f"🧠 Chuqur fikrlash: <b>yoqildi</b>\n"
             f"💬 Uzun xotira: <b>yoqildi</b>"
             f"</blockquote>\n\n"
@@ -702,8 +705,8 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
             f"{giver} sizga <b>Pro tarif</b> sovg'a qildi.\n\n"
             f"<blockquote>"
             f"📦 Muddat: <b>{title}</b> ({days} kun)\n"
-            f"⚡️ Kunlik ball: <b>{PLAN_LIMITS['pro']['points']}</b>\n"
-            f"{pe('document', '📄')} Kunlik fayl: <b>{PLAN_LIMITS['pro']['files']} ta</b>"
+            f"⚡️ Kunlik ball: <b>{daily_limit('pro', 'points')}</b>\n"
+            f"{pe('document', '📄')} Kunlik fayl: <b>{daily_limit('pro', 'files')} ta</b>"
             f"</blockquote>"
         ), parse_mode="HTML",
             message_effect_id=MESSAGE_EFFECTS.get("🎉"),
@@ -870,7 +873,11 @@ async def process_gift_recipient(message: Message, state: FSMContext):
     # Forward qilingan xabar — eng qulay yo'l. Foydalanuvchining maxfiylik
     # sozlamasi yoqilgan bo'lsa forward_from None bo'ladi (Telegram cheklovi),
     # u holda @username so'raymiz.
-    forwarded = getattr(message, "forward_from", None)
+    # ⚠️ `forward_origin`, `forward_from` EMAS: Bot API 7.0 dan beri Telegram
+    # eski maydonni yubormaydi (aiogram'da qolgan, lekin doim None) — forward
+    # yo'li jimgina ishlamay, xabar matni @username deb qidirilardi.
+    origin = getattr(message, "forward_origin", None)
+    forwarded = getattr(origin, "sender_user", None)
     if forwarded is not None:
         identifier = str(forwarded.id)
     else:
@@ -976,6 +983,7 @@ async def maybe_qualify_referral(user_id: int) -> None:
             referrer_id, cfg['required'], cfg['reward_days'], cfg['max_rewards'])
         if not rewarded:
             return
+        await menu_module.sync_commands(referrer_id, True)
         try:
             await bot.send_message(referrer_id, (
                 f"🎉 <b>Referal mukofoti!</b>\n\n"
@@ -1242,12 +1250,14 @@ async def _apply_promo(target, user_id: int, code: str) -> None:
             ]))
         return
 
+    # To'lov yo'li bilan bir xil: Pro buyruqlari keyingi xabarni kutmasin.
+    await menu_module.sync_commands(user_id, True)
     await send_rich(target, (
         f"🎉 <b>PROMOKOD QABUL QILINDI!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"<blockquote>💎 Sizga <b>{result['days']} kun Pro</b> qo'shildi.\n"
-        f"⚡️ Kunlik ball: <b>{PLAN_LIMITS['pro']['points']}</b>\n"
-        f"{pe('document', '📄')} Kunlik fayl: <b>{PLAN_LIMITS['pro']['files']} ta</b>"
+        f"⚡️ Kunlik ball: <b>{daily_limit('pro', 'points')}</b>\n"
+        f"{pe('document', '📄')} Kunlik fayl: <b>{daily_limit('pro', 'files')} ta</b>"
         f"</blockquote>"
     ), InlineKeyboardMarkup(inline_keyboard=[
         [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)]]),
@@ -1279,10 +1289,10 @@ async def send_promo_gift(user_id: int, code: str, days: int,
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Siz uchun <b>{days} kunlik Pro</b> tarif ajratildi.{extra}\n\n"
         f"<blockquote>"
-        f"⚡️ Kunlik ball: <b>{PLAN_LIMITS['pro']['points']}</b> "
-        f"<i>(bepulda {DAILY_FREE_LIMIT})</i>\n"
-        f"{pe('document', '📄')} Kunlik fayl: <b>{PLAN_LIMITS['pro']['files']} ta</b> "
-        f"<i>(bepulda {DAILY_FILE_LIMIT_FREE})</i>\n"
+        f"⚡️ Kunlik ball: <b>{daily_limit('pro', 'points')}</b> "
+        f"<i>(bepulda {daily_limit('free', 'points')})</i>\n"
+        f"{pe('document', '📄')} Kunlik fayl: <b>{daily_limit('pro', 'files')} ta</b> "
+        f"<i>(bepulda {daily_limit('free', 'files')})</i>\n"
         f"⏰ Eslatmalar · 🧠 Chuqur fikrlash · 💬 3× uzun xotira"
         f"</blockquote>\n\n"
         f"🎟 <b>Kodingiz:</b> <code>{code}</code>{deadline}\n\n"

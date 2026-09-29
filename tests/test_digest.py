@@ -113,12 +113,19 @@ async def main():
         # "Barcha soatlar" va "Tozalash".
         saved.clear()
         tanlangan["digest_hours"] = "8"
+        # «Barcha soatlar» endi YO'Q (kuniga 24 qidiruv — grant): eski tugma
+        # rad etiladi, chegaradan ortiq soat ham qo'shilmaydi.
         await dg.handle_digest_callback(FakeQuery("dg:all"), FakeState())
-        assert saved == [(42, list(range(24)), None)], f"hammasi: {saved}"
+        assert saved == [], f"hammasi saqlanmasligi kerak: {saved}"
+        tanlangan["digest_hours"] = ",".join(str(h) for h in range(dg._MAX_HOURS))
+        q = FakeQuery(f"dg:h:{dg._MAX_HOURS + 5}")
+        await dg.handle_digest_callback(q, FakeState())
+        assert saved == [] and any(str(dg._MAX_HOURS) in a for a in q.answers), q.answers
+        tanlangan["digest_hours"] = "8"
         saved.clear()
         await dg.handle_digest_callback(FakeQuery("dg:clear"), FakeState())
         assert saved == [(42, [], None)], f"tozalash: {saved}"
-        print("[4] barcha soatlar va tozalash ishlaydi OK")
+        print("[4] soat chegarasi va tozalash ishlaydi OK")
 
         # ── Bepul foydalanuvchi obuna bo'lolmaydi ──────────────
         saved.clear()

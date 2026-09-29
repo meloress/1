@@ -77,8 +77,19 @@ async def main():
     assert "avval" in hm.pending_file_note("a.xlsx", earlier=True)
     print("[8] fayl izohi to'g'ri OK")
 
+    # 9) handle_document bayroqni AYNAN shu juftlik kalitiga qo'yadi.
+    # Ilgari `_pending_files[chat_id]` edi — yuqoridagi tekshiruvlar kalitni
+    # o'zi qo'ygani uchun yashil turardi, jonli botda esa ko'rsatma hech
+    # qachon kutilmasdi.
+    from tests._manba import kod
+    manba = kod(hm.__file__)
+    assert "_pending_files[(chat_id, thread_id)]" in manba
+    assert "_pending_files[chat_id]" not in manba
+    assert "_pending_files.get(chat_id," not in manba
+    print("[9] handle_document bayrog'i (chat, mavzu) kalitida OK")
+
     hm._pending_files.clear()
-    print("\npending_file: barcha tekshiruvlar o'tdi (8/8).")
+    print("\npending_file: barcha tekshiruvlar o'tdi (9/9).")
 
 
 if __name__ == "__main__":

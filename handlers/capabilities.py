@@ -24,7 +24,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from core.config import (
     BTN_PRIMARY, BTN_SUCCESS, CONTEXT_WINDOW, CONTEXT_WINDOW_PRO,
-    DOCUMENT_MAX_SIZE_FREE, DOCUMENT_MAX_SIZE_PRO, PLAN_LIMITS,
+    DOCUMENT_MAX_SIZE_FREE, DOCUMENT_MAX_SIZE_PRO, daily_limit,
 )
 from core.loader import logger
 from handlers import pro as pro_module
@@ -33,8 +33,19 @@ from handlers import pro as pro_module
 # o'zgarganda ekran jimgina yolg'on ko'rsata boshlardi.
 _MB_FREE = DOCUMENT_MAX_SIZE_FREE // (1024 * 1024)
 _MB_PRO = DOCUMENT_MAX_SIZE_PRO // (1024 * 1024)
-_PRO = PLAN_LIMITS["pro"]
-_FREE = PLAN_LIMITS["free"]
+
+
+class _Limit:
+    """`_PRO['files']` — HAR CHAQIRUVDA `daily_limit()` dan: panelda
+    o'zgartirilgan limit ekranda ham darhol ko'rinsin (PLAN_LIMITS emas)."""
+    def __init__(self, tarif):
+        self.tarif = tarif
+
+    def __getitem__(self, kalit):
+        return daily_limit(self.tarif, kalit)
+
+
+_PRO, _FREE = _Limit("pro"), _Limit("free")
 
 
 # (kalit, tugma matni, emoji nomi, sarlavha, tavsif, misol, izoh)

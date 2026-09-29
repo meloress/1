@@ -18,12 +18,13 @@ from core.config import (
     MESSAGE_COST_DOCUMENT,
     MESSAGE_COST_VOICE,
     message_cost, pick_reasoning_effort,
-    DOCUMENT_MAX_SIZE_PRO, document_max_size,
+    DOCUMENT_MAX_SIZE_PRO, document_max_size, daily_limit,
 )
-from db.database import has_started, check_and_consume_quota, refund_quota
+from db.database import (has_started, check_and_consume_quota, refund_quota,
+                         get_maintenance_notice_for)
 from handlers.messages import (
     STATUS_TEXTS_BY_TYPE, EMOJI_ID_BY_TYPE, _format_elapsed, track_user_activity,
-    RICH_MEDIA_TIMEOUT,
+    RICH_MEDIA_TIMEOUT, _send_rich_message, OUTCOME_REJECTED, OUTCOME_UNKNOWN,
 )
 from handlers.helpers import notify_watchers
 from services.ai import (
@@ -785,7 +786,17 @@ else:
                 logger.error(f"[Guest /start tekshiruvi] xatolik (user={caller_user_id}): {e}")
                 started = True
 
-            if not started:
+            # Texnik ta'til — DM'dagi darvoza (main.py) guruhga yetmaydi:
+            # ilgari ta'til paytida ham guest AI javob berib turardi.
+            try:
+                ta_til = await get_maintenance_notice_for(caller_user_id)
+            except Exception:
+                ta_til = None
+
+            if ta_til:
+                skip_ai = True
+                forced_text = ta_til
+            elif not started:
                 skip_ai = True
                 forced_text = (
                     "👋 Assalomu aleykum!\n\n"
@@ -865,7 +876,9 @@ else:
                         # Guest javobiga inline tugma biriktirib bo'lmaydi —
                         # shuning uchun matnli ko'rsatkich.
                         if quota.get("plan", "free") == "free":
-                            forced_text += "\n\n💎 Botga o'tib /pro — 10× ko'p kredit."
+                            _nisbat = ((daily_limit("pro", "points") or 0)
+                                       // max(1, daily_limit("free", "points") or 1))
+                            forced_text += f"\n\n💎 Botga o'tib /pro — {_nisbat}× ko'p kredit."
 
         # --------------------------------------------------
         # 1. Kutish holatini ko'rsatamiz (faqat AI chaqirilishi kerak bo'lgan
@@ -1190,10 +1203,28 @@ else:
         # xabar sifatida yuboramiz (Telegram draft'ni avtomatik yo'q qiladi).
         # --------------------------------------------------
         if use_chat_draft and chat_fallback_msg is None:
+            # ⚠️ Avval RICH — qolgan yo'llar kabi. Ilgari bu yerda xom
+            # `final_text` Markdown bilan ketardi: [rasm:1], [batafsil: …],
+            # [xarita:…] o'quvchiga xom matn bo'lib chiqardi, jadval va
+            # rasmlar yo'qolardi. Timeout (UNKNOWN) — javob yetib borgan
+            # bo'lishi mumkin, zaxira yuborilmaydi (ikki marta ko'rinmasin).
+            natija: list = []
+            try:
+                yetdi = await _send_rich_message(
+                    caller_chat_id,
+                    markdown=embed_images(build_rich_markdown(final_text), images),
+                    outcome=natija, reply_to=message.message_id,
+                    timeout=RICH_MEDIA_TIMEOUT if images else None)
+            except Exception as e:
+                logger.warning(f"Guest: rich javob yuborilmadi: {e}")
+                yetdi, natija = None, [OUTCOME_REJECTED]
+            if yetdi is not None or (natija and natija[0] == OUTCOME_UNKNOWN):
+                await _send_voice_bonus()
+                return
             try:
                 await bot.send_message(
                     chat_id=caller_chat_id,
-                    text=final_text,
+                    text=strip_rich_tokens(strip_image_tokens(final_text)),
                     parse_mode="Markdown",
                     reply_to_message_id=message.message_id,
                 )

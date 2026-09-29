@@ -2285,6 +2285,22 @@ async def ensure_profile_columns():
         except Exception:
             logger.exception("digest_hours ko'chirilmadi")
 
+        # Kuniga ko'pi bilan 4 daydjest (handlers/digest.py::_MAX_HOURS):
+        # «Barcha soatlar» bilan saqlanganlar birinchi 4 soatga qisqaradi.
+        # Idempotent — qisqargandan keyin shartga hech kim tushmaydi.
+        try:
+            await conn.execute('''
+                UPDATE users
+                   SET digest_hours = array_to_string(
+                       (SELECT array_agg(h ORDER BY h) FROM (
+                            SELECT unnest(string_to_array(digest_hours, ',')::int[]) AS h
+                            ORDER BY h LIMIT 4) t), ',')
+                 WHERE digest_hours IS NOT NULL
+                   AND cardinality(string_to_array(digest_hours, ',')) > 4
+            ''')
+        except Exception:
+            logger.exception("digest_hours chegarasi qo'llanmadi")
+
 
 # ─────────────────────────────────────────────────────────────
 # 🧠 UZOQ MUDDATLI XOTIRA
@@ -2623,7 +2639,6 @@ async def advance_scheduled_task(task_id: int, run_at: datetime,
                 'WHERE id = $1', task_id, nxt)
 
 
-@with_db_retry()
 @with_db_retry()
 async def pro_tarifmi(user_id: int) -> bool:
     """Shu odamda Pro imkoniyatlari ochiqmi — FAQAT ko'rsatish uchun.

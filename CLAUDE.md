@@ -286,7 +286,7 @@ The cached prefix is **instructions + the tool schemas**, and OpenAI documents *
 
 `main.py` registers handlers in a deliberate order and each position is justified in a comment. The critical ones:
 
-1. `successful_payment` / `pre_checkout_query` go on `dp.message` **directly**, before any router. `handlers/messages.py` has a `GeneratingState.generating` spam-guard with no content filter; if a payment lands while a reply is streaming, that guard would swallow it — money taken, Pro not granted.
+1. `successful_payment` / `pre_checkout_query` go on `dp.message` **directly**, before any router. `handlers/messages.py` has a `GeneratingState.generating` spam-guard with no content filter; if a payment lands while a reply is streaming, that guard would swallow it — money taken, Pro not granted. They also sit **before `register_admin_handlers()`**: the admin module's report state (`ReportStates`, open to ordinary users) has no content filter either (`test_admin_registry.py` check 6).
 2. FSM states (gift, promo, digest, broadcast) come before the AI handlers so a user's answer to "kimga sovg'a qilay?" is not sent to GPT as a question.
 3. `maintenance_gate` sits before the AI handlers but after `/start` and `/profile`; `/pro`, `/promo`, `/gift` sit *after* it — selling a subscription for a disabled bot is a refund source.
 4. `generating_state_router` is included before `general_router` so a message arriving mid-reply does not start a second parallel request.
@@ -437,7 +437,7 @@ Code longer than `LONG_CODE_LINES` (30) leaves the message entirely: `_extract_l
 
 Telegram splits a message over 4096 chars into several updates, so every incoming text goes through the debounce buffer in `core/memory.py` (`text_merge_buffers`, per-chat `asyncio.Lock`) and is merged after `TEXT_MERGE_WAIT` (1.5s) — joined with `"\n"`, since the parts may equally be separate messages. The old "short first message goes through instantly" shortcut was removed: it turned three quick messages into three independent requests, the first of which then locked out the other two.
 
-While a reply is generating, `busy_handler` (`GeneratingState.generating`) **appends to that same buffer** and `_process_merged_text`'s `finally` block starts it once the state is cleared — order matters, or the queued message re-enters the busy state and loops. Commands and media keep the old "please wait" behaviour: a queued `/pro` would be sent to GPT as a question. `TEXT_MERGE_BUFFER_TTL` is 600s because the buffer now has to survive a whole generation, not just a 1.5s timer.
+While a reply is generating, `busy_handler` (`GeneratingState.generating`) **appends to that same buffer** and `_navbatni_uygot()` starts it once the state is cleared — order matters, or the queued message re-enters the busy state and loops. ⚠️ **Every** path that sets `GeneratingState` (text, photo, document, voice, `/research`) must call it in its `finally`: `busy_handler` says "Navbatga oldim" regardless of what is running, and until 2026-09-29 only the text path woke the queue — a message typed during a photo answer silently vanished (`test_topics.py` check 22). Commands and media keep the old "please wait" behaviour: a queued `/pro` would be sent to GPT as a question. `TEXT_MERGE_BUFFER_TTL` is 600s because the buffer now has to survive a whole generation, not just a 1.5s timer.
 
 `_next_or_stop()` enforces `STREAM_IDLE_TIMEOUT` (180s) — an **idle** limit, not a total one. A file task or a deep research legitimately goes minutes without emitting a chunk, and a total budget would kill exactly the work that needs it. On timeout a partial answer is still delivered (with a note); with nothing at all it raises, and the caller's existing `except` gives the user a clean error plus the retry button and refunds the points.
 
@@ -513,6 +513,11 @@ plain reminder, not a paid search; and any failure falls back to the plain remin
 someone relying on it must never get nothing. It runs as a background task so one slow
 search does not delay everyone else's 09:00. Live-tested: the model sets `task` for
 "yuborib tur" and leaves it off for "qo'ng'iroq qilishni eslat".
+
+⚠️ **`/kunlik` is capped at `digest._MAX_HOURS` (4) hours a day.** Each digest is a full
+searched answer (~15k tokens); the old «Barcha soatlar» button gave one user 24 a day —
+~15% of the whole grant, and the same news 24 times. Stored rows above the cap are trimmed
+by the migration in `ensure_profile_columns()`.
 
 ### Two kinds of memory
 

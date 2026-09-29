@@ -175,4 +175,14 @@ for nom in ("parse_button_spec", "build_bcast_keyboard", "BCAST_STYLES",
     assert hasattr(admin_module, nom), f"«{nom}» handlers.admin dan yo'qolgan"
 print("[5] tashqi kod import qiladigan nomlar joyida OK")
 
-print("\nHammasi o'tdi: 5/5")
+# ── 6. TO'LOV ADMIN HANDLERLARIDAN OLDIN ─────────────────────────
+# Admin handlerlari ham `dp.message` da va report holati kontent
+# filtrisiz: to'lovdan oldin tursa, «Adminga xabar» holatidagi odamning
+# successful_payment xabarini yutib yuborardi (pul olinib, Pro yo'q).
+main_src = kod(ROOT / "main.py")
+assert (main_src.index("handle_successful_payment, F.successful_payment")
+        < main_src.index("register_admin_handlers(dp")), (
+    "to'lov handleri admin handlerlaridan KEYIN ro'yxatdan o'tyapti")
+print("[6] to'lov handleri admin handlerlaridan oldin OK")
+
+print("\nHammasi o'tdi: 6/6")
