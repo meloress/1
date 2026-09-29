@@ -433,7 +433,19 @@ async def flood_tests():
     assert len(calls2) >= 3, calls2
     print("[16] oddiy holatda animatsiya ishlashda davom etdi OK")
 
-    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (17/17).")
+    # ── 17) Uzun javob: rich yo'lda KESILMAYDI, faqat oddiy zaxirada —
+    # va o'shanda ham kesilgani AYTILADI (ilgari jim yo'qolardi).
+    uzun = "```python\n" + "x = 1\n" * 1000 + "```"
+    assert guest._oddiyga_qisqa("qisqa") == "qisqa"
+    q = guest._oddiyga_qisqa(uzun)
+    assert len(q) < 4096 and "✂️" in q and q.count("```") % 2 == 0, q[-200:]
+    from tests._manba import kod
+    manba = kod(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "handlers", "guest.py"))
+    assert "display_text[:MAX_RICH_CHARS]" in manba and "display_text[:MAX_GUEST_REPLY_LEN]" not in manba
+    print("[17] uzun javob faqat oddiy zaxirada kesiladi va bu aytiladi OK")
+
+    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (18/18).")
 
 
 async def _ready(value):

@@ -279,6 +279,8 @@ async def test_vazifa():
         await helpers._vazifani_bajar(7, "Bugungi USD/UZS kursi")
         chat, prompt, kw = j["chaqiruv"]
         assert chat == 0 and "user_id" not in kw and isinstance(kw.get("images_out"), list), kw
+        # (0, user_id) — yuborilgan rasmlar ro'yxati odamlar orasida aralashmaydi.
+        assert kw.get("thread_id") == 7, kw
         assert "Bugungi USD/UZS kursi" in prompt and kw.get("tools_enabled", True) is True
         assert j["yuborildi"] and j["yuborildi"][0][0] == 7
         assert "qidiryapman" not in j["yuborildi"][0][1] and "12 000" in j["yuborildi"][0][1]

@@ -2570,12 +2570,36 @@ async def handle_research(message: Message, state: FSMContext,
 # --------------------------------------------------
 # 3. PHOTO HANDLER (Vision)
 # --------------------------------------------------
+# Albom: Telegram har rasmni ALOHIDA xabar qilib yuboradi (bir xil
+# media_group_id). Ilgari 3 rasm = 3 so'rov, 3 marta ball, «shularni
+# solishtir» esa ishlamasdi. Birinchisi qolganlarini kutib, hammasini
+# BITTA so'rovda yuboradi; qolganlari shu ro'yxatga qo'shiladi va chiqadi.
+_albomlar: dict[tuple, list] = {}
+ALBOM_KUTISH = 1.2
+ALBOM_MAX = 5       # rasm tokeni qimmat — 10 talik albom ham 5 tadan oshmaydi
+
+
 async def handle_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
+    albom = [message]
+    if message.media_group_id:
+        kalit = (chat_id, message.media_group_id)
+        if kalit in _albomlar:
+            _albomlar[kalit].append(message)
+            return
+        _albomlar[kalit] = albom
+        try:
+            await asyncio.sleep(ALBOM_KUTISH)
+        finally:
+            _albomlar.pop(kalit, None)
+        albom.sort(key=lambda m: m.message_id)
+
     track_user_activity(user_id, message.from_user.username, "photo_message")
-    notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
+    for m in albom:
+        notify_watchers(user_id, message.from_user.username, "in",
+                        copy_chat_id=chat_id, copy_message_id=m.message_id)
 
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
@@ -2593,20 +2617,30 @@ async def handle_photo(message: Message, state: FSMContext):
         pass
 
     try:
-        photo = message.photo[-1]
-        file = await bot.get_file(photo.file_id)
         from io import BytesIO
-        result = BytesIO()
-        await bot.download_file(file.file_path, result)
-        image_bytes = result.getvalue()
+        baytlar: list[bytes] = []
+        for m in albom[:ALBOM_MAX]:
+            file = await bot.get_file(m.photo[-1].file_id)
+            result = BytesIO()
+            await bot.download_file(file.file_path, result)
+            baytlar.append(result.getvalue())
+        image_bytes = baytlar[-1]
         # Rasmni eslab qolamiz — busiz keyingi xabar («endi fonini
         # o'zgartir») uchun manba rasm umuman bo'lmasdi va edit_image
         # biriktirilmasdi. Hujjat oqimi buni allaqachon qilardi, rasm
         # oqimi esa yo'q edi: ya'ni bot yuborilgan rasmni javob
-        # yozilgandan keyin darhol unutardi.
+        # yozilgandan keyin darhol unutardi. (Albomda — oxirgisi.)
         _remember_file(chat_id, image_bytes, "rasm.jpg", thread_id=thread_id)
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
-        caption = message.caption if message.caption else "Bu rasmda nimalar borligini to'liq tushuntirib ber."
+        base64_image = [base64.b64encode(b).decode('utf-8') for b in baytlar]
+        # Albom izohi odatda faqat BIRINCHI rasmda bo'ladi.
+        izoh = next((m.caption for m in albom if m.caption), None)
+        if len(albom) > 1:
+            caption = izoh or "Bu rasmlarda nimalar borligini tushuntirib ber."
+            caption = f"[Albom: {len(albom)} ta rasm" + (
+                f", birinchi {ALBOM_MAX} tasi ko'rsatildi" if len(albom) > ALBOM_MAX
+                else "") + f"] {caption}"
+        else:
+            caption = izoh or "Bu rasmda nimalar borligini to'liq tushuntirib ber."
 
         # Rasm matnli oqim bilan BIR XIL to'liq halqaga kiradi: qidiruv
         # («shu mahsulot narxi?»), internet rasmlari, fayl, tahrir, xotira.

@@ -430,6 +430,9 @@ async def _vazifani_bajar(user_id: int, task_text: str) -> None:
     - chat_id=0: foydalanuvchi tarixi so'rovga qo'shilmaydi (har ishga
       tushishda ~8k token bo'lardi) — lekin NATIJA tarixga yoziladi, ya'ni
       «shu kurs haqida batafsil» degan keyingi savol ishlaydi.
+    - thread_id=user_id: (0, user_id) — har odamning O'Z kaliti. Faqat 0
+      bo'lganda yuborilgan rasmlar ro'yxati HAMMA uchun bitta edi: A ning
+      rasmi B nikidan chiqarib tashlanardi. Bu juftlikda tarix yo'q.
     - user_id=None: kvota/xotira bazasiga tegilmaydi; fayl yo'q.
     - Pro tugagan bo'lsa — oddiy eslatma (arzon): vazifa Pro imkoniyati,
       eslatma esa yetib borishi kerak (`reminder_watcher` izohi).
@@ -450,7 +453,8 @@ async def _vazifani_bajar(user_id: int, task_text: str) -> None:
                   f"Savol berma — foydalanuvchi hozir chatda emas.")
         rasmlar: list = []
         qismlar: list[str] = []
-        async for chunk in get_gpt_reply(0, prompt, is_pro=True, images_out=rasmlar):
+        async for chunk in get_gpt_reply(0, prompt, is_pro=True, images_out=rasmlar,
+                                       thread_id=user_id):
             if not isinstance(chunk, str) or chunk.startswith("[STATUS]"):
                 continue
             if "[CLEAR_TEXT]" in chunk:

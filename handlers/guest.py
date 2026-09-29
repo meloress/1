@@ -25,6 +25,7 @@ from db.database import (has_started, check_and_consume_quota, refund_quota,
 from handlers.messages import (
     STATUS_TEXTS_BY_TYPE, status_emoji_id, _format_elapsed, track_user_activity,
     RICH_MEDIA_TIMEOUT, _send_rich_message, OUTCOME_REJECTED, OUTCOME_UNKNOWN,
+    MAX_RICH_CHARS,
 )
 from handlers.helpers import notify_watchers
 from services.ai import (
@@ -45,7 +46,21 @@ from services.ai import (
 
 router = Router()
 
+# ⚠️ 3800 — faqat ODDIY matn (`text`, 4096) zaxirasi uchun. Rich xabar
+# 32 768 gacha sig'adi: ilgari 3800 HAMMA yo'lga qo'llanardi va uzun javob
+# guruhda jim kesilib, oxiri yo'qolardi.
 MAX_GUEST_REPLY_LEN = 3800
+_QISQARTIRILDI = "\n\n✂️ _Javob uzun — to'liq varianti uchun botning o'ziga yozing._"
+
+
+def _oddiyga_qisqa(matn: str) -> str:
+    """Oddiy matn zaxirasiga sig'dirish; kesilgan bo'lsa buni AYTADI."""
+    if len(matn) <= MAX_GUEST_REPLY_LEN:
+        return matn
+    kesik = matn[:MAX_GUEST_REPLY_LEN].rstrip() + "…"
+    if kesik.count("```") % 2:
+        kesik += "\n```"
+    return kesik + _QISQARTIRILDI
 
 # Hujjat chegarasi TARIFGA bog'liq — core/config.document_max_size()
 # (bepulda 5 MB, Pro'da 20 MB). Bu yerda alohida konstanta saqlanmaydi,
@@ -640,8 +655,8 @@ else:
         # chizilmaydi, lekin foydalanuvchi `[batafsil: ...]` yoki
         # `[rasm:1]` degan ICHKI belgini ham ko'rmasligi kerak — belgi
         # yo'qoladi, MA'LUMOT qoladi.
-        oddiy_matn = (strip_rich_tokens(strip_image_tokens(markdown_text))
-                      if rich else markdown_text)
+        oddiy_matn = _oddiyga_qisqa(strip_rich_tokens(strip_image_tokens(markdown_text))
+                                    if rich else markdown_text)
         # ⚠️ RASMLI XABARGA ALOHIDA VAQT CHEGARASI. Umumiy sessiya 10
         # soniyaga sozlangan (u 0.6s'lik draft ping'lari uchun to'g'ri),
         # Telegram esa rasmli xabarni YARATISHDAN OLDIN har bir havolani
@@ -1267,8 +1282,8 @@ else:
             speaker = "Ovozli xabar" if media_from_reply else "Siz"
             display_text = f"🗣 *{speaker}:* \"{recognized_text}\"\n\n{raw_answer}"
 
-        if len(display_text) > MAX_GUEST_REPLY_LEN:
-            display_text = display_text[:MAX_GUEST_REPLY_LEN].rstrip() + "…"
+        if len(display_text) > MAX_RICH_CHARS:
+            display_text = display_text[:MAX_RICH_CHARS].rstrip() + "…"
 
         final_text = _balance_markdown_fences(display_text)
 
@@ -1310,7 +1325,7 @@ else:
         if chat_fallback_msg is not None:
             try:
                 await chat_fallback_msg.edit_text(
-                    strip_rich_tokens(strip_image_tokens(final_text)),
+                    _oddiyga_qisqa(strip_rich_tokens(strip_image_tokens(final_text))),
                     parse_mode="Markdown")
                 await _send_voice_bonus()
                 return
@@ -1349,7 +1364,7 @@ else:
             try:
                 await bot.send_message(
                     chat_id=caller_chat_id,
-                    text=strip_rich_tokens(strip_image_tokens(final_text)),
+                    text=_oddiyga_qisqa(strip_rich_tokens(strip_image_tokens(final_text))),
                     parse_mode="Markdown",
                     reply_to_message_id=message.message_id,
                 )
@@ -1396,7 +1411,7 @@ else:
             id=str(guest_query_id),
             title="AI javobi",
             input_message_content=InputTextMessageContent(
-                message_text=strip_rich_tokens(strip_image_tokens(final_text)),
+                message_text=_oddiyga_qisqa(strip_rich_tokens(strip_image_tokens(final_text))),
                 parse_mode="Markdown",
             ),
         )
@@ -1419,8 +1434,8 @@ else:
                             id=str(guest_query_id),
                             title="AI javobi",
                             input_message_content=InputTextMessageContent(
-                                message_text=strip_rich_tokens(
-                                    strip_image_tokens(final_text)),
+                                message_text=_oddiyga_qisqa(strip_rich_tokens(
+                                    strip_image_tokens(final_text))),
                             ),
                         ),
                     )

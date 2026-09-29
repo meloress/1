@@ -713,6 +713,11 @@ requests per frame), and **every** edit — status, stream, restart — waits
 leaves the budget to the final answer. There is still no stop button: that is a draft
 feature, and drafts need a private chat id Telegram does not give guest mode.
 
+⚠️ **`MAX_GUEST_REPLY_LEN` (3800) is for the plain `text` rung only.** The rich payload
+carries up to `MAX_RICH_CHARS`; every plain fallback goes through `_oddiyga_qisqa()`, which
+cuts, closes an open fence and **says** it cut. It used to apply to every path, so a long
+group answer silently lost its end.
+
 Guest also uses `speech_to_text_smart` / `text_to_speech_smart`, so a Pro user gets the
 natural voice in a group instead of the free edge-tts one.
 
@@ -1356,7 +1361,10 @@ guessing; live-tested after the switch, the model read the label, searched uzum/
 cited them. The image goes **only into this request's user message** — history gets the text
 `[Rasm yuborildi]: …`, or every later request would re-pay the image tokens.
 Guest photos take the same path (`images_out`, no `output_files`); `get_vision_reply` is deleted.
-`tests/test_rasm_qidiruv.py` pins it.
+`tests/test_rasm_qidiruv.py` pins it. **An album is one request** (`_albomlar`, keyed
+`(chat_id, media_group_id)`): the first photo waits `ALBOM_KUTISH` (1.2 s), the rest append and
+return, and all go as a list in `input_image` — one charge, capped at `ALBOM_MAX` (5) images.
+Before, three photos were three requests, three charges, and "compare these" could not work.
 
 ⚠️ `pending_file_note()` needed a picture branch. The generic note says "use
 run_python_sandbox to edit this file", and for a photo that sends "change the background"
