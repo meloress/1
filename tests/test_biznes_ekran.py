@@ -74,4 +74,28 @@ matn, kb = asyncio.run(b._ekran(1))
 check(7, "statistika o'qilmasa ham ekran ochiladi (bezak — darvoza emas)",
       "Rejim" in matn and kb is not None)
 
-print("\nHammasi o'tdi: 7/7")
+# ── 8-11. Ulanmagan ekran: to'g'ri holat, Premium yo'q, menyu egasining tilida ──
+from types import SimpleNamespace as NS  # noqa: E402
+
+yoq = b.ekran_matni(None, "", uid=501, bot_nomi="uzchatgptaibot")
+check(8, "ulanmagan: qadamlar, bot nomi, Premium haqida GAP YO'Q",
+      "Hali ulanmagan" in yoq and "@uzchatgptaibot" in yoq and "Premium" not in yoq
+      and "Sozlamalar → Telegram Business → Chatbotlar" in yoq)
+check(9, "ilgari ulangan, hozir o'chirilgan — boshqacha aytiladi",
+      "o'chirilgan" in b.ekran_matni({**UL, "yoqilgan": False}, ""))
+b.til_eslab(NS(id=502, language_code="ru"))
+b.til_eslab(NS(id=503, language_code="en"))
+b.til_eslab(NS(id=504, language_code="tr"))
+ru = b.ekran_matni(None, "", uid=502)
+check(10, "rus Telegram: tushuntirish o'zbekcha, bosiladigan nomlar ruscha",
+      "Настройки → Telegram для бизнеса → Чат-боты" in ru and "Qanday ulash" in ru
+      and "Ответ на сообщения" in ru)
+check(11, "en va tanilmagan til (tr) — inglizcha menyu; profil huquqi ham tarjima",
+      "Settings → Telegram Business → Chatbots" in b.ekran_matni(None, "", uid=503)
+      and "Settings" in b.sozlama_yoli(504)
+      and b.huquq_nomi(503, "can_edit_bio") == "Edit Bio"
+      and b.huquq_nomi(None, "can_edit_bio") == "Bio'ni o'zgartirish")
+check(12, "bepul egaga: ulanmagan bo'lsa «ulandim» DEMAYDI",
+      "ulandim" not in b._probez_matni(999) and "/pro" in b._probez_matni(999))
+
+print("\nHammasi o'tdi: 12/12")

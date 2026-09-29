@@ -147,6 +147,15 @@ egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
   bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
 - Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
 
+## Ulanish yo'riqnomasi egasining Telegram tilida (2026-09-29)
+
+Tushuntirish o'zbekcha, lekin BOSILADIGAN nomlar (menyu yo'li, huquq nomlari) egasining
+`language_code` bo'yicha: `sozlama_yoli(uid)`, `huquq_nomi(uid, kalit)` — `_YOL` / `_HUQUQ_TIL`
+(uz, en, ru; tanilmagan til → en). Til RAM'da (`til_eslab`, /biznes, callback, ulanish,
+egasining xabari). "Telegram Premium kerak" gapi olib tashlandi (egasi: kerak emas). Bepul
+egaga ulanmagan bo'lsa «✅ ulandim» chiqmaydi (`_probez_matni`). `test_biznes_ekran.py` 8-12.
+⚠️ ru/en huquq nomlari ilovadan tekshirilmagan. `/help` dagi Business bo'limi hali o'zbekcha.
+
 ## Avtomat kutishi va egasining vaqtlari (2026-09-29)
 
 Egasi so'radi: mijoz yozsa bot darhol emas, **30 soniya** kutsin; shu orada egasi o'zi yozsa

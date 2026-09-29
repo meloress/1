@@ -194,6 +194,51 @@ HUQUQ_NOMI = {
     "can_read_messages": "Xabarlarni o'qish",
 }
 
+# ── Telegram menyusidagi nomlar EGASINING Telegram tilida ────────────
+# Tushuntirish o'zbekcha qoladi, lekin odam BOSADIGAN narsa (Sozlamalar →
+# Telegram Business → Chatbotlar, huquq nomlari) uning ekranida qanday
+# yozilgan bo'lsa, shunday: rus tilidagi Telegram'da «Sozlamalar» degan
+# tugma yo'q. O'zbekchasi — `HUQUQ_NOMI` (pastda profil huquqlari ham qo'shiladi).
+# ⚠️ ru/en huquq nomlari Telegram ilovasidan tekshirilmagan — farq qilsa, shu yerda.
+_YOL = {
+    "uz": ("Sozlamalar", "Telegram Business", "Chatbotlar"),
+    "en": ("Settings", "Telegram Business", "Chatbots"),
+    "ru": ("Настройки", "Telegram для бизнеса", "Чат-боты"),
+}
+_HUQUQ_TIL = {
+    "en": {"can_reply": "Reply to Messages", "can_read_messages": "Read Messages",
+           "can_edit_bio": "Edit Bio", "can_edit_name": "Edit Name",
+           "can_edit_profile_photo": "Edit Profile Photo",
+           "can_manage_stories": "Manage Stories"},
+    "ru": {"can_reply": "Ответ на сообщения", "can_read_messages": "Чтение сообщений",
+           "can_edit_bio": "Изменение описания", "can_edit_name": "Изменение имени",
+           "can_edit_profile_photo": "Изменение фото профиля",
+           "can_manage_stories": "Управление историями"},
+}
+# Egasining `language_code` — har murojaatda yangilanadi.
+# ponytail: RAM'da; deploy'dan keyin birinchi murojaatgacha o'zbekcha.
+_tillar: dict = {}
+
+
+def til_eslab(user) -> None:
+    if user is not None and getattr(user, "language_code", None):
+        _tillar[user.id] = user.language_code
+
+
+def _til(uid: int | None) -> str:
+    til = (_tillar.get(uid) or "uz").split("-")[0]
+    # Tanilmagan til (tr, kk, …) — Telegram'da ham inglizcha yaqinroq.
+    return til if til in _YOL else "en"
+
+
+def sozlama_yoli(uid: int | None) -> str:
+    s, b, c = _YOL[_til(uid)]
+    return f"<b>{s} → {b} → {c}</b>"
+
+
+def huquq_nomi(uid: int | None, kalit: str) -> str:
+    return _HUQUQ_TIL.get(_til(uid), {}).get(kalit) or HUQUQ_NOMI[kalit]
+
 # ⛔️ Chatga ketadigan matn EGASI NOMIDAN yuboriladi — "Mana javob:" kabi
 # muqaddima mijozga o'sha holida ko'rinadi. Qoida shu bitta joyda va
 # har bir buyruq promptiga qo'shiladi; `instructions`'ga EMAS (u hamma
@@ -240,15 +285,17 @@ def _toza(matn: str) -> str:
     return matn
 
 
-def ulanish_matni(yoqilgan: bool, huquqlar: dict, is_pro: bool) -> str:
-    """Egasiga ulanish haqida xabar. Sof funksiya — testda tekshiriladi."""
+def ulanish_matni(yoqilgan: bool, huquqlar: dict, is_pro: bool,
+                  uid: int | None = None) -> str:
+    """Egasiga ulanish haqida xabar. Sof funksiya — testda tekshiriladi.
+    `uid` — menyu nomlari egasining Telegram tilida bo'lsin."""
     if not yoqilgan:
         return ("🔌 Biznes ulanishi o'chirildi. Chatlaringizda endi hech "
                 "narsa qilmayman.")
     if not is_pro:
         return ("✅ Profilingizga ulandim, lekin biznes buyruqlari faqat "
                 "<b>Pro</b> tarifida ishlaydi → /pro")
-    yoq = [nom for kalit, nom in HUQUQ_NOMI.items() if not huquqlar.get(kalit)]
+    yoq = [huquq_nomi(uid, kalit) for kalit in HUQUQ_NOMI if not huquqlar.get(kalit)]
     matn = ("✅ <b>Profilingizga ulandim.</b>\n\n"
             "Istalgan shaxsiy chatingizda yozing:\n"
             "<code>.javob</code> nima demoqchisiz — chiroyli javob\n"
@@ -263,7 +310,7 @@ def ulanish_matni(yoqilgan: bool, huquqlar: dict, is_pro: bool) -> str:
             "🤝 Mijozlarga javob loyihasi va biznes bilimi: /biznes")
     if yoq:
         matn += ("\n\n⚠️ Yoqilmagan huquq: <b>" + ", ".join(yoq) + "</b>. "
-                 "Sozlamalar → Telegram Business → Chatbotlar'da yoqing, "
+                 f"{sozlama_yoli(uid)} → meni tanlang va yoqing, "
                  "aks holda ba'zi buyruqlar ishlamaydi.")
     return matn
 
@@ -390,6 +437,7 @@ async def ulanish_yangilandi(conn: BusinessConnection):
         logger.exception("[BIZNES] ulanish bazaga yozilmadi")
         ul = database.biznes_ulanish_ol(conn.id)
     egasi = conn.user.id
+    til_eslab(conn.user)
     for k in [k for k in _aytilgan if k[0] == egasi]:
         _aytilgan.discard(k)
     try:
@@ -400,7 +448,8 @@ async def ulanish_yangilandi(conn: BusinessConnection):
                 f"pro={is_pro} huquqlar={ul['huquqlar']}")
     if conn.is_enabled:
         track_user_activity(egasi, conn.user.username, "biznes_ulanish")
-    await _egasiga(conn.user_chat_id, ulanish_matni(conn.is_enabled, ul["huquqlar"], is_pro))
+    await _egasiga(conn.user_chat_id,
+                   ulanish_matni(conn.is_enabled, ul["huquqlar"], is_pro, egasi))
 
 
 @router.business_message()
@@ -435,6 +484,7 @@ async def biznes_xabar(message: Message):
                     f"msg={message.message_id}")
         return
     if kim == "egasi":
+        til_eslab(message.from_user)
         if buyruq:
             olchov.qosh(natija="buyruq")
             await _bajar(message, ul, *buyruq)
@@ -495,9 +545,9 @@ async def biznes_xabar(message: Message):
             olchov.qosh(natija="navbatga")
             return
         await _bir_marta(egasi, "can_reply", ul["owner_chat"],
-                         f"⚠️ «{REJIM_NOMI[ul['rejim']][0]}» rejimi uchun «Xabarlarga "
-                         "javob berish» huquqi kerak: Sozlamalar → Telegram "
-                         "Business → Chatbotlar.")
+                         f"⚠️ «{REJIM_NOMI[ul['rejim']][0]}» rejimi uchun "
+                         f"«{huquq_nomi(egasi, 'can_reply')}» huquqi kerak: "
+                         f"{sozlama_yoli(egasi)} → meni tanlang.")
     if media:
         # Kuzatuv/Buyruq — aylantirilmaydi, faqat belgi ("[rasm]" + izoh).
         matn = await biznes_media.media_matn(message, egasi, False)
@@ -643,8 +693,8 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
     kerak = BUYRUQ_HUQUQI[nom]
     if kerak and not ul["huquqlar"].get(kerak):
         await _bir_marta(egasi, kerak, dm,
-                         f"⚠️ <code>.{nom}</code> uchun «{HUQUQ_NOMI[kerak]}» huquqi "
-                         "kerak: Sozlamalar → Telegram Business → Chatbotlar.")
+                         f"⚠️ <code>.{nom}</code> uchun «{huquq_nomi(egasi, kerak)}» "
+                         f"huquqi kerak: {sozlama_yoli(egasi)} → meni tanlang.")
         return
 
     t = await _topshiriq(nom, arg, message, thread)
@@ -1445,14 +1495,25 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
 
 # ── /biznes ekrani ───────────────────────────────────────────────────
 def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
-                namuna: int | None = None) -> str:
+                namuna: int | None = None, uid: int | None = None,
+                bot_nomi: str = "") -> str:
     """Sof funksiya — testda tekshiriladi. `stat` — `biznes_ekran_stat`,
     `namuna` — uslub namunalari soni (ikkalasi ixtiyoriy: o'qilmasa ekran
-    baribir chiqadi)."""
+    baribir chiqadi). `uid` — menyu nomlari egasining Telegram tilida."""
     qator = ["💼 <b>Telegram Business</b>\n"]
     if not ul or not ul["yoqilgan"]:
-        qator.append("❌ Ulanmagan. Sozlamalar → Telegram Business → Chatbotlar "
-                     "→ meni tanlang (Telegram Premium kerak).")
+        # Holat Telegram'ning `business_connection` xabaridan: ulangan zahoti
+        # bot o'zi yozadi, ya'ni bu yerda hech narsani qo'lda tasdiqlash kerak emas.
+        qator.append("🔌 Avval ulangan edi, hozir o'chirilgan." if ul
+                     else "❌ Hali ulanmagan.")
+        qator.append(
+            "\n<b>Qanday ulash:</b>\n"
+            f"1. Telegram'da {sozlama_yoli(uid)} ga kiring.\n"
+            "2. " + (f"<code>@{bot_nomi}</code> deb yozing va meni tanlang.\n"
+                     if bot_nomi else "Meni qidirib toping va tanlang.\n")
+            + f"3. «{huquq_nomi(uid, 'can_reply')}» va «{huquq_nomi(uid, 'can_read_messages')}» "
+            "huquqlarini yoqing.\n\n"
+            "Ulanishingiz bilan o'zim sezaman va shu yerga yozaman.")
         return "\n".join(qator)
     nom, tavsif = REJIM_NOMI[ul["rejim"]]
     qator.append(f"✅ Ulangan\nRejim: <b>{nom}</b> — {tavsif}.")
@@ -1590,14 +1651,30 @@ async def _ekran(user_id: int):
             namuna = len(u["namunalar"])
         except Exception as e:
             logger.warning(f"[BIZNES] ekran statistikasi o'qilmadi: {e}")
-    return ekran_matni(ul, bilim, stat, namuna), _ekran_kb(ul)
+    try:
+        bot_nomi = (await bot.me()).username or ""
+    except Exception:
+        bot_nomi = ""
+    return (ekran_matni(ul, bilim, stat, namuna, uid=user_id, bot_nomi=bot_nomi),
+            _ekran_kb(ul))
+
+
+def _probez_matni(uid: int) -> str:
+    """Bepul egaga /biznes: ulangan-ulanmaganini ADASHTIRMAYDI. Ilgari
+    ulanmagan odamga ham «✅ Profilingizga ulandim» chiqardi."""
+    topilgan = database.biznes_egasi_ulanishi(uid)
+    if topilgan and topilgan[1]["yoqilgan"]:
+        return ulanish_matni(True, {}, False, uid)
+    return ("💼 <b>Telegram Business</b>\n\nBiznes imkoniyatlari faqat <b>Pro</b> "
+            "tarifida ishlaydi → /pro")
 
 
 async def handle_biznes(message: Message, state: FSMContext) -> None:
     """/biznes — rejim va bilim."""
     await state.clear()
+    til_eslab(message.from_user)
     if not await database.pro_tarifmi(message.from_user.id):
-        await message.answer(ulanish_matni(True, {}, False))
+        await message.answer(_probez_matni(message.from_user.id))
         return
     matn, kb = await _ekran(message.from_user.id)
     await message.answer(matn, reply_markup=kb)
@@ -1618,6 +1695,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
     qism = (query.data or "").split(":", 2)
     amal = qism[1] if len(qism) > 1 else ""
     uid = query.from_user.id
+    til_eslab(query.from_user)
 
     if amal == "yv":
         try:
@@ -1779,8 +1857,10 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         topilgan = database.biznes_egasi_ulanishi(uid)
         huquq = PROFIL_HUQUQI[qism[2]][0]
         if not topilgan or not topilgan[1]["huquqlar"].get(huquq):
-            await query.answer(f"«{HUQUQ_NOMI[huquq]}» huquqi kerak: Sozlamalar → "
-                               "Telegram Business → Chatbotlar.", show_alert=True)
+            # Alert HTML'siz — `sozlama_yoli` dagi <b> olib tashlanadi.
+            await query.answer(f"«{huquq_nomi(uid, huquq)}» huquqi kerak: "
+                               + re.sub(r"</?b>", "", sozlama_yoli(uid)) + " → meni tanlang.",
+                               show_alert=True)
             return
         await state.set_state(BiznesStates.profil)
         await state.update_data(tur=qism[2])
@@ -2152,7 +2232,7 @@ def mijozlar_matni(qatorlar: list) -> str:
 
 async def handle_mijozlar(message: Message) -> None:
     if not await database.pro_tarifmi(message.from_user.id):
-        await message.answer(ulanish_matni(True, {}, False))
+        await message.answer(_probez_matni(message.from_user.id))
         return
     qatorlar = await database.biznes_mijozlar(message.from_user.id, 20)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -2343,7 +2423,8 @@ async def _tasdiqla(token: str, uid: int) -> str:
     conn_id, ul = topilgan
     huquq, nom = PROFIL_HUQUQI[yozuv["tur"]]
     if not ul["huquqlar"].get(huquq):
-        return f"⚠️ «{HUQUQ_NOMI[huquq]}» huquqi kerak: Sozlamalar → Telegram Business → Chatbotlar."
+        return (f"⚠️ «{huquq_nomi(uid, huquq)}» huquqi kerak: "
+                f"{sozlama_yoli(uid)} → meni tanlang.")
     try:
         tur = yozuv["tur"]
         if tur == "bio":

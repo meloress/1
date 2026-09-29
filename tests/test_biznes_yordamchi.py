@@ -359,7 +359,7 @@ UL["huquqlar"] = {"can_reply": True, "can_read_messages": True}
 check(22, "ekran: rejim, bilim uzunligi, bilimsiz ogohlantirish",
       "Yordamchi" in b.ekran_matni(UL, BILIM) and str(len(BILIM)) in b.ekran_matni(UL, BILIM)
       and "hech narsa bilmayman" in b.ekran_matni(UL, "")
-      and "Ulanmagan" in b.ekran_matni(None, ""))
+      and "ulanmagan" in b.ekran_matni(None, ""))
 
 main = kod(os.path.join(ROOT, "main.py"))
 check(23, "bilim/tahrir FSM'lari AI handlerlaridan OLDIN ro'yxatda",
