@@ -201,7 +201,7 @@ class BelgiBot(MijozBot):
             raise TelegramBadRequest(method=None, message="Bad Request: rad")
         return "ok"
 
-b.LOGO_EMOJI["text"] = "LOGO1"
+b.LOGO_EMOJI["kichik"] = "LOGO1"
 asl_bot, b.bot = b.bot, BelgiBot()
 try:
     mijoz_q.clear()

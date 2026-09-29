@@ -857,13 +857,16 @@ EMOJI_ID_BY_TYPE: dict[str, str] = {
 # (to'plam yaratilmadi) oddiy botdagi emojilar ishlatiladi.
 LOGO_EMOJI: dict[str, str] = {}
 # To'plamdagi TARTIB = shu ro'yxat tartibi; birinchisi — umumiy (aylanish).
+# "kichik" — status emas: Business avtojavob belgisi yonidagi logo. Custom
+# emoji'ni kichraytirib bo'lmaydi, shuning uchun logo kadrning ~46% ida,
+# atrofi shaffof — «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» ustki harflari bilan teng ko'rinadi.
 _LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
-                "image", "reminder", "memory")
+                "image", "reminder", "memory", "kichik")
 # Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
 _LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
 # ⚠️ Nomdagi raqam — ANIMATSIYA VERSIYASI. Telegram mavjud to'plamni
 # qayta yaratmaydi: webm o'zgarsa, raqamni oshiring (yangi to'plam).
-_LOGO_TOPLAM = "holat3"
+_LOGO_TOPLAM = "holat4"
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 _LOGO_FAYLLAR = {t: os.path.join(_ASSETS, "status_emoji.webm" if t == "text"
                                  else f"status_{t}.webm") for t in _LOGO_TURLAR}

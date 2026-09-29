@@ -706,7 +706,7 @@ dots flying in (memory), sound bars (voice/tts). It lives in `handlers/messages.
 (`status_emoji_id()`), so the **DM `<tg-thinking>` status uses the same set**; `EMOJI_ID_BY_TYPE`
 is only the fallback when the set is missing
 (`assets/status_*.webm`, each ≤ 64 KB — 207 KB was rejected live as "file is too big"; one
-custom-emoji set `holat3_by_<bot>` created once at startup by `logo_emojini_tayyorla()`, owned by
+custom-emoji set `holat4_by_<bot>` (plus a `kichik` logo drawn at ~46% of the frame for the Business «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» mark — custom emoji cannot be scaled) created once at startup by `logo_emojini_tayyorla()`, owned by
 the superadmin, sticker order = `_LOGO_TURLAR`; bump `_LOGO_TOPLAM` when any animation changes —
 Telegram never re-creates an existing set). `[STATUS]search` switches the wording, and
 once ≥`_JONLI_MIN_BELGI` characters exist the answer streams into the message (" ✍️"),

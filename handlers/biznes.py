@@ -115,7 +115,8 @@ def avto_belgi_html(bot_nomi: str, logo_id: str) -> str:
     bot logosi (animatsiyali custom emoji). Ikkalasi ham ixtiyoriy. Sof."""
     belgi = (f'<a href="https://t.me/{escape(bot_nomi)}">{AVTO_BELGI}</a>'
              if bot_nomi else AVTO_BELGI)
-    return belgi + (f' <tg-emoji emoji-id="{logo_id}">🤖</tg-emoji>' if logo_id else "")
+    # Bo'shliqsiz: kichik logo kadrning chap chetida, belgiga yopishib turadi.
+    return belgi + (f'<tg-emoji emoji-id="{logo_id}">🤖</tg-emoji>' if logo_id else "")
 
 
 async def _mijozga(chat_id: int, conn_id: str, matn: str, belgi: bool = False):
@@ -133,7 +134,9 @@ async def _mijozga(chat_id: int, conn_id: str, matn: str, belgi: bool = False):
             bot_nomi = (await bot.me()).username or ""
         except Exception:
             pass
-        logo = LOGO_EMOJI.get("text", "")
+        # Faqat KICHIK nusxa: katta aylanuvchi logo belgidan uch barobar katta
+        # chiqdi (egasi, 2026-09-30) — yo'q bo'lsa logosiz.
+        logo = LOGO_EMOJI.get("kichik", "")
     pogonalar = [html_premium(oddiy) + (f"\n{avto_belgi_html(bot_nomi, logo)}" if belgi else "")]
     if belgi and bot_nomi:
         pogonalar.append(oddiy + f"\n{avto_belgi_html(bot_nomi, '')}")
