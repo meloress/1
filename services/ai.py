@@ -1187,6 +1187,35 @@ def apply_emoji_pack(moslik: dict) -> int:
 apply_emoji_pack(TEXT_CUSTOM_EMOJI)
 
 
+# HTML matndagi teglar, <code>/<pre> va tayyor <tg-emoji> — ichiga tegilmaydi.
+_HTML_HIMOYA_RE = re.compile(
+    r"(<code\b.*?</code>|<pre\b.*?</pre>|<tg-emoji\b.*?</tg-emoji>|<[^>]+>)", re.S)
+
+
+def html_premium(matn: str) -> str:
+    """Bot o'zi yozgan HTML xabardagi oddiy emojini paketdagi animatsiyali
+    `<tg-emoji>` ga o'giradi. Teg, atribut, kod bloki va allaqachon
+    o'girilgani saqlanadi — ya'ni ikki marta chaqirish zararsiz. Sof."""
+    if not matn or not _EMOJI_IDS:
+        return matn
+
+    def _bir(m):
+        eid = _EMOJI_IDS.get(m.group(1))
+        return f'<tg-emoji emoji-id="{eid}">{m.group(0)}</tg-emoji>' if eid else m.group(0)
+
+    return "".join(q if i % 2 else _TEXT_EMOJI_RE.sub(_bir, q)
+                   for i, q in enumerate(_HTML_HIMOYA_RE.split(matn)))
+
+
+def bosh_emoji_id(matn: str) -> tuple[str | None, str]:
+    """Tugma matni paketdagi emoji bilan boshlansa — (id, qolgan matn).
+    Tugmada emoji ikonka bo'lib chiqadi, matnda takrorlanmaydi. Sof."""
+    m = _TEXT_EMOJI_RE.match(matn or "")
+    if not m or not matn[m.end():].strip():
+        return None, matn
+    return _EMOJI_IDS.get(m.group(1)), matn[m.end():].lstrip()
+
+
 async def load_text_emoji_pack() -> int:
     """Premium emoji paketini Telegram'dan o'qib, moslikni quradi.
 

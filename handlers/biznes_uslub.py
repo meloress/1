@@ -212,8 +212,8 @@ def _kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [pro_module.btn("✍️ Qoidalarimni yozish", "bz:uy", style=BTN_PRIMARY)],
         [pro_module.btn("🔄 Hozir o'rgan", "bz:uo"),
-         pro_module.btn("🗑 Namunalarni o'chirish", "bz:ud")],
-        [pro_module.btn("⬅️ Orqaga", "bz:e")]])
+         pro_module.btn("❌ Namunalarni o'chirish", "bz:ud")],
+        [pro_module.btn("👈 Orqaga", "bz:e")]])
 
 
 async def _ekran(uid: int):
@@ -232,6 +232,8 @@ _SOROV = (
 async def process_uslub(message: Message, state: FSMContext) -> None:
     """FSM: egasi o'z uslub qoidalarini yozdi. main.py'da AI handlerlaridan
     OLDIN — aks holda bu matn GPT'ga savol bo'lib ketardi."""
+    from handlers.biznes import premium_biznes   # ⚠️ tsiklik import
+    premium_biznes()
     if (message.text or "").startswith("/"):
         await state.clear()
         await message.answer("Bekor qilindi.")
@@ -241,7 +243,7 @@ async def process_uslub(message: Message, state: FSMContext) -> None:
     if matn != "-":
         toza, xato = database.clean_uslub_egasi(matn)
         if xato:
-            await message.answer(f"⚠️ Saqlanmadi: {xato}. Qayta yozing yoki /bekor.")
+            await message.answer(f"❗ Saqlanmadi: {xato}. Qayta yozing yoki /bekor.")
             return
     await database.biznes_uslub_egasi_yoz(message.from_user.id, toza)
     await state.clear()
@@ -268,7 +270,7 @@ async def uslub_callback(query: CallbackQuery, state: FSMContext, amal: str) -> 
                                        "tahrirlab yuboring.")
             return
         if not natija:
-            await query.message.answer("⚠️ Hozir o'rganib bo'lmadi — keyinroq urinib ko'ring.")
+            await query.message.answer("❗ Hozir o'rganib bo'lmadi — keyinroq urinib ko'ring.")
             return
         matn, kb = await _ekran(uid)
         await query.message.answer("✅ Yangilandi.\n\n" + matn, reply_markup=kb)
@@ -277,8 +279,8 @@ async def uslub_callback(query: CallbackQuery, state: FSMContext, amal: str) -> 
         await query.message.answer(
             "Barcha namunalar va o'rganilgan uslub o'chsinmi? Qoidalaringiz qoladi.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                pro_module.btn("🗑 Ha, o'chir", "bz:udh", style=BTN_DANGER),
-                pro_module.btn("⬅️ Yo'q, qolsin", "bz:us")]]))
+                pro_module.btn("❌ Ha, o'chir", "bz:udh", style=BTN_DANGER),
+                pro_module.btn("👈 Yo'q, qolsin", "bz:us")]]))
     elif amal == "udh":
         await database.biznes_namunalar_ochir(uid)
         logger.info(f"[BIZNES] namunalar o'chirildi egasi={uid}")

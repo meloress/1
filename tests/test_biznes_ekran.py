@@ -98,4 +98,57 @@ check(11, "en va tanilmagan til (tr) — inglizcha menyu; profil huquqi ham tarj
 check(12, "bepul egaga: ulanmagan bo'lsa «ulandim» DEMAYDI",
       "ulandim" not in b._probez_matni(999) and "/pro" in b._probez_matni(999))
 
-print("\nHammasi o'tdi: 12/12")
+# ── 13-17. Premium emoji: egasiga — ha, mijozga — hech qachon ────
+from aiogram.exceptions import TelegramBadRequest  # noqa: E402
+from aiogram.methods import SendMessage  # noqa: E402
+from aiogram.types import InlineKeyboardMarkup  # noqa: E402
+
+import services.ai as ai  # noqa: E402
+
+ai.apply_emoji_pack({"✅": "111", "⚠️": "222", "📝": "333"})
+p = ai.html_premium('✅ <b>Tayyor</b> ⚠️ <code>✅</code> <a href="x✅">📝</a>')
+check(13, "html_premium: matn emojisi animatsiyali, kod va atribut tegilmaydi, ikki marta — zararsiz",
+      p.count('emoji-id="111"') == 1 and 'emoji-id="222"' in p and "<code>✅</code>" in p
+      and 'href="x✅"' in p and 'emoji-id="333"' in p and ai.html_premium(p) == p)
+
+kb = InlineKeyboardMarkup(inline_keyboard=[[b.pro_module.btn("📝 Bilim", "bz:k"),
+                                             b.pro_module.btn("Orqaga", "bz:e")]])
+egaga = b.premiumlash(SendMessage(chat_id=1, text="✅ Saqlandi", reply_markup=kb))
+t = egaga.reply_markup.inline_keyboard[0]
+check(14, "egasiga: matn premium, tugma emojisi ikonka bo'ladi (matnda takrorlanmaydi)",
+      'emoji-id="111"' in egaga.text and t[0].icon_custom_emoji_id == "333"
+      and t[0].text == "Bilim" and t[1].text == "Orqaga" and not t[1].icon_custom_emoji_id)
+check(15, "mijozga (business_connection_id) va oddiy matn (parse_mode=None) — TEGILMAYDI",
+      b.premiumlash(SendMessage(chat_id=1, text="✅ ok", business_connection_id="c1")) is None
+      and b.premiumlash(SendMessage(chat_id=1, text="✅ ok", parse_mode=None)) is None)
+
+yuborildi = []
+
+
+async def rad_etuvchi(bot_, method):
+    yuborildi.append(method.text)
+    if "tg-emoji" in method.text:
+        raise TelegramBadRequest(method=method, message="Bad Request: premium kerak")
+    return "ok"
+
+
+async def sina():
+    b.premium_biznes()
+    return await b.PremiumEmojiMiddleware()(rad_etuvchi, None,
+                                            SendMessage(chat_id=1, text="✅ Saqlandi"))
+
+natija = asyncio.run(sina())
+check(16, "Telegram rad etsa — asl xabar qayta ketadi, yo'qolmaydi",
+      natija == "ok" and len(yuborildi) == 2 and yuborildi[1] == "✅ Saqlandi")
+yuborildi.clear()
+
+
+async def kontekstsiz():
+    return await b.PremiumEmojiMiddleware()(rad_etuvchi, None,
+                                            SendMessage(chat_id=1, text="✅ Salom"))
+
+asyncio.run(kontekstsiz())
+check(17, "Business'dan tashqaridagi xabarga (kontekst yoqilmagan) tegilmaydi",
+      yuborildi == ["✅ Salom"])
+
+print("\nHammasi o'tdi: 17/17")

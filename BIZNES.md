@@ -147,6 +147,19 @@ egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
   bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
 - Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
 
+## Egasiga ko'rinadigan emoji — paketdan, animatsiyali (2026-09-29)
+
+Egasi so'radi: Business'dagi hamma emoji `TEXT_EMOJI_PACK` (RestrictedEmoji) dan. Bitta joy —
+`PremiumEmojiMiddleware` (bot sessiyasi, `main.py`): matndagi emoji → `<tg-emoji>`
+(`services/ai.html_premium`), tugma boshidagi emoji → `icon_custom_emoji_id`. Faqat
+`premium_biznes()` chaqirilgan vazifada (har Business handler/watcher boshida).
+- ⛔️ `business_connection_id` bor so'rov (MIJOZGA) va `parse_mode=None` — tegilmaydi.
+- Rad etilsa (egasining Premium'i tugagan) — asl xabar qayta ketadi.
+- Paketda YO'Q emojilar UI satrlarida muqobiliga almashtirildi: ⚙→🧰, ⚠→❗, ⛔→🔕, ⬅→👈,
+  ⏱→⏳, ⏸→💤, 🏷→🤖, 💾→🧠, 📇→👥, 📸→🎬, 🔌→❗, 🕘→⏰, 🗑→❌, 🙋→✋, ✉→📨. Yangi matn
+  yozganda paketda borini ishlating, aks holda u oddiy ko'rinishda qoladi.
+  `test_biznes_ekran.py` 13-17.
+
 ## Ulanish yo'riqnomasi egasining Telegram tilida (2026-09-29)
 
 Tushuntirish o'zbekcha, lekin BOSILADIGAN nomlar (menyu yo'li, huquq nomlari) egasining

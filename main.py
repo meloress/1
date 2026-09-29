@@ -74,6 +74,9 @@ async def main():
         await ai_service.load_text_emoji_pack()
     except Exception:
         logger.exception("emoji paketi yuklanmadi — oddiy emoji ishlatiladi")
+    # Business'da egasiga ketadigan xabar/tugmalardagi emoji — shu paketdan.
+    # Faqat `premium_biznes()` yoqilgan vazifada ishlaydi, boshqa hech narsaga tegmaydi.
+    bot.session.middleware(biznes_module.PremiumEmojiMiddleware())
     await init_db()
     asyncio.create_task(start_cleanup_task())
 
