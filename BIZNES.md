@@ -147,6 +147,22 @@ egasi buni ham "javob bermayapti" deb ko'rdi. Endi:
   bo'sh qatordan keyin kursivda edi — egasi: "juda xunuk").
 - Eval: avtomat 88/88, qoralama 44/44. `test_biznes_pauza.py`.
 
+## Avtomat kutishi va egasining vaqtlari (2026-09-29)
+
+Egasi so'radi: mijoz yozsa bot darhol emas, **30 soniya** kutsin; shu orada egasi o'zi yozsa
+bot umuman jim, yozmasa — avtojavob. Egasi yozgan chatda pauza **3 soat**. Ikkalasi ham
+standart, egasi `/biznes` → ⚙️ → «⏱ Kutish» / «⏸ Pauza» tugmalarini bosib almashtiradi
+(`BIZNES_KUTISH_VARIANT` 0…10 daqiqa, `BIZNES_PAUZA_VARIANT` 1…24 soat; oxiridan keyin boshiga).
+
+- Saqlanadi: `biznes_ulanish.kutish_soniya` / `pauza_soat` (+ keshda), `biznes_vaqt_yoz()` —
+  ustun nomi faqat `BIZNES_VAQT_USTUNLARI` dan.
+- Kutish **debounce ichida** (`_kechiktir`): bufer hali navbatda, ya'ni suhbatdoshning yangi
+  xabari taymerni qayta boshlaydi va hammasi BITTA javob. Model kutishdan KEYIN chaqiriladi —
+  egasi javob bergan chatda token ketmaydi.
+- Egasi kutish paytida yozsa, alohida mexanizm yo'q: u yozgani `pauza_soat` pauzasini qo'yadi,
+  `_toxtash_sababi` → "pauza". Faqat avtomatda; Yordamchi qoralamasi kutmaydi.
+- Testlarda `b.BIZNES_KUTISH_SONIYA = 0` (aks holda har avtomat testi 30 s). `test_biznes_pauza.py` 11-14.
+
 ## Avtomatik tozalash: uzilgan yoki Pro'si tugagan ega (2026-09-28)
 
 Bot Business'dan uzilsa YOKI Pro tugasa — `BIZNES_TOZALASH_KUN` (3) kundan keyin suhbatdoshlar

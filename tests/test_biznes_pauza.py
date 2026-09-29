@@ -128,6 +128,7 @@ b.get_gpt_reply = soxta_gpt
 b.safe_update_history = tarix
 b.track_user_activity = lambda *a: None
 b.BIZNES_MERGE_WAIT = 0.01
+b.BIZNES_KUTISH_SONIYA = 0      # avtomat kutishi — alohida testda
 b._birinchi_marta = birinchi
 for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_daily=ruxsat,
@@ -212,4 +213,44 @@ check(10, "variantdan neytral gap va egasining ismi olib tashlanadi (egasi bosad
                            "Og'abek bormaydi", "Олимжон онлайн будет"], "Og'abek")
       == ["Ha, boraman"])
 
-print("\nHammasi o'tdi: 10/10")
+# ── 11-13. Avtomat kutishi va egasining o'z vaqtlari ─────────────
+# Egasi: mijoz yozsa bot `kutish_soniya` jim; shu orada egasi o'zi yozsa —
+# bot umuman javob bermaydi va chat `pauza_soat` pauzada.
+soatlar = []
+
+
+async def pauza_soat(owner, chat, soat, sabab="egasi"):
+    soatlar.append(soat)
+    await pauza(owner, chat, soat, sabab)
+
+database.biznes_pauza = pauza_soat
+UL.update(kutish_soniya=0.3, pauza_soat=5)
+holat["pauza"], holat["model"] = None, "Salom!"
+
+
+def kutib(*qadamlar):
+    """(xabar, keyin_kutish) juftlari."""
+    q.clear()
+    b.text_merge_buffers.clear()     # oldingi tsiklda uzilgan bufer qolmasin
+
+    async def run():
+        for x, t in qadamlar:
+            await b.biznes_xabar(x)
+            await asyncio.sleep(t)
+    asyncio.run(run())
+
+kutib((xabar("narxi qancha?"), 0.1))
+check(11, "kutish tugamaguncha bot yozmaydi", mijozga() == [])
+kutib((xabar("narxi qancha?"), 0.5))
+check(12, "egasi yozmasa — kutishdan keyin avtojavob", mijozga() == ["Salom!"])
+holat["pauza"] = None
+kutib((xabar("narxi qancha?"), 0.1), (xabar("80 ming", kimdan=EGASI), 0.5))
+check(13, "kutish paytida egasi yozdi — bot JIM, pauza egasi tanlagan 5 soat",
+      mijozga() == [] and soatlar == [5])
+check(14, "sozlama tugmasi: navbatdagi qiymat, oxiridan keyin boshiga; nomlari",
+      b.keyingi((0, 15, 30, 60, 300), 30) == 60 and b.keyingi((0, 15, 30), 30) == 0
+      and b.keyingi((1, 3, 5), 3) == 5
+      and (b.davomiylik(30), b.davomiylik(300), b.davomiylik(0))
+      == ("30 soniya", "5 daqiqa", "yo'q"))
+
+print("\nHammasi o'tdi: 14/14")

@@ -181,6 +181,7 @@ b.safe_update_history = hech
 b.send_error_with_retry = xato_voronka
 b.track_user_activity = lambda *a: None
 b.BIZNES_MERGE_WAIT = 0.01
+b.BIZNES_KUTISH_SONIYA = 0      # avtomat kutishi — alohida testda
 for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_quota=ruxsat,
                    check_and_consume_daily=ruxsat, refund_daily=refund_daily,

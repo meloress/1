@@ -176,6 +176,7 @@ async def sekin_rasm():
 
 b._loyiha = loyiha
 b.BIZNES_MERGE_WAIT = 0.03
+b.BIZNES_KUTISH_SONIYA = 0      # avtomat kutishi — alohida testda
 x = NS(chat=NS(id=55), business_connection_id="c1")
 
 

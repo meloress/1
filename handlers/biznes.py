@@ -35,6 +35,8 @@ from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_M
                          BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
                          BIZNES_MERGE_WAIT, BIZNES_TOZALASH_KUN,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
+                         BIZNES_KUTISH_SONIYA, BIZNES_KUTISH_VARIANT,
+                         BIZNES_PAUZA_VARIANT,
                          BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
                          BTN_PRIMARY, BTN_SUCCESS, message_cost)
@@ -457,9 +459,11 @@ async def biznes_xabar(message: Message):
             if tanlov:
                 await _egasi_tanlovga_javob(egasi, ul["owner_chat"], tanlov["id"], matn)
         # Avtomatda — tabiiy "qo'lga olish": egasi yozgan chatda bot
-        # BIZNES_PAUZA_SOAT jim turadi (REJA.md 3-bosqich, 4-qadam).
+        # `pauza_soat` jim turadi (REJA.md 3-bosqich, 4-qadam). Kutish
+        # (`kutish_soniya`) paytida yozsa ham shu pauza botni to'xtatadi.
         if ul["rejim"] == "avtomat":
-            await database.biznes_pauza(egasi, message.chat.id, BIZNES_PAUZA_SOAT)
+            await database.biznes_pauza(egasi, message.chat.id,
+                                        ul.get("pauza_soat", BIZNES_PAUZA_SOAT))
         olchov.belgi("egasi_holati")
     if not (ul["huquqlar"].get("can_read_messages")
             and await _pro(egasi)):
@@ -867,6 +871,17 @@ async def _navbatga(message: Message, matn, thread: int) -> None:
 async def _kechiktir(kalit: tuple) -> None:
     try:
         await asyncio.sleep(BIZNES_MERGE_WAIT)
+        # Avtomat: egasiga o'zi javob berishga vaqt (`kutish_soniya`). Bufer
+        # hali navbatda — suhbatdoshning yangi xabari taymerni qayta boshlaydi
+        # va hammasi BITTA javob bo'ladi. Egasi shu orada yozsa — pauza
+        # (`_toxtash_sababi`), bot jim.
+        buf = text_merge_buffers.get(kalit)
+        conn = getattr(buf and buf.get("last_message"), "business_connection_id", None)
+        ul = database.biznes_ulanish_ol(conn) if conn else None
+        if ul and ul.get("rejim") == "avtomat":
+            qolgan = ul.get("kutish_soniya", BIZNES_KUTISH_SONIYA) - BIZNES_MERGE_WAIT
+            if qolgan > 0:
+                await asyncio.sleep(qolgan)
         async with get_text_merge_lock(*kalit):
             buf = text_merge_buffers.pop(kalit, None)
         if buf:
@@ -1454,7 +1469,11 @@ def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
         qator.append(f"Ish vaqti: <b>{ul.get('ish_vaqti') or 'doim'}</b> (Toshkent)")
         qator.append(f"Javob ostida «{AVTO_BELGI}»: <b>"
                      f"{'bor' if ul.get('avto_belgi', True) else 'yo‘q'}</b>")
-        qator.append(f"Siz o'zingiz yozgan chatda {BIZNES_PAUZA_SOAT} soat jim turaman.")
+        kutish = ul.get("kutish_soniya", BIZNES_KUTISH_SONIYA)
+        qator.append((f"Javobdan oldin <b>{davomiylik(kutish)}</b> kutaman — shu orada "
+                      "o'zingiz yozsangiz, jim turaman. " if kutish else "")
+                     + f"Siz o'zingiz yozgan chatda <b>{ul.get('pauza_soat', BIZNES_PAUZA_SOAT)}"
+                     "</b> soat jim turaman.")
     if ul["rejim"] in ("yordamchi", "avtomat"):
         if not bilim:
             qator.append("\n⚠️ Bilim yozilmagan — siz haqingizda hech narsa "
@@ -1511,11 +1530,28 @@ def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
                          pro_module.btn("Chatlar", "bz:c")])
         qatorlar.append([pro_module.btn(
             f"🤖 belgisi: {'bor' if ul.get('avto_belgi', True) else 'yo‘q'}", "bz:bl")])
+        qatorlar.append([
+            pro_module.btn(f"⏱ Kutish: {davomiylik(ul.get('kutish_soniya', BIZNES_KUTISH_SONIYA))}",
+                           "bz:kt"),
+            pro_module.btn(f"⏸ Pauza: {ul.get('pauza_soat', BIZNES_PAUZA_SOAT)} soat", "bz:pz")])
     qatorlar.append([pro_module.btn("Bio", "bz:pf:bio"), pro_module.btn("Ism", "bz:pf:ism"),
                      pro_module.btn("Rasm", "bz:pf:rasm"),
                      pro_module.btn("Story", "bz:pf:story")])
     qatorlar.append([pro_module.btn("⬅️ Orqaga", "bz:e")])
     return InlineKeyboardMarkup(inline_keyboard=qatorlar)
+
+
+def davomiylik(soniya: int) -> str:
+    """30 → "30 soniya", 300 → "5 daqiqa", 0 → "yo'q". Sof."""
+    if not soniya:
+        return "yo'q"
+    return f"{soniya} soniya" if soniya < 60 else f"{soniya // 60} daqiqa"
+
+
+def keyingi(variantlar: tuple, hozir: int) -> int:
+    """Tugma bosilganda navbatdagi qiymat (oxiridan keyin — boshiga). Sof."""
+    katta = [v for v in variantlar if v > hozir]
+    return katta[0] if katta else variantlar[0]
 
 
 # (tugma matni, callback qiymati) — "-" = doim.
@@ -1653,6 +1689,28 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         except Exception:
             pass
         await query.answer(f"🤖 belgisi {'yoqildi' if yangi else 'o‘chirildi'}")
+    elif amal in ("kt", "pz"):
+        topilgan = database.biznes_egasi_ulanishi(uid)
+        if not topilgan:
+            await query.answer("Avval ulang.", show_alert=True)
+            return
+        ul = topilgan[1]
+        if amal == "kt":
+            ustun, yangi = "kutish_soniya", keyingi(
+                BIZNES_KUTISH_VARIANT, ul.get("kutish_soniya", BIZNES_KUTISH_SONIYA))
+            xabar = f"⏱ Kutish: {davomiylik(yangi)}"
+        else:
+            ustun, yangi = "pauza_soat", keyingi(
+                BIZNES_PAUZA_VARIANT, ul.get("pauza_soat", BIZNES_PAUZA_SOAT))
+            xabar = f"⏸ Pauza: {yangi} soat"
+        await database.biznes_vaqt_yoz(uid, ustun, yangi)
+        matn, _ = await _ekran(uid)
+        matn, kb = "⚙️ <b>Sozlamalar</b>\n\n" + matn, _sozlama_kb(ul)
+        try:
+            await query.message.edit_text(matn, reply_markup=kb)
+        except Exception:
+            pass
+        await query.answer(xabar)
     elif amal == "rm":
         topilgan = database.biznes_egasi_ulanishi(uid)
         if not topilgan:

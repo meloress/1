@@ -233,6 +233,7 @@ b.biznes_media.rasm_tavsifi = soxta_tavsif
 b.biznes_media.bot = b.bot
 b.track_user_activity = lambda *a: q.append(("faollik", a[-1]))
 b.BIZNES_MERGE_WAIT = 0.01
+b.BIZNES_KUTISH_SONIYA = 0      # avtomat kutishi — alohida testda
 b.BIZNES_AVTOMAT_OCHIQ = True
 b._hozir = lambda: holat["soat"]
 # «💼 Biznes» mavzusi: bazada yo'q, soxta bot mavzu ocha olmaydi -> mavzusiz.

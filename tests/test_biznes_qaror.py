@@ -130,6 +130,7 @@ b.safe_update_history = hech
 b.track_user_activity = lambda *a: None
 b.send_error_with_retry = hech
 b.BIZNES_MERGE_WAIT = 0.01
+b.BIZNES_KUTISH_SONIYA = 0      # avtomat kutishi — alohida testda
 b._birinchi_marta = birinchi
 for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_mijoz_korildi=hech, check_and_consume_quota=ruxsat,

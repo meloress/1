@@ -855,8 +855,15 @@ BIZNES_REJIMLAR = ("buyruq", "yordamchi", "kuzatuv", "avtomat")
 # Bu faqat STANDART: jonli qiymat `handlers.biznes.BIZNES_AVTOMAT_OCHIQ`,
 # panel (texnik ta'til ekrani) uni deploy'siz o'zgartiradi.
 BIZNES_AVTOMAT_OCHIQ = True
-# Uzatishdan yoki egasi o'zi yozgandan keyin bot shu chatda jim turadi.
+# Egasi o'zi yozgandan keyin bot shu chatda jim turadi — STANDART qiymat;
+# har egasi o'zinikini /biznes → Sozlamalar'da tanlaydi (`pauza_soat`).
 BIZNES_PAUZA_SOAT = 3
+# Avtomat mijozning oxirgi xabaridan keyin shuncha kutadi: shu orada egasi
+# o'zi yozsa — pauza, bot jim. Standart; egasi o'zgartiradi (`kutish_soniya`).
+BIZNES_KUTISH_SONIYA = 30
+# Sozlamalar tugmasi bosilganda navbatdagisiga o'tadi.
+BIZNES_KUTISH_VARIANT = (0, 15, 30, 60, 120, 300, 600)
+BIZNES_PAUZA_VARIANT = (1, 2, 3, 5, 8, 12, 24)
 # Business debounce (AUDIT 4.4). DM'dagi 1,5 s suhbatdoshning ketma-ket
 # 2-3 qisqa xabarini ("salom" / "narxi qancha" / "futbolka") bo'lib
 # yuborardi: har biriga alohida javob va to'lov, avtomatda esa birinchi

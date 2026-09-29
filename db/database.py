@@ -535,6 +535,12 @@ async def create_users_table():
         await conn.execute(
             "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS "
             "avto_belgi BOOLEAN NOT NULL DEFAULT TRUE")
+        # Avtomat vaqtlari (egasi /biznes → Sozlamalar'da o'zgartiradi):
+        # mijozga javobdan oldin kutish va egasi yozgandan keyingi pauza.
+        await conn.execute(
+            "ALTER TABLE biznes_ulanish "
+            "ADD COLUMN IF NOT EXISTS kutish_soniya INT NOT NULL DEFAULT 30, "
+            "ADD COLUMN IF NOT EXISTS pauza_soat INT NOT NULL DEFAULT 3")
         # Egasi mijozga O'ZI yozgan xabarlar — uslub namunalari. Chat tarixi
         # (`chat_messages`) yetmaydi: u yerda `assistant` — egasi ham, bot
         # uning nomidan yuborgani ham, ya'ni bot o'zidan o'rganib qolardi.
@@ -1086,7 +1092,8 @@ async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
     _biznes_kesh[conn_id] = {
         "owner_id": owner_id, "owner_chat": owner_chat, "yoqilgan": yoqilgan,
         "huquqlar": dict(huquqlar), "rejim": eski.get("rejim", "buyruq"),
-        "ish_vaqti": eski.get("ish_vaqti"), "avto_belgi": eski.get("avto_belgi", True)}
+        "ish_vaqti": eski.get("ish_vaqti"), "avto_belgi": eski.get("avto_belgi", True),
+        "kutish_soniya": eski.get("kutish_soniya", 30), "pauza_soat": eski.get("pauza_soat", 3)}
     global pool
     if pool is None:
         await create_db_pool()
@@ -1099,12 +1106,14 @@ async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
                 owner_id = EXCLUDED.owner_id, owner_chat = EXCLUDED.owner_chat,
                 yoqilgan = EXCLUDED.yoqilgan, huquqlar = EXCLUDED.huquqlar,
                 yangilangan = NOW()
-            RETURNING rejim, ish_vaqti, avto_belgi
+            RETURNING rejim, ish_vaqti, avto_belgi, kutish_soniya, pauza_soat
             ''',
             conn_id, owner_id, owner_chat, yoqilgan, json.dumps(huquqlar))
     _biznes_kesh[conn_id]["rejim"] = rejim["rejim"]
     _biznes_kesh[conn_id]["ish_vaqti"] = rejim["ish_vaqti"]
     _biznes_kesh[conn_id]["avto_belgi"] = rejim["avto_belgi"]
+    _biznes_kesh[conn_id]["kutish_soniya"] = rejim["kutish_soniya"]
+    _biznes_kesh[conn_id]["pauza_soat"] = rejim["pauza_soat"]
     return _biznes_kesh[conn_id]
 
 
@@ -1117,7 +1126,7 @@ async def biznes_keshni_yukla() -> None:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             'SELECT conn_id, owner_id, owner_chat, yoqilgan, huquqlar, rejim, '
-            'ish_vaqti, avto_belgi FROM biznes_ulanish')
+            'ish_vaqti, avto_belgi, kutish_soniya, pauza_soat FROM biznes_ulanish')
     _biznes_kesh = {
         r['conn_id']: {
             "owner_id": r['owner_id'], "owner_chat": r['owner_chat'],
@@ -1128,6 +1137,8 @@ async def biznes_keshni_yukla() -> None:
             "rejim": r['rejim'],
             "ish_vaqti": r['ish_vaqti'],
             "avto_belgi": r['avto_belgi'],
+            "kutish_soniya": r['kutish_soniya'],
+            "pauza_soat": r['pauza_soat'],
         } for r in rows
     }
 
@@ -1609,6 +1620,28 @@ async def biznes_belgi_yoz(owner_id: int, yoqilgan: bool) -> None:
     for yozuv in _biznes_kesh.values():
         if yozuv["owner_id"] == owner_id:
             yozuv["avto_belgi"] = yoqilgan
+
+
+# Egasi o'zgartira oladigan avtomat vaqtlari — ustun nomi SQL'ga shu
+# ro'yxatdan tashqari hech qachon kirmaydi.
+BIZNES_VAQT_USTUNLARI = ("kutish_soniya", "pauza_soat")
+
+
+@with_db_retry()
+async def biznes_vaqt_yoz(owner_id: int, ustun: str, qiymat: int) -> None:
+    """Avtomat kutishi / pauzasi — egasi darajasida, keshda ham."""
+    if ustun not in BIZNES_VAQT_USTUNLARI:
+        raise ValueError(ustun)
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f'UPDATE biznes_ulanish SET {ustun} = $2 WHERE owner_id = $1',
+            owner_id, int(qiymat))
+    for yozuv in _biznes_kesh.values():
+        if yozuv["owner_id"] == owner_id:
+            yozuv[ustun] = int(qiymat)
 
 
 @with_db_retry()
