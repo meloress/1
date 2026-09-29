@@ -52,8 +52,8 @@ check(3, "Sozlamalar yordamchida: avtomatga oid tugmalar yo'q",
 
 m = b.ekran_matni(UL, "bilim", {"javob": 5, "uzatish": 2, "tahrirsiz": 7, "yuborilgan": 10}, 34)
 check(4, "statistika: bugungi javob/uzatish, 30 kunlik foiz, namuna soni",
-      "<b>5</b> ta javob" in m and "<b>2</b> ta sizga" in m and "<b>70%</b>" in m
-      and "<b>34</b> namuna" in m)
+      "<b>5</b> ta javob" in m and "<b>2</b> ta savolni sizga" in m and "<b>70%</b>" in m
+      and "<b>34</b> ta namuna" in m)
 m0 = b.ekran_matni(UL, "", {"javob": 0, "uzatish": 0, "tahrirsiz": 0, "yuborilgan": 0})
 check(5, "yuborilgan qoralama yo'q — foiz qatori yo'q (0 ga bo'linmaydi)", "%" not in m0)
 check(6, "statistikasiz ham ekran (eski chaqiruvchilar)", "Rejim" in b.ekran_matni(UL, ""))

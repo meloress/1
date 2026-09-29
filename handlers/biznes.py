@@ -307,7 +307,8 @@ def ulanish_matni(yoqilgan: bool, huquqlar: dict, is_pro: bool,
             "<code>.eslat</code> qachon nima — eslatma\n\n"
             "Buyruq xabari o'chadi, natija o'rniga chiqadi. "
             "Suhbatdoshga o'zim hech qachon yozmayman.\n\n"
-            "🤝 Mijozlarga javob loyihasi va biznes bilimi: /biznes")
+            "🤝 Mijozlarga o'zim javob berishim yoki javob qoralamasini yozishim uchun: "
+            "/biznes → Rejim")
     if yoq:
         matn += ("\n\n⚠️ Yoqilmagan huquq: <b>" + ", ".join(yoq) + "</b>. "
                  f"{sozlama_yoli(uid)} → meni tanlang va yoqing, "
@@ -782,13 +783,14 @@ class BiznesStates(StatesGroup):
 
 
 REJIM_NOMI = {
-    "buyruq": ("Buyruq", "faqat siz yozgan <code>.buyruq</code>lar"),
-    "yordamchi": ("Yordamchi", "kimdir yozsa, javob loyihasini sizga "
-                               "yuboraman — «Yuborish»ni o'zingiz bosasiz"),
-    "kuzatuv": ("Kuzatuv", "faqat yozishmani eslab qolaman, hech narsa "
-                           "taklif qilmayman"),
-    "avtomat": ("Avtomat", "o'zim javob beraman; bilmagan, shaxsiy yoki "
-                           "muhim narsada sizni chaqiraman"),
+    "buyruq": ("Buyruq", "faqat siz chatda nuqta bilan yozgan buyruqlarni "
+                         "bajaraman (<code>.javob</code>, <code>.en</code> …)"),
+    "yordamchi": ("Yordamchi", "kimdir yozsa, javob qoralamasini sizga "
+                               "yuboraman — tekshirib, «Yuborish»ni o'zingiz bosasiz"),
+    "kuzatuv": ("Kuzatuv", "faqat yozishmalarni eslab qolaman "
+                           "(<code>.xulosa</code> uchun), hech kimga yozmayman"),
+    "avtomat": ("Avtomat", "mijozlarga o'zim javob beraman; bilmagan, shaxsiy "
+                           "yoki muhim savolni sizga o'tkazaman"),
 }
 assert set(REJIM_NOMI) == set(BIZNES_REJIMLAR)
 
@@ -1359,8 +1361,8 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
     u = message.from_user
     qatorlar = []
     if u and u.username:
-        qatorlar.append([pro_module.btn("Chatga o'tish", "", url=f"https://t.me/{u.username}")])
-    qatorlar.append([pro_module.btn("Bu chatda avtomatni o'chirish",
+        qatorlar.append([pro_module.btn("💬 Chatga o'tish", "", url=f"https://t.me/{u.username}")])
+    qatorlar.append([pro_module.btn("⛔️ Bu chatda avtomatni o'chirish",
                                     f"bz:o:{message.chat.id}", style=BTN_DANGER)])
     matni = (f"🙋 <b>{escape(u.full_name if u else 'Mijoz')}</b> sizni kutmoqda\n"
              f"Sabab: {escape(sabab)}\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
@@ -1396,8 +1398,8 @@ def _tanlov_kb(lid: int, variantlar: list) -> InlineKeyboardMarkup:
     qatorlar = [[pro_module.btn(
         f"{i + 1}. {v[:40]}{'…' if len(v) > 40 else ''}", f"bz:yv:{lid}:{i}",
         style=BTN_SUCCESS if i == 0 else None)] for i, v in enumerate(variantlar)]
-    qatorlar.append([pro_module.btn("O'zim yozaman", f"bz:t:{lid}", style=BTN_PRIMARY),
-                     pro_module.btn("Bekor", f"bz:b:{lid}", style=BTN_DANGER)])
+    qatorlar.append([pro_module.btn("✏️ O'zim yozaman", f"bz:t:{lid}", style=BTN_PRIMARY),
+                     pro_module.btn("✖️ Kerak emas", f"bz:b:{lid}", style=BTN_DANGER)])
     return InlineKeyboardMarkup(inline_keyboard=qatorlar)
 
 
@@ -1405,7 +1407,9 @@ async def _tanlov_korsat(dm: int, lid: int, ism: str, matn: str, savol: str,
                          variantlar: list, neytral: str | None = None) -> None:
     """Faqat egasi biladigan savol: soxta javob o'rniga egasiga tanlov."""
     qator = [f"🤔 <b>{ism}</b> yozdi:\n<blockquote>{escape(matn[:1200])}</blockquote>",
-             "Buni faqat siz bilasiz — o'zim javob bermadim."]
+             "Buni faqat siz bilasiz, shuning uchun o'zim javob bermadim. "
+             + ("Variantlardan birini bosing — o'sha yuboriladi, yoki o'zingiz yozing."
+                if variantlar else "«O'zim yozaman» ni bosing va javobni yozing.")]
     if savol and savol != "—":
         qator.append(f"<b>{escape(savol)}</b>")
     if variantlar:
@@ -1422,9 +1426,9 @@ async def _tanlov_korsat(dm: int, lid: int, ism: str, matn: str, savol: str,
 
 def _loyiha_kb(lid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [pro_module.btn("Yuborish", f"bz:y:{lid}", style=BTN_SUCCESS)],
-        [pro_module.btn("Tahrirlash", f"bz:t:{lid}", style=BTN_PRIMARY),
-         pro_module.btn("Bekor", f"bz:b:{lid}", style=BTN_DANGER)],
+        [pro_module.btn("✅ Yuborish", f"bz:y:{lid}", style=BTN_SUCCESS)],
+        [pro_module.btn("✏️ O'zgartirib yuborish", f"bz:t:{lid}", style=BTN_PRIMARY),
+         pro_module.btn("✖️ Kerak emas", f"bz:b:{lid}", style=BTN_DANGER)],
     ])
 
 
@@ -1435,7 +1439,8 @@ async def _loyiha_korsat(dm: int, lid: int, ism: str, matn: str, loyiha: str) ->
         await _dm_yubor(
             dm,
             f"✍️ <b>{ism}</b> yozdi:\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
-            f"Javob loyihasi:\n<blockquote>{escape(loyiha[:2400])}</blockquote>",
+            f"Men shunday javob berardim:\n<blockquote>{escape(loyiha[:2400])}</blockquote>\n"
+            "To'g'ri bo'lsa — «Yuborish». Mijoz buni sizning nomingizdan oladi.",
             parse_mode="HTML", reply_markup=_loyiha_kb(lid))
     except Exception as e:
         logger.warning(f"[BIZNES] loyiha egasiga ko'rsatilmadi: {e}")
@@ -1452,8 +1457,8 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
     """
     r = await database.biznes_loyiha_band(lid, egasi)
     if not r:
-        return ("Bu loyiha endi yuborilmaydi — allaqachon yuborilgan, bekor "
-                "qilingan, eskirgan yoki 24 soatdan o'tgan.")
+        return ("Bu javob endi yuborilmaydi — allaqachon yuborilgan, bekor "
+                "qilingan, chatda o'zingiz javob bergansiz yoki 24 soat o'tgan.")
     if variant is not None:
         vs = r.get("variantlar") or []
         # `variant` callback'dan keladi — ro'yxat chegarasida tekshiriladi
@@ -1516,32 +1521,37 @@ def ekran_matni(ul: dict | None, bilim: str, stat: dict | None = None,
             "Ulanishingiz bilan o'zim sezaman va shu yerga yozaman.")
         return "\n".join(qator)
     nom, tavsif = REJIM_NOMI[ul["rejim"]]
-    qator.append(f"✅ Ulangan\nRejim: <b>{nom}</b> — {tavsif}.")
+    qator.append(f"✅ Profilingizga ulanganman.\n\n{REJIM_BELGI[ul['rejim']]} "
+                 f"Rejim: <b>{nom}</b> — {tavsif}.")
     if stat:
-        qator.append(f"\nBugun: <b>{stat['javob']}</b> ta javob, "
-                     f"<b>{stat['uzatish']}</b> ta sizga uzatildi")
+        qator.append(f"\n📊 Bugun: <b>{stat['javob']}</b> ta javob, "
+                     f"<b>{stat['uzatish']}</b> ta savolni sizga o'tkazdim")
         if stat["yuborilgan"]:
             foiz = stat["tahrirsiz"] * 100 // stat["yuborilgan"]
-            qator.append(f"30 kun: qoralamalarning <b>{foiz}%</b> i o'zgartirilmay "
-                         f"yuborildi ({stat['yuborilgan']} tadan)")
-    qator.append(("Bilim: " + (f"<b>{len(bilim)}</b> belgi" if bilim else "<b>yozilmagan</b>"))
-                 + (f" · Uslub: <b>{namuna}</b> namuna" if namuna is not None else ""))
+            qator.append(f"Oxirgi 30 kun: qoralamalarimning <b>{foiz}%</b> ini "
+                         f"o'zgartirmasdan yubordingiz ({stat['yuborilgan']} tadan)")
+    qator.append(("\n📝 Bilim: " + (f"<b>{len(bilim)}</b> belgi" if bilim
+                                   else "<b>yozilmagan</b>"))
+                 + (f" · 🎨 Uslub: <b>{namuna}</b> ta namuna" if namuna is not None else ""))
     if ul["rejim"] == "avtomat":
-        qator.append(f"Ish vaqti: <b>{ul.get('ish_vaqti') or 'doim'}</b> (Toshkent)")
-        qator.append(f"Javob ostida «{AVTO_BELGI}»: <b>"
+        oraliq = ul.get("ish_vaqti")
+        qator.append("🕘 Ishlash vaqti: " + (f"<b>{oraliq}</b> (Toshkent vaqti)" if oraliq
+                                            else "<b>kun bo'yi</b>"))
+        qator.append(f"🏷 Javoblarim ostida «{AVTO_BELGI}» belgisi: <b>"
                      f"{'bor' if ul.get('avto_belgi', True) else 'yo‘q'}</b>")
         kutish = ul.get("kutish_soniya", BIZNES_KUTISH_SONIYA)
-        qator.append((f"Javobdan oldin <b>{davomiylik(kutish)}</b> kutaman — shu orada "
-                      "o'zingiz yozsangiz, jim turaman. " if kutish else "")
-                     + f"Siz o'zingiz yozgan chatda <b>{ul.get('pauza_soat', BIZNES_PAUZA_SOAT)}"
-                     "</b> soat jim turaman.")
+        if kutish:
+            qator.append(f"⏱ Javobdan oldin <b>{davomiylik(kutish)}</b> kutaman — shu "
+                         "orada o'zingiz yozsangiz, men jim turaman.")
+        qator.append(f"⏸ Siz o'zingiz yozgan chatda <b>"
+                     f"{ul.get('pauza_soat', BIZNES_PAUZA_SOAT)} soat</b> jim turaman.")
     if ul["rejim"] in ("yordamchi", "avtomat"):
         if not bilim:
-            qator.append("\n⚠️ Bilim yozilmagan — siz haqingizda hech narsa "
-                         "bilmayman, javob faqat suhbatdan yoziladi.")
+            qator.append("\n⚠️ Bilim yozilmagan — siz va biznesingiz haqida hech narsa "
+                         "bilmayman, javobni faqat suhbatdan yozaman. «📝 Bilim» ni bosing.")
         if not ul["huquqlar"].get("can_reply"):
-            qator.append("\n⚠️ «Xabarlarga javob berish» huquqi yo'q — "
-                         "mijozga hech narsa yozilmaydi.")
+            qator.append(f"\n⚠️ «{huquq_nomi(uid, 'can_reply')}» huquqi yo'q — mijozlarga "
+                         f"yoza olmayman. {sozlama_yoli(uid)} → meni tanlang va yoqing.")
     return "\n".join(qator)
 
 
@@ -1556,9 +1566,9 @@ def _ekran_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
         return None
     r = ul["rejim"]
     return InlineKeyboardMarkup(inline_keyboard=[
-        [pro_module.btn(f"{REJIM_BELGI[r]} Rejim: {REJIM_NOMI[r][0]}", "bz:rm")],
+        [pro_module.btn(f"{REJIM_BELGI[r]} Rejim: {REJIM_NOMI[r][0]} · o'zgartirish", "bz:rm")],
         [pro_module.btn("📝 Bilim", "bz:k"), pro_module.btn("🎨 Uslub", "bz:us"),
-         pro_module.btn("⚙️", "bz:s")],
+         pro_module.btn("⚙️ Sozlamalar", "bz:s")],
     ])
 
 
@@ -1575,10 +1585,21 @@ def _rejim_kb(ul: dict) -> InlineKeyboardMarkup:
 
 
 def rejim_matni(ul: dict) -> str:
-    return "💼 <b>Rejim</b>\n\n" + "\n".join(
+    return "💼 <b>Qaysi rejimda ishlay?</b>\n\n" + "\n\n".join(
         f"{REJIM_BELGI[r]} <b>{REJIM_NOMI[r][0]}</b> — {REJIM_NOMI[r][1]}"
         for r in BIZNES_REJIMLAR
         if r != "avtomat" or BIZNES_AVTOMAT_OCHIQ or ul["rejim"] == r)
+
+
+def sozlama_matni(ekran: str, ul: dict | None) -> str:
+    """«⚙️ Sozlamalar» sarlavhasi + tugmalar nima qilishi. Sof."""
+    izoh = []
+    if ul and ul.get("rejim") == "avtomat":
+        izoh.append("⏱ <b>Kutish</b> va ⏸ <b>Pauza</b> tugmasini bosgan sari "
+                    "navbatdagi qiymatga o'tadi.")
+    izoh.append("👤 Pastdagi tugmalar bilan profilingizning bio, ism va rasmini "
+                "o'zgartiraman yoki story joylayman — faqat siz tasdiqlagandan keyin.")
+    return "⚙️ <b>Sozlamalar</b>\n\n" + ekran + "\n\n" + "\n".join(izoh)
 
 
 def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
@@ -1587,17 +1608,18 @@ def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
         return None
     qatorlar = []
     if ul["rejim"] == "avtomat":
-        qatorlar.append([pro_module.btn("Ish vaqti", "bz:w"),
-                         pro_module.btn("Chatlar", "bz:c")])
+        qatorlar.append([pro_module.btn("🕘 Ishlash vaqti", "bz:w"),
+                         pro_module.btn("💬 Chatlar bo'yicha", "bz:c")])
         qatorlar.append([pro_module.btn(
-            f"🤖 belgisi: {'bor' if ul.get('avto_belgi', True) else 'yo‘q'}", "bz:bl")])
+            f"🏷 Avto belgisi: {'bor' if ul.get('avto_belgi', True) else 'yo‘q'}", "bz:bl")])
         qatorlar.append([
             pro_module.btn(f"⏱ Kutish: {davomiylik(ul.get('kutish_soniya', BIZNES_KUTISH_SONIYA))}",
                            "bz:kt"),
             pro_module.btn(f"⏸ Pauza: {ul.get('pauza_soat', BIZNES_PAUZA_SOAT)} soat", "bz:pz")])
-    qatorlar.append([pro_module.btn("Bio", "bz:pf:bio"), pro_module.btn("Ism", "bz:pf:ism"),
-                     pro_module.btn("Rasm", "bz:pf:rasm"),
-                     pro_module.btn("Story", "bz:pf:story")])
+    qatorlar.append([pro_module.btn("✏️ Bio", "bz:pf:bio"),
+                     pro_module.btn("👤 Ism", "bz:pf:ism")])
+    qatorlar.append([pro_module.btn("🖼 Profil rasmi", "bz:pf:rasm"),
+                     pro_module.btn("📸 Story", "bz:pf:story")])
     qatorlar.append([pro_module.btn("⬅️ Orqaga", "bz:e")])
     return InlineKeyboardMarkup(inline_keyboard=qatorlar)
 
@@ -1616,7 +1638,7 @@ def keyingi(variantlar: tuple, hozir: int) -> int:
 
 
 # (tugma matni, callback qiymati) — "-" = doim.
-_VAQT_TAYYOR = (("Doim", "-"), ("20:00–09:00", "20:00-09:00"),
+_VAQT_TAYYOR = (("Kun bo'yi", "-"), ("20:00–09:00", "20:00-09:00"),
                 ("18:00–09:00", "18:00-09:00"))
 
 
@@ -1625,17 +1647,20 @@ async def _chatlar_royxati(uid: int) -> tuple[str, InlineKeyboardMarkup | None]:
     shuning uchun mijozning oxirgi gapi bilan tanitiladi."""
     chatlar = await database.biznes_chatlar(uid)
     if not chatlar:
-        return "Hali birorta mijoz yozishmasi yo'q.", None
-    qator, tugma = ["💬 <b>Oxirgi chatlar</b> — avtomatni chat bo'yicha "
-                    "yoqish/o'chirish:\n"], []
+        return "💬 Hali birorta mijoz yozmagan — yozishi bilan shu yerda chiqadi.", None
+    # ⚠️ "Oxirgi chatlar" — callback shu so'z bilan ro'yxatni taniydi va qayta chizadi.
+    qator, tugma = ["💬 <b>Oxirgi chatlar</b>\n\nQaysi chatda avtomat javob bermasin — "
+                    "o'shanisini o'chiring. Har chat mijozning oxirgi gapi bilan "
+                    "ko'rsatilgan.\n✅ — javob beraman · ⛔️ — jim turaman\n"], []
     for i, ch in enumerate(chatlar, 1):
         belgi = "⛔️" if ch["ochirilgan"] else "✅"
         qator.append(f"{i}. {belgi} {escape((ch['matn'] or '—')[:50])}")
         tugma.append(pro_module.btn(
-            f"{i}: {'yoqish' if ch['ochirilgan'] else 'o‘chirish'}",
+            f"{i}-chat: {'✅ yoqish' if ch['ochirilgan'] else '⛔️ o‘chirish'}",
             f"bz:{'a' if ch['ochirilgan'] else 'o'}:{ch['chat_id']}"))
     return "\n".join(qator), InlineKeyboardMarkup(
-        inline_keyboard=[tugma[i:i + 2] for i in range(0, len(tugma), 2)])
+        inline_keyboard=[tugma[i:i + 2] for i in range(0, len(tugma), 2)]
+        + [[pro_module.btn("⬅️ Sozlamalar", "bz:s")]])
 
 
 async def _ekran(user_id: int):
@@ -1726,7 +1751,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
                 await _tugmasiz(query, "\n\n✖️ <i>Bekor qilindi</i>")
                 await query.answer("Bekor qilindi")
             else:
-                await query.answer("Bu loyiha endi faol emas.", show_alert=True)
+                await query.answer("Bu qoralama endi faol emas.", show_alert=True)
         else:
             await state.set_state(BiznesStates.tahrir)
             await state.update_data(loyiha_id=lid)
@@ -1737,7 +1762,8 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         return
 
     if not await database.pro_tarifmi(uid):
-        await query.answer("Pro tarifida.", show_alert=True)
+        await query.answer("Bu imkoniyat faqat Pro tarifida ishlaydi — /pro",
+                           show_alert=True)
         return
     if amal in biznes_uslub.AMALLAR:
         await biznes_uslub.uslub_callback(query, state, amal)
@@ -1747,7 +1773,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         if amal == "s":
             topilgan = database.biznes_egasi_ulanishi(uid)
             kb = _sozlama_kb(topilgan[1] if topilgan else None)
-            matn = "⚙️ <b>Sozlamalar</b>\n\n" + matn
+            matn = sozlama_matni(matn, topilgan[1] if topilgan else None)
         try:
             await query.message.edit_text(matn, reply_markup=kb)
         except Exception:
@@ -1756,21 +1782,21 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
     elif amal == "bl":
         topilgan = database.biznes_egasi_ulanishi(uid)
         if not topilgan:
-            await query.answer("Avval ulang.", show_alert=True)
+            await query.answer("Avval meni Telegram Business'ga ulang — /biznes", show_alert=True)
             return
         yangi = not topilgan[1].get("avto_belgi", True)
         await database.biznes_belgi_yoz(uid, yangi)
         matn, _ = await _ekran(uid)
-        matn, kb = "⚙️ <b>Sozlamalar</b>\n\n" + matn, _sozlama_kb(topilgan[1])
+        matn, kb = sozlama_matni(matn, topilgan[1]), _sozlama_kb(topilgan[1])
         try:
             await query.message.edit_text(matn, reply_markup=kb)
         except Exception:
             pass
-        await query.answer(f"🤖 belgisi {'yoqildi' if yangi else 'o‘chirildi'}")
+        await query.answer(f"🏷 Avto belgisi {'yoqildi' if yangi else 'o‘chirildi'}")
     elif amal in ("kt", "pz"):
         topilgan = database.biznes_egasi_ulanishi(uid)
         if not topilgan:
-            await query.answer("Avval ulang.", show_alert=True)
+            await query.answer("Avval meni Telegram Business'ga ulang — /biznes", show_alert=True)
             return
         ul = topilgan[1]
         if amal == "kt":
@@ -1783,7 +1809,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             xabar = f"⏸ Pauza: {yangi} soat"
         await database.biznes_vaqt_yoz(uid, ustun, yangi)
         matn, _ = await _ekran(uid)
-        matn, kb = "⚙️ <b>Sozlamalar</b>\n\n" + matn, _sozlama_kb(ul)
+        matn, kb = sozlama_matni(matn, ul), _sozlama_kb(ul)
         try:
             await query.message.edit_text(matn, reply_markup=kb)
         except Exception:
@@ -1792,7 +1818,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
     elif amal == "rm":
         topilgan = database.biznes_egasi_ulanishi(uid)
         if not topilgan:
-            await query.answer("Avval ulang.", show_alert=True)
+            await query.answer("Avval meni Telegram Business'ga ulang — /biznes", show_alert=True)
             return
         try:
             await query.message.edit_text(rejim_matni(topilgan[1]),
@@ -1802,7 +1828,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         await query.answer()
     elif amal == "r" and len(qism) > 2 and qism[2] in BIZNES_REJIMLAR:
         if not database.biznes_egasi_ulanishi(uid):
-            await query.answer("Avval ulang.", show_alert=True)
+            await query.answer("Avval meni Telegram Business'ga ulang — /biznes", show_alert=True)
             return
         # Tugma yashirin bo'lsa ham callback qo'lda yuborilishi mumkin.
         if qism[2] == "avtomat" and not BIZNES_AVTOMAT_OCHIQ:
@@ -1838,21 +1864,23 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
     elif amal == "w" and len(qism) > 2:
         oraliq = None if qism[2] == "-" else vaqt_ajrat(qism[2])
         await database.biznes_ish_vaqti_yoz(uid, oraliq)
-        await query.answer(f"Ish vaqti: {oraliq or 'doim'}")
+        await query.answer(f"Ishlash vaqti: {oraliq or 'kun bo‘yi'}")
         matn, kb = await _ekran(uid)
         await query.message.answer(matn, reply_markup=kb)
     elif amal == "w":
         await query.answer()
         await query.message.answer(
-            "🕘 Avtomat qaysi vaqtda ishlasin? (Toshkent vaqti)",
+            "🕘 <b>Qaysi vaqtda mijozlarga o'zim javob beray?</b>\n\n"
+            "Masalan <b>20:00–09:00</b> — kechqurundan ertalabgacha, siz dam "
+            "olganingizda. Qolgan vaqtda jim turaman. Vaqt — Toshkent bo'yicha.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [pro_module.btn(nom, f"bz:w:{q}") for nom, q in _VAQT_TAYYOR],
-                [pro_module.btn("Boshqa vaqt", "bz:wk")]]))
+                [pro_module.btn("✏️ Boshqa vaqt yozish", "bz:wk")]]))
     elif amal == "wk":
         await state.set_state(BiznesStates.vaqt)
         await query.answer()
-        await query.message.answer("Oraliqni yozing, masalan <code>21:00-08:00</code>.\n"
-                                   "Bekor qilish: /bekor")
+        await query.message.answer("Qaysi soatdan qaysi soatgacha? Masalan: "
+                                   "<code>21:00-08:00</code>\nBekor qilish: /bekor")
     elif amal == "pf" and len(qism) > 2 and qism[2] in PROFIL_HUQUQI:
         topilgan = database.biznes_egasi_ulanishi(uid)
         huquq = PROFIL_HUQUQI[qism[2]][0]
@@ -1981,10 +2009,10 @@ async def process_tahrir(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
     if _bekormi(message):
-        await message.answer("Bekor qilindi — loyiha kutib turibdi.")
+        await message.answer("Bekor qilindi — qoralama kutib turibdi.")
         return
     if not message.text:
-        await message.answer("Faqat matn yuborsa bo'ladi. Loyiha kutib turibdi.")
+        await message.answer("Faqat matn yuborsa bo'ladi. Qoralama kutib turibdi.")
         return
     lid = data.get("loyiha_id", 0)
     javob = await loyihani_yubor(lid, message.from_user.id, message.text)
@@ -2191,7 +2219,7 @@ async def javobsiz_tekshir() -> int:
                 f"javob kutmoqda:\n<blockquote>{escape((r.get('content') or '')[:300])}"
                 "</blockquote>")
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [_chat_tugmasi(r["chat_id"], r.get("username"), "Chatga o'tish")]])
+            [_chat_tugmasi(r["chat_id"], r.get("username"), "💬 Chatga o'tish")]])
         if await _egasiga(dm, matn, kb=kb):
             _javobsiz_aytilgan.add(kalit)
             yuborildi += 1
@@ -2236,7 +2264,7 @@ async def handle_mijozlar(message: Message) -> None:
         return
     qatorlar = await database.biznes_mijozlar(message.from_user.id, 20)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        pro_module.btn("CSV eksport", "bz:x", style=BTN_PRIMARY)]]) if qatorlar else None
+        pro_module.btn("📥 Excel uchun faylni yuklash (CSV)", "bz:x", style=BTN_PRIMARY)]]) if qatorlar else None
     await message.answer(mijozlar_matni(qatorlar), reply_markup=kb)
 
 
@@ -2324,8 +2352,8 @@ async def _rasm_chiz(uid: int, tavsif: str, olcham: str) -> tuple:
 
 def _tasdiq_kb(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        pro_module.btn("Qo'yish", f"bz:ok:{token}", style=BTN_SUCCESS),
-        pro_module.btn("Bekor", f"bz:no:{token}", style=BTN_DANGER)]])
+        pro_module.btn("✅ Ha, tasdiqlayman", f"bz:ok:{token}", style=BTN_SUCCESS),
+        pro_module.btn("✖️ Yo'q", f"bz:no:{token}", style=BTN_DANGER)]])
 
 
 async def process_profil(message: Message, state: FSMContext) -> None:

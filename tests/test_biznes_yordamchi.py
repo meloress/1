@@ -329,7 +329,7 @@ check(17, "tahrir: egasining matni ketadi, holat «tahrirlandi» (o'lchov uchun)
       javob.startswith("✅") and loyihalar[lid2]["holat"] == "tahrirlandi"
       and ("send", MIJOZ, "Ha, ertaga ham bor.", "c1") in q)
 check(18, "begona egasi loyihani yubora olmaydi",
-      asyncio.run(b.loyihani_yubor(lid2, EGASI + 1)).startswith("Bu loyiha"))
+      asyncio.run(b.loyihani_yubor(lid2, EGASI + 1)).startswith("Bu javob endi yuborilmaydi"))
 
 # ── 19. Egasi o'zi yozdi ─────────────────────────────────────────
 q.clear()

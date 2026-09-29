@@ -210,9 +210,9 @@ def uslub_ekrani(u: dict) -> str:
 
 def _kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [pro_module.btn("Qoidalarni yozish", "bz:uy", style=BTN_PRIMARY)],
-        [pro_module.btn("Hozir o'rganish", "bz:uo"),
-         pro_module.btn("Namunalarni o'chirish", "bz:ud")],
+        [pro_module.btn("✍️ Qoidalarimni yozish", "bz:uy", style=BTN_PRIMARY)],
+        [pro_module.btn("🔄 Hozir o'rgan", "bz:uo"),
+         pro_module.btn("🗑 Namunalarni o'chirish", "bz:ud")],
         [pro_module.btn("⬅️ Orqaga", "bz:e")]])
 
 
@@ -277,8 +277,8 @@ async def uslub_callback(query: CallbackQuery, state: FSMContext, amal: str) -> 
         await query.message.answer(
             "Barcha namunalar va o'rganilgan uslub o'chsinmi? Qoidalaringiz qoladi.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                pro_module.btn("Ha, o'chir", "bz:udh", style=BTN_DANGER),
-                pro_module.btn("Yo'q", "bz:us")]]))
+                pro_module.btn("🗑 Ha, o'chir", "bz:udh", style=BTN_DANGER),
+                pro_module.btn("⬅️ Yo'q, qolsin", "bz:us")]]))
     elif amal == "udh":
         await database.biznes_namunalar_ochir(uid)
         logger.info(f"[BIZNES] namunalar o'chirildi egasi={uid}")
