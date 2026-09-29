@@ -697,9 +697,12 @@ the DM: the placeholder and every status frame carry the DM's animated premium e
 (`_guest_status_md`, markdown `![ ](tg://emoji?id=…)`) — ⛔️ **not** `<tg-thinking>`: Telegram
 rejects that block outside a private-chat draft with `RICH_MESSAGE_BLOCK_UNSUPPORTED`
 (live, 2026-09-29). The emoji is the bot's own logo, animated per status kind — spin (text), magnifier (search/research),
-page being written (document/file_task), viewfinder + sparkles (photo/image), sound bars (voice/tts)
+page being written (document/file_task), viewfinder (photo), pencil (image), clock arc (reminder),
+dots flying in (memory), sound bars (voice/tts). It lives in `handlers/messages.py`
+(`status_emoji_id()`), so the **DM `<tg-thinking>` status uses the same set**; `EMOJI_ID_BY_TYPE`
+is only the fallback when the set is missing
 (`assets/status_*.webm`, each ≤ 64 KB — 207 KB was rejected live as "file is too big"; one
-custom-emoji set `holat2_by_<bot>` created once at startup by `logo_emojini_tayyorla()`, owned by
+custom-emoji set `holat3_by_<bot>` created once at startup by `logo_emojini_tayyorla()`, owned by
 the superadmin, sticker order = `_LOGO_TURLAR`; bump `_LOGO_TOPLAM` when any animation changes —
 Telegram never re-creates an existing set). `[STATUS]search` switches the wording, and
 once ≥`_JONLI_MIN_BELGI` characters exist the answer streams into the message (" ✍️"),
