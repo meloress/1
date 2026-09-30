@@ -7,6 +7,7 @@ Alohida fayl, chunki handlers/messages.py allaqachon 1400 qatordan oshgan
 va bu feature u bilan `_dm_or_deactivate` dan boshqa hech narsa bo'lishmaydi.
 """
 import asyncio
+from datetime import datetime, timezone
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
@@ -110,6 +111,16 @@ def _user_hours(profile) -> list[int]:
     return database.parse_digest_hours([eski] if eski is not None else [])
 
 
+def _pro_faol(profile) -> bool:
+    """`take_due_digests()` SQL shartining o'zi: tarif 'free' emas VA muddati
+    o'tmagan. Ilgari ekran faqat tarifni tekshirardi — muddati o'tgan Pro
+    soat tanlab, mavzu yozib, keyin hech narsa olmasdi."""
+    if (profile or {}).get("plan_type", "free") in (None, "free"):
+        return False
+    muddat = profile.get("premium_until")
+    return muddat is None or muddat > datetime.now(timezone.utc)
+
+
 async def _profile_or_none(user_id: int):
     try:
         return await database.get_full_user_profile(user_id)
@@ -126,7 +137,7 @@ async def handle_digest(message: Message, state: FSMContext):
         await message.answer("⚠️ Profilingiz topilmadi. /start buyrug'ini bering.")
         return
 
-    if (profile.get("plan_type") or "free") == "free":
+    if not _pro_faol(profile):
         # Panjara o'chirilgan holda ko'rsatiladi — foydalanuvchi nimadan
         # mahrumligini KO'RADI, lekin bosa olmaydi.
         await send_rich(message, _PRO_ONLY, _hours_keyboard(None, locked=True))
@@ -194,7 +205,7 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
 
     if action in ("h", "all", "clear"):
         profile = await _profile_or_none(user_id)
-        if profile is None or (profile.get("plan_type") or "free") == "free":
+        if profile is None or not _pro_faol(profile):
             await query.answer("💎 Bu Pro imkoniyati.", show_alert=True)
             return
 
@@ -382,6 +393,8 @@ async def daily_digest_watcher():
                     logger.error(f"[Daydjest] tayyorlab bo'lmadi (user={row['user_id']}): {e}")
                     continue
                 if not body:
+                    # Ilgari jim edi: sanoq "yuborildi", foydalanuvchi esa hech narsa olmasdi.
+                    logger.warning(f"[Daydjest] bo'sh javob (user={row['user_id']})")
                     continue
                 await _send_digest(row["user_id"], body)
                 await asyncio.sleep(0.05)   # flood-control

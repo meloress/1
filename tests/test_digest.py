@@ -301,7 +301,32 @@ async def main():
     assert "&lt;" in zaxira["text"], "zaxirada matn escape qilinmagan"
     print("[14] rich yiqilsa HTML zaxirasi ishlaydi OK")
 
-    print("\ndigest: barcha tekshiruvlar o'tdi (14/14).")
+    # Yuqoridagi soxta profil `digest_hours` beradi — haqiqiysi bermasdi, shu
+    # sabab bir nechta soat jonli botda ishlamay, testlar esa yashil edi.
+    # Qaytariladigan lug'at kalitlari MANBADAN o'qiladi (izohlarsiz).
+    import ast
+    import pathlib
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from _manba import kod
+    daraxt = ast.parse(kod(pathlib.Path(dg.__file__).parent.parent / "db" / "database.py"))
+    fn = next(n for n in ast.walk(daraxt) if isinstance(n, ast.AsyncFunctionDef)
+              and n.name == "get_full_user_profile")
+    kalitlar = {k.value for n in ast.walk(fn) if isinstance(n, ast.Dict)
+                for k in n.keys if isinstance(k, ast.Constant)}
+    for k in ("digest_hours", "digest_topics", "plan_type", "premium_until"):
+        assert k in kalitlar, f"get_full_user_profile '{k}' qaytarmaydi"
+    print("[15] profil /kunlik o'qiydigan hamma ustunni qaytaradi OK")
+
+    from datetime import datetime, timedelta, timezone
+    hozir = datetime.now(timezone.utc)
+    assert dg._pro_faol({"plan_type": "pro", "premium_until": hozir + timedelta(days=1)})
+    assert dg._pro_faol({"plan_type": "premium", "premium_until": None})
+    assert not dg._pro_faol({"plan_type": "pro", "premium_until": hozir - timedelta(days=1)})
+    assert not dg._pro_faol({"plan_type": "free", "premium_until": None})
+    assert not dg._pro_faol(None)
+    print("[16] muddati o'tgan Pro — ekran ham yopiq (yuborish sharti bilan bir xil) OK")
+
+    print("\ndigest: barcha tekshiruvlar o'tdi (16/16).")
 
 
 if __name__ == "__main__":

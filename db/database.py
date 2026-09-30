@@ -2770,6 +2770,10 @@ async def get_full_user_profile(user_id: int) -> Optional[Dict[str, Any]]:
             'media_analysis_active': user_row.get('media_analysis_active', True),
             'daily_requests_used': daily_used,
             'digest_hour': user_row.get('digest_hour'),
+            # ⛔️ /kunlik soatlarni SHU ustundan o'qiydi. Yo'q edi — ekran
+            # faqat birinchi soatni ko'rardi va yangi soat bosilganda qolgan
+            # soatlar jimgina o'chib ketardi (test_digest.py 15).
+            'digest_hours': user_row.get('digest_hours'),
             'digest_topics': user_row.get('digest_topics'),
             'total_tokens_used': total_tokens or 0,
             'total_messages': msg_count or 0,
