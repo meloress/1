@@ -567,6 +567,22 @@ searched answer (~15k tokens); the old «Barcha soatlar» button gave one user 2
 ~15% of the whole grant, and the same news 24 times. Stored rows above the cap are trimmed
 by the migration in `ensure_profile_columns()`.
 
+⛔️ **`/kunlik` delivered nothing for at least a week (2026-09-25 → 10-02: zero `[Daydjest]`
+lines in the Railway log) while users complained.** Every link was correct on its own; the
+chain was not. The topics prompt waits in a **RAM** FSM state and every deploy (20+ on a busy
+day) wipes it, so the typed topics became an ordinary AI question, `digest_topics` stayed
+NULL, the screen still said «✅ Faol», and `take_due_digests()` required `digest_topics IS NOT
+NULL` — silently skipping that user forever. Now a missing topic means `_STANDART_MAVZU`.
+Also: `get_full_user_profile()` never returned `digest_hours` (the test's fake profile did,
+which is why it stayed green — check 15 reads the real return keys), the screen gated on
+`plan_type` alone while delivery also checks expiry (`_pro_faol`), one user's exception
+stopped the whole due batch after every row was already marked sent (`_bitta_daydjest`,
+3 in parallel), and the digest now goes to the topic `/kunlik` was set in
+(`digest_thread_id`, `_mavzular` fallback). Verified end-to-end on a local Postgres
+(`pip install pgserver`; copy `tzdata`'s `zoneinfo` into
+`pgserver/pginstall/share/postgresql/timezone` or `Asia/Tashkent` is unknown).
+`tests/test_digest.py` checks 15-22.
+
 ### Two kinds of memory
 
 - **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Keyed on `(chat_id, thread_id)`, see the Topics section. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.

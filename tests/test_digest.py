@@ -65,7 +65,7 @@ async def main():
     # ═══════════════════════════════════════════════════════════
     saved = []
 
-    async def fake_set_digest(user_id, hours, topics=None):
+    async def fake_set_digest(user_id, hours, topics=None, thread_id=None):
         saved.append((user_id, hours, topics))
 
     tanlangan = {"digest_hours": None}
@@ -290,7 +290,7 @@ async def main():
     async def fail_rich(*a, **k):
         return None
 
-    async def fake_dm(user_id, text, kb=None):
+    async def fake_dm(user_id, text, kb=None, thread_id=0):
         zaxira["text"] = text
 
     dg._send_rich_message, dg._dm_or_deactivate = fail_rich, fake_dm
@@ -326,7 +326,88 @@ async def main():
     assert not dg._pro_faol(None)
     print("[16] muddati o'tgan Pro — ekran ham yopiq (yuborish sharti bilan bir xil) OK")
 
-    print("\ndigest: barcha tekshiruvlar o'tdi (16/16).")
+    # ── 17. "Birinchisi qachon" — joriy soat bugunga SANALMAYDI ─────────
+    soat10 = datetime(2026, 10, 2, 10, 30)
+    assert dg.keyingi_vaqt([8, 12], soat10) == "bugun 12:00"
+    assert dg.keyingi_vaqt([8, 10], soat10) == "ertaga 08:00", \
+        "joriy soat set_digest'da 'yuborilgan' — bugun kelmaydi"
+    assert dg.keyingi_vaqt([], soat10) == "—"
+    print("[17] birinchi daydjest vaqti to'g'ri aytiladi OK")
+
+    # ── 18. SQL: mavzusiz obuna ham tanlanadi, mavzu (topic) qaytariladi ─
+    fn = next(n for n in ast.walk(daraxt) if isinstance(n, ast.AsyncFunctionDef)
+              and n.name == "take_due_digests")
+    sql = " ".join(n.value for n in ast.walk(fn)
+                   if isinstance(n, ast.Constant) and isinstance(n.value, str))
+    sql = "\n".join(q.split("--")[0] for q in sql.splitlines())
+    assert "digest_topics IS NOT NULL" not in sql, \
+        "mavzusi saqlanmagan obuna (FSM deployda o'chdi) yana jim o'ladi"
+    assert "digest_thread_id" in sql
+    print("[18] mavzusiz obuna ham yuboriladi, topic qaytariladi OK")
+
+    # ── 19-20. Kuzatuvchi: standart mavzu, topic, bitta xato boshqalarni to'xtatmaydi
+    qurildi, ketdi = [], []
+
+    async def fake_build(topics):
+        qurildi.append(topics)
+        if topics == "YIQIL":
+            raise RuntimeError("model")
+        return "matn"
+
+    async def fake_send(uid, body, thread_id=0):
+        ketdi.append((uid, thread_id))
+
+    real_build, real_send = dg._build_digest, dg._send_digest
+    dg._build_digest, dg._send_digest = fake_build, fake_send
+    try:
+        sem = asyncio.Semaphore(dg._PARALLEL)
+        await asyncio.gather(
+            dg._bitta_daydjest({"user_id": 1, "digest_topics": "YIQIL", "digest_thread_id": 0}, sem),
+            dg._bitta_daydjest({"user_id": 2, "digest_topics": None, "digest_thread_id": 55}, sem))
+    finally:
+        dg._build_digest, dg._send_digest = real_build, real_send
+    assert dg._STANDART_MAVZU in qurildi, qurildi
+    assert ketdi == [(2, 55)], f"bitta xato boshqasini to'xtatdi yoki topic yo'qoldi: {ketdi}"
+    print("[19] mavzusiz obuna standart mavzu bilan tayyorlanadi OK")
+    print("[20] bir kishining xatosi boshqalarning daydjestini to'xtatmaydi OK")
+
+    # ── 21. Topic'ka yuboriladi; o'chirilgan bo'lsa mavzusiz qayta ────────
+    urinish = []
+
+    async def rich_topicsiz(uid, markdown=None, reply_markup=None, message_thread_id=None, **kw):
+        urinish.append(message_thread_id)
+        return None if message_thread_id else {"message_id": 1}
+
+    dg._send_rich_message = rich_topicsiz
+    try:
+        await dg._send_digest(42, "matn", 55)
+    finally:
+        dg._send_rich_message = real_rich
+    assert urinish == [55, None], urinish
+    print("[21] daydjest sozlangan topic'ka, u o'chgan bo'lsa mavzusiz OK")
+
+    # ── 22. Soat bosilgan topic eslab qolinadi ──────────────────────────
+    yozildi = {}
+
+    async def set_spy(uid, hours, topics=None, thread_id=None):
+        yozildi["thread"] = thread_id
+
+    async def prof(uid):
+        return {"plan_type": "pro", "digest_hours": None, "digest_topics": "x"}
+
+    real_set, real_prof = dg.database.set_digest, dg.database.get_full_user_profile
+    dg.database.set_digest, dg.database.get_full_user_profile = set_spy, prof
+    try:
+        q = FakeQuery("dg:h:9")
+        q.message.is_topic_message, q.message.message_thread_id = True, 77
+        await dg.handle_digest_callback(q, FakeState())
+    finally:
+        dg.database.set_digest, dg.database.get_full_user_profile = real_set, real_prof
+    assert yozildi.get("thread") == 77, yozildi
+    assert any("birinchisi" in a for a in q.answers), q.answers
+    print("[22] /kunlik sozlangan topic saqlanadi, birinchisi qachon aytiladi OK")
+
+    print("\ndigest: barcha tekshiruvlar o'tdi (22/22).")
 
 
 if __name__ == "__main__":

@@ -2282,6 +2282,10 @@ async def ensure_profile_columns():
             # qolganlarini ham "yuborilgan" deb yopib qo'yardi.
             "ADD COLUMN IF NOT EXISTS digest_hours TEXT",
             "ADD COLUMN IF NOT EXISTS digest_sent_hour SMALLINT",
+            # /kunlik qaysi mavzuda (topic) sozlangan — daydjest O'SHA yerga
+            # keladi. Mavzular yoqilgan chatda mavzusiz xabar har safar
+            # YANGI mavzu ochadi (BIZNES.md, jonli ko'rilgan). 0 = mavzusiz.
+            "ADD COLUMN IF NOT EXISTS digest_thread_id BIGINT DEFAULT 0",
             # "Sog'indik" xabarlari: 7 -> 15 -> 30 kun, keyin yana boshidan.
             # inactive_stage — INACTIVE_STEPS ro'yxatidagi o'rin.
             "ADD COLUMN IF NOT EXISTS inactive_stage SMALLINT DEFAULT 0",
@@ -3978,7 +3982,10 @@ async def take_due_digests() -> List[Dict[str, Any]]:
                SET digest_sent_date = (NOW() AT TIME ZONE 'Asia/Tashkent')::date,
                    digest_sent_hour = EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Tashkent'))::int
              WHERE digest_hours IS NOT NULL
-               AND digest_topics IS NOT NULL
+               -- ⛔️ digest_topics SHART EMAS. Soat bosilgach mavzu so'rovi
+               -- FSM'da (RAM) kutadi; deploy uni o'chirsa mavzu saqlanmasdi,
+               -- ekran «✅ Faol» desa ham daydjest HECH QACHON kelmasdi.
+               -- Mavzu yo'q — umumiy yangiliklar (digest._STANDART_MAVZU).
                AND plan_type <> 'free'
                AND (premium_until IS NULL OR premium_until > NOW())
                AND is_active = TRUE
@@ -3992,7 +3999,7 @@ async def take_due_digests() -> List[Dict[str, Any]]:
                AND (digest_sent_date IS DISTINCT FROM (NOW() AT TIME ZONE 'Asia/Tashkent')::date
                     OR digest_sent_hour IS DISTINCT FROM
                        EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Tashkent'))::int)
-            RETURNING user_id, digest_topics
+            RETURNING user_id, digest_topics, digest_thread_id
         ''')
         return [dict(r) for r in rows]
 
@@ -4022,11 +4029,12 @@ def parse_digest_hours(raw) -> list[int]:
 
 @with_db_retry()
 async def set_digest(user_id: int, hours,
-                     topics: Optional[str] = None) -> None:
+                     topics: Optional[str] = None,
+                     thread_id: Optional[int] = None) -> None:
     """Daydjest obunasi. hours=None yoki bo'sh ro'yxat — o'chiradi.
 
-    topics=None bo'lsa mavjud mavzular saqlanib qoladi (COALESCE) — soat
-    almashtirilganda mavzularni qayta yozdirmaslik uchun.
+    topics / thread_id = None bo'lsa mavjudi saqlanib qoladi (COALESCE) —
+    soat almashtirilganda mavzularni qayta yozdirmaslik uchun.
     """
     global pool
     if pool is None:
@@ -4045,13 +4053,14 @@ async def set_digest(user_id: int, hours,
                  -- foydalanuvchi obunasiz qolib ketmasin.
                  digest_hour = $3,
                  digest_topics = COALESCE($4, digest_topics),
+                 digest_thread_id = COALESCE($5, digest_thread_id),
                  -- Sozlangan zahoti yubormaslik uchun shu soatni
                  -- "yuborilgan" deb belgilaymiz: aks holda soat allaqachon
                  -- o'tgan bo'lsa daydjest darhol kelib qolardi.
                  digest_sent_date = (NOW() AT TIME ZONE 'Asia/Tashkent')::date,
                  digest_sent_hour = EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Tashkent'))::int
                WHERE user_id = $1''',
-            user_id, ",".join(str(h) for h in clean), clean[0], topics)
+            user_id, ",".join(str(h) for h in clean), clean[0], topics, thread_id)
 
 
 @with_db_retry()

@@ -18,7 +18,8 @@ from html import escape as html_escape
 from core.loader import logger
 from db import database
 from handlers.helpers import _dm_or_deactivate
-from handlers.messages import _send_rich_message
+from handlers.helpers import _mavzular
+from handlers.messages import _send_rich_message, _thread_key
 from handlers.pro import btn, send_rich, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
 from services.ai import (get_gpt_reply, build_rich_markdown, strip_image_tokens,
                          strip_internal_names)
@@ -31,6 +32,11 @@ _HOURS_PER_ROW = 6
 _DEFAULT_HOUR = 8
 
 _MAX_TOPICS_LEN = 200
+
+# Mavzu yozilmagan obuna ham ISHLAYDI. Mavzu so'rovi FSM'da (RAM) kutadi va
+# har deploy uni o'chiradi — ilgari bunday obuna «✅ Faol» ko'rinib, daydjest
+# esa hech qachon kelmasdi (SQL mavzusizlarni o'tkazib yuborardi).
+_STANDART_MAVZU = "O'zbekiston va dunyodagi eng muhim yangiliklar"
 
 # ⚠️ Kuniga ko'pi bilan shuncha daydjest. Har biri internet qidiruvli
 # to'liq javob (~15k token); «Barcha soatlar» bitta odamga kuniga 24 ta,
@@ -97,6 +103,30 @@ def _hours_keyboard(selected, *, locked: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def keyingi_vaqt(hours, hozir: datetime) -> str:
+    """Birinchi daydjest qachon: "bugun 20:00" / "ertaga 08:00". Sof.
+
+    Joriy soat "yuborilgan" deb belgilanadi (`set_digest`), shuning uchun
+    faqat KEYINGI soatlar bugunga sanaladi. Ilgari "keyingi belgilangan
+    soatda" deyilardi — joriy soatni tanlagan odam bugun kutib, hech narsa
+    olmay, "ishlamayapti" derdi.
+    """
+    hours = sorted(hours or ())
+    if not hours:
+        return "—"
+    bugun = [h for h in hours if h > hozir.hour]
+    return f"bugun {bugun[0]:02d}:00" if bugun else f"ertaga {hours[0]:02d}:00"
+
+
+def _hozir() -> datetime:
+    return datetime.now(database.TASHKENT_TZ)
+
+
+def _mavzu_label(topics) -> str:
+    return (html_escape(topics) if topics else
+            "<i>yozilmagan — umumiy yangiliklar keladi</i> (✏️ bilan o'zgartiring)")
+
+
 def _hours_label(hours) -> str:
     """[7, 12] -> "07:00, 12:00" """
     return ", ".join(f"{h:02d}:00" for h in hours) or "—"
@@ -129,6 +159,29 @@ async def _profile_or_none(user_id: int):
         return None
 
 
+async def _ekran(target, profile) -> None:
+    """/kunlik ekrani — `/kunlik` va «⚙️ Soatlar» tugmasi IKKALASI shu yerdan.
+    Ilgari tugma o'z qisqa matnini chizardi (mavzusiz, muddati o'tganda ham
+    «✅ Faol»)."""
+    if not _pro_faol(profile):
+        # Panjara o'chirilgan holda ko'rsatiladi — foydalanuvchi nimadan
+        # mahrumligini KO'RADI, lekin bosa olmaydi.
+        await send_rich(target, _PRO_ONLY, _hours_keyboard(None, locked=True))
+        return
+
+    hours = _user_hours(profile)
+    if hours:
+        status = (f"✅ <b>Faol:</b> har kuni <b>{_hours_label(hours)}</b>\n"
+                  f"📌 <b>Mavzular:</b> {_mavzu_label(profile.get('digest_topics'))}\n"
+                  f"📨 <b>Keyingisi:</b> {keyingi_vaqt(hours, _hozir())}\n\n"
+                  f"<i>Soatni bosib qo'shasiz, qayta bosib olib tashlaysiz.</i>")
+    else:
+        status = ("🔕 Hozircha o'chirilgan.\n\n"
+                  f"<i>Kerakli soatlarni bosing — {_MAX_HOURS} tagacha "
+                  "(Toshkent vaqti).</i>")
+    await send_rich(target, _INTRO + status, _hours_keyboard(hours))
+
+
 async def handle_digest(message: Message, state: FSMContext):
     """/kunlik — obunani sozlash ekrani."""
     await state.clear()
@@ -136,25 +189,7 @@ async def handle_digest(message: Message, state: FSMContext):
     if profile is None:
         await message.answer("⚠️ Profilingiz topilmadi. /start buyrug'ini bering.")
         return
-
-    if not _pro_faol(profile):
-        # Panjara o'chirilgan holda ko'rsatiladi — foydalanuvchi nimadan
-        # mahrumligini KO'RADI, lekin bosa olmaydi.
-        await send_rich(message, _PRO_ONLY, _hours_keyboard(None, locked=True))
-        return
-
-    hours = _user_hours(profile)
-    topics = profile.get("digest_topics")
-    if hours:
-        status = (f"✅ <b>Faol:</b> har kuni <b>{_hours_label(hours)}</b>\n"
-                  f"📌 <b>Mavzular:</b> {html_escape(topics or '—')}\n\n"
-                  f"<i>Soatni bosib qo'shasiz, qayta bosib olib tashlaysiz.</i>")
-    else:
-        status = ("🔕 Hozircha o'chirilgan.\n\n"
-                  f"<i>Kerakli soatlarni bosing — {_MAX_HOURS} tagacha "
-                  "(Toshkent vaqti).</i>")
-
-    await send_rich(message, _INTRO + status, _hours_keyboard(hours))
+    await _ekran(message, profile)
 
 
 async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
@@ -197,10 +232,8 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
         # tugmalaridan shu yerga qaytiladi.
         await query.answer()
         profile = await _profile_or_none(user_id)
-        hours = _user_hours(profile)
-        status = (f"✅ <b>Faol:</b> {_hours_label(hours)}" if hours
-                  else "🔕 Hozircha o'chirilgan — soatlarni tanlang:")
-        await send_rich(query.message, _INTRO + status, _hours_keyboard(hours))
+        if profile is not None:
+            await _ekran(query.message, profile)
         return
 
     if action in ("h", "all", "clear"):
@@ -244,12 +277,16 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
                 javob = f"✅ {hour:02d}:00 qo'shildi"
 
         try:
-            await database.set_digest(user_id, sorted(hours))
+            # Mavzu (topic) — tugma bosilgan joy: daydjest o'sha yerga keladi.
+            await database.set_digest(user_id, sorted(hours),
+                                      thread_id=_thread_key(query.message))
         except Exception as e:
             logger.error(f"[Daydjest] saqlashda xatolik: {e}")
             await query.answer("❗ Texnik nosozlik.", show_alert=True)
             return
 
+        if hours and action == "h" and javob.startswith("✅"):
+            javob += f" · birinchisi {keyingi_vaqt(hours, _hozir())}"
         await query.answer(javob)
         if hours and not profile.get("digest_topics"):
             await _ask_topics(query.message, state)
@@ -270,7 +307,8 @@ async def _ask_topics(target, state: FSMContext) -> None:
         "📌 <b>Qaysi mavzular qiziqtiradi?</b>\n\n"
         "Bitta xabarda yozing.\n\n"
         "<blockquote>Masalan: <i>O'zbekistondagi yangiliklar, dollar kursi, "
-        "IT sohasidagi o'zgarishlar</i></blockquote>"
+        "IT sohasidagi o'zgarishlar</i></blockquote>\n\n"
+        "<i>Yozmasangiz ham daydjest keladi — umumiy yangiliklar bo'yicha.</i>"
     # force_reply — foydalanuvchidan matn kutilyapti, kiritish maydoni
     # o'zi ochilsin (handlers/pro.py:_CANCEL_KB bilan bir xil sabab).
     ), InlineKeyboardMarkup(
@@ -298,7 +336,8 @@ async def process_digest_topics(message: Message, state: FSMContext):
     try:
         profile = await _profile_or_none(message.from_user.id)
         hours = _user_hours(profile) or [_DEFAULT_HOUR]
-        await database.set_digest(message.from_user.id, hours, topics)
+        await database.set_digest(message.from_user.id, hours, topics,
+                                  thread_id=_thread_key(message))
     except Exception as e:
         logger.error(f"[Daydjest] mavzularni saqlashda xatolik: {e}")
         await message.answer("⚠️ Texnik nosozlik. Birozdan keyin urinib ko'ring.")
@@ -308,7 +347,7 @@ async def process_digest_topics(message: Message, state: FSMContext):
         f"✅ <b>Daydjest sozlandi!</b>\n\n"
         f"<blockquote>⏰ Har kuni: <b>{_hours_label(hours)}</b>\n"
         f"📌 Mavzular: {html_escape(topics)}</blockquote>\n\n"
-        f"<i>Birinchi daydjest keyingi belgilangan soatda keladi.</i>"
+        f"📨 Birinchisi: <b>{keyingi_vaqt(hours, _hozir())}</b> (Toshkent vaqti)"
     ), InlineKeyboardMarkup(inline_keyboard=[
         [btn("⚙️ Soatlarni o'zgartirish", "dg:menu", style=BTN_PRIMARY)],
         [btn("🔕 Daydjestni to'xtatish", "dg:off", style=BTN_DANGER)]]))
@@ -327,7 +366,7 @@ def _digest_keyboard() -> InlineKeyboardMarkup:
          btn("🔕 To'xtatish", "dg:off", style=BTN_DANGER)]])
 
 
-async def _send_digest(user_id: int, body: str) -> None:
+async def _send_digest(user_id: int, body: str, thread_id: int = 0) -> None:
     """Daydjestni ODDIY JAVOB bilan bir xil yo'ldan yuboradi.
 
     Ilgari matn `parse_mode="HTML"` bilan ketardi, model esa Markdown
@@ -337,15 +376,21 @@ async def _send_digest(user_id: int, body: str) -> None:
 
     Zaxira: rich yo'l ishlamasa eski HTML yo'li. U bloklagan
     foydalanuvchini is_active=FALSE qilishni ham o'z zimmasiga oladi.
+
+    `thread_id` — /kunlik sozlangan mavzu (topic); o'chirilgan bo'lsa
+    mavzusiz qayta (eslatmalar bilan bir xil: `_mavzular`).
     """
     kb = _digest_keyboard()
     try:
         rich = build_rich_markdown(_DIGEST_HEADER_MD + body)
-        if await _send_rich_message(user_id, markdown=rich, reply_markup=kb) is not None:
-            return
+        for mavzu in _mavzular(thread_id):
+            if await _send_rich_message(user_id, markdown=rich, reply_markup=kb,
+                                        message_thread_id=mavzu) is not None:
+                return
     except Exception as e:
         logger.warning(f"[Daydjest] rich yuborilmadi (user={user_id}): {e}")
-    await _dm_or_deactivate(user_id, _DIGEST_HEADER + html_escape(body), kb)
+    await _dm_or_deactivate(user_id, _DIGEST_HEADER + html_escape(body), kb,
+                            thread_id=thread_id)
 
 
 async def _build_digest(topics: str) -> str:
@@ -375,6 +420,33 @@ async def _build_digest(topics: str) -> str:
     return strip_image_tokens(strip_internal_names("".join(parts))).strip()
 
 
+async def _bitta_daydjest(row: dict, sem: asyncio.Semaphore) -> None:
+    """Bitta foydalanuvchi. Xato SHU YERDA ushlanadi: ilgari bir kishining
+    yuborish xatosi butun tsiklni to'xtatardi, qolganlar esa bazada
+    allaqachon "yuborildi" edi — o'sha kuni hech narsa olmasdi."""
+    uid = row["user_id"]
+    async with sem:
+        try:
+            body = await _build_digest(row.get("digest_topics") or _STANDART_MAVZU)
+            if not body:
+                # Ilgari jim edi: sanoq "yuborildi", foydalanuvchi esa hech narsa olmasdi.
+                logger.warning(f"[Daydjest] bo'sh javob (user={uid})")
+                return
+            await _send_digest(uid, body, row.get("digest_thread_id") or 0)
+            logger.info(f"[Daydjest] yuborildi (user={uid})")
+        except Exception as e:
+            # Sanoq allaqachon "yuborildi" deb belgilangan — ertaga qayta
+            # uriniladi. Ataylab: soat bo'yi qayta urinib bezovta qilmaymiz.
+            logger.error(f"[Daydjest] tayyorlab bo'lmadi (user={uid}): "
+                         f"{type(e).__name__}: {e}")
+
+
+# Bir vaqtda nechta daydjest tayyorlanadi. Ketma-ket bo'lsa 08:00 dagi
+# o'ninchi odam ~8 daqiqa kutardi (har biri qidiruvli to'liq javob); ko'p
+# bo'lsa OpenAI TPM chegarasi. ponytail: doimiy son, navbat kerak bo'lsa — keyin.
+_PARALLEL = 3
+
+
 async def daily_digest_watcher():
     """premium_expiry_watcher() bilan bir xil naqsh — while + sleep, cron yo'q."""
     while True:
@@ -383,20 +455,7 @@ async def daily_digest_watcher():
             due = await database.take_due_digests()
             if due:
                 logger.info(f"[Daydjest] {len(due)} ta foydalanuvchiga tayyorlanmoqda")
-            for row in due:
-                try:
-                    body = await _build_digest(row["digest_topics"])
-                except Exception as e:
-                    # Sanoq allaqachon "yuborildi" deb belgilangan — ertaga
-                    # qayta uriniladi. Bu ataylab: xato bo'lganda soat bo'yi
-                    # qayta-qayta urinib, foydalanuvchini bezovta qilmaymiz.
-                    logger.error(f"[Daydjest] tayyorlab bo'lmadi (user={row['user_id']}): {e}")
-                    continue
-                if not body:
-                    # Ilgari jim edi: sanoq "yuborildi", foydalanuvchi esa hech narsa olmasdi.
-                    logger.warning(f"[Daydjest] bo'sh javob (user={row['user_id']})")
-                    continue
-                await _send_digest(row["user_id"], body)
-                await asyncio.sleep(0.05)   # flood-control
+                sem = asyncio.Semaphore(_PARALLEL)
+                await asyncio.gather(*(_bitta_daydjest(dict(r), sem) for r in due))
         except Exception as e:
             logger.error(f"[Daydjest] fon vazifasida xatolik: {e}")
