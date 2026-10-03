@@ -436,6 +436,17 @@ is no user to key it by).
 
 ### Telegram Business: report, unanswered chats, customer file, profile (phase 4)
 
+⛔️ **2026-10-03, egasining qarori — quyidagi 4.1/4.2 dan ustun:** ertalabki hisobot
+egasiga **yuborilmaydi**; `_hisobot()` faqat kechagi yozishmalardan kartotekani
+(`/mijozlar`: ism, telefon, qiziqish) to'ldiradi — o'sha bitta mini-model chaqiruvi qoladi.
+«N daqiqadan beri javob kutmoqda» har bir javobsiz qism uchun **bir marta**: belgi
+`biznes_chat.javobsiz_ogoh` da (bazada), `biznes_javobsizlar(faqat_yangi=True)` undan
+keyin egasi/bot javob bermagan chatni qaytarmaydi. Ilgari belgi faqat RAM'da edi va har
+deploy uni bo'shatib, o'sha chat haqida kuniga 4-6 marta yozardi. Shu bilan
+`ALTER TABLE biznes_chat` endi `CREATE TABLE` dan keyin — yangi bazada
+`create_users_table()` yiqilardi. `test_biznes_hisobot.py` 5, 8, 9b; mahalliy Postgres'da
+tekshirilgan.
+
 **Morning report (4.1).** `biznes_hisobot_watcher()` checks every 10 minutes and sends after
 `BIZNES_HISOBOT_SOAT` (9, Tashkent) — deliberately *not* "sleep until 9": a deploy at 9:05
 would lose that day's report. Once-per-day is `biznes_hisobot_band()`, an atomic

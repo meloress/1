@@ -530,14 +530,6 @@ async def create_users_table():
                 PRIMARY KEY (owner_id, chat_id, message_id)
             );
         ''')
-        # Pauza SABABI: 'egasi' (egasi o'zi yozdi — suhbat uning qo'lida) yoki
-        # 'uzatish' (bot savolni egasiga uzatdi — suhbatdosh javob kutyapti).
-        # Faqat 'uzatish' da suhbatdoshga bir marta "bandman" va egasiga eslatma.
-        await conn.execute('''
-            ALTER TABLE biznes_chat
-                ADD COLUMN IF NOT EXISTS pauza_sababi   TEXT,
-                ADD COLUMN IF NOT EXISTS band_yuborildi BOOLEAN NOT NULL DEFAULT FALSE
-        ''')
         # Avtomat javob oxiridagi «🤖 avtojavob» belgisi (standart — yoqilgan).
         await conn.execute(
             "ALTER TABLE biznes_ulanish ADD COLUMN IF NOT EXISTS "
@@ -596,6 +588,19 @@ async def create_users_table():
                 pauza_gacha TIMESTAMPTZ,
                 PRIMARY KEY (owner_id, chat_id)
             );
+        ''')
+        # ⚠️ CREATE'dan KEYIN: ilgari bu ALTER jadval yaratilishidan oldin
+        # turardi — yangi (bo'sh) bazada create_users_table() yiqilardi.
+        # Pauza SABABI: 'egasi' (egasi o'zi yozdi — suhbat uning qo'lida) yoki
+        # 'uzatish' (bot savolni egasiga uzatdi — suhbatdosh javob kutyapti).
+        # javobsiz_ogoh — «N daqiqadan beri javob kutmoqda» qachon yuborilgani
+        # (`biznes.javobsiz_tekshir`). Bazada: RAM bayrog'i har deployda
+        # bo'shab, o'sha chat haqida qayta-qayta yozilardi (kuniga 4-6 ta).
+        await conn.execute('''
+            ALTER TABLE biznes_chat
+                ADD COLUMN IF NOT EXISTS pauza_sababi   TEXT,
+                ADD COLUMN IF NOT EXISTS band_yuborildi BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS javobsiz_ogoh  TIMESTAMPTZ
         ''')
         # Avtomatik tozalash: egasi qachondan beri uzilgan yoki Pro'siz
         # (`biznes.egalarni_tozala`). Qator yo'q — ega faol.
@@ -1732,6 +1737,20 @@ async def biznes_kutayotgan_tanlov(owner_id: int, chat_id: int) -> Optional[Dict
 
 
 @with_db_retry()
+async def biznes_javobsiz_belgila(owner_id: int, chat_id: int) -> None:
+    """«Javob kutmoqda» shu chat uchun yuborildi — `biznes_javobsizlar(
+    faqat_yangi=True)` uni keyingi javobgacha qaytarmaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_chat (owner_id, chat_id, javobsiz_ogoh) VALUES ($1, $2, NOW()) '
+            'ON CONFLICT (owner_id, chat_id) DO UPDATE SET javobsiz_ogoh = NOW()',
+            owner_id, chat_id)
+
+
+@with_db_retry()
 async def biznes_chat_ochir(owner_id: int, chat_id: int, ochirilgan: bool) -> None:
     global pool
     if pool is None:
@@ -1935,14 +1954,19 @@ async def biznes_kun_hisobi(owner_id: int, kun, chat_limit: int = 20,
 
 @with_db_retry()
 async def biznes_javobsizlar(dan_daqiqa: int, gacha_daqiqa: int,
-                             owner_id: Optional[int] = None) -> List[Dict[str, Any]]:
+                             owner_id: Optional[int] = None,
+                             faqat_yangi: bool = False) -> List[Dict[str, Any]]:
     """Oxirgi xabari MIJOZNIKI bo'lgan chatlar: u `gacha_daqiqa` dan
     ko'proq, lekin `dan_daqiqa` dan kamroq oldin yozilgan.
 
     Oyna ikki tomonlama ataylab: pastki chegara — "hali javob berishga
-    ulgurmagan" chatni ogohlantirmaslik; yuqorisi — deploy'dan keyin RAM
-    bayrog'i (`_javobsiz_aytilgan`) bo'sh bo'lganda eski chatlar yana
-    ogohlantirilmasin.
+    ulgurmagan" chatni ogohlantirmaslik; yuqorisi — eski chatlar qayta
+    ko'tarilmasin.
+
+    `faqat_yangi` — ogohlantirish uchun: shu javobsiz qism haqida allaqachon
+    yozilgan chat (`biznes_chat.javobsiz_ogoh`, undan keyin egasi/bot javob
+    bermagan) qaytarilmaydi. Javob berilsa — keyingi javobsiz qism uchun
+    yana bir marta.
     """
     global pool
     if pool is None:
@@ -1961,11 +1985,18 @@ async def biznes_javobsizlar(dan_daqiqa: int, gacha_daqiqa: int,
                   ORDER BY chat_id, thread_id, id DESC) t
             LEFT JOIN biznes_mijoz m
                    ON m.owner_id = -t.thread_id AND m.chat_id = t.chat_id
+            LEFT JOIN biznes_chat c
+                   ON c.owner_id = -t.thread_id AND c.chat_id = t.chat_id
             WHERE t.role = 'user'
               AND t.created_at < NOW() - make_interval(mins => $2::int)
+              AND (NOT $4::bool OR c.javobsiz_ogoh IS NULL
+                   OR c.javobsiz_ogoh < (
+                       SELECT MAX(a.created_at) FROM chat_messages a
+                        WHERE a.chat_id = t.chat_id AND a.thread_id = t.thread_id
+                          AND a.role = 'assistant'))
             ORDER BY t.created_at LIMIT 50
             ''', dan_daqiqa, gacha_daqiqa,
-            None if owner_id is None else -owner_id)
+            None if owner_id is None else -owner_id, faqat_yangi)
     return [dict(r) for r in rows]
 
 

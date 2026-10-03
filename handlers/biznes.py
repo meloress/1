@@ -2225,31 +2225,19 @@ def _mijoz_nomi(r: dict) -> str:
     return r.get("tg_ism") or (f"@{r['username']}" if r.get("username") else "Mijoz")
 
 
-# ── 4.1. Ertalabki hisobot ───────────────────────────────────────────
-def hisobot_matni(kun, h: dict, xulosa: str, javobsiz: list) -> str:
-    """Sof funksiya — testda tekshiriladi. HTML (xulosa escape qilinadi)."""
-    qator = [f"☀️ <b>Kecha</b> ({kun:%d.%m})",
-             f"👥 Mijozlar: <b>{h['mijozlar']}</b> · 📨 xabarlar: {h['xabarlar']}"]
-    if h["javoblar"] or h["uzatish"] or h["loyiha"]:
-        qator.append(f"🤖 Javoblar: <b>{h['javoblar']}</b> · ✍️ loyihalar: {h['loyiha']}"
-                     f" · ✋ uzatildi: {h['uzatish']}")
-    if xulosa:
-        qator.append(f"\n<blockquote>{escape(xulosa[:1500])}</blockquote>")
-    if javobsiz:
-        qator.append(f"\n⏳ <b>Javobsiz qolganlar: {len(javobsiz)}</b>")
-        for i, r in enumerate(javobsiz[:5], 1):
-            qator.append(f"{i}. {escape(_mijoz_nomi(r))} — "
-                         f"«{escape((r.get('content') or '')[:60])}»")
-    return "\n".join(qator)
-
-
+# ── 4.1. Kechagi yozishmalardan kartoteka (ertalabki hisobot O'CHIRILGAN) ─
+# Egasi (2026-10-03): "kunlik hisobot umuman kelmasin". Xabar yuborilmaydi,
+# lekin /mijozlar (ism, telefon, nima so'radi) shu kunlik bitta mini-model
+# chaqiruvidan to'ladi — u qoladi, aks holda kartoteka faqat Telegram ismi
+# bilan qolardi. Kuniga bir marta, atomik (`biznes_hisobot_band`).
 def _hozir_kun():
     return _hozir().date()
 
 
 @olchov.oqim("hisobot")
 async def _hisobot(egasi: int, dm: int) -> bool:
-    """Bitta egaga kechagi hisobot. Qaytadi: yuborildimi."""
+    """Bitta egaga kechagi kartoteka. EGASIGA HECH NARSA YUBORMAYDI.
+    Qaytadi: model chaqirildimi."""
     if not await database.pro_tarifmi(egasi):
         return False
     # Egallash AVVAL — deploy yoki keyingi aylanish ikkinchi nusxa
@@ -2281,18 +2269,8 @@ async def _hisobot(egasi: int, dm: int) -> bool:
                                                 m.get("telefon"), m.get("qiziqish"))
         except Exception as e:
             logger.warning(f"[BIZNES] kartoteka yangilanmadi: {e}")
-
-    javobsiz = await database.biznes_javobsizlar(2 * 24 * 60, 0, egasi)
-    xulosa = x.get("xulosa") if isinstance(x.get("xulosa"), str) else ""
-    kb = None
-    if javobsiz:
-        tugmalar = [_chat_tugmasi(r["chat_id"], r.get("username"), f"{i}. {_mijoz_nomi(r)}")
-                    for i, r in enumerate(javobsiz[:5], 1)]
-        kb = InlineKeyboardMarkup(inline_keyboard=[[t] for t in tugmalar])
-    ok = await _egasiga(dm, hisobot_matni(kecha, h, xulosa, javobsiz), kb=kb)
-    logger.info(f"[BIZNES] hisobot egasi={egasi} mijoz={h['mijozlar']} "
-                f"javobsiz={len(javobsiz)} yuborildi={ok}")
-    return ok
+    logger.info(f"[BIZNES] kartoteka egasi={egasi} mijoz={h['mijozlar']}")
+    return True
 
 
 async def biznes_hisobot_watcher():
@@ -2357,10 +2335,13 @@ async def egalarni_tozala() -> int:
 
 
 # ── 4.2. Javobsiz chat ogohlantirishi ────────────────────────────────
-# `_ogoh_holat` naqshi: bitta chat — bitta ogohlantirish; chat javob
-# olgach (endi ro'yxatda yo'q) bayroq tushadi va keyingisiga qayta
-# qurollanadi. Bayroq YUBORISH NATIJASIDAN qo'yiladi — yetib bormagan
-# xabar "aytildi" deb belgilansa, u butunlay yo'qolardi.
+# Bitta javobsiz qism — BITTA ogohlantirish (egasi, 2026-10-03: "faqat bir
+# marta, 60 daqiqa bo'lganda"). Asosiy belgi BAZADA (`biznes_chat.
+# javobsiz_ogoh`): ilgari faqat RAM'da edi va har deploy (kuniga 20 tagacha)
+# uni bo'shatib, o'sha chat haqida qayta yozardi — kuniga 4-6 xabar.
+# RAM to'plami — zaxira: belgi yozilmay qolsa, 5 daqiqada bir takrorlanmasin.
+# Bayroq YUBORISH NATIJASIDAN qo'yiladi — yetib bormagan xabar "aytildi"
+# deb belgilansa, u butunlay yo'qolardi.
 _javobsiz_aytilgan: set = set()
 
 
@@ -2373,7 +2354,7 @@ async def javobsiz_tekshir() -> int:
     """Qaytadi: nechta ogohlantirish yuborildi."""
     global _javobsiz_aytilgan
     qatorlar = await database.biznes_javobsizlar(
-        BIZNES_JAVOBSIZ_DAQIQA * 3, BIZNES_JAVOBSIZ_DAQIQA)
+        BIZNES_JAVOBSIZ_DAQIQA * 3, BIZNES_JAVOBSIZ_DAQIQA, faqat_yangi=True)
     hozirgi = {(r["owner_id"], r["chat_id"]) for r in qatorlar}
     _javobsiz_aytilgan &= hozirgi          # javob berilganlar qayta qurollanadi
     if tungi_soatmi(_hozir()):
@@ -2396,6 +2377,10 @@ async def javobsiz_tekshir() -> int:
         if await _egasiga(dm, matn, kb=kb):
             _javobsiz_aytilgan.add(kalit)
             yuborildi += 1
+            try:
+                await database.biznes_javobsiz_belgila(*kalit)
+            except Exception as e:
+                logger.warning(f"[BIZNES] javobsiz belgisi yozilmadi: {e}")
     return yuborildi
 
 

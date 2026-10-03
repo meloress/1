@@ -108,8 +108,13 @@ async def mijoz_yangila(owner, chat, ism, tel, qiz):
     q.append(("kartoteka", chat, ism, tel, qiz))
 
 
-async def javobsizlar(dan, gacha, owner_id=None):
+async def javobsizlar(dan, gacha, owner_id=None, faqat_yangi=False):
+    holat["faqat_yangi"] = faqat_yangi
     return holat["javobsiz"]
+
+
+async def javobsiz_belgila(owner, chat):
+    q.append(("belgi", owner, chat))
 
 
 b.bot = SoxtaBot()
@@ -128,6 +133,7 @@ database.biznes_hisobot_band = band
 database.biznes_kun_hisobi = kun_hisobi
 database.biznes_mijoz_yangila = mijoz_yangila
 database.biznes_javobsizlar = javobsizlar
+database.biznes_javobsiz_belgila = javobsiz_belgila   # ⚠️ aks holda .env -> jonli baza
 database._biznes_kesh.clear()
 database._biznes_kesh["c1"] = {
     "owner_id": EGASI, "owner_chat": DM, "yoqilgan": True, "rejim": "yordamchi",
@@ -167,10 +173,8 @@ q.clear()
 asyncio.run(b._hisobot(EGASI, DM))
 yuborilgan = [x for x in q if x[0] == "send"]
 kartoteka = [x for x in q if x[0] == "kartoteka"]
-check(5, "hisobot: raqamlar, xulosa (escape), javobsiz ro'yxat va tugma",
-      len(yuborilgan) == 1 and "Mijozlar: <b>2</b>" in yuborilgan[0][2]
-      and "&lt;b&gt;atirgul" in yuborilgan[0][2] and "Javobsiz qolganlar: 1" in yuborilgan[0][2]
-      and yuborilgan[0][3].inline_keyboard[0][0].url == "tg://user?id=9002")
+check(5, "ertalabki hisobot EGASIGA YUBORILMAYDI (egasi, 2026-10-03), kartoteka to'ladi",
+      yuborilgan == [] and kartoteka)
 check(6, "kartoteka: faqat ro'yxatdagi to'g'ri `n` yoziladi (bool/satr/begona rad)",
       kartoteka == [("kartoteka", 9002, "Vali", "90 123 45 67", "atirgul")])
 check(7, "hisobot tokeni biznes deb belgilanadi, mini model BIR marta",
@@ -179,8 +183,8 @@ check(7, "hisobot tokeni biznes deb belgilanadi, mini model BIR marta",
 holat["xulosa"] = {}
 q.clear()
 asyncio.run(b._hisobot(EGASI, DM))
-check(8, "model yiqilsa ham hisobot raqamlar bilan ketadi",
-      len([x for x in q if x[0] == "send"]) == 1)
+check(8, "model bo'sh qaytsa ham yiqilmaydi va hech narsa yuborilmaydi",
+      not [x for x in q if x[0] == "send"])
 
 # ── 9-12. Javobsiz chat ogohlantirishi ───────────────────────────
 b._javobsiz_aytilgan.clear()
@@ -192,6 +196,9 @@ n2 = asyncio.run(b.javobsiz_tekshir())
 check(9, "bitta javobsiz chat -> BITTA ogohlantirish (ikkinchi tekshiruvda yo'q)",
       (n1, n2) == (1, 0) and len([x for x in q if x[0] == "send"]) == 1
       and q[0][3].inline_keyboard[0][0].url == "https://t.me/ali")
+check("9b", "ogohlantirish BAZAGA belgilanadi (deploy RAM'ni bo'shatsa ham "
+      "takrorlanmasin), so'rov faqat yangilarini oladi",
+      ("belgi", EGASI, 9001) in q and holat.get("faqat_yangi") is True)
 
 holat["javobsiz"] = []
 asyncio.run(b.javobsiz_tekshir())
