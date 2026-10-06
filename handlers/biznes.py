@@ -2695,6 +2695,8 @@ def _mijoz_qatori(i: int, m: dict) -> str:
     oldin, ochiq = _necha_oldin(m.get("oxirgi"))
     return (f"{i}. {_mijoz_nomi(m)}" + (f" @{m['username']}" if m.get("username") else "")
             + f" — chat_id={m['chat_id']}, havola: {_havola(m)}, oxirgi yozgani: {oldin}"
+            + (f", telefon: {m['telefon']}" if m.get("telefon") else "")
+            + (f", qiziqishi: {m['qiziqish']}" if m.get("qiziqish") else "")
             + (" (hozir yozsa bo'ladi)" if ochiq else
                " (24 soatdan oshgan — u yana yozmaguncha Telegram ruxsat bermaydi)"))
 
@@ -2770,6 +2772,12 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
             await database.biznes_yuborilgan_yoz(egasi, chat_id, xabar.message_id, matn)
         except Exception as e:
             logger.warning(f"[BIZNES] yuborilgan yozilmadi egasi={egasi}: {e}")
+    try:
+        # Shu chatdagi kutayotgan qoralama endi o'rinsiz — egasi keyin uning
+        # «Yuborish» tugmasini bossa, mijoz IKKI javob olardi.
+        await database.biznes_loyiha_eskirt(egasi, chat_id)
+    except Exception as e:
+        logger.warning(f"[BIZNES] loyiha eskirtilmadi egasi={egasi}: {e}")
     logger.info(f"[BIZNES] topshiriq yuborildi egasi={egasi} chat={chat_id}")
     return True, f"{nom}ga yuborildi"
 
@@ -2818,32 +2826,200 @@ def _vaqt_matni(dt) -> str:
     return f"{kun} {dt:%H:%M} da"
 
 
+_TEG = re.compile(r"<[^>]+>")
+
+
+def _saqla_taklif(egasi: int, thread_id: int, tur: str, **qiymat) -> None:
+    _taklif[(egasi, thread_id)] = {"tur": tur, "t": time.time(), **qiymat}
+
+
+_SAVOL_QOIDASI = (" Egasi «ha» desa bot o'zi bajaradi — bu amalni qayta chaqirmang; "
+                  "tuzatish aytsa — yangi taklif qiling.")
+
+
+async def _matn_yoz(egasi: int, chat_id: int, korsatma: str) -> str:
+    """Egasi MAZMUNNI aytdi — matnni `.javob` yo'lida yozamiz: o'sha mijoz
+    bilan yozishma (tarix), egasining Uslubi va Bilimi bilan. Bo'sh — xato."""
+    bilim = await database.biznes_bilim_ol(egasi)
+    blok = biznes_uslub.uslub_bloki(await biznes_uslub.uslub_ol(egasi))
+    if bilim:
+        blok = (blok + "\n\n" if blok else "") + f"[EGASI HAQIDA — faqat shunga tayan]\n{bilim}"
+    prompt = (f"Sen shu suhbatdagi akkaunt egasining o'zisan. Egasi suhbatdoshga "
+              f"shu mazmunda yozmoqchi: «{korsatma}». Yuqoridagi yozishmani hisobga "
+              f"olib, suhbat tilida, tabiiy va xushmuomala, egasi o'zi yozgandek "
+              f"qisqa xabar yoz. Egasi aytmagan va'da yoki faktni qo'shma. "
+              f"{BUYRUQ_QOIDASI}")
+    natija = await _model(prompt, chat_id, biznes_thread(egasi), egasi,
+                          biznes_yoriqnoma=blok or "")
+    return tanlov_ajrat(natija)[0].strip()[:BIZNES_TOPSHIRIQ_MAX]
+
+
 async def _taklif_qil(egasi: int, thread_id: int, args: dict) -> str:
-    """`yubor` — tekshiradi va TAKLIF saqlaydi, hech narsa yubormaydi."""
+    """`yubor` — tekshiradi va TAKLIF saqlaydi, hech narsa yubormaydi.
+    `matn` — egasining aniq so'zi (aynan ketadi); `korsatma` — mazmuni,
+    matnni `_matn_yoz` yozadi (mijoz yozishmasi + Uslub + Bilim)."""
     mijoz = await _kartotekadan(egasi, args.get("chat_id"))
     if mijoz is None:
         return "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
-    matn = str(args.get("matn") or "").strip()[:BIZNES_TOPSHIRIQ_MAX]
-    if not matn:
-        return "matn bo'sh — egasidan nima deb yozishni so'rang"
     vaqt = str(args.get("vaqt") or "").strip()
     dt = database.parse_run_at(vaqt) if vaqt else None
     if vaqt and dt is None:
         return ("vaqt yaroqsiz — 'YYYY-MM-DD HH:MM', o'tmishda emas; o'tgan bo'lsa "
                 "ertangi kunni oling")
-    _taklif[(egasi, thread_id)] = {"chat_id": mijoz["chat_id"], "matn": matn,
-                                   "vaqt": vaqt, "t": time.time()}
+    matn = str(args.get("matn") or "").strip()[:BIZNES_TOPSHIRIQ_MAX]
+    korsatma = str(args.get("korsatma") or "").strip()
+    if not matn and korsatma:
+        try:
+            matn = await _matn_yoz(egasi, mijoz["chat_id"], korsatma[:500])
+        except Exception as e:
+            logger.warning(f"[BIZNES] topshiriq matni yozilmadi egasi={egasi}: {e}")
+            matn = ""
+        if not matn:
+            return "matnni yozib bo'lmadi — egasidan aniq so'zini so'rang"
+    if not matn:
+        return "matn bo'sh — egasidan nima deb yozishni so'rang (yoki korsatma bering)"
+    _saqla_taklif(egasi, thread_id, "xabar", chat_id=mijoz["chat_id"], matn=matn, vaqt=vaqt)
     qachon = _vaqt_matni(dt) if dt else "hozir"
     _, ochiq = _necha_oldin(mijoz.get("oxirgi"))
     return (f"TAKLIF SAQLANDI, HALI YUBORILMADI. Javobingiz AYNAN bitta savol bo'lsin: "
             f"«{_mijoz_nomi(mijoz)} ({_havola(mijoz)}) ga {qachon}: «{matn}» — yuboraymi?»"
             + ("" if ochiq else " va ogohlantiring: u 24 soatdan beri yozmagan — Telegram "
                "ruxsat bermasligi mumkin.")
-            + " Egasi «ha» desa bot o'zi yuboradi — siz yubor'ni qayta chaqirmang.")
+            + _SAVOL_QOIDASI)
+
+
+# ── Bilim: qator raqami bilan, butun matn qayta yozilmaydi ─────────────
+# ⛔️ Model butun Bilimni qayta yozsa, so'ralmagan qatorni jimgina tashlab
+# ketishi mumkin (narx ro'yxatining oxiri). Shuning uchun faqat uchta
+# amal — qo'shish, N-qatorni almashtirish, N-qatorni o'chirish — va
+# o'zgarishni KOD ko'rsatadi; saqlashda Bilim shu orada o'zgarmaganini
+# tekshiradi (ikkinchi oyna / /biznes ekrani).
+def bilim_qatorlari(bilim: str) -> list:
+    return [q for q in (bilim or "").splitlines() if q.strip()]
+
+
+def bilim_ozgartir(bilim: str, qosh: str, qator, yangi: str, ochir) -> tuple:
+    """(yangi_bilim, tavsif) yoki (None, xato). Sof."""
+    q = bilim_qatorlari(bilim)
+    for nom, raqam in (("qator", qator), ("ochir", ochir)):
+        if raqam is not None and not (isinstance(raqam, int) and not isinstance(raqam, bool)
+                                      and 1 <= raqam <= len(q)):
+            return None, f"{nom}={raqam!r} — bunday qator yo'q (Bilimda {len(q)} qator)"
+    tavsif = []
+    if qator is not None:
+        if not yangi.strip():
+            return None, "almashtirish uchun yangi matn kerak"
+        tavsif.append(f"{qator}-qator: «{q[qator - 1]}» → «{yangi.strip()}»")
+        q[qator - 1] = yangi.strip()
+    if ochir is not None:
+        tavsif.append(f"o'chiriladi: «{q[ochir - 1]}»")
+        q[ochir - 1] = None
+    if qosh.strip():
+        q += qosh.strip().splitlines()
+        tavsif.append(f"qo'shiladi: «{qosh.strip()}»")
+    if not tavsif:
+        return None, "o'zgarish yo'q — qosh, qator+matn yoki ochir bering"
+    return "\n".join(x for x in q if x is not None), "; ".join(tavsif)
+
+
+async def _bilim_taklif(egasi: int, thread_id: int, args: dict) -> str:
+    eski = await database.biznes_bilim_ol(egasi) or ""
+    yangi, tavsif = bilim_ozgartir(eski, str(args.get("qosh") or ""), args.get("qator"),
+                                   str(args.get("matn") or ""), args.get("ochir_qator"))
+    if yangi is None:
+        return tavsif
+    toza, xato = database.clean_biznes_bilim(yangi)
+    if xato:
+        return f"saqlanmaydi: {xato}"
+    _saqla_taklif(egasi, thread_id, "bilim", eski=eski, yangi=toza, tavsif=tavsif)
+    return ("TAKLIF SAQLANDI, Bilim HALI O'ZGARMADI. Javobingiz AYNAN shu bo'lsin: "
+            f"«Bilimda: {tavsif}. Saqlaymi?»" + _SAVOL_QOIDASI)
+
+
+# ── Sozlamalar gap bilan ─────────────────────────────────────────────
+async def _sozlama_taklif(egasi: int, thread_id: int, args: dict) -> str:
+    """Bitta sozlama — tekshiriladi va taklif; «ha» da `_sozlama_qoy`."""
+    topilgan = database.biznes_egasi_ulanishi(egasi)
+    if not topilgan:
+        return "bot Telegram Biznes'ga ulanmagan"
+    ul = topilgan[1]
+    if args.get("rejim"):
+        r = str(args["rejim"])
+        if r not in BIZNES_REJIMLAR or (r == "avtomat" and not BIZNES_AVTOMAT_OCHIQ):
+            return f"rejim faqat: {', '.join(BIZNES_REJIMLAR)}"
+        if r == ul["rejim"]:
+            return f"rejim allaqachon «{REJIM_NOMI[r][0]}»"
+        q = {"rejim": r}
+        tavsif = (f"rejim «{REJIM_NOMI[ul['rejim']][0]}» → «{REJIM_NOMI[r][0]}» "
+                  f"({_TEG.sub('', REJIM_NOMI[r][1])})")
+    elif args.get("chat_id") is not None and (args.get("avtomat") is not None
+                                              or args.get("pauza_soat") is not None):
+        mijoz = await _kartotekadan(egasi, args.get("chat_id"))
+        if mijoz is None:
+            return "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
+        nom = _mijoz_nomi(mijoz)
+        if args.get("pauza_soat") is not None:
+            soat = args["pauza_soat"]
+            if not (isinstance(soat, int) and not isinstance(soat, bool) and 1 <= soat <= 72):
+                return "pauza_soat 1 dan 72 gacha butun son"
+            q = {"chat_id": mijoz["chat_id"], "pauza_soat": soat}
+            tavsif = f"{nom} chatida {soat} soat avtomat javob bermaydi"
+        else:
+            yoq = not bool(args["avtomat"])
+            q = {"chat_id": mijoz["chat_id"], "ochirilgan": yoq}
+            tavsif = f"{nom} chatida avtomat " + ("o'chiriladi" if yoq else "qayta yoqiladi")
+    elif args.get("ish_vaqti"):
+        s = str(args["ish_vaqti"]).strip().lower()
+        oraliq = None if s in ("doim", "kun bo'yi", "-") else vaqt_ajrat(s)
+        if oraliq is None and s not in ("doim", "kun bo'yi", "-"):
+            return "ish_vaqti: 'HH:MM-HH:MM' (masalan 20:00-09:00) yoki 'doim'"
+        q = {"ish_vaqti": oraliq or "-"}
+        tavsif = f"avtomat ishlash vaqti: {oraliq or 'kun bo‘yi'} (Toshkent)"
+    elif args.get("kutish_soniya") is not None or args.get("umumiy_pauza_soat") is not None:
+        ustun, qiymat, variant = (
+            ("kutish_soniya", args.get("kutish_soniya"), BIZNES_KUTISH_VARIANT)
+            if args.get("kutish_soniya") is not None else
+            ("pauza_soat", args.get("umumiy_pauza_soat"), BIZNES_PAUZA_VARIANT))
+        if qiymat not in variant or isinstance(qiymat, bool):
+            return f"{ustun} faqat shulardan biri: {', '.join(map(str, variant))}"
+        q = {"ustun": ustun, "qiymat": qiymat}
+        tavsif = (f"javobdan oldin kutish: {davomiylik(qiymat)}" if ustun == "kutish_soniya"
+                  else f"siz yozgan chatda jim turish: {qiymat} soat")
+    else:
+        return ("qaysi sozlama? rejim; chat_id+avtomat(true/false); chat_id+pauza_soat; "
+                "ish_vaqti; kutish_soniya; umumiy_pauza_soat")
+    _saqla_taklif(egasi, thread_id, "sozlama", q=q, tavsif=tavsif)
+    return ("TAKLIF SAQLANDI, HALI O'ZGARMADI. Javobingiz AYNAN shu bo'lsin: "
+            f"«{tavsif[0].upper() + tavsif[1:]}. Shunday qilaymi?»" + _SAVOL_QOIDASI)
+
+
+async def _sozlama_qoy(egasi: int, q: dict) -> None:
+    if "rejim" in q:
+        await database.biznes_rejim_yoz(egasi, q["rejim"])
+    elif "pauza_soat" in q:
+        await database.biznes_pauza(egasi, q["chat_id"], q["pauza_soat"])
+    elif "ochirilgan" in q:
+        await database.biznes_chat_ochir(egasi, q["chat_id"], q["ochirilgan"])
+    elif "ish_vaqti" in q:
+        await database.biznes_ish_vaqti_yoz(egasi, None if q["ish_vaqti"] == "-" else q["ish_vaqti"])
+    else:
+        await database.biznes_vaqt_yoz(egasi, q["ustun"], q["qiymat"])
 
 
 async def _taklifni_bajar(egasi: int, thread_id: int, t: dict) -> str:
     """Egasi «ha» dedi — egasiga ko'rinadigan natija."""
+    if t["tur"] == "bilim":
+        # Shu orada boshqa joydan (/biznes ekrani) o'zgargan bo'lsa — ustidan
+        # yozmaymiz: egasi ko'rmagan o'zgarish jimgina yo'qolardi.
+        if (await database.biznes_bilim_ol(egasi) or "") != t["eski"]:
+            return "❗ Bilim shu orada o'zgardi — saqlamadim. Qaytadan ayting."
+        await database.biznes_bilim_yoz(egasi, t["yangi"])
+        logger.info(f"[BIZNES] bilim gap bilan o'zgardi egasi={egasi}")
+        return "✅ Bilim yangilandi: " + t["tavsif"] + "."
+    if t["tur"] == "sozlama":
+        await _sozlama_qoy(egasi, t["q"])
+        logger.info(f"[BIZNES] sozlama gap bilan o'zgardi egasi={egasi} {list(t['q'])}")
+        return "✅ " + t["tavsif"][0].upper() + t["tavsif"][1:] + "."
     if not t["vaqt"]:
         ok, tavsif = await _topshiriq_yubor(egasi, t["chat_id"], t["matn"])
         return ("✅ " if ok else "❗ ") + tavsif + "."
@@ -2854,6 +3030,97 @@ async def _taklifni_bajar(egasi: int, thread_id: int, t: dict) -> str:
     dt = database.parse_run_at(t["vaqt"])
     return (f"⏰ {_vaqt_matni(dt) if dt else t['vaqt']} yuboraman va natijani shu "
             "yerda aytaman.")
+
+
+# ── Mavzudagi AI biznesni KO'RSIN (egasi, 2026-10-06: «tarixni eslasin») ──
+async def _suhbat(egasi: int, chat_id) -> str:
+    """Mijoz bilan yozishma — `thread_id = -egasi`, ya'ni faqat SHU egasiniki."""
+    mijoz = await _kartotekadan(egasi, chat_id)
+    if mijoz is None:
+        return "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
+    tarix = await get_chat_history(mijoz["chat_id"], 30, thread_id=biznes_thread(egasi))
+    if not tarix:
+        return (f"{_mijoz_nomi(mijoz)} bilan saqlangan yozishma yo'q (bot o'qish huquqisiz "
+                "yoki Pro'siz ulangan bo'lishi mumkin)")
+    nom = _mijoz_nomi(mijoz)
+    return f"{nom} bilan oxirgi yozishma (eskisidan yangisiga):\n" + "\n".join(
+        f"{nom if q.get('role') == 'user' else 'Egasi'}: {str(q.get('content', ''))[:400]}"
+        for q in tarix)
+
+
+async def _bugun(egasi: int) -> str:
+    chatlar = await database.biznes_faol_chatlar(egasi)
+    if not chatlar:
+        return "oxirgi 24 soatda hech kim bilan yozishma bo'lmagan"
+    nomlar = {m["chat_id"]: _mijoz_nomi(m) for m in await database.biznes_mijozlar(egasi)}
+    return "Oxirgi 24 soat (yangisi birinchi):\n" + "\n".join(
+        f"{i}. {nomlar.get(r['chat_id'], 'Ismsiz')} (chat_id={r['chat_id']}) — "
+        f"{r['soni']} xabar, oxirgisi {_necha_oldin(r['created_at'])[0]}, "
+        + ("JAVOB KUTMOQDA: " if r["role"] == "user" else "oxirgi so'z egasida: ")
+        + f"«{str(r['content'])[:150]}»"
+        for i, r in enumerate(chatlar, 1))
+
+
+async def _bilim_korish(egasi: int) -> str:
+    q = bilim_qatorlari(await database.biznes_bilim_ol(egasi) or "")
+    if not q:
+        return "Bilim bo'sh — qosh bilan qo'shish mumkin"
+    return "Bilim (qator raqami bilan):\n" + "\n".join(f"{i}. {x}" for i, x in enumerate(q, 1))
+
+
+async def holat_bloki(egasi: int) -> str:
+    """«💼 Biznes» mavzusidagi har so'rovga — biznesning HOZIRGI holati.
+
+    Nega tarix emas, holat: bot mavzuga yuboradigan qoralama va
+    ogohlantirishlar tarixga yozilmaydi, qidiruv natijalari ham — shuning
+    uchun «unga javob ber», «hozirgina kimga yozding?» savoliga model
+    javob bera olmasdi. Hamma qismi bazadan (deploy'dan omon) va qisqa:
+    har qism 5 tagacha, matnlar kesilgan (~200-500 token, faqat shu mavzuda).
+    Bitta qism yiqilsa qolganlari baribir chiqadi."""
+    qismlar = []
+    try:
+        mijozlar = {m["chat_id"]: m for m in await database.biznes_mijozlar(egasi)}
+    except Exception:
+        mijozlar = {}
+    nom = lambda cid: _mijoz_nomi(mijozlar[cid]) if cid in mijozlar else "Ismsiz"  # noqa: E731
+
+    t = _taklif.get(next((k for k in _taklif if k[0] == egasi), None))
+    if t and time.time() - t["t"] <= _TAKLIF_TTL:
+        qismlar.append("Tasdiq kutayotgan taklif: " + (
+            t.get("tavsif") or f"{nom(t['chat_id'])} ga «{t['matn'][:150]}»"))
+    bolimlar = (
+        ("Javob kutayotgan suhbatdoshlar", lambda: database.biznes_javobsizlar(
+            24 * 60, 0, owner_id=egasi),
+         lambda r: f"{nom(r['chat_id'])} (chat_id={r['chat_id']}), "
+                   f"{_necha_oldin(r['created_at'])[0]}: «{str(r['content'])[:120]}»"),
+        ("Hal qilinmagan qoralama/savollar", lambda: database.biznes_kutayotganlar(egasi),
+         lambda r: f"{nom(r['chat_id'])} (chat_id={r['chat_id']}) yozdi «{str(r['mijoz_matni'])[:100]}»"
+                   + (f" — sizdan so'ralgan: «{str(r['loyiha'])[:100]}»" if r["tanlov"]
+                      else f" — qoralama: «{str(r['loyiha'])[:100]}»")),
+        ("Oxirgi yuborilganlar (egasi nomidan)", lambda: database.biznes_yuborilganlar(egasi, 5),
+         lambda r: f"{nom(r['chat_id'])}, {_necha_oldin(r['vaqt'])[0]}: «{r['matn'][:100]}»"),
+        ("Rejalashtirilgan", lambda: database.list_scheduled_tasks(egasi, biznes=True),
+         lambda r: f"{r['run_at'].astimezone(database.TASHKENT_TZ):%d.%m %H:%M} — "
+                   f"{nom(r['biznes_kimga'])}: «{r['text'][:100]}»"),
+    )
+    for sarlavha, olish, qator in bolimlar:
+        try:
+            rows = (await olish())[:5]
+        except Exception as e:
+            logger.warning(f"[BIZNES] holat qismi o'qilmadi ({sarlavha}) egasi={egasi}: {e}")
+            continue
+        if rows:
+            qismlar.append(f"{sarlavha}:\n" + "\n".join(f"- {qator(r)}" for r in rows))
+    topilgan = database.biznes_egasi_ulanishi(egasi)
+    if topilgan:
+        ul = topilgan[1]
+        qismlar.append(f"Rejim: {REJIM_NOMI[ul['rejim']][0]}"
+                       + (f", ish vaqti {ul['ish_vaqti']}" if ul.get("ish_vaqti") else "")
+                       + ("" if ul["yoqilgan"] else " (ULANISH O'CHIQ)"))
+    if not qismlar:
+        return ""
+    return ("[BIZNES HOLATI — hozirgi, bazadan; egasiga ro'yxat qilib qaytarmang, "
+            "faqat savoliga kerak qismini ishlating]\n" + "\n\n".join(qismlar))
 
 
 async def tasdiq_ushla(message: Message) -> bool:
@@ -2871,7 +3138,7 @@ async def tasdiq_ushla(message: Message) -> bool:
         return False            # tuzatish yoki boshqa gap — taklif eskirdi, AI'ga
     premium_biznes()
     natija = (await _taklifni_bajar(egasi, mavzu, t) if tur == "ha"
-              else "Bekor qildim — hech narsa yuborilmadi.")
+              else "Bekor qildim — hech narsa yuborilmadi va o'zgarmadi.")
     await message.answer(natija)
     # Tarixga — keyingi savolda model nima bo'lganini bilsin.
     await safe_update_history(egasi, message.text, role="user", thread_id=mavzu)
@@ -2889,6 +3156,16 @@ async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
             return await _taklif_qil(egasi, thread_id, args)
         if amal in ("yuborilganlar", "ochir", "tahrir"):
             return await _yuborilganga(egasi, amal, args)
+        if amal == "suhbat":
+            return await _suhbat(egasi, args.get("chat_id"))
+        if amal == "bugun":
+            return await _bugun(egasi)
+        if amal == "bilim":
+            return await _bilim_korish(egasi)
+        if amal == "bilim_ozgartir":
+            return await _bilim_taklif(egasi, thread_id, args)
+        if amal == "sozlama":
+            return await _sozlama_taklif(egasi, thread_id, args)
         rows = await database.list_scheduled_tasks(egasi, biznes=True)
         if amal == "royxat":
             if not rows:
@@ -2905,8 +3182,8 @@ async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
                     and 1 <= idx <= len(rows)):
                 return f"bunday raqam yo'q (hozir {len(rows)} ta) — avval royxat"
             return await database.cancel_scheduled_task(egasi, rows[idx - 1]["id"])
-        return ("noma'lum amal — qidir, yubor, royxat, bekor, yuborilganlar, "
-                "ochir yoki tahrir")
+        return ("noma'lum amal — qidir, yubor, royxat, bekor, yuborilganlar, ochir, "
+                "tahrir, suhbat, bugun, bilim, bilim_ozgartir yoki sozlama")
     except Exception as e:
         logger.warning(f"[BIZNES] topshiriq xatosi egasi={egasi} amal={amal}: {e}")
         return "bajarilmadi (texnik xato) — egasiga ayting"

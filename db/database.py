@@ -1586,6 +1586,41 @@ async def biznes_tozala() -> None:
 
 
 @with_db_retry()
+async def biznes_kutayotganlar(owner_id: int, limit: int = 5) -> List[Dict[str, Any]]:
+    """Egasi hali hal qilmagan qoralama va «faqat siz bilasiz» savollari —
+    «💼 Biznes» mavzusidagi AI holat blokiga (`biznes.holat_bloki`)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, chat_id, mijoz_matni, loyiha, variantlar IS NOT NULL AS tanlov, "
+            "yaratilgan FROM biznes_loyiha WHERE owner_id = $1 AND holat = 'kutmoqda' "
+            "AND yaratilgan > NOW() - make_interval(hours => $2::int) "
+            "ORDER BY id DESC LIMIT $3", owner_id, BIZNES_LOYIHA_TTL_SOAT, limit)
+    return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def biznes_faol_chatlar(owner_id: int, soat: int = 24,
+                              limit: int = 15) -> List[Dict[str, Any]]:
+    """Oxirgi `soat` da yozishma bo'lgan chatlar: oxirgi xabar (kimniki),
+    xabarlar soni. Egasi filtri — `thread_id = -owner_id` (business tarixi
+    shu kalitda; boshqa egasining yozishmasi bu so'rovga tushmaydi)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT DISTINCT ON (chat_id) chat_id, role, content, created_at, "
+            "COUNT(*) OVER (PARTITION BY chat_id) AS soni FROM chat_messages "
+            "WHERE thread_id = $1 AND created_at > NOW() - make_interval(hours => $2::int) "
+            "ORDER BY chat_id, created_at DESC", -owner_id, int(soat))
+    rows = sorted((dict(r) for r in rows), key=lambda r: r["created_at"], reverse=True)
+    return rows[:limit]
+
+
+@with_db_retry()
 async def biznes_loyiha_eskirt(owner_id: int, chat_id: int) -> None:
     """Egasi mijozga o'zi yozdi — o'sha chatdagi loyiha endi o'rinsiz."""
     global pool

@@ -2227,7 +2227,31 @@ async def handle_text(message: Message, state: FSMContext):
         if await tasdiq_ushla(message):
             return
 
-    await _queue_for_ai(chat_id, message, message.text, state)
+    await _queue_for_ai(chat_id, message, await _biznes_iqtibos(message), state)
+
+
+async def _biznes_iqtibos(message: Message) -> str:
+    """«💼 Biznes» mavzusida egasi BOTNING xabariga reply qilsa (qoralama,
+    «javob kutmoqda», «faqat siz bilasiz») — o'sha xabar matni so'rovga
+    qo'shiladi: usiz «unga javob ber» kimga ekani modelga noma'lum edi,
+    chunki bu xabarlar mavzu tarixiga yozilmaydi.
+
+    ⚠️ Forum mavzusida reply qilinmagan xabarning `reply_to_message` i ham
+    bor — mavzuning ochilish (xizmat) xabari, uni ham bot ochgan. Unda matn
+    yo'q, shuning uchun bo'sh iqtibos o'tkazib yuboriladi."""
+    matn = message.text
+    javob = message.reply_to_message
+    if not (javob and message.chat.id == message.from_user.id and javob.from_user
+            and javob.from_user.id == message.bot.id and (javob.text or javob.caption)):
+        return matn
+    mavzu = _thread_key(message)
+    if mavzu <= 0:
+        return matn
+    from db.database import biznes_mavzumi  # mavzudagi reply'da bitta so'rov
+    if not await biznes_mavzumi(message.from_user.id, mavzu):
+        return matn
+    iqtibos = " ".join((javob.text or javob.caption).split())[:600]
+    return f"[Egasi botning shu xabariga javob yozmoqda: «{iqtibos}»]\n{matn}"
 
 
 async def _queue_for_ai(chat_id: int, message: Message, text: str,

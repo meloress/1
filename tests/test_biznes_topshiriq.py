@@ -113,6 +113,14 @@ database.biznes_yuborilgan_yoz = _yoz
 database.biznes_yuborilganlar = _yuborilganlar
 database.biznes_yuborilgan_ochir = _y_ochir
 database.biznes_yuborilgan_tahrir = _y_tahrir
+eskirgan = []
+
+
+async def _eskirt(owner_id, chat_id):
+    eskirgan.append((owner_id, chat_id))
+
+
+database.biznes_loyiha_eskirt = _eskirt   # ⚠️ usiz test .env dagi JONLI bazaga borardi
 b.bot = NS(delete_business_messages=_tg_ochir, edit_message_text=_tg_tahrir)
 
 
@@ -144,7 +152,8 @@ async def _bekor(user_id, task_id):
 
 database.biznes_mijozlar = _mijozlar
 database.biznes_egasi_ulanishi = lambda o: ("conn-1", {
-    "yoqilgan": holat["yoqilgan"], "huquqlar": holat["huquq"]}) if o == EGASI else None
+    "yoqilgan": holat["yoqilgan"], "huquqlar": holat["huquq"], "rejim": "yordamchi",
+    "ish_vaqti": None}) if o == EGASI else None
 database.create_scheduled_task = _yarat
 database.list_scheduled_tasks = _royxat
 database.cancel_scheduled_task = _bekor
@@ -365,10 +374,224 @@ check(28, "o'chirish huquqining rasmiy nomi uch tilda",
       and b._HUQUQ_TIL["ru"]["can_delete_sent_messages"] == "Удаление исходящих")
 tavsif = ai._BIZNES_XABAR_TOOL["description"]
 check(29, "tavsif: yubor — faqat taklif; noto'g'ri odam → o'chir",
-      "HECH NARSA YUBORMAYDI" in tavsif and "Boshqa odamga yozibsan" in tavsif)
+      "HECH NARSA QILMAYDI" in tavsif and "Boshqa odamga yozibsan" in tavsif)
 m_src = kod(os.path.join(ROOT, "handlers", "messages.py"))
 ht = m_src[m_src.index("async def handle_text"):m_src.index("async def _queue_for_ai")]
 check(30, "handle_text: tasdiq AI navbatidan OLDIN ushlanadi",
       ht.index("tasdiq_ushla") < ht.index("await _queue_for_ai"))
 
-print("\nbiznes_topshiriq: barcha tekshiruvlar o'tdi (40/40).")
+# ═══ 31-45. Mavzudagi AI biznesni ko'radi va boshqaradi (2026-10-06) ═══
+from handlers import biznes_uslub  # noqa: E402
+
+yozuvlar = []                                   # bazaga yozuvchi chaqiruvlar
+BILIM = {"matn": "Do'kon: kiyim\nNarx: 40 000\nManzil: Chilonzor"}
+model_chaqiruv = []
+
+
+async def _bilim_ol(o):
+    return BILIM["matn"] if o == EGASI else ""
+
+
+async def _bilim_yoz(o, matn):
+    yozuvlar.append(("bilim", o, matn))
+
+
+async def _yozuvchi(nom):
+    async def f(*a):
+        yozuvlar.append((nom,) + a)
+    return f
+
+
+async def _model_soxta(prompt, chat_id, thread, egasi, **kw):
+    model_chaqiruv.append((prompt, chat_id, thread, egasi, kw))
+    return holat.get("model_javob", "Ertaga soat 10 da keling.")
+
+
+async def _uslub_ol(o):
+    return {"uslub_egasi": "doim «siz» deb yoz"}
+
+
+async def _tarix_ol(chat_id, limit=30, thread_id=0):
+    model_chaqiruv.append(("tarix", chat_id, thread_id))
+    return [{"role": "user", "content": "narxi qancha?"},
+            {"role": "assistant", "content": "40 ming"}]
+
+
+async def _faol(o, soat=24, limit=15):
+    return [{"chat_id": 13, "role": "user", "content": "yetkazib berasizmi?",
+             "created_at": HOZIR - timedelta(minutes=20), "soni": 3}]
+
+
+async def _javobsiz(dan, gacha, owner_id=None, faqat_yangi=False):
+    return [{"chat_id": 11, "content": "bormi?", "created_at": HOZIR - timedelta(hours=2)}]
+
+
+async def _kutayotgan(o, limit=5):
+    raise RuntimeError("baza uzildi")          # bitta qism yiqilsa ham qolgani chiqsin
+
+
+database.biznes_bilim_ol = _bilim_ol
+database.biznes_bilim_yoz = _bilim_yoz
+for _n in ("biznes_rejim_yoz", "biznes_chat_ochir", "biznes_pauza",
+           "biznes_ish_vaqti_yoz", "biznes_vaqt_yoz"):
+    setattr(database, _n, run(_yozuvchi(_n)))
+database.biznes_faol_chatlar = _faol
+database.biznes_javobsizlar = _javobsiz
+database.biznes_kutayotganlar = _kutayotgan
+b._model = _model_soxta
+b.get_chat_history = _tarix_ol
+biznes_uslub.uslub_ol = _uslub_ol
+
+
+def tozala2():
+    tozala()
+    for x in (yozuvlar, model_chaqiruv, eskirgan):
+        x.clear()
+    b._taklif.clear()
+    holat.pop("model_javob", None)
+
+
+# ── 31. Yuborilgach shu chatdagi qoralama eskiradi (ikki javob ketmasin) ──
+tozala2()
+taklif_va({"chat_id": 11, "matn": "Salom"}, "ha")
+check(31, "yuborilgach o'sha chat qoralamasi eskirtiriladi (keyingi «Yuborish» ikkinchi javob bo'lmasin)",
+      eskirgan == [(EGASI, 11)])
+
+# ── 32-33. korsatma: matnni .javob yo'lida yozadi ────────────────────
+tozala2()
+taklif = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 13,
+                                 "korsatma": "ertaga 10 da kelsin"}, 55))
+p, cid, th, eg, kw = model_chaqiruv[0]
+check(32, "korsatma: o'sha mijoz tarixi (-egasi), Bilim va Uslub bilan; taklifda yozilgan matn",
+      cid == 13 and th == -EGASI and "ertaga 10 da kelsin" in p
+      and "Narx: 40 000" in kw["biznes_yoriqnoma"] and "«siz»" in kw["biznes_yoriqnoma"]
+      and "Ertaga soat 10 da keling." in taklif and not yuborilgan)
+tozala2()
+holat["model_javob"] = "[tanlov: soat nechida? | 9 | 10]"
+javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 13, "korsatma": "kelsin"}, 55))
+check(33, "model bo'sh/marker qaytarsa — taklif YO'Q, aniq so'z so'raladi",
+      "yozib bo'lmadi" in javob and not b._taklif)
+
+# ── 34-37. Bilim ─────────────────────────────────────────────────
+yangi, tavsif = b.bilim_ozgartir(BILIM["matn"], "Yetkazib berish: bepul", 2, "Narx: 50 000", None)
+check(34, "bilim_ozgartir: faqat ko'rsatilgan qator, qolgani AYNAN qoladi",
+      yangi == "Do'kon: kiyim\nNarx: 50 000\nManzil: Chilonzor\nYetkazib berish: bepul"
+      and "«Narx: 40 000» → «Narx: 50 000»" in tavsif)
+check(35, "bilim_ozgartir: bool/0/chegaradan tashqari/bo'sh o'zgarish — rad",
+      all(b.bilim_ozgartir(BILIM["matn"], "", q, "x", None)[0] is None for q in (True, 0, 4))
+      and b.bilim_ozgartir(BILIM["matn"], "", None, "", None)[0] is None
+      and b.bilim_ozgartir(BILIM["matn"], "", None, "", 3)[0] == "Do'kon: kiyim\nNarx: 40 000")
+tozala2()
+taklif = run(b.topshiriq(EGASI, {"amal": "bilim_ozgartir", "qator": 2, "matn": "Narx: 50 000"}, 55))
+check(36, "bilim: taklif kod yozgan tavsif bilan, hali o'zgarmagan",
+      "Saqlaymi?" in taklif and "«Narx: 40 000» → «Narx: 50 000»" in taklif and not yozuvlar)
+m = xabar("ha")
+run(b.tasdiq_ushla(m))
+check("36b", "«ha» — saqlanadi, faqat o'sha qator o'zgaradi",
+      yozuvlar == [("bilim", EGASI, "Do'kon: kiyim\nNarx: 50 000\nManzil: Chilonzor")]
+      and m.javoblar[0].startswith("✅"))
+tozala2()
+run(b.topshiriq(EGASI, {"amal": "bilim_ozgartir", "qosh": "Chegirma: 10%"}, 55))
+BILIM["matn"] += "\nYangi qator"                       # shu orada /biznes dan o'zgardi
+m = xabar("ha")
+run(b.tasdiq_ushla(m))
+BILIM["matn"] = "Do'kon: kiyim\nNarx: 40 000\nManzil: Chilonzor"
+check("36c", "shu orada Bilim o'zgargan bo'lsa — ustidan yozmaydi",
+      not yozuvlar and "o'zgardi" in m.javoblar[0])
+tozala2()
+javob = run(b.topshiriq(EGASI, {"amal": "bilim_ozgartir", "qosh": "Karta: 8600 1234 5678 9012"}, 55))
+check(37, "karta raqami Bilimga kirmaydi (clean_biznes_bilim)", "saqlanmaydi" in javob and not b._taklif)
+
+# ── 38-41. Sozlamalar ────────────────────────────────────────────
+tozala2()
+javob = run(b.topshiriq(EGASI, {"amal": "sozlama", "rejim": "avtomat"}, 55))
+m = xabar("ha")
+run(b.tasdiq_ushla(m))
+check(38, "rejim: taklif → «ha» → biznes_rejim_yoz",
+      "Shunday qilaymi?" in javob and yozuvlar == [("biznes_rejim_yoz", EGASI, "avtomat")])
+tozala2()
+xatolar = [run(b.topshiriq(EGASI, {"amal": "sozlama", **a}, 55)) for a in (
+    {"rejim": "turbo"}, {"chat_id": 999, "avtomat": False}, {"chat_id": 11, "pauza_soat": 0},
+    {"chat_id": 11, "pauza_soat": True}, {"ish_vaqti": "25-9"}, {"kutish_soniya": 45}, {})]
+check(39, "noto'g'ri sozlamalar — taklif ham, yozuv ham yo'q",
+      not b._taklif and not yozuvlar and len(xatolar) == 7)
+tozala2()
+run(b.topshiriq(EGASI, {"amal": "sozlama", "chat_id": 11, "avtomat": False}, 55))
+run(b.tasdiq_ushla(xabar("ha")))
+run(b.topshiriq(EGASI, {"amal": "sozlama", "chat_id": 13, "pauza_soat": 2}, 55))
+run(b.tasdiq_ushla(xabar("ha")))
+run(b.topshiriq(EGASI, {"amal": "sozlama", "ish_vaqti": "20-9"}, 55))
+run(b.tasdiq_ushla(xabar("ha")))
+run(b.topshiriq(EGASI, {"amal": "sozlama", "ish_vaqti": "doim"}, 55))
+run(b.tasdiq_ushla(xabar("ha")))
+run(b.topshiriq(EGASI, {"amal": "sozlama", "kutish_soniya": 60}, 55))
+run(b.tasdiq_ushla(xabar("ha")))
+check(40, "chat avtomati, pauza, ish vaqti (20-9 → 20:00-09:00, doim → None), kutish",
+      yozuvlar == [("biznes_chat_ochir", EGASI, 11, True), ("biznes_pauza", EGASI, 13, 2),
+                   ("biznes_ish_vaqti_yoz", EGASI, "20:00-09:00"),
+                   ("biznes_ish_vaqti_yoz", EGASI, None),
+                   ("biznes_vaqt_yoz", EGASI, "kutish_soniya", 60)])
+tozala2()
+run(b.topshiriq(EGASI, {"amal": "sozlama", "rejim": "kuzatuv"}, 55))
+run(b.tasdiq_ushla(xabar("yo'q")))
+check(41, "«yo'q» — sozlama o'zgarmaydi", not yozuvlar)
+
+# ── 42-43. Yozishma va bugungi chatlar ────────────────────────────
+tozala2()
+javob = run(b.topshiriq(EGASI, {"amal": "suhbat", "chat_id": 11}, 55))
+check(42, "suhbat: faqat shu egasining kaliti (-egasi), mijoz ismi bilan",
+      model_chaqiruv == [("tarix", 11, -EGASI)] and "Хусан: narxi qancha?" in javob
+      and "Egasi: 40 ming" in javob)
+tozala2()
+javob = run(b.topshiriq(EGASI, {"amal": "suhbat", "chat_id": 999}, 55))
+check("42b", "begona chat_id — yozishma O'QILMAYDI", not model_chaqiruv and "kartotekasida yo'q" in javob)
+javob = run(b.topshiriq(EGASI, {"amal": "bugun"}, 55))
+check(43, "bugun: kim javob kutmoqda", "Anvar" in javob and "JAVOB KUTMOQDA" in javob)
+
+# ── 44. Holat bloki ──────────────────────────────────────────────
+tozala2()
+run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 13, "matn": "Salom"}, 55))
+blok = run(b.holat_bloki(EGASI))
+check(44, "holat: taklif, javob kutayotgan, yuborilgan, reja, rejim; yiqilgan qism boshqalarni to'xtatmaydi",
+      "[BIZNES HOLATI" in blok and "Tasdiq kutayotgan taklif" in blok
+      and "Хусан (chat_id=11)" in blok and "Oxirgi yuborilganlar" in blok
+      and "Rejalashtirilgan" in blok and "Rejim: Yordamchi" in blok
+      and "Hal qilinmagan" not in blok)
+
+# ── 45. Reply konteksti ──────────────────────────────────────────
+mavzumi = {"javob": True}
+
+
+async def _mavzumi(o, t):
+    return mavzumi["javob"]
+
+
+database.biznes_mavzumi = _mavzumi
+BOT_ID = 555000
+
+
+def reply(matn, javob):
+    return NS(text=matn, chat=NS(id=EGASI), from_user=NS(id=EGASI), bot=NS(id=BOT_ID),
+              reply_to_message=javob)
+
+
+bot_xabari = NS(from_user=NS(id=BOT_ID), text="✍️ Хусан yozdi: bormi?", caption=None)
+ildiz = NS(from_user=NS(id=BOT_ID), text=None, caption=None)      # mavzu ochilish xabari
+begona = NS(from_user=NS(id=EGASI), text="o'zimning xabarim", caption=None)
+r1 = run(hm._biznes_iqtibos(reply("unga javob ber", bot_xabari)))
+r2 = run(hm._biznes_iqtibos(reply("salom", ildiz)))
+r3 = run(hm._biznes_iqtibos(reply("salom", begona)))
+mavzumi["javob"] = False
+r4 = run(hm._biznes_iqtibos(reply("unga javob ber", bot_xabari)))
+check(45, "reply: bot xabari iqtibos bo'ladi; mavzu ildizi, o'z xabari, boshqa mavzu — o'zgarmaydi",
+      r1.startswith("[Egasi botning shu xabariga javob yozmoqda: «✍️ Хусан yozdi: bormi?»]")
+      and r1.endswith("unga javob ber") and r2 == "salom" and r3 == "salom"
+      and r4 == "unga javob ber")
+
+# ── 46. AI: holat bloki faqat Biznes mavzusida, foydalanuvchi xabaridan oldin ──
+gor = src[src.index("async def get_openai_reply"):]
+check(46, "holat bloki: biznes_enabled bilan, user xabaridan OLDIN, mijoz yo'lida emas",
+      gor.index("holat_bloki") < gor.index('messages.append({"role": "user"')
+      and "and not biznes" in gor[gor.index("biznes_enabled = ("):gor.index("holat_bloki")])
+
+print("\nbiznes_topshiriq: barcha tekshiruvlar o'tdi (61/61).")

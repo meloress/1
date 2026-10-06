@@ -325,6 +325,36 @@ tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL
   egasining «ha»si unga tegmaydi. Javob va natija mavzu tarixiga yoziladi. ⚠️ Deploy RAM'ni
   bo'shatadi — o'shanda «ha» AI'ga ketadi va model bir marta qayta so'raydi (ataylab: bazaga
   ko'chirish arzimaydi). Ovozli «ha» ham AI'ga ketadi. `test_biznes_topshiriq.py` 7-10c, 30.
+- **Mavzudagi AI biznesni KO'RADI va BOSHQARADI** (egasi, 2026-10-06: «tarixni eslasin, 1-3
+  guruhni to'liq»). Qoralama, «javob kutmoqda», «faqat siz bilasiz» xabarlari va qidiruv
+  natijalari mavzu TARIXIGA yozilmaydi — shuning uchun tarixni emas, HOLATNI beramiz:
+  - `holat_bloki()` — har so'rovda (`biznes_enabled` bo'lganda, foydalanuvchi xabaridan
+    oldin, tarixdan keyin — prefiks keshi buzilmaydi): kutayotgan taklif, javob kutayotganlar
+    (`biznes_javobsizlar(24*60, 0)`), hal qilinmagan qoralama/savollar
+    (`biznes_kutayotganlar`), oxirgi yuborilganlar, rejalashtirilganlar, rejim. Har qism ≤5,
+    matnlar kesilgan, chat_id bilan; bitta qism yiqilsa qolganlari chiqadi. Odatda bir necha
+    yuz token, eng og'iri ~1 300 — faqat shu mavzuda.
+  - **Reply konteksti** (`messages._biznes_iqtibos`): egasi botning xabariga reply qilsa,
+    o'sha matn so'rovga qo'shiladi («unga javob ber»). ⚠️ Forum mavzusida reply qilinmagan
+    xabarning ham `reply_to_message` i bor (mavzu ochilish xabari, bot ochgan) — matnsiz,
+    shuning uchun o'tkazib yuboriladi. Faqat Biznes mavzusida (bitta `biznes_mavzumi`).
+  - `suhbat` — mijoz bilan yozishma (`get_chat_history(chat, 30, thread_id=-egasi)`,
+    kartotekadan tashqari chat_id o'qilmaydi); `bugun` — `biznes_faol_chatlar` (oxirgi 24 soat,
+    `thread_id = -owner_id` filtri), kim javob kutmoqda; `qidir` endi telefon va qiziqishni ham beradi.
+  - `korsatma` — mazmun aytilsa matnni `_matn_yoz()` yozadi: `.javob` yo'li (o'sha mijoz
+    tarixi, `biznes_yoriqnoma` = Uslub + Bilim, tool'siz, `BIZNES_MODEL_TIMEOUT`);
+    `[tanlov:]`/bo'sh — taklif yo'q, aniq so'z so'raladi. Ball yechilmaydi (egasining so'rovi allaqachon to'langan).
+  - ⛔️ **Bilim qator raqami bilan** (`bilim`, `bilim_ozgartir`: qosh / qator+matn / ochir_qator).
+    Model butun Bilimni qayta yozmaydi — so'ralmagan qatorni jimgina tashlab ketishi mumkin edi.
+    Tavsifni KOD yozadi, `clean_biznes_bilim` (karta), saqlashda Bilim shu orada o'zgarmaganini
+    tekshiradi.
+  - `sozlama` — rejim, chat avtomati, chat pauzasi (1-72 soat), ish vaqti (`vaqt_ajrat`),
+    kutish / umumiy pauza (faqat `BIZNES_*_VARIANT` qiymatlari). Mavjud keshli DB funksiyalari.
+  - **Hammasi bitta taklif mexanizmida** (`_taklif`, `tur`: xabar / bilim / sozlama) — «ha»
+    kodda, `test_biznes_topshiriq.py` 31-46.
+  - Yuborilgach shu chatdagi kutayotgan qoralama `eskirgan` — keyin uning «Yuborish»i mijozga
+    ikkinchi javob bo'lmasin.
+  - Sxema **1 126 token** (faqat shu mavzuda, `MAX_BIZNES_ROUNDS` 5).
 - **O'chirish / tahrirlash** (`amal`: `yuborilganlar`, `ochir`, `tahrir`, `_yuborilganga`):
   faqat bot topshiriq bilan O'ZI yuborgani — `biznes_yuborilgan` (message_id bilan, RAM emas;
   `BIZNES_YUBORILGAN_KUN` 7 kundan eskisi yozuvda o'chadi; egani tozalashda ham). Egasining o'z

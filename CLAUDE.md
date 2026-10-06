@@ -740,6 +740,10 @@ owner-style learning) and the planned next work. The four rules that break silen
   `scheduled_tasks.biznes_kimga`. ⛔️ Telegram's 24-hour rule cannot be bypassed; a rejected
   send returns the text plus a `t.me/<user>?text=` link, never "sent". It can also list,
   delete and edit what **it** sent (`biznes_yuborilgan`, never the owner's own messages).
+  The topic also gets a `[BIZNES HOLATI]` developer block (drafts, waiting chats, sent,
+  scheduled — none of which is in the topic history), the text of a bot message the owner
+  replied to, and can read a customer chat, edit Knowledge **by line number** and change
+  settings. Every write (send / Knowledge / setting) is a proposal confirmed by "ha" in code.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

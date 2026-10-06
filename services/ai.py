@@ -3786,48 +3786,63 @@ _BIZNES_XABAR_TOOL = {
     "type": "function",
     "name": "biznes_xabar",
     "description": (
-        "Egasining suhbatdoshiga (mijoz, do'st) uning NOMIDAN Telegram'da "
-        "xabar yuborish — hozir yoki belgilangan vaqtda: 'soat 8 da Xusanga "
-        "salom deb yoz', 'Anvarga ayt, ertaga kelsin'. Bu ESLATMA EMAS — "
-        "manage_reminder/open_reminder bu yerda ishlatilmaydi.\n"
-        "amal='qidir' — DOIM birinchi: `ism` bo'yicha suhbatdoshni topadi. "
-        "Bir nechta chiqsa — egasiga har birini havolasi bilan qisqa sanab, "
-        "qaysi biri ekanini SO'RANG. Mos topilmasa oxirgi suhbatdoshlar "
-        "qaytadi — o'xshashini taklif qiling.\n"
-        "amal='yubor' — HECH NARSA YUBORMAYDI: taklifni saqlaydi va natijada "
-        "egasiga beriladigan BITTA tasdiq savolini qaytaradi — o'shani "
-        "bering. Egasi 'ha' desa bot o'zi yuboradi; tuzatish aytsa — yangi "
-        "yubor (yangi taklif). Alohida 'shunday yuboraymi?' deb so'ramang, "
-        "darhol yubor'ni chaqiring. `chat_id` (qidir natijasidan), `matn`, `vaqt` "
-        "('YYYY-MM-DD HH:MM' Toshkent; hozir yuborish uchun bo'sh). Vaqtni "
-        "eslatmadagidek o'zingiz hisoblang: 'soat 8' = 08:00 (20:00 EMAS, "
-        "'kechki' desagina), o'tgan bo'lsa ertangi kun. chat_id FAQAT shu "
-        "so'rovdagi qidir natijasidan — oldingi xabarda tanlangan bo'lsa ham "
-        "qidirni qayta chaqiring, raqamni taxmin qilmang.\n"
-        "amal='royxat' — rejalashtirilganlar; amal='bekor' — `index` bilan.\n"
-        "amal='yuborilganlar' — egasi nomidan yuborilganlar (oxirgi 7 kun); "
-        "amal='ochir' (`index`) yoki 'tahrir' (`index` + yangi `matn`) — raqamni "
-        "AVVAL yuborilganlar bilan oling. 'Boshqa odamga yozibsan' desa — "
-        "o'chiring, keyin to'g'ri odamni so'rang.\n"
-        "MATN: egasi aniq so'z bergan bo'lsa ('salom deb yoz') — AYNAN "
-        "o'sha. Mazmunini aytgan bo'lsa ('ertaga kelsin deb ayt', 'soat nechi "
-        "bo'lganini ayt') — egasi nomidan, birinchi shaxsda, qisqa o'zingiz "
-        "yozing. Nima yozishni umuman aytmagan bo'lsa — so'rang: 'nima deb "
-        "yozay yoki o'zim yozib beraymi?'.\n"
-        "⛔️ Telegram faqat oxirgi 24 soatda egasiga YOZGAN odamga yozishga "
-        "ruxsat beradi — qidir natijasida har biri uchun yozilgan; ruxsat "
-        "bo'lmasa egasiga oldindan ayting."
+        "Egasining Telegram Biznesi: suhbatdoshlariga (mijoz, do'st) uning "
+        "NOMIDAN yozish, yozishmalarni ko'rish, Bilim va sozlamalar. Bu ESLATMA "
+        "EMAS — manage_reminder/open_reminder bu yerda ishlatilmaydi. "
+        "[BIZNES HOLATI] blokida hozirgi javob kutayotganlar, qoralamalar, "
+        "yuborilgan va rejalashtirilganlar bor (chat_id bilan) — 'unga', "
+        "'o'sha' kimligini shundan va egasi reply qilgan xabardan aniqlang.\n"
+        "amal='qidir' — `ism` bo'yicha suhbatdosh (telefon, qiziqishi bilan). "
+        "Bir nechta chiqsa — havolasi bilan sanab, qaysi biri ekanini SO'RANG; "
+        "topilmasa oxirgi suhbatdoshlar qaytadi — o'xshashini taklif qiling.\n"
+        "amal='suhbat' (`chat_id`) — o'sha odam bilan yozishma: 'Xusan nima "
+        "dedi?', 'qisqacha ayt'. amal='bugun' — oxirgi 24 soatda kim yozdi, "
+        "kim javob kutmoqda.\n"
+        "amal='yubor' — `chat_id`, `vaqt` ('YYYY-MM-DD HH:MM' Toshkent; hozir "
+        "uchun bo'sh; 'soat 8' = 08:00, 'kechki' desagina 20:00; o'tgan bo'lsa "
+        "ertangi kun) va BITTASI: `matn` — egasi aniq so'z bergan bo'lsa "
+        "('salom deb yoz') AYNAN o'sha; `korsatma` — mazmunini aytgan bo'lsa "
+        "('ertaga kelsin deb ayt', 'unga javob ber') — bot o'sha yozishma, "
+        "Bilim va egasi uslubi bilan o'zi yozadi. Hech narsa aytilmagan bo'lsa "
+        "— so'rang: 'nima deb yozay yoki o'zim yozib beraymi?'.\n"
+        "amal='royxat' / 'bekor' (`index`) — rejalashtirilganlar. "
+        "amal='yuborilganlar' — egasi nomidan yuborilganlar (7 kun); 'ochir' "
+        "(`index`) / 'tahrir' (`index` + `matn`) — raqamni AVVAL yuborilganlar "
+        "bilan oling. 'Boshqa odamga yozibsan' desa — o'chiring.\n"
+        "amal='bilim' — Bilim qator raqami bilan; 'bilim_ozgartir' — `qosh` "
+        "(yangi qator), yoki `qator`+`matn` (almashtirish), yoki `ochir_qator` "
+        "— raqamni avval bilim bilan oling, butun matnni qayta yozmang.\n"
+        "amal='sozlama' — BITTASI: `rejim` (buyruq/yordamchi/kuzatuv/avtomat); "
+        "`chat_id`+`avtomat` (true/false); `chat_id`+`pauza_soat`; `ish_vaqti` "
+        "('20:00-09:00' yoki 'doim'); `kutish_soniya`; `umumiy_pauza_soat`.\n"
+        "⛔️ yubor, bilim_ozgartir, sozlama HECH NARSA QILMAYDI — taklif saqlab, "
+        "BITTA tasdiq savolini qaytaradi: o'shani bering, alohida so'ramang. "
+        "Egasi 'ha' desa bot o'zi bajaradi. chat_id — faqat qidir natijasidan "
+        "yoki [BIZNES HOLATI] dan, taxmin qilmang. Telegram faqat oxirgi 24 "
+        "soatda egasiga YOZGAN odamga yozishga ruxsat beradi."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "amal": {"type": "string", "enum": ["qidir", "yubor", "royxat", "bekor",
-                                                "yuborilganlar", "ochir", "tahrir"]},
+            "amal": {"type": "string", "enum": [
+                "qidir", "suhbat", "bugun", "yubor", "royxat", "bekor",
+                "yuborilganlar", "ochir", "tahrir", "bilim", "bilim_ozgartir",
+                "sozlama"]},
             "ism": {"type": "string"},
             "chat_id": {"type": "integer"},
             "matn": {"type": "string"},
+            "korsatma": {"type": "string"},
             "vaqt": {"type": "string"},
             "index": {"type": "integer"},
+            "qosh": {"type": "string"},
+            "qator": {"type": "integer"},
+            "ochir_qator": {"type": "integer"},
+            "rejim": {"type": "string"},
+            "avtomat": {"type": "boolean"},
+            "pauza_soat": {"type": "integer"},
+            "ish_vaqti": {"type": "string"},
+            "kutish_soniya": {"type": "integer"},
+            "umumiy_pauza_soat": {"type": "integer"},
         },
         "required": ["amal"],
     },
@@ -4494,6 +4509,21 @@ async def get_openai_reply(
     if biznes_yoriqnoma is not None:
         messages.append({"role": "developer", "content": biznes_yoriqnoma})
 
+    # Egasining «💼 Biznes» mavzusi: `biznes_xabar` asbobi + biznesning HOZIRGI
+    # holati (qoralamalar, javob kutayotganlar, yuborilganlar — ular mavzu
+    # tarixiga yozilmaydi). Faqat Pro, shaxsiy chat, mavzu > 0 — baza so'rovi
+    # faqat mavzudagi xabarda. Tarixdan KEYIN: keshlanadigan prefiks buzilmaydi.
+    biznes_enabled = (tools_enabled and is_pro and user_id is not None and not biznes
+                      and chat_id == user_id and thread_id > 0
+                      and await _biznes_mavzusimi(user_id, thread_id))
+    if biznes_enabled:
+        try:
+            from handlers.biznes import holat_bloki  # kech: tsiklik import
+            if blok := await holat_bloki(user_id):
+                messages.append({"role": "developer", "content": blok})
+        except Exception as e:
+            logger.warning(f"[BIZNES] holat bloki qurilmadi user={user_id}: {e}")
+
     # Rasm faqat SHU xabarda — tarixga matn yoziladi (`[Rasm yuborildi]`),
     # aks holda har keyingi so'rov rasm tokenlarini qayta to'lardi.
     # Albom — bir nechta rasm (ro'yxat), BITTA so'rovda.
@@ -4595,13 +4625,10 @@ async def get_openai_reply(
     MAX_NEARBY_ROUNDS = 2
     nearby_rounds = 0
 
-    # Business topshirig'i: faqat egasining «💼 Biznes» mavzusida (shaxsiy
-    # chat, mavzu > 0) va Pro'da. Baza so'rovi faqat mavzudagi xabarda.
-    # 4: qidir + yubor, yoki royxat + bekor, bitta xatoli urinish bilan.
-    biznes_enabled = (tools_enabled and is_pro and user_id is not None
-                      and chat_id == user_id and thread_id > 0
-                      and await _biznes_mavzusimi(user_id, thread_id))
-    MAX_BIZNES_ROUNDS = 4
+    # Business topshirig'i — `biznes_enabled` yuqorida, holat bloki bilan
+    # birga hisoblangan. 5: qidir + suhbat + yubor, yoki bilim + o'zgartirish,
+    # bitta xatoli urinish bilan.
+    MAX_BIZNES_ROUNDS = 5
     biznes_rounds = 0
 
     # Xotira: guest rejimda user_id=None → asbob o'zi biriktirilmaydi,
