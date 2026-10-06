@@ -31,7 +31,7 @@ def check(n, nom, shart):
     print(f"[{n}] {nom} OK")
 
 
-JADVAL = re.compile(r"\bbiznes_(loyiha|chat|mijoz|namuna|profil|ulanish|korilgan|tozalash)\b")
+JADVAL = re.compile(r"\bbiznes_(loyiha|chat|mijoz|namuna|profil|ulanish|korilgan|tozalash|yuborilgan)\b")
 DML = re.compile(r"^\s*(SELECT|UPDATE|DELETE|INSERT|WITH)\b", re.I)
 
 # (funksiya, SQL boshidagi so'z) -> sabab. Faqat ATAYLAB global so'rovlar.

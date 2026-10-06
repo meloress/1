@@ -3801,8 +3801,15 @@ _BIZNES_XABAR_TOOL = {
         "so'rovdagi qidir natijasidan — oldingi xabarda tanlangan bo'lsa ham "
         "qidirni qayta chaqiring, raqamni taxmin qilmang.\n"
         "amal='royxat' — rejalashtirilganlar; amal='bekor' — `index` bilan.\n"
+        "amal='yuborilganlar' — egasi nomidan yuborilganlar (oxirgi 7 kun); "
+        "amal='ochir' (`index`) yoki 'tahrir' (`index` + yangi `matn`) — raqamni "
+        "AVVAL yuborilganlar bilan oling. 'Boshqa odamga yozibsan' desa — "
+        "o'chiring, keyin to'g'ri odamni so'rang.\n"
+        "⛔️ KIMGA: yubor'dan OLDIN odamni havolasi bilan ko'rsatib 'shu "
+        "odammi?' deb tasdiq oling (matn tasdig'i bilan BITTA savolda). Egasi "
+        "shu suhbatda uni o'zi tanlagan yoki tasdiqlagan bo'lsa — qayta so'ramang.\n"
         "MATN: egasi aniq so'z bergan bo'lsa ('salom deb yoz') — AYNAN "
-        "shuni yuboring, so'ramang. Mazmunini aytib, so'zini bermagan bo'lsa "
+        "shuni yuboring. Mazmunini aytib, so'zini bermagan bo'lsa "
         "('ertaga kelsin deb ayt') — egasi nomidan, birinchi shaxsda, qisqa "
         "yozing, ko'rsating va 'shunday yuboraymi?' deb so'rang. Nima "
         "yozishni umuman aytmagan bo'lsa — so'rang: 'nima deb yozay yoki "
@@ -3814,7 +3821,8 @@ _BIZNES_XABAR_TOOL = {
     "parameters": {
         "type": "object",
         "properties": {
-            "amal": {"type": "string", "enum": ["qidir", "yubor", "royxat", "bekor"]},
+            "amal": {"type": "string", "enum": ["qidir", "yubor", "royxat", "bekor",
+                                                "yuborilganlar", "ochir", "tahrir"]},
             "ism": {"type": "string"},
             "chat_id": {"type": "integer"},
             "matn": {"type": "string"},

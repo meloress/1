@@ -38,7 +38,7 @@ from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_M
                          BIZNES_MERGE_WAIT, BIZNES_TOZALASH_KUN,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_KUTISH_SONIYA, BIZNES_KUTISH_VARIANT,
-                         BIZNES_PAUZA_VARIANT, BIZNES_TOPSHIRIQ_MAX,
+                         BIZNES_PAUZA_VARIANT, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
                          BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
                          BTN_PRIMARY, BTN_SUCCESS, message_cost)
@@ -327,11 +327,13 @@ _HUQUQ_TIL = {
     "en": {"can_reply": "Reply to Messages", "can_read_messages": "Read Messages",
            "can_edit_bio": "Edit Bio", "can_edit_name": "Edit Name",
            "can_edit_profile_photo": "Edit Profile Picture",
-           "can_manage_stories": "Manage Stories"},
+           "can_manage_stories": "Manage Stories",
+           "can_delete_sent_messages": "Delete Sent Messages"},
     "ru": {"can_reply": "Ответы на сообщения", "can_read_messages": "Чтение сообщений",
            "can_edit_bio": "Изменение раздела «О себе»", "can_edit_name": "Изменение имени",
            "can_edit_profile_photo": "Изменение фото профиля",
-           "can_manage_stories": "Управление историями"},
+           "can_manage_stories": "Управление историями",
+           "can_delete_sent_messages": "Удаление исходящих"},
 }
 # Egasining `language_code` — har murojaatda yangilanadi.
 # ponytail: RAM'da; deploy'dan keyin birinchi murojaatgacha o'zbekcha.
@@ -2453,6 +2455,9 @@ HUQUQ_NOMI.update({
     "can_edit_name": "Ismni tahrirlash",
     "can_edit_profile_photo": "Profil rasmini tahrirlash",
     "can_manage_stories": "Hikoyalarni boshqarish",
+    # Topshiriq bilan yuborilganini o'chirish (2026-10-06). Rasmiy nomi:
+    # BusinessBotPermissionsMessagesDeleteSent.
+    "can_delete_sent_messages": "Yuborilgan xabarlarni o'chirish",
 })
 _PROFIL_SOROV = {
     "bio": "📝 Bio'da nima bo'lsin? Erkin yozing — men 140 belgilik matn tayyorlayman.",
@@ -2747,7 +2752,8 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
         return False, (f"{nom}ga yuborilmadi: «{huquq_nomi(egasi, 'can_reply')}» huquqi "
                        f"yoqilmagan ({sozlama_yoli(egasi)} → botni tanlang)")
     try:
-        _bot_yubordi(await _qayta_429(lambda: _mijozga(chat_id, topilgan[0], matn)))
+        xabar = await _qayta_429(lambda: _mijozga(chat_id, topilgan[0], matn))
+        _bot_yubordi(xabar)
     except Exception as e:
         logger.warning(f"[BIZNES] topshiriq yuborilmadi egasi={egasi} chat={chat_id}: {e}")
         oldin, _ = _necha_oldin(mijoz.get("oxirgi"))
@@ -2759,6 +2765,11 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
     if ul["huquqlar"].get("can_read_messages"):
         await safe_update_history(chat_id, matn, role="assistant",
                                   thread_id=biznes_thread(egasi))
+    if getattr(xabar, "message_id", None):
+        try:  # «o'chir / tuzat» uchun; yozilmasa xabar baribir ketgan
+            await database.biznes_yuborilgan_yoz(egasi, chat_id, xabar.message_id, matn)
+        except Exception as e:
+            logger.warning(f"[BIZNES] yuborilgan yozilmadi egasi={egasi}: {e}")
     logger.info(f"[BIZNES] topshiriq yuborildi egasi={egasi} chat={chat_id}")
     return True, f"{nom}ga yuborildi"
 
@@ -2783,6 +2794,8 @@ async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
             return natija + (" — vaqti kelganda yuboraman va natijani shu mavzuda aytaman. "
                              "O'sha paytgacha u 24 soat ichida yozmagan bo'lsa Telegram "
                              "ruxsat bermaydi; unda matnni egasiga qaytaraman.")
+        if amal in ("yuborilganlar", "ochir", "tahrir"):
+            return await _yuborilganga(egasi, amal, args)
         rows = await database.list_scheduled_tasks(egasi, biznes=True)
         if amal == "royxat":
             if not rows:
@@ -2799,10 +2812,70 @@ async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
                     and 1 <= idx <= len(rows)):
                 return f"bunday raqam yo'q (hozir {len(rows)} ta) — avval royxat"
             return await database.cancel_scheduled_task(egasi, rows[idx - 1]["id"])
-        return "noma'lum amal — qidir, yubor, royxat yoki bekor"
+        return ("noma'lum amal — qidir, yubor, royxat, bekor, yuborilganlar, "
+                "ochir yoki tahrir")
     except Exception as e:
         logger.warning(f"[BIZNES] topshiriq xatosi egasi={egasi} amal={amal}: {e}")
         return "bajarilmadi (texnik xato) — egasiga ayting"
+
+
+async def _yuborilganga(egasi: int, amal: str, args: dict) -> str:
+    """Bot egasi nomidan YUBORGANLARI: ro'yxat, o'chirish, tahrirlash.
+
+    ⛔️ Faqat `biznes_yuborilgan` dagilar — ya'ni botning O'ZI topshiriq bilan
+    yuborgani. Egasining o'z xabariga tegilmaydi (`can_delete_all_messages`
+    ataylab so'ralmaydi). `index` — modelga ko'rsatilgan ro'yxatdagi raqam,
+    ishonchsiz: chegaradan chiqsa Telegram'ga ham, bazaga ham tegilmaydi."""
+    rows = await database.biznes_yuborilganlar(egasi)
+    nomlar = {m["chat_id"]: _mijoz_nomi(m) for m in await database.biznes_mijozlar(egasi)}
+    if amal == "yuborilganlar":
+        if not rows:
+            return f"oxirgi {BIZNES_YUBORILGAN_KUN} kunda egasi nomidan hech narsa yuborilmagan"
+        return "; ".join(
+            f"{i}. {r['vaqt'].astimezone(database.TASHKENT_TZ):%m-%d %H:%M} — "
+            f"{nomlar.get(r['chat_id'], r['chat_id'])}: «{r['matn'][:200]}»"
+            for i, r in enumerate(rows, 1))
+    idx = args.get("index")
+    if not (isinstance(idx, int) and not isinstance(idx, bool) and 1 <= idx <= len(rows)):
+        return f"bunday raqam yo'q (hozir {len(rows)} ta) — avval yuborilganlar"
+    r = rows[idx - 1]
+    nom = nomlar.get(r["chat_id"], "suhbatdosh")
+    topilgan = database.biznes_egasi_ulanishi(egasi)
+    ul = topilgan[1] if topilgan else None
+    if not ul or not ul["yoqilgan"]:
+        return "bajarilmadi: bot Telegram Biznes'ga ulanmagan"
+    if amal == "ochir":
+        if not ul["huquqlar"].get("can_delete_sent_messages"):
+            return (f"o'chirilmadi: «{huquq_nomi(egasi, 'can_delete_sent_messages')}» huquqi "
+                    f"yoqilmagan — egasi {sozlama_yoli(egasi)} → botni tanlab yoqsin, "
+                    f"yoki xabarni o'zi o'chirsin")
+        try:
+            await _qayta_429(lambda: bot.delete_business_messages(
+                business_connection_id=topilgan[0], message_ids=[r["message_id"]]))
+        except Exception as e:
+            logger.warning(f"[BIZNES] o'chirilmadi egasi={egasi}: {e}")
+            return f"o'chirilmadi — Telegram rad etdi ({e})"
+        await database.biznes_yuborilgan_ochir(egasi, r["id"])
+        logger.info(f"[BIZNES] topshiriq o'chirildi egasi={egasi} chat={r['chat_id']}")
+        # Ko'rsatma NATIJADA — tavsifdagi qoidani jonli sinovda model 2/2
+        # o'tkazib yubordi: o'chirdi va to'g'ri odamni so'ramadi.
+        return (f"{nom}ga yuborilgan «{r['matn'][:100]}» o'chirildi. JAVOBINGIZ shu "
+                f"ikki gapdan iborat bo'lsin: o'chirilganini ayting, keyin egasidan "
+                f"so'rang: «Boshqa odamga yuboraymi? Kimga?»")
+    matn = str(args.get("matn") or "").strip()[:BIZNES_TOPSHIRIQ_MAX]
+    if not matn:
+        return "yangi matn kerak"
+    try:
+        await _qayta_429(lambda: bot.edit_message_text(
+            text=matn, business_connection_id=topilgan[0], chat_id=r["chat_id"],
+            message_id=r["message_id"], parse_mode=None))
+    except Exception as e:
+        logger.warning(f"[BIZNES] tahrirlanmadi egasi={egasi}: {e}")
+        return (f"tahrirlanmadi — Telegram rad etdi ({e}). Telegram faqat oxirgi 24 "
+                f"soatda egasiga yozgan odam bilan chatda tahrirlashga ruxsat beradi")
+    await database.biznes_yuborilgan_tahrir(egasi, r["id"], matn)
+    logger.info(f"[BIZNES] topshiriq tahrirlandi egasi={egasi} chat={r['chat_id']}")
+    return f"{nom}ga yuborilgan xabar tahrirlandi"
 
 
 async def rejali_yubor(egasi: int, chat_id: int, matn: str) -> None:

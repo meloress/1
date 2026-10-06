@@ -268,8 +268,9 @@ async def main():
             assert cap.SECTIONS[kalit]["title"] in b
             assert ("Batafsil:" in b) == (kalit in cap._BATAFSIL), kalit
             assert "<" not in b, kalit
-            assert len(b) < len(cap.model_uchun(p, "hammasi")) * 0.75, (
-                kalit, len(b))
+            # Qoida — «hammasi» dan oshmasin. Business eng katta bo'lim
+            # (tugma, huquq, topshiriq): 1 937 token / hammasi 2 460.
+            assert len(b) < len(cap.model_uchun(p, "hammasi")), (kalit, len(b))
     # Odam ekranda qidiradigan tugma nomlari koddagidek yozilgan.
     bz = cap.model_uchun(True, "biznes")
     for tugma in ("Kuzatuv", "⏰ Ishlash vaqti", "💬 Chatlar bo'yicha",

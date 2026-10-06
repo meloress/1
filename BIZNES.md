@@ -313,6 +313,22 @@ tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL
   ikki ro'yxatni ajratadi — «eslatmalarim» suhbatdoshga ketadigan «Salom»ni ko'rsatmaydi va
   raqamlar aralashmaydi. Vaqti kelganda `rejali_yubor()` — natija egasiga DOIM (✅ / ❗ + matn).
 - Yuborilgan matn `_bot_yubordi` (tsikl himoyasi) va o'qish huquqi bo'lsa tarixga `assistant`.
+- **«Shu odammi?»** (egasi, 2026-10-06): yubor'dan oldin model odamni havolasi bilan ko'rsatib
+  tasdiq oladi (matn tasdig'i bilan bitta savolda); egasi shu suhbatda tanlagan bo'lsa qayta
+  so'ramaydi. Prompt-darajasida — jonli sinovda 2/2.
+- **O'chirish / tahrirlash** (`amal`: `yuborilganlar`, `ochir`, `tahrir`, `_yuborilganga`):
+  faqat bot topshiriq bilan O'ZI yuborgani — `biznes_yuborilgan` (message_id bilan, RAM emas;
+  `BIZNES_YUBORILGAN_KUN` 7 kundan eskisi yozuvda o'chadi; egani tozalashda ham). Egasining o'z
+  xabari va `can_delete_all_messages` ATAYLAB yo'q. O'chirish `deleteBusinessMessages` —
+  «Yuborilgan xabarlarni oʻchirish» huquqi (`can_delete_sent_messages`, rasmiy nomi
+  `BusinessBotPermissionsMessagesDeleteSent`; en "Delete Sent Messages", ru "Удаление
+  исходящих"; `HUQUQ_NOMI` da — ulanish xabari yo'qligini aytadi). Tahrir `editMessageText` +
+  `business_connection_id` — `can_reply` bilan, o'sha 24 soat oynasida. Tartib: avval Telegram,
+  muvaffaqiyat bo'lsagina baza; rad etilsa "tahrirlandi/o'chirildi" deyilmaydi.
+- ⚠️ "Noto'g'ri odamga yozibsan, o'chir" — model o'chirib, to'g'ri odamni SO'RAMASDI (tavsifdagi
+  qoida 2/2, natijadagi "agar…" ko'rsatmasi 3/3 bajarilmadi). Faqat asbob NATIJASIDA aniq
+  javob shakli («Boshqa odamga yuboraymi? Kimga?») 4/4 ishladi.
+- `test_biznes_owner.py` jadval ro'yxatiga `yuborilgan` qo'shildi.
 - Shu ish bilan topilgan eski xato: eslatmalar ro'yxati UTC'da edi (09:00 → "04:00") —
   asyncpg TIMESTAMPTZ ni UTC'da qaytaradi; endi `astimezone(TASHKENT_TZ)`.
 

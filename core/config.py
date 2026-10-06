@@ -898,6 +898,8 @@ BIZNES_JAVOBSIZ_DAQIQA = 60
 # Egasining topshirig'i («soat 8 da Xusanga salom deb yoz») — matn chegarasi.
 # Eslatmaning 200 belgisi emas: bu suhbatdoshga ketadigan to'liq xabar.
 BIZNES_TOPSHIRIQ_MAX = 2000
+# Topshiriq bilan yuborilgan xabarlar shuncha kun saqlanadi («o'chir/tuzat» uchun).
+BIZNES_YUBORILGAN_KUN = 7
 # Shu oraliqda ogohlantirish yuborilmaydi (egasi uxlaydi); tunda qolgan
 # javobsiz chatlar ertalabki hisobotga tushadi.
 BIZNES_TUNGI_SOAT = (22, 8)

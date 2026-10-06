@@ -20,7 +20,7 @@ from core.config import (
     INACTIVE_STEPS, ACTIVITY_TYPES,
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
     BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT,
-    BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN, BIZNES_TOPSHIRIQ_MAX,
+    BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
 )
 
 load_dotenv()
@@ -618,6 +618,23 @@ async def create_users_table():
                 boshi    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         ''')
+        # Egasining topshirig'i bilan bot yuborgan xabarlar — «Xusanga
+        # yozganingni o'chir / tuzat» uchun message_id kerak. RAM'da emas:
+        # deploy kuniga 20 marta, "o'chir" esa ertasiga ham aytiladi.
+        # `BIZNES_YUBORILGAN_KUN` dan eskisi yozuvda o'chadi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_yuborilgan (
+                id         BIGSERIAL PRIMARY KEY,
+                owner_id   BIGINT NOT NULL,
+                chat_id    BIGINT NOT NULL,
+                message_id BIGINT NOT NULL,
+                matn       TEXT NOT NULL,
+                vaqt       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        ''')
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_biznes_yuborilgan_egasi "
+            "ON biznes_yuborilgan (owner_id, id DESC)")
 
         # Eski, ishlatib bo'lingan eslatmalarni tozalash. Ilgari ular
         # active=FALSE bo'lib jadvalda qolib ketardi; endi yuborilgach
@@ -1534,6 +1551,9 @@ async def biznes_egasini_tozala(owner_id: int) -> int:
             await conn.execute('DELETE FROM biznes_chat WHERE owner_id = $1', owner_id)
             await conn.execute('DELETE FROM biznes_korilgan WHERE owner_id = $1', owner_id)
             await conn.execute('DELETE FROM biznes_namuna WHERE owner_id = $1', owner_id)
+            await conn.execute('DELETE FROM biznes_yuborilgan WHERE owner_id = $1', owner_id)
+            await conn.execute('DELETE FROM scheduled_tasks WHERE user_id = $1 '
+                               'AND biznes_kimga <> 0', owner_id)
     biznes_keshni_bekor(owner_id)
     return n or 0
 
@@ -1880,6 +1900,57 @@ async def biznes_mijoz_yangila(owner_id: int, chat_id: int, ism, telefon,
             'telefon = COALESCE($4, telefon), qiziqish = COALESCE($5, qiziqish) '
             'WHERE owner_id = $1 AND chat_id = $2',
             owner_id, chat_id, ism, telefon, qiziqish)
+
+
+@with_db_retry()
+async def biznes_yuborilgan_yoz(owner_id: int, chat_id: int, message_id: int,
+                               matn: str) -> None:
+    """Topshiriq bilan bot yuborgan xabar. Eskisi shu yerda o'chadi —
+    alohida tozalovchi kerak emas."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_yuborilgan (owner_id, chat_id, message_id, matn) '
+            'VALUES ($1, $2, $3, $4)', owner_id, chat_id, message_id, matn)
+        await conn.execute(
+            'DELETE FROM biznes_yuborilgan WHERE owner_id = $1 '
+            'AND vaqt < NOW() - make_interval(days => $2::int)',
+            owner_id, BIZNES_YUBORILGAN_KUN)
+
+
+@with_db_retry()
+async def biznes_yuborilganlar(owner_id: int, limit: int = 15) -> List[Dict[str, Any]]:
+    """Oxirgilari, yangisi birinchi — model ko'radigan raqamlar shu tartibda."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT id, chat_id, message_id, matn, vaqt FROM biznes_yuborilgan '
+            'WHERE owner_id = $1 ORDER BY id DESC LIMIT $2', owner_id, limit)
+    return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def biznes_yuborilgan_ochir(owner_id: int, yid: int) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('DELETE FROM biznes_yuborilgan WHERE id = $1 AND owner_id = $2',
+                           yid, owner_id)
+
+
+@with_db_retry()
+async def biznes_yuborilgan_tahrir(owner_id: int, yid: int, matn: str) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('UPDATE biznes_yuborilgan SET matn = $3 '
+                           'WHERE id = $1 AND owner_id = $2', yid, owner_id, matn)
 
 
 @with_db_retry()

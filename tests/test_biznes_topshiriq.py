@@ -24,6 +24,7 @@ import inspect
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace as NS
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -65,7 +66,54 @@ async def _mijozga(chat_id, conn_id, matn, belgi=False):
     if holat["rad"]:
         raise RuntimeError(holat["rad"])
     yuborilgan.append((chat_id, conn_id, matn))
-    return None
+    return NS(message_id=555, chat=NS(id=chat_id))
+
+
+# Bot egasi nomidan yuborganlari (biznes_yuborilgan) va Telegram chaqiruvlari.
+saqlangan, tg = [], []
+YUBORILGANLAR = [
+    {"id": 81, "chat_id": 12, "message_id": 901, "matn": "salom",
+     "vaqt": datetime(2026, 10, 6, 5, 0, tzinfo=timezone.utc)},
+    {"id": 80, "chat_id": 13, "message_id": 900, "matn": "Ertaga keling",
+     "vaqt": datetime(2026, 10, 6, 4, 0, tzinfo=timezone.utc)},
+]
+
+
+async def _yoz(owner_id, chat_id, message_id, matn):
+    saqlangan.append(("yoz", owner_id, chat_id, message_id, matn))
+
+
+async def _yuborilganlar(owner_id, limit=15):
+    return list(YUBORILGANLAR) if owner_id == EGASI else []
+
+
+async def _y_ochir(owner_id, yid):
+    saqlangan.append(("ochir", owner_id, yid))
+
+
+async def _y_tahrir(owner_id, yid, matn):
+    saqlangan.append(("tahrir", owner_id, yid, matn))
+
+
+async def _tg_ochir(business_connection_id, message_ids):
+    if holat["rad"]:
+        raise RuntimeError(holat["rad"])
+    tg.append(("ochir", business_connection_id, message_ids))
+    return True
+
+
+async def _tg_tahrir(text, business_connection_id, chat_id, message_id, parse_mode=None):
+    if holat["rad"]:
+        raise RuntimeError(holat["rad"])
+    tg.append(("tahrir", business_connection_id, chat_id, message_id, text))
+    return True
+
+
+database.biznes_yuborilgan_yoz = _yoz
+database.biznes_yuborilganlar = _yuborilganlar
+database.biznes_yuborilgan_ochir = _y_ochir
+database.biznes_yuborilgan_tahrir = _y_tahrir
+b.bot = NS(delete_business_messages=_tg_ochir, edit_message_text=_tg_tahrir)
 
 
 async def _tarix(chat_id, matn, role="user", thread_id=0, **kw):
@@ -110,7 +158,7 @@ def run(coro):
 
 
 def tozala():
-    for x in (yuborilgan, tarix, egasiga, rejalar, bekorlar):
+    for x in (yuborilgan, tarix, egasiga, rejalar, bekorlar, saqlangan, tg):
         x.clear()
     holat.update(rad=None, yoqilgan=True,
                  huquq={"can_reply": True, "can_read_messages": True})
@@ -149,6 +197,8 @@ javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom\n
 check(7, "yuborildi: ulanish orqali, qatorlar saqlanadi, tarixga egasi nomidan",
       yuborilgan == [(11, "conn-1", "Salom\nqalaysiz")] and "yuborildi" in javob
       and tarix == [(11, "Salom\nqalaysiz", "assistant", -EGASI)])
+check("7b", "yuborilgani message_id bilan bazaga — «o'chir/tuzat» deploy'dan keyin ham",
+      saqlangan == [("yoz", EGASI, 11, 555, "Salom\nqalaysiz")])
 
 # ── 8. Telegram rad etdi (24 soat) ───────────────────────────────
 tozala()
@@ -235,4 +285,41 @@ check(20, "kuzatuvchi: biznes_kimga — egasi nomidan yuboradi, vazifadan OLDIN"
 check(21, "oddiy eslatmalar ro'yxati ham Toshkent vaqtida (UTC emas)",
       "r['run_at'].astimezone(TASHKENT_TZ)" in src)
 
-print("\nbiznes_topshiriq: barcha tekshiruvlar o'tdi (23/23).")
+# ── 22-27. Yuborilganini o'chirish / tahrirlash ───────────────────
+tozala()
+javob = run(b.topshiriq(EGASI, {"amal": "yuborilganlar"}, 55))
+check(22, "yuborilganlar: Toshkent vaqtida, ism bilan, yangisi birinchi",
+      javob.startswith("1. 10-06 10:00 — Husan aka: «salom»") and "2. 10-06 09:00 — Anvar" in javob)
+for idx in (True, 0, 3, "1"):
+    run(b.topshiriq(EGASI, {"amal": "ochir", "index": idx}, 55))
+    run(b.topshiriq(EGASI, {"amal": "tahrir", "index": idx, "matn": "x"}, 55))
+check(23, "ochir/tahrir: yaroqsiz indeks — Telegram'ga ham, bazaga ham tegmaydi",
+      not tg and not saqlangan)
+javob = run(b.topshiriq(EGASI, {"amal": "ochir", "index": 1}, 55))
+check(24, "o'chirish huquqi yo'q — tegmaydi, huquq nomini va yo'lini aytadi",
+      not tg and not saqlangan and "Yuborilgan xabarlarni o'chirish" in javob)
+holat["huquq"] = {"can_reply": True, "can_delete_sent_messages": True}
+javob = run(b.topshiriq(EGASI, {"amal": "ochir", "index": 1}, 55))
+check(25, "o'chirildi: o'sha message_id, keyin bazadan (avval Telegram)",
+      tg == [("ochir", "conn-1", [901])] and saqlangan == [("ochir", EGASI, 81)]
+      and "o'chirildi" in javob)
+tozala()
+holat["huquq"] = {"can_reply": True}
+javob = run(b.topshiriq(EGASI, {"amal": "tahrir", "index": 2, "matn": "Soat 11 da keling"}, 55))
+check(26, "tahrirlandi: o'sha chat va xabar, bazadagi matn yangilanadi",
+      tg == [("tahrir", "conn-1", 13, 900, "Soat 11 da keling")]
+      and saqlangan == [("tahrir", EGASI, 80, "Soat 11 da keling")])
+tozala()
+holat["rad"] = "Bad Request: message can't be edited"
+javob = run(b.topshiriq(EGASI, {"amal": "tahrir", "index": 2, "matn": "x"}, 55))
+check(27, "Telegram rad etsa — 'tahrirlandi' DEMAYDI, baza o'zgarmaydi",
+      "tahrirlanmadi" in javob and not saqlangan)
+check(28, "o'chirish huquqining rasmiy nomi uch tilda",
+      b.HUQUQ_NOMI["can_delete_sent_messages"] == "Yuborilgan xabarlarni o'chirish"
+      and b._HUQUQ_TIL["en"]["can_delete_sent_messages"] == "Delete Sent Messages"
+      and b._HUQUQ_TIL["ru"]["can_delete_sent_messages"] == "Удаление исходящих")
+tavsif = ai._BIZNES_XABAR_TOOL["description"]
+check(29, "tavsif: «shu odammi?» tasdig'i va noto'g'ri odam → o'chir",
+      "shu odammi" in tavsif and "Boshqa odamga yozibsan" in tavsif)
+
+print("\nbiznes_topshiriq: barcha tekshiruvlar o'tdi (32/32).")
