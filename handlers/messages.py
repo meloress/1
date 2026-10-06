@@ -2220,6 +2220,13 @@ async def handle_text(message: Message, state: FSMContext):
         logger.info(f"[Hujjat] ko'rsatma alohida xabardan olindi: chat={chat_id}")
         return
 
+    # Business topshirig'ini tasdiqlash («ha» / «yo'q») — AI'siz, kodda.
+    # Kutilayotgan taklif bo'lmasa bitta dict tekshiruvi (handlers/biznes.py).
+    if chat_id == user_id:
+        from handlers.biznes import tasdiq_ushla  # ⚠️ tsiklik import
+        if await tasdiq_ushla(message):
+            return
+
     await _queue_for_ai(chat_id, message, message.text, state)
 
 

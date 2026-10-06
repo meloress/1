@@ -2774,6 +2774,111 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
     return True, f"{nom}ga yuborildi"
 
 
+# ── Tasdiq KODDA, modelda emas (egasi, 2026-10-06: «ha desam yana so'radi») ──
+# Qidiruv natijasi tarixga yozilmaydi, shuning uchun «ha» kelganda model
+# qaytadan qidirib, matnni qaytadan tuzib, qoida bo'yicha YANA so'rardi
+# (jonli: «ha», «ha yubor», «yubor» — uch marta). Endi `yubor` hech narsa
+# yubormaydi: taklif shu yerda saqlanadi, egasining «ha»si (`tasdiq_ushla`,
+# handle_text da AI'dan oldin) uni AI'siz bajaradi; «yo'q» — bekor; boshqa
+# har qanday gap — taklif eskiradi va AI'ga (tuzatish yangi taklif qiladi).
+# ponytail: RAM, 30 daqiqa — deploy'dan keyingi «ha» AI'ga ketadi va model
+# taklifni qayta tuzib bir marta qayta so'raydi; bazaga ko'chirish shart emas.
+_taklif: dict = {}
+_TAKLIF_TTL = 1800
+def _javob_norm(s: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", _ism_norm(s)).split())
+
+
+# To'plamlar ham `_javob_norm` dan o'tadi: u x→h qiladi, ya'ni «to'xtat»
+# qo'lda "tohtat" deb yozilishi kerak bo'lardi — unutiladigan tuzoq.
+_HA = {_javob_norm(s) for s in (
+    "ha", "xa", "ha yubor", "yubor", "yuboring", "ha yuboring", "ok", "okay", "mayli",
+    "ha mayli", "jo'nat", "ha jo'nat", "jo'nating", "tasdiqlayman", "albatta",
+    "to'g'ri", "ha to'g'ri", "shunday", "ha shunday", "roziman", "xo'p", "bo'pti",
+    "ha bo'pti", "yes", "да", "давай")}
+_YOQ = {_javob_norm(s) for s in (
+    "yo'q", "yo'q kerak emas", "kerak emas", "bekor", "bekor qil", "yubormang",
+    "yuborma", "to'xtat", "no", "нет")}
+_BELGI = {"+": "ha", "👍": "ha", "✅": "ha", "❌": "yoq", "-": "yoq"}
+
+
+def javob_turi(matn: str) -> str | None:
+    """«ha» / «yo'q» / None. Kirill, x/h, tutuq va tinish belgisiz. Sof."""
+    s = (matn or "").strip()
+    if s in _BELGI:
+        return _BELGI[s]
+    s = _javob_norm(s)
+    return "ha" if s in _HA else "yoq" if s in _YOQ else None
+
+
+def _vaqt_matni(dt) -> str:
+    bugun = datetime.now(database.TASHKENT_TZ).date()
+    kun = ("bugun" if dt.date() == bugun else
+           "ertaga" if dt.date() == bugun + timedelta(days=1) else f"{dt:%d.%m}")
+    return f"{kun} {dt:%H:%M} da"
+
+
+async def _taklif_qil(egasi: int, thread_id: int, args: dict) -> str:
+    """`yubor` — tekshiradi va TAKLIF saqlaydi, hech narsa yubormaydi."""
+    mijoz = await _kartotekadan(egasi, args.get("chat_id"))
+    if mijoz is None:
+        return "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
+    matn = str(args.get("matn") or "").strip()[:BIZNES_TOPSHIRIQ_MAX]
+    if not matn:
+        return "matn bo'sh — egasidan nima deb yozishni so'rang"
+    vaqt = str(args.get("vaqt") or "").strip()
+    dt = database.parse_run_at(vaqt) if vaqt else None
+    if vaqt and dt is None:
+        return ("vaqt yaroqsiz — 'YYYY-MM-DD HH:MM', o'tmishda emas; o'tgan bo'lsa "
+                "ertangi kunni oling")
+    _taklif[(egasi, thread_id)] = {"chat_id": mijoz["chat_id"], "matn": matn,
+                                   "vaqt": vaqt, "t": time.time()}
+    qachon = _vaqt_matni(dt) if dt else "hozir"
+    _, ochiq = _necha_oldin(mijoz.get("oxirgi"))
+    return (f"TAKLIF SAQLANDI, HALI YUBORILMADI. Javobingiz AYNAN bitta savol bo'lsin: "
+            f"«{_mijoz_nomi(mijoz)} ({_havola(mijoz)}) ga {qachon}: «{matn}» — yuboraymi?»"
+            + ("" if ochiq else " va ogohlantiring: u 24 soatdan beri yozmagan — Telegram "
+               "ruxsat bermasligi mumkin.")
+            + " Egasi «ha» desa bot o'zi yuboradi — siz yubor'ni qayta chaqirmang.")
+
+
+async def _taklifni_bajar(egasi: int, thread_id: int, t: dict) -> str:
+    """Egasi «ha» dedi — egasiga ko'rinadigan natija."""
+    if not t["vaqt"]:
+        ok, tavsif = await _topshiriq_yubor(egasi, t["chat_id"], t["matn"])
+        return ("✅ " if ok else "❗ ") + tavsif + "."
+    natija = await database.create_scheduled_task(
+        egasi, t["matn"], t["vaqt"], thread_id=thread_id, biznes_kimga=t["chat_id"])
+    if not natija.startswith("qo'yildi"):
+        return f"❗ Rejalashtirilmadi: {natija}"
+    dt = database.parse_run_at(t["vaqt"])
+    return (f"⏰ {_vaqt_matni(dt) if dt else t['vaqt']} yuboraman va natijani shu "
+            "yerda aytaman.")
+
+
+async def tasdiq_ushla(message: Message) -> bool:
+    """handle_text — AI'dan OLDIN. True: xabar shu yerda tugadi.
+    Kutilayotgan taklif bo'lmasa — bitta dict tekshiruvi, 0 so'rov."""
+    if not _taklif or not message.text:
+        return False
+    from handlers.messages import _thread_key  # ⚠️ tsiklik
+    egasi, mavzu = message.from_user.id, _thread_key(message)
+    t = _taklif.pop((egasi, mavzu), None)
+    if t is None or time.time() - t["t"] > _TAKLIF_TTL:
+        return False
+    tur = javob_turi(message.text)
+    if tur is None:
+        return False            # tuzatish yoki boshqa gap — taklif eskirdi, AI'ga
+    premium_biznes()
+    natija = (await _taklifni_bajar(egasi, mavzu, t) if tur == "ha"
+              else "Bekor qildim — hech narsa yuborilmadi.")
+    await message.answer(natija)
+    # Tarixga — keyingi savolda model nima bo'lganini bilsin.
+    await safe_update_history(egasi, message.text, role="user", thread_id=mavzu)
+    await safe_update_history(egasi, natija, role="assistant", thread_id=mavzu)
+    return True
+
+
 async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
     """`biznes_xabar` asbobi — modelga qisqa matn (services/ai.py chaqiradi)."""
     amal = args.get("amal")
@@ -2781,19 +2886,7 @@ async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
         if amal == "qidir":
             return await mijoz_qidir(egasi, str(args.get("ism") or ""))
         if amal == "yubor":
-            chat_id, matn = args.get("chat_id"), str(args.get("matn") or "")
-            vaqt = str(args.get("vaqt") or "").strip()
-            if not vaqt:
-                return (await _topshiriq_yubor(egasi, chat_id, matn))[1]
-            if await _kartotekadan(egasi, chat_id) is None:
-                return "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
-            natija = await database.create_scheduled_task(
-                egasi, matn, vaqt, thread_id=thread_id, biznes_kimga=chat_id)
-            if not natija.startswith("qo'yildi"):
-                return natija
-            return natija + (" — vaqti kelganda yuboraman va natijani shu mavzuda aytaman. "
-                             "O'sha paytgacha u 24 soat ichida yozmagan bo'lsa Telegram "
-                             "ruxsat bermaydi; unda matnni egasiga qaytaraman.")
+            return await _taklif_qil(egasi, thread_id, args)
         if amal in ("yuborilganlar", "ochir", "tahrir"):
             return await _yuborilganga(egasi, amal, args)
         rows = await database.list_scheduled_tasks(egasi, biznes=True)

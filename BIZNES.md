@@ -313,9 +313,18 @@ tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL
   ikki ro'yxatni ajratadi — «eslatmalarim» suhbatdoshga ketadigan «Salom»ni ko'rsatmaydi va
   raqamlar aralashmaydi. Vaqti kelganda `rejali_yubor()` — natija egasiga DOIM (✅ / ❗ + matn).
 - Yuborilgan matn `_bot_yubordi` (tsikl himoyasi) va o'qish huquqi bo'lsa tarixga `assistant`.
-- **«Shu odammi?»** (egasi, 2026-10-06): yubor'dan oldin model odamni havolasi bilan ko'rsatib
-  tasdiq oladi (matn tasdig'i bilan bitta savolda); egasi shu suhbatda tanlagan bo'lsa qayta
-  so'ramaydi. Prompt-darajasida — jonli sinovda 2/2.
+- ⛔️ **Tasdiq KODDA, modelda emas** (egasi, 2026-10-06, skrinshot: «ha» → yana so'radi,
+  «ha yubor» → yana, «yubor» → yana). Sabab: `qidir` natijasi tarixga yozilmaydi, shuning uchun
+  har yangi xabarda model qayta qidirib, matnni qayta tuzib, "shu odammi?" qoidasi bo'yicha YANA
+  so'rardi — prompt bilan tuzalmaydi. Endi `yubor` (`_taklif_qil`) HECH NARSA yubormaydi:
+  tekshiradi, taklifni `_taklif[(egasi, mavzu)]` ga qo'yadi (RAM, 30 daqiqa) va modelga aynan
+  bitta savolni beradi («Abdulloh (havola) ga bugun 19:20 da: «…» — yuboraymi?»).
+  `handle_text` AI navbatidan OLDIN `tasdiq_ushla()`: «ha / xa / yubor / ok / да / + / ✅…» →
+  `_taklifni_bajar` (AI'siz, 0 token), «yo'q / bekor / нет…» → bekor, boshqa har qanday gap →
+  taklif eskiradi va AI'ga (tuzatish yangi taklif qiladi). Taklif bir marta ishlatiladi; begona
+  egasining «ha»si unga tegmaydi. Javob va natija mavzu tarixiga yoziladi. ⚠️ Deploy RAM'ni
+  bo'shatadi — o'shanda «ha» AI'ga ketadi va model bir marta qayta so'raydi (ataylab: bazaga
+  ko'chirish arzimaydi). Ovozli «ha» ham AI'ga ketadi. `test_biznes_topshiriq.py` 7-10c, 30.
 - **O'chirish / tahrirlash** (`amal`: `yuborilganlar`, `ochir`, `tahrir`, `_yuborilganga`):
   faqat bot topshiriq bilan O'ZI yuborgani — `biznes_yuborilgan` (message_id bilan, RAM emas;
   `BIZNES_YUBORILGAN_KUN` 7 kundan eskisi yozuvda o'chadi; egani tozalashda ham). Egasining o'z

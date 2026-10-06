@@ -191,41 +191,86 @@ javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 999, "matn": "x",
 check("6b", "rejalashtirishda ham begona chat_id bazaga yetmaydi",
       not rejalar and "kartotekasida yo'q" in javob)
 
-# ── 7. Darhol yuborish ──────────────────────────────────────────
-tozala()
-javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom\nqalaysiz"}, 55))
-check(7, "yuborildi: ulanish orqali, qatorlar saqlanadi, tarixga egasi nomidan",
-      yuborilgan == [(11, "conn-1", "Salom\nqalaysiz")] and "yuborildi" in javob
-      and tarix == [(11, "Salom\nqalaysiz", "assistant", -EGASI)])
-check("7b", "yuborilgani message_id bilan bazaga — «o'chir/tuzat» deploy'dan keyin ham",
-      saqlangan == [("yoz", EGASI, 11, 555, "Salom\nqalaysiz")])
+# ── 7-10. `yubor` — faqat TAKLIF; egasining «ha»si kodda bajaradi ──
+# Jonli shikoyat (2026-10-06): «ha» → yana so'radi, «ha yubor» → yana.
+import handlers.messages as hm  # noqa: E402
+hm._thread_key = lambda m: 55
+ERTAGA = (datetime.now(database.TASHKENT_TZ) + timedelta(days=1)).strftime("%Y-%m-%d 08:00")
 
-# ── 8. Telegram rad etdi (24 soat) ───────────────────────────────
+
+def xabar(matn, egasi=EGASI):
+    javoblar = []
+
+    async def answer(t, **k):
+        javoblar.append(t)
+    return NS(text=matn, from_user=NS(id=egasi), answer=answer, javoblar=javoblar)
+
+
+def taklif_va(args, soz):
+    """(taklif natijasi, ushlandimi, egasiga javob)."""
+    taklif = run(b.topshiriq(EGASI, {"amal": "yubor", **args}, 55))
+    m = xabar(soz)
+    return taklif, run(b.tasdiq_ushla(m)), m.javoblar
+
+
+tozala()
+b._taklif.clear()
+taklif = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom\nqalaysiz"}, 55))
+check(7, "yubor HECH NARSA yubormaydi — bitta tasdiq savolini qaytaradi",
+      not yuborilgan and "HALI YUBORILMADI" in taklif and "yuboraymi?" in taklif
+      and "tg://user?id=11" in taklif and "hozir" in taklif)
+m = xabar("ha yubor")
+check("7b", "«ha yubor» — AI'siz, kodda yuboradi; tarixlarga yoziladi",
+      run(b.tasdiq_ushla(m)) and yuborilgan == [(11, "conn-1", "Salom\nqalaysiz")]
+      and m.javoblar[0].startswith("✅")
+      and (11, "Salom\nqalaysiz", "assistant", -EGASI) in tarix
+      and (EGASI, "ha yubor", "user", 55) in tarix
+      and saqlangan == [("yoz", EGASI, 11, 555, "Salom\nqalaysiz")])
+check("7c", "bir taklif — bir yuborish: ikkinchi «ha» AI'ga ketadi",
+      not run(b.tasdiq_ushla(xabar("ha"))) and len(yuborilgan) == 1)
+
+tozala()
+_, ushlandi, j = taklif_va({"chat_id": 11, "matn": "Salom"}, "Yo‘q")
+check(8, "«yo'q» — bekor, hech narsa ketmaydi", ushlandi and not yuborilgan and "Bekor" in j[0])
+tozala()
+_, ushlandi, _ = taklif_va({"chat_id": 11, "matn": "Salom"}, "yo'q unga soat nechi bo'lganini ayt")
+check("8b", "tuzatish — AI'ga o'tadi va eski taklif eskiradi (keyingi «ha» uni yubormaydi)",
+      not ushlandi and not run(b.tasdiq_ushla(xabar("ha"))) and not yuborilgan)
+tozala()
+run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom"}, 55))
+check("8c", "boshqa egasining «ha»si begona taklifni yubormaydi",
+      not run(b.tasdiq_ushla(xabar("ha", egasi=EGASI + 1))) and not yuborilgan)
+b._taklif.clear()
+
 tozala()
 holat["rad"] = "Bad Request: BUSINESS_PEER_USAGE_MISSING"
-javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 12, "matn": "Salom aka"}, 55))
-check(8, "rad etilsa: 'yuborildi' DEMAYDI, 24 soatni aytadi, tayyor havola beradi",
-      "yuborilmadi" in javob and "24 soat" in javob and not tarix
-      and "https://t.me/xusan_99?text=Salom%20aka" in javob)
-
-# ── 9. Huquq yo'q / ulanmagan ─────────────────────────────────────
+taklif, _, j = taklif_va({"chat_id": 12, "matn": "Salom aka"}, "ha")
+check(9, "rad etilsa: 'yuborildi' DEMAYDI, 24 soatni aytadi, tayyor havola beradi",
+      j[0].startswith("❗") and "24 soat" in j[0]
+      and "https://t.me/xusan_99?text=Salom%20aka" in j[0]
+      and not any(r[0] == 12 for r in tarix))
 tozala()
 holat["huquq"] = {"can_reply": False}
-javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom"}, 55))
-check(9, "javob berish huquqi yo'q — yubormaydi, qayerda yoqishni aytadi",
-      not yuborilgan and "huquqi" in javob)
+_, _, j = taklif_va({"chat_id": 11, "matn": "Salom"}, "ha")
+check("9b", "javob berish huquqi yo'q — yubormaydi, qayerda yoqishni aytadi",
+      not yuborilgan and "huquqi" in j[0])
 tozala()
 holat["yoqilgan"] = False
-javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom"}, 55))
-check("9b", "ulanish o'chiq — yubormaydi", not yuborilgan and "ulanmagan" in javob)
+_, _, j = taklif_va({"chat_id": 11, "matn": "Salom"}, "ha")
+check("9c", "ulanish o'chiq — yubormaydi", not yuborilgan and "ulanmagan" in j[0])
 
-# ── 10. Rejalashtirish ───────────────────────────────────────────
+tozala()
+taklif, _, j = taklif_va({"chat_id": 11, "matn": "Salom", "vaqt": ERTAGA}, "✅")
+check(10, "vaqt bilan: taklifda «ertaga 08:00», «ha» dan keyin eslatma jadvaliga",
+      "ertaga 08:00" in taklif and rejalar == [(EGASI, "Salom", ERTAGA, 55, 11)]
+      and not yuborilgan and j[0].startswith("⏰"))
 tozala()
 javob = run(b.topshiriq(EGASI, {"amal": "yubor", "chat_id": 11, "matn": "Salom",
-                                "vaqt": "2026-10-07 08:00"}, 55))
-check(10, "vaqt bilan — eslatma jadvaliga biznes_kimga va mavzu bilan, hozir ketmaydi",
-      rejalar == [(EGASI, "Salom", "2026-10-07 08:00", 55, 11)] and not yuborilgan
-      and "24 soat" in javob)
+                                "vaqt": "2020-01-01 08:00"}, 55))
+check("10b", "o'tgan vaqt — taklif saqlanmaydi", "yaroqsiz" in javob and not b._taklif)
+check("10c", "ha/yo'q aniqlash: kirill, x/h, tutuq; tuzatish — None",
+      [b.javob_turi(s) for s in ("xa", "Ha!", "да", "+", "to‘xtat", "нет", "ha, lekin")]
+      == ["ha", "ha", "ha", "ha", "yoq", "yoq", None])
 
 # ── 11. Ro'yxat Toshkent vaqtida, bekor indeksi tekshiriladi ──────
 javob = run(b.topshiriq(EGASI, {"amal": "royxat"}, 55))
@@ -319,7 +364,11 @@ check(28, "o'chirish huquqining rasmiy nomi uch tilda",
       and b._HUQUQ_TIL["en"]["can_delete_sent_messages"] == "Delete Sent Messages"
       and b._HUQUQ_TIL["ru"]["can_delete_sent_messages"] == "Удаление исходящих")
 tavsif = ai._BIZNES_XABAR_TOOL["description"]
-check(29, "tavsif: «shu odammi?» tasdig'i va noto'g'ri odam → o'chir",
-      "shu odammi" in tavsif and "Boshqa odamga yozibsan" in tavsif)
+check(29, "tavsif: yubor — faqat taklif; noto'g'ri odam → o'chir",
+      "HECH NARSA YUBORMAYDI" in tavsif and "Boshqa odamga yozibsan" in tavsif)
+m_src = kod(os.path.join(ROOT, "handlers", "messages.py"))
+ht = m_src[m_src.index("async def handle_text"):m_src.index("async def _queue_for_ai")]
+check(30, "handle_text: tasdiq AI navbatidan OLDIN ushlanadi",
+      ht.index("tasdiq_ushla") < ht.index("await _queue_for_ai"))
 
-print("\nbiznes_topshiriq: barcha tekshiruvlar o'tdi (32/32).")
+print("\nbiznes_topshiriq: barcha tekshiruvlar o'tdi (40/40).")
