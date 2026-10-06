@@ -280,6 +280,42 @@ bo'lsa ham. Bot egasini o'rganmasdi.
   Eval: `fakt_*` holatlari 12/12.
 - `test_biznes_fakt.py`.
 
+## Egasining topshirig'i: «soat 8 da Xusanga salom deb yoz» (2026-10-06)
+
+Egasi «💼 Biznes» mavzusida ODDIY GAP bilan yozadi — tugma yo'q (egasi: "xuddi botdagidek
+tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL`, ish —
+`handlers/biznes.py::topshiriq`): `qidir` → kerak bo'lsa so'raydi → `yubor` (hozir yoki
+`vaqt`), `royxat`, `bekor`.
+
+- **Faqat o'sha mavzuda va Pro'da biriktiriladi** (`biznes_enabled`: shaxsiy chat, mavzu > 0,
+  `_biznes_mavzusimi`) — sxema **651 token**, boshqa so'rovlarga 0. Manifest shu yerda
+  "never write on the user's behalf" gapini olib tashlaydi, aks holda model rad etardi.
+- **Matn:** aniq so'z berilsa — aynan o'sha; mazmun aytilsa — model yozadi va «shunday
+  yuboraymi?»; hech narsa aytilmasa — «nima deb yozay yoki o'zim yozib beraymi?». Bu QOIDA
+  tavsifda; jonli sinov (soxta baza, `scratchpad/topshiriq_jonli.py` naqshi) beshala holatda to'g'ri.
+- **Ism:** `mijoz_tanla()` — `biznes_mijozlar` (yangi SQL yo'q), `_ism_norm`: kirill→lotin,
+  x=h, tutuq belgisiz (Xusan = Хусан = Husan). Mos kelmasa oxirgi 30 suhbatdosh — model o'zi
+  solishtiradi. Har qatorda `chat_id`, havola (`t.me/username` yoki `tg://user?id=`) va 24 soat holati.
+- ⛔️ **`chat_id` modeldan — ishonchsiz:** `_kartotekadan()` faqat SHU egasining kartotekasidagi
+  suhbatdosh; begona/bool/satr — hech narsa ketmaydi, bazaga ham yozilmaydi (`test_biznes_topshiriq.py`
+  4-6b). Jonli sinovda model oldingi xabardagi tanlovdan raqam TAXMIN qildi (99, 0) — shu
+  tekshiruv rad etdi va model qayta qidirdi; tavsifda ham "qidirni qayta chaqiring" bor.
+- ⛔️ **24 soat qoidasi chetlab o'tilmaydi** (Bot API, `BusinessBotRights.can_reply`: "private
+  chats that had incoming messages in the last 24 hours"). Userbot (MTProto) ATAYLAB
+  qilinmadi — har egasining akkauntiga to'liq kalit saqlash va spam-blok xavfi. O'rniga: rad
+  etilsa "yuborildi" DEYILMAYDI, egasiga matn + `t.me/<username>?text=…` (rasmiy havola —
+  matn tayyor, o'zi bir bosadi). `oxirgi` (mijozning oxirgi xabari, ~10 daqiqa aniqlik)
+  qidiruv natijasida "hozir yozsa bo'ladi / 24 soatdan oshgan" deb ko'rsatiladi.
+- **Rejalashtirish — `scheduled_tasks.biznes_kimga`** (0 = oddiy eslatma): muddat, surish,
+  minutlik `reminder_watcher` va `MAX_ACTIVE_REMINDERS` eslatmaniki. ⚠️ Ustun nomi `biznes_chat`
+  EMAS — u jadval nomi, `test_biznes_owner.py` uni Business jadvali deb o'qiydi. Matn
+  `clean_reminder_text` dan o'tmaydi (qatorlar, `BIZNES_TOPSHIRIQ_MAX` 2000). `list_scheduled_tasks(biznes=)`
+  ikki ro'yxatni ajratadi — «eslatmalarim» suhbatdoshga ketadigan «Salom»ni ko'rsatmaydi va
+  raqamlar aralashmaydi. Vaqti kelganda `rejali_yubor()` — natija egasiga DOIM (✅ / ❗ + matn).
+- Yuborilgan matn `_bot_yubordi` (tsikl himoyasi) va o'qish huquqi bo'lsa tarixga `assistant`.
+- Shu ish bilan topilgan eski xato: eslatmalar ro'yxati UTC'da edi (09:00 → "04:00") —
+  asyncpg TIMESTAMPTZ ni UTC'da qaytaradi; endi `astimezone(TASHKENT_TZ)`.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.

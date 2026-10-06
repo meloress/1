@@ -19,8 +19,9 @@ import secrets
 import time
 from collections import deque
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from html import escape
+from urllib.parse import quote
 
 from aiogram import Router
 from aiogram.exceptions import TelegramRetryAfter
@@ -37,7 +38,7 @@ from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_M
                          BIZNES_MERGE_WAIT, BIZNES_TOZALASH_KUN,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_KUTISH_SONIYA, BIZNES_KUTISH_VARIANT,
-                         BIZNES_PAUZA_VARIANT,
+                         BIZNES_PAUZA_VARIANT, BIZNES_TOPSHIRIQ_MAX,
                          BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
                          BTN_PRIMARY, BTN_SUCCESS, message_cost)
@@ -2640,3 +2641,174 @@ async def _tasdiqla(token: str, uid: int) -> str:
         return f"❗ Telegram rad etdi: {e}"
     logger.info(f"[BIZNES] profil {yozuv['tur']} o'zgardi egasi={uid}")
     return f"✅ {nom} yangilandi."
+
+
+# ── Egasining topshirig'i: «soat 8 da Xusanga salom deb yoz» (2026-10-06) ──
+# Egasi «💼 Biznes» mavzusida ODDIY GAP bilan yozadi, model `biznes_xabar`
+# asbobi bilan suhbatdoshni topadi, kerak bo'lsa so'raydi va yuboradi —
+# tugmasiz, botdagi suhbatdek (egasining so'rovi). Rejalashtirilgani
+# `scheduled_tasks.biznes_kimga` da, minutlik `reminder_watcher` yuboradi.
+#
+# ⛔️ 24 SOAT: Telegram business bot faqat "oxirgi 24 soatda kiruvchi xabar
+# bo'lgan" chatga yoza oladi (Bot API, BusinessBotRights.can_reply). Buni
+# chetlab o'tishning yo'li YO'Q — shuning uchun qidiruv natijasi har
+# suhbatdosh uchun buni aytadi va rad etilganda egasiga matn + tayyor
+# havola qaytadi (o'zi bir bosishda yuborsin), jim yo'qolmaydi.
+_TUTUQ_RE = re.compile(r"[ʻʼ'`‘’]")
+
+
+def _ism_norm(matn: str) -> str:
+    """Xusan / Husan / Хусан / xusan_99 — bitta ko'rinishga. Sof."""
+    return _TUTUQ_RE.sub("", uz_lotinga(matn or "").casefold()).replace("x", "h")
+
+
+def _necha_oldin(vaqt) -> tuple:
+    """(«3 soat oldin», 24 soat ichidami). `oxirgi` — mijozning oxirgi xabari."""
+    if vaqt is None:
+        return "noma'lum", False
+    if vaqt.tzinfo is None:
+        vaqt = vaqt.replace(tzinfo=timezone.utc)
+    soat = (datetime.now(timezone.utc) - vaqt).total_seconds() / 3600
+    matn = (f"{int(soat * 60)} daqiqa oldin" if soat < 1 else
+            f"{int(soat)} soat oldin" if soat < 48 else f"{int(soat // 24)} kun oldin")
+    return matn, soat < 24
+
+
+def _havola(m: dict) -> str:
+    return (f"https://t.me/{m['username']}" if m.get("username")
+            else f"tg://user?id={m['chat_id']}")
+
+
+def _mijoz_nomi(m: dict) -> str:
+    nom = m.get("tg_ism") or m.get("ism") or "Ismsiz"
+    if m.get("ism") and m.get("tg_ism") and _ism_norm(m["ism"]) not in _ism_norm(m["tg_ism"]):
+        nom += f" ({m['ism']})"
+    return nom
+
+
+def _mijoz_qatori(i: int, m: dict) -> str:
+    oldin, ochiq = _necha_oldin(m.get("oxirgi"))
+    return (f"{i}. {_mijoz_nomi(m)}" + (f" @{m['username']}" if m.get("username") else "")
+            + f" — chat_id={m['chat_id']}, havola: {_havola(m)}, oxirgi yozgani: {oldin}"
+            + (" (hozir yozsa bo'ladi)" if ochiq else
+               " (24 soatdan oshgan — u yana yozmaguncha Telegram ruxsat bermaydi)"))
+
+
+def mijoz_tanla(mijozlar: list, soz: str) -> tuple:
+    """(ro'yxat, topildimi). Ism, Telegram ismi yoki username bo'yicha;
+    hech biri mos kelmasa — oxirgi 30 suhbatdosh, model o'zi solishtirsin
+    (taxallus, xato yozilgan ism). Sof."""
+    q = _ism_norm(soz).lstrip("@").strip()
+    if q:
+        mos = [m for m in mijozlar
+               if any(q in _ism_norm(m.get(k) or "") for k in ("tg_ism", "username", "ism"))]
+        if mos:
+            return mos[:10], True
+    return mijozlar[:30], False
+
+
+async def mijoz_qidir(egasi: int, soz: str) -> str:
+    """`biznes_xabar(amal=qidir)` natijasi — modelga matn."""
+    mijozlar = await database.biznes_mijozlar(egasi)
+    if not mijozlar:
+        return ("Kartotekada hali hech kim yo'q — bot ulanganidan beri egasiga hech kim "
+                "yozmagan. Telegram faqat egasiga oxirgi 24 soatda yozgan odamga yozishga "
+                "ruxsat beradi; buni egasiga ayting.")
+    ro, topildi = mijoz_tanla(mijozlar, soz)
+    bosh = ("Topilganlar:" if topildi else
+            f"«{soz}» nomi bilan aniq mos topilmadi. Oxirgi suhbatdoshlar — o'xshashi "
+            "bo'lsa taklif qiling, bo'lmasa egasidan so'rang:")
+    return bosh + "\n" + "\n".join(_mijoz_qatori(i, m) for i, m in enumerate(ro, 1))
+
+
+async def _kartotekadan(egasi: int, chat_id) -> dict | None:
+    """`chat_id` modeldan keladi — ishonchsiz: faqat SHU egasining
+    kartotekasidagi suhbatdosh (`biznes_mijozlar` owner_id bo'yicha)."""
+    if not isinstance(chat_id, int) or isinstance(chat_id, bool):
+        return None
+    return next((m for m in await database.biznes_mijozlar(egasi)
+                 if m["chat_id"] == chat_id), None)
+
+
+async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
+    """Egasi NOMIDAN suhbatdoshga. (yuborildimi, egasiga/modelga tavsif)."""
+    mijoz = await _kartotekadan(egasi, chat_id)
+    if mijoz is None:
+        return False, "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
+    matn = (matn or "").strip()[:BIZNES_TOPSHIRIQ_MAX]
+    if not matn:
+        return False, "matn bo'sh"
+    nom = _mijoz_nomi(mijoz)
+    topilgan = database.biznes_egasi_ulanishi(egasi)
+    ul = topilgan[1] if topilgan else None
+    if not ul or not ul["yoqilgan"]:
+        return False, f"{nom}ga yuborilmadi: bot Telegram Biznes'ga ulanmagan"
+    if not ul["huquqlar"].get("can_reply"):
+        return False, (f"{nom}ga yuborilmadi: «{huquq_nomi(egasi, 'can_reply')}» huquqi "
+                       f"yoqilmagan ({sozlama_yoli(egasi)} → botni tanlang)")
+    try:
+        _bot_yubordi(await _qayta_429(lambda: _mijozga(chat_id, topilgan[0], matn)))
+    except Exception as e:
+        logger.warning(f"[BIZNES] topshiriq yuborilmadi egasi={egasi} chat={chat_id}: {e}")
+        oldin, _ = _necha_oldin(mijoz.get("oxirgi"))
+        havola = (f" Bir bosishda o'zingiz yuboring: https://t.me/{mijoz['username']}"
+                  f"?text={quote(matn[:500])}" if mijoz.get("username") else "")
+        return False, (f"{nom}ga yuborilmadi — Telegram rad etdi ({e}). Odatda sababi: "
+                       f"Telegram faqat oxirgi 24 soatda sizga yozgan odamga yozishga ruxsat "
+                       f"beradi, {nom} esa oxirgi marta {oldin} yozgan.{havola}")
+    if ul["huquqlar"].get("can_read_messages"):
+        await safe_update_history(chat_id, matn, role="assistant",
+                                  thread_id=biznes_thread(egasi))
+    logger.info(f"[BIZNES] topshiriq yuborildi egasi={egasi} chat={chat_id}")
+    return True, f"{nom}ga yuborildi"
+
+
+async def topshiriq(egasi: int, args: dict, thread_id: int) -> str:
+    """`biznes_xabar` asbobi — modelga qisqa matn (services/ai.py chaqiradi)."""
+    amal = args.get("amal")
+    try:
+        if amal == "qidir":
+            return await mijoz_qidir(egasi, str(args.get("ism") or ""))
+        if amal == "yubor":
+            chat_id, matn = args.get("chat_id"), str(args.get("matn") or "")
+            vaqt = str(args.get("vaqt") or "").strip()
+            if not vaqt:
+                return (await _topshiriq_yubor(egasi, chat_id, matn))[1]
+            if await _kartotekadan(egasi, chat_id) is None:
+                return "bu suhbatdosh egasining kartotekasida yo'q — avval qidir bilan toping"
+            natija = await database.create_scheduled_task(
+                egasi, matn, vaqt, thread_id=thread_id, biznes_kimga=chat_id)
+            if not natija.startswith("qo'yildi"):
+                return natija
+            return natija + (" — vaqti kelganda yuboraman va natijani shu mavzuda aytaman. "
+                             "O'sha paytgacha u 24 soat ichida yozmagan bo'lsa Telegram "
+                             "ruxsat bermaydi; unda matnni egasiga qaytaraman.")
+        rows = await database.list_scheduled_tasks(egasi, biznes=True)
+        if amal == "royxat":
+            if not rows:
+                return "rejalashtirilgan xabar yo'q"
+            nomlar = {m["chat_id"]: _mijoz_nomi(m)
+                      for m in await database.biznes_mijozlar(egasi)}
+            return "; ".join(
+                f"{i}. {r['run_at'].astimezone(database.TASHKENT_TZ):%Y-%m-%d %H:%M} — "
+                f"{nomlar.get(r['biznes_kimga'], r['biznes_kimga'])}: «{r['text'][:200]}»"
+                for i, r in enumerate(rows, 1))
+        if amal == "bekor":
+            idx = args.get("index")
+            if not (isinstance(idx, int) and not isinstance(idx, bool)
+                    and 1 <= idx <= len(rows)):
+                return f"bunday raqam yo'q (hozir {len(rows)} ta) — avval royxat"
+            return await database.cancel_scheduled_task(egasi, rows[idx - 1]["id"])
+        return "noma'lum amal — qidir, yubor, royxat yoki bekor"
+    except Exception as e:
+        logger.warning(f"[BIZNES] topshiriq xatosi egasi={egasi} amal={amal}: {e}")
+        return "bajarilmadi (texnik xato) — egasiga ayting"
+
+
+async def rejali_yubor(egasi: int, chat_id: int, matn: str) -> None:
+    """`reminder_watcher` — vaqti kelgan topshiriq. Natija egasiga DOIM
+    aytiladi: yuborilmagani jim yo'qolsa, egasi yuborildi deb o'ylaydi."""
+    premium_biznes()
+    ok, tavsif = await _topshiriq_yubor(egasi, chat_id, matn)
+    await _egasiga(egasi, ("✅ " if ok else "❗ ") + escape(tavsif)
+                   + f"\n<blockquote>{escape(matn[:1000])}</blockquote>")

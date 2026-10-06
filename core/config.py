@@ -500,6 +500,7 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "open_memory": "xotirani ochish",
     "open_reminder": "eslatmani ochish",
     "open_capabilities": "bot imkoniyatlarini ko'rish",
+    "biznes_xabar": "egasi nomidan xabar yuborish",
 }
 
 
@@ -894,6 +895,9 @@ BIZNES_SAQLASH_KUN = 90
 # javob bermagan bo'lsa — egasiga bitta xabar.
 BIZNES_HISOBOT_SOAT = 9
 BIZNES_JAVOBSIZ_DAQIQA = 60
+# Egasining topshirig'i («soat 8 da Xusanga salom deb yoz») — matn chegarasi.
+# Eslatmaning 200 belgisi emas: bu suhbatdoshga ketadigan to'liq xabar.
+BIZNES_TOPSHIRIQ_MAX = 2000
 # Shu oraliqda ogohlantirish yuborilmaydi (egasi uxlaydi); tunda qolgan
 # javobsiz chatlar ertalabki hisobotga tushadi.
 BIZNES_TUNGI_SOAT = (22, 8)

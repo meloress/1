@@ -734,6 +734,11 @@ owner-style learning) and the planned next work. The four rules that break silen
 - Menu (2026-09-30): `/biznes` is shown to **everyone** (a free user gets the status and
   /pro), `/mijozlar` to Pro only. Menu path and right names come from Telegram's official
   translations — see `BIZNES.md`; the guessed "Chatbots" was wrong in all three languages.
+- Owner's task (2026-10-06): in the «💼 Biznes» topic the owner says "soat 8 da Xusanga salom
+  deb yoz" and the `biznes_xabar` tool finds, asks and sends **on their behalf** — attached
+  only there (Pro), `chat_id` checked against that owner's customer file, scheduled rows in
+  `scheduled_tasks.biznes_kimga`. ⛔️ Telegram's 24-hour rule cannot be bypassed; a rejected
+  send returns the text plus a `t.me/<user>?text=` link, never "sent".
 
 ### Inline mode must stay OFF — it breaks guest mode
 
@@ -1562,9 +1567,9 @@ asked in groups too and that is exactly where the model's own knowledge is thinn
 at one call: the text never changes, so a second call is ~2 000 tokens for nothing.
 
 ⚠️ **It takes a required `bolim` (2026-10-06).** `hammasi` returns every section's short
-text (**2 431** tokens, free) — the old behaviour, unchanged. A single section returns that
+text (**2 491** tokens, free) — the old behaviour, unchanged. A single section returns that
 section **plus `_BATAFSIL`**: buttons, modes, setup steps, written with the exact labels
-the user sees on screen (biznes 1 632, pro 829, the rest ~400-700). So "what does the
+the user sees on screen (biznes 1 803, pro 829, the rest ~400-700). So "what does the
 Pauza button do?" is answered from fact, and costs less than the whole list. `_BATAFSIL`
 is model-only — `/help` stays short. The enum in `services/ai.py` must equal
 `capabilities.BOLIMLAR` (`test_capabilities.py` 12c); 12e asserts a section never

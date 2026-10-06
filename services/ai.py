@@ -110,6 +110,7 @@ RATE_LIMIT_RETRY_DELAY = 6
 from db.database import (
     get_memories, add_memory, update_memory, delete_memory, clear_memories,
     create_scheduled_task, list_scheduled_tasks, cancel_scheduled_task,
+    TASHKENT_TZ,
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -3184,10 +3185,15 @@ _FILE_TASK_TOOL = {
 def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
                          reminder_enabled: bool, memory_enabled: bool,
                          nearby_enabled: bool = False,
-                         edit_enabled: bool = False) -> dict:
+                         edit_enabled: bool = False,
+                         biznes_enabled: bool = False) -> dict:
     # internet_search va open_capabilities — ikkalasi ham doim
     # biriktirilgan, shuning uchun manifest ham ikkalasini aytadi.
     bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"]]
+    # Faqat egasining «💼 Biznes» mavzusida — boshqa joyda ro'yxatda ham
+    # yo'q (pastdagi "Never available" gapi o'sha holat uchun to'g'ri).
+    if biznes_enabled:
+        bor.append(_BIZNES_XABAR_TOOL["name"])
     yoq: list[str] = []
     pro: list[str] = []
     for shart, tool, sabab in (
@@ -3244,7 +3250,8 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
         "LaTeX; Telegram formatting.",
         "Never available: watching video/GIF, opening YouTube links, "
         "listening to music files, downloading files from the internet, "
-        "writing to anyone on the user's behalf, Telegram mini apps.",
+        + ("" if biznes_enabled else "writing to anyone on the user's behalf, ")
+        + "Telegram mini apps.",
         # ⚠️ Ovozli javob BOR, lekin uni model TANLAY olmaydi: u faqat
         # foydalanuvchi ovozli xabar yuborgan yo'lda yaratiladi
         # (handlers/messages.py: handle_voice). Buni aytmasak, model
@@ -3771,6 +3778,54 @@ _IMKONIYAT_TOOL = {
     "strict": True,
 }
 
+# Egasining «💼 Biznes» mavzusida: suhbatdoshga uning NOMIDAN yozish
+# (handlers/biznes.py::topshiriq). Faqat o'sha mavzuda va Pro'da
+# biriktiriladi — oddiy so'rovlarga 0 token. Tugma yo'q, ataylab: egasi
+# botdagidek gaplashadi, aniqlashtirishni model so'raydi (egasi, 2026-10-06).
+_BIZNES_XABAR_TOOL = {
+    "type": "function",
+    "name": "biznes_xabar",
+    "description": (
+        "Egasining suhbatdoshiga (mijoz, do'st) uning NOMIDAN Telegram'da "
+        "xabar yuborish — hozir yoki belgilangan vaqtda: 'soat 8 da Xusanga "
+        "salom deb yoz', 'Anvarga ayt, ertaga kelsin'. Bu ESLATMA EMAS — "
+        "manage_reminder/open_reminder bu yerda ishlatilmaydi.\n"
+        "amal='qidir' — DOIM birinchi: `ism` bo'yicha suhbatdoshni topadi. "
+        "Bir nechta chiqsa — egasiga har birini havolasi bilan qisqa sanab, "
+        "qaysi biri ekanini SO'RANG. Mos topilmasa oxirgi suhbatdoshlar "
+        "qaytadi — o'xshashini taklif qiling.\n"
+        "amal='yubor' — `chat_id` (qidir natijasidan), `matn`, `vaqt` "
+        "('YYYY-MM-DD HH:MM' Toshkent; hozir yuborish uchun bo'sh). Vaqtni "
+        "eslatmadagidek o'zingiz hisoblang: 'soat 8' = 08:00 (20:00 EMAS, "
+        "'kechki' desagina), o'tgan bo'lsa ertangi kun. chat_id FAQAT shu "
+        "so'rovdagi qidir natijasidan — oldingi xabarda tanlangan bo'lsa ham "
+        "qidirni qayta chaqiring, raqamni taxmin qilmang.\n"
+        "amal='royxat' — rejalashtirilganlar; amal='bekor' — `index` bilan.\n"
+        "MATN: egasi aniq so'z bergan bo'lsa ('salom deb yoz') — AYNAN "
+        "shuni yuboring, so'ramang. Mazmunini aytib, so'zini bermagan bo'lsa "
+        "('ertaga kelsin deb ayt') — egasi nomidan, birinchi shaxsda, qisqa "
+        "yozing, ko'rsating va 'shunday yuboraymi?' deb so'rang. Nima "
+        "yozishni umuman aytmagan bo'lsa — so'rang: 'nima deb yozay yoki "
+        "o'zim yozib beraymi?'.\n"
+        "⛔️ Telegram faqat oxirgi 24 soatda egasiga YOZGAN odamga yozishga "
+        "ruxsat beradi — qidir natijasida har biri uchun yozilgan; ruxsat "
+        "bo'lmasa egasiga oldindan ayting."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "amal": {"type": "string", "enum": ["qidir", "yubor", "royxat", "bekor"]},
+            "ism": {"type": "string"},
+            "chat_id": {"type": "integer"},
+            "matn": {"type": "string"},
+            "vaqt": {"type": "string"},
+            "index": {"type": "integer"},
+        },
+        "required": ["amal"],
+    },
+    "strict": False,
+}
+
 _REMINDER_INTENT_TOOL = {
     "type": "function",
     "name": "open_reminder",
@@ -3964,6 +4019,14 @@ async def _run_nearby_task(coords, args: dict) -> str:
             f"(eng yaqinidan boshlab):\n" + format_places(joylar))
 
 
+async def _biznes_mavzusimi(user_id: int, thread_id: int) -> bool:
+    """Shu mavzu egasining «💼 Biznes» mavzusimi. Bazadagi xatoda True
+    qaytadi — asbob ortiqcha biriktiriladi, xolos; ulanishni asbob o'zi
+    tekshiradi."""
+    from db.database import biznes_mavzumi
+    return await biznes_mavzumi(user_id, thread_id)
+
+
 async def _run_reminder_task(user_id: Optional[int], args: dict, *,
                              is_pro: bool = True, thread_id: int = 0) -> str:
     """manage_reminder chaqiruvi — modelga qisqa MATN natija qaytaradi.
@@ -4000,7 +4063,9 @@ async def _run_reminder_task(user_id: Optional[int], args: dict, *,
             if not rows:
                 return "faol eslatma yo'q"
             return "; ".join(
-                f"{i}. {r['run_at']:%Y-%m-%d %H:%M}"
+                # ⚠️ asyncpg TIMESTAMPTZ ni UTC'da qaytaradi — usiz 09:00 dagi
+                # eslatma ro'yxatda "04:00" bo'lib ko'rinardi.
+                f"{i}. {r['run_at'].astimezone(TASHKENT_TZ):%Y-%m-%d %H:%M}"
                 + (f" ({r['repeat']})" if r["repeat"] != "once" else "")
                 + (" [bajaradi]" if r.get("vazifa") else "")
                 + f" — {r['text']}"
@@ -4522,6 +4587,15 @@ async def get_openai_reply(
     MAX_NEARBY_ROUNDS = 2
     nearby_rounds = 0
 
+    # Business topshirig'i: faqat egasining «💼 Biznes» mavzusida (shaxsiy
+    # chat, mavzu > 0) va Pro'da. Baza so'rovi faqat mavzudagi xabarda.
+    # 4: qidir + yubor, yoki royxat + bekor, bitta xatoli urinish bilan.
+    biznes_enabled = (tools_enabled and is_pro and user_id is not None
+                      and chat_id == user_id and thread_id > 0
+                      and await _biznes_mavzusimi(user_id, thread_id))
+    MAX_BIZNES_ROUNDS = 4
+    biznes_rounds = 0
+
     # Xotira: guest rejimda user_id=None → asbob o'zi biriktirilmaydi,
     # qo'shimcha shart kerak emas (rasm tool'i bilan bir xil naqsh).
     # 3: bir nechta yangi fakt + tuzatish bitta xabarga sig'adi.
@@ -4567,6 +4641,7 @@ async def get_openai_reply(
             memory_enabled=user_id is not None,
             nearby_enabled=nearby_enabled,
             edit_enabled=edit_enabled,
+            biznes_enabled=biznes_enabled,
         ))
 
     while True:
@@ -4599,6 +4674,8 @@ async def get_openai_reply(
                                 else _REMINDER_INTENT_TOOL)
         if nearby_enabled and nearby_rounds < MAX_NEARBY_ROUNDS:
             active_tools.append(_NEARBY_TOOL)
+        if biznes_enabled and biznes_rounds < MAX_BIZNES_ROUNDS:
+            active_tools.append(_BIZNES_XABAR_TOOL)
         # Doim biriktiriladi: "sen nima qila olasan" savoli istalgan
         # paytda keladi va uni boshqa hech narsa ushlamaydi. Arzon --
         # argumentsiz eshik; qimmat matn faqat chaqirilganda qaytadi.
@@ -4789,6 +4866,13 @@ async def get_openai_reply(
                 tool_output = await _run_reminder_task(
                     user_id, args, is_pro=is_pro,
                     thread_id=thread_id if chat_id == user_id else 0)
+            elif call_item.name == "biznes_xabar":
+                # ⚠️ Bu ham `else` dan OLDIN — aks holda "Xusanga yoz"
+                # veb qidiruvga aylanardi. Asbob faqat `biznes_enabled`
+                # bo'lganda biriktiriladi, ya'ni boshqa so'rovda chaqirilmaydi.
+                biznes_rounds += 1
+                from handlers.biznes import topshiriq  # kech: tsiklik import
+                tool_output = await topshiriq(user_id, args, thread_id)
             elif call_item.name == "open_capabilities":
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 # Boshqa eshiklardan farqi: bu asbob BIRIKTIRMAYDI, javobni

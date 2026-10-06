@@ -539,7 +539,14 @@ async def reminder_watcher():
                     logger.error(f"[Eslatma] surishda xatolik id={row['id']}: {e}")
                     continue
 
-                if row.get("vazifa"):
+                if row.get("biznes_kimga"):
+                    # Business topshirig'i: egasi NOMIDAN suhbatdoshga
+                    # (handlers/biznes.py::rejali_yubor). Fonda — 429 kutishi
+                    # boshqalarning eslatmasini kechiktirmasin.
+                    from handlers.biznes import rejali_yubor  # ⚠️ tsiklik
+                    asyncio.create_task(rejali_yubor(
+                        row["user_id"], row["biznes_kimga"], row["text"]))
+                elif row.get("vazifa"):
                     # Fonda: qidiruvli javob 10-60 s — shu vaqt ichida
                     # boshqalarning eslatmasi kechikmasin.
                     asyncio.create_task(_vazifani_bajar(
