@@ -8,7 +8,7 @@ oldin shu faylni o'qing. Bosqichlar rejasi va asl qarorlar — `REJA.md`.
 
 | Fayl | Nima |
 |---|---|
-| `handlers/biznes.py` | ulanish, `biznes_kimdan` (tsikl himoyasi), nuqtali buyruqlar, Yordamchi/Avtomat, `/biznes` ekrani, hisobot, javobsiz chatlar, `/mijozlar`, profil/story |
+| `handlers/biznes.py` | ulanish, `biznes_kimdan` (tsikl himoyasi), nuqtali buyruqlar, Yordamchi/Avtomat, `/biznes` ekrani, kartoteka, egasining topshirig'i (mavzu), `/mijozlar`, profil/story |
 | `handlers/biznes_uslub.py` | egasining USLUBI: namuna yig'ish, o'rganish, uslub bloki, «Uslubim» ekrani |
 | `services/ai.py` | `BIZNES_INSTRUCTIONS` (mijoz yo'lining o'z prompti), `biznes_yoriqnoma=` parametri, `egasiga_ajrat`, `biznes_kun_xulosasi`, `BIZNES_MANBA` |
 | `db/database.py` | `biznes_*` jadvallar va funksiyalar (SQL faqat shu yerda) |
@@ -530,13 +530,13 @@ is no user to key it by).
 ⛔️ **2026-10-03, egasining qarori — quyidagi 4.1/4.2 dan ustun:** ertalabki hisobot
 egasiga **yuborilmaydi**; `_hisobot()` faqat kechagi yozishmalardan kartotekani
 (`/mijozlar`: ism, telefon, qiziqish) to'ldiradi — o'sha bitta mini-model chaqiruvi qoladi.
-«N daqiqadan beri javob kutmoqda» har bir javobsiz qism uchun **bir marta**: belgi
-`biznes_chat.javobsiz_ogoh` da (bazada), `biznes_javobsizlar(faqat_yangi=True)` undan
-keyin egasi/bot javob bermagan chatni qaytarmaydi. Ilgari belgi faqat RAM'da edi va har
-deploy uni bo'shatib, o'sha chat haqida kuniga 4-6 marta yozardi. Shu bilan
-`ALTER TABLE biznes_chat` endi `CREATE TABLE` dan keyin — yangi bazada
-`create_users_table()` yiqilardi. `test_biznes_hisobot.py` 5, 8, 9b; mahalliy Postgres'da
-tekshirilgan.
+⛔️ **2026-10-06: «N daqiqadan beri javob kutmoqda» ogohlantirishi BUTUNLAY o'chirildi**
+(egasi: "kerak emas"). `javobsiz_tekshir`, `javobsiz_watcher`, `biznes_javobsiz_belgila`,
+`BIZNES_JAVOBSIZ_DAQIQA`, `BIZNES_TUNGI_SOAT` yo'q; `biznes_chat.javobsiz_ogoh` ustuni eski
+bazalarda qoldi, ishlatilmaydi. Kim javob kutayotgani endi faqat so'ralganda — «💼 Biznes»
+mavzusidagi holat bloki va `bugun` amali (`biznes_javobsizlar`). `test_biznes_hisobot.py`
+check 9 qaytib kelmasligini tekshiradi. (`ALTER TABLE biznes_chat` baribir `CREATE TABLE`
+dan keyin — yangi bazada `create_users_table()` yiqilardi.)
 
 **Morning report (4.1).** `biznes_hisobot_watcher()` checks every 10 minutes and sends after
 `BIZNES_HISOBOT_SOAT` (9, Tashkent) — deliberately *not* "sleep until 9": a deploy at 9:05
@@ -554,12 +554,9 @@ first — `True` is an `int`); the fields go through `clean_mijoz_maydon()` (pho
 digits after a regex, else `None`; other fields one line, length-cut). An empty field never
 overwrites a known one (`COALESCE`). Check 6 feeds a bool, a string and an out-of-range `n`.
 
-**Unanswered chat (4.2).** Every 5 minutes, chats whose **last** row is the customer's and is
-60-180 min old (`biznes_javobsizlar`, partial index `… WHERE thread_id < 0` built in the
-background). The upper bound is what keeps a deploy — which empties the RAM flag — from
-re-alerting old chats. `_ogoh_holat` pattern: the flag is set **from the send result** (an alert
-that did not arrive is not "said"), and dropped when the chat leaves the list, i.e. was answered.
-Silent 22:00-08:00; what happened at night is in the morning report.
+**Unanswered chat (4.2) — REMOVED 2026-10-06** (owner: "not needed"). No alert is sent any
+more; `biznes_javobsizlar` (partial index `… WHERE thread_id < 0`) only feeds the topic's
+status block.
 
 **Customer file (4.3).** Telegram's own name/username are stored on every customer message
 (one upsert, errors swallowed — bookkeeping is not the reply path). `/mijozlar` lists, and the

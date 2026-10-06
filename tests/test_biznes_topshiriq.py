@@ -422,7 +422,7 @@ async def _faol(o, soat=24, limit=15):
              "created_at": HOZIR - timedelta(minutes=20), "soni": 3}]
 
 
-async def _javobsiz(dan, gacha, owner_id=None, faqat_yangi=False):
+async def _javobsiz(dan, gacha, owner_id=None):
     return [{"chat_id": 11, "content": "bormi?", "created_at": HOZIR - timedelta(hours=2)}]
 
 

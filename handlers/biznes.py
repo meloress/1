@@ -34,12 +34,11 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
                            InputStoryContentPhoto, Message)
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
-                         BIZNES_HISOBOT_SOAT, BIZNES_JAVOBSIZ_DAQIQA,
+                         BIZNES_HISOBOT_SOAT,
                          BIZNES_MERGE_WAIT, BIZNES_TOZALASH_KUN,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_KUTISH_SONIYA, BIZNES_KUTISH_VARIANT,
                          BIZNES_PAUZA_VARIANT, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
-                         BIZNES_TUNGI_SOAT,
                          BTN_DANGER,
                          BTN_PRIMARY, BTN_SUCCESS, message_cost)
 from core.loader import bot, logger
@@ -2216,18 +2215,6 @@ async def process_vaqt(message: Message, state: FSMContext) -> None:
 #  4-BOSQICH — HISOBOT, JAVOBSIZ CHATLAR, KARTOTEKA, PROFIL (REJA.md)
 # ═══════════════════════════════════════════════════════════════════
 
-def _chat_tugmasi(chat_id: int, username: str | None, nom: str):
-    """Chatga o'tish. Username bo'lmasa `tg://user?id=` — mijozning
-    maxfiylik sozlamasi uni rad etishi mumkin, shuning uchun `_egasiga`
-    tugmasiz qayta yuboradi."""
-    url = f"https://t.me/{username}" if username else f"tg://user?id={chat_id}"
-    return pro_module.btn(nom[:30], "", url=url)
-
-
-def _mijoz_nomi(r: dict) -> str:
-    return r.get("tg_ism") or (f"@{r['username']}" if r.get("username") else "Mijoz")
-
-
 # ── 4.1. Kechagi yozishmalardan kartoteka (ertalabki hisobot O'CHIRILGAN) ─
 # Egasi (2026-10-03): "kunlik hisobot umuman kelmasin". Xabar yuborilmaydi,
 # lekin /mijozlar (ism, telefon, nima so'radi) shu kunlik bitta mini-model
@@ -2337,67 +2324,10 @@ async def egalarni_tozala() -> int:
     return tozalandi
 
 
-# ── 4.2. Javobsiz chat ogohlantirishi ────────────────────────────────
-# Bitta javobsiz qism — BITTA ogohlantirish (egasi, 2026-10-03: "faqat bir
-# marta, 60 daqiqa bo'lganda"). Asosiy belgi BAZADA (`biznes_chat.
-# javobsiz_ogoh`): ilgari faqat RAM'da edi va har deploy (kuniga 20 tagacha)
-# uni bo'shatib, o'sha chat haqida qayta yozardi — kuniga 4-6 xabar.
-# RAM to'plami — zaxira: belgi yozilmay qolsa, 5 daqiqada bir takrorlanmasin.
-# Bayroq YUBORISH NATIJASIDAN qo'yiladi — yetib bormagan xabar "aytildi"
-# deb belgilansa, u butunlay yo'qolardi.
-_javobsiz_aytilgan: set = set()
-
-
-def tungi_soatmi(hozir: datetime) -> bool:
-    bosh, oxir = BIZNES_TUNGI_SOAT
-    return hozir.hour >= bosh or hozir.hour < oxir
-
-
-async def javobsiz_tekshir() -> int:
-    """Qaytadi: nechta ogohlantirish yuborildi."""
-    global _javobsiz_aytilgan
-    qatorlar = await database.biznes_javobsizlar(
-        BIZNES_JAVOBSIZ_DAQIQA * 3, BIZNES_JAVOBSIZ_DAQIQA, faqat_yangi=True)
-    hozirgi = {(r["owner_id"], r["chat_id"]) for r in qatorlar}
-    _javobsiz_aytilgan &= hozirgi          # javob berilganlar qayta qurollanadi
-    if tungi_soatmi(_hozir()):
-        return 0
-    egalar = database.biznes_faol_egalar()
-    yuborildi = 0
-    for r in qatorlar:
-        kalit = (r["owner_id"], r["chat_id"])
-        dm = egalar.get(r["owner_id"])
-        if kalit in _javobsiz_aytilgan or dm is None:
-            continue
-        if not await _pro(r["owner_id"]):   # N+1 edi (AUDIT 6.3.1) — endi keshdan
-            continue
-        nom = _mijoz_nomi(r)
-        matn = (f"⏳ <b>{escape(nom)}</b> {BIZNES_JAVOBSIZ_DAQIQA} daqiqadan beri "
-                f"javob kutmoqda:\n<blockquote>{escape((r.get('content') or '')[:300])}"
-                "</blockquote>")
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [_chat_tugmasi(r["chat_id"], r.get("username"), "💬 Chatga o'tish")]])
-        if await _egasiga(dm, matn, kb=kb):
-            _javobsiz_aytilgan.add(kalit)
-            yuborildi += 1
-            try:
-                await database.biznes_javobsiz_belgila(*kalit)
-            except Exception as e:
-                logger.warning(f"[BIZNES] javobsiz belgisi yozilmadi: {e}")
-    return yuborildi
-
-
-async def javobsiz_watcher():
-    premium_biznes()
-    await asyncio.sleep(300)
-    while True:
-        try:
-            n = await javobsiz_tekshir()
-            if n:
-                logger.info(f"[BIZNES] javobsiz chat ogohlantirishi: {n} ta")
-        except Exception:
-            logger.exception("[BIZNES] javobsiz chat tekshiruvi yiqildi")
-        await asyncio.sleep(300)
+# ── 4.2. «N daqiqadan beri javob kutmoqda» — O'CHIRILGAN ──────────────
+# Egasi (2026-10-06): "butunlay olib tashla, kerak emas". Kim javob
+# kutayotgani endi faqat so'ralganda — «💼 Biznes» mavzusidagi AI holat
+# blokida (`holat_bloki`, `biznes_javobsizlar`) va `bugun` amalida.
 
 
 # ── 4.3. /mijozlar ───────────────────────────────────────────────────
@@ -2685,7 +2615,10 @@ def _havola(m: dict) -> str:
 
 
 def _mijoz_nomi(m: dict) -> str:
-    nom = m.get("tg_ism") or m.get("ism") or "Ismsiz"
+    """Yagona nom funksiyasi (ilgari ikkita bir xil nomli edi — keyingisi
+    birinchisini jimgina almashtirib, /mijozlar dagi «@username» ni yo'qotgan)."""
+    nom = (m.get("tg_ism") or m.get("ism")
+           or (f"@{m['username']}" if m.get("username") else "Mijoz"))
     if m.get("ism") and m.get("tg_ism") and _ism_norm(m["ism"]) not in _ism_norm(m["tg_ism"]):
         nom += f" ({m['ism']})"
     return nom

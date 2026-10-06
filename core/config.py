@@ -890,19 +890,13 @@ BIZNES_TOZALASH_KUN = 3
 # kundan eskisi har kuni o'chadi. Bot javob uchun so'nggi ~80 xabarni
 # o'qiydi; ertalabki hisobot — oxirgi sutkani. 90 kun — bundan ancha keng.
 BIZNES_SAQLASH_KUN = 90
-# 4-bosqich. Ertalabki hisobot soati (Toshkent) va "javobsiz chat"
-# ogohlantirishi: mijoz yozganidan shuncha daqiqa o'tib na bot, na egasi
-# javob bermagan bo'lsa — egasiga bitta xabar.
+# 4-bosqich. Kunlik kartoteka soati (Toshkent).
 BIZNES_HISOBOT_SOAT = 9
-BIZNES_JAVOBSIZ_DAQIQA = 60
 # Egasining topshirig'i («soat 8 da Xusanga salom deb yoz») — matn chegarasi.
 # Eslatmaning 200 belgisi emas: bu suhbatdoshga ketadigan to'liq xabar.
 BIZNES_TOPSHIRIQ_MAX = 2000
 # Topshiriq bilan yuborilgan xabarlar shuncha kun saqlanadi («o'chir/tuzat» uchun).
 BIZNES_YUBORILGAN_KUN = 7
-# Shu oraliqda ogohlantirish yuborilmaydi (egasi uxlaydi); tunda qolgan
-# javobsiz chatlar ertalabki hisobotga tushadi.
-BIZNES_TUNGI_SOAT = (22, 8)
 # Telegram 24 soatdan eski chatga bot javobini rad etadi — undan eski
 # loyihani yuborish tugmasi baribir ishlamasdi.
 BIZNES_LOYIHA_TTL_SOAT = 24

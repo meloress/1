@@ -108,15 +108,6 @@ async def mijoz_yangila(owner, chat, ism, tel, qiz):
     q.append(("kartoteka", chat, ism, tel, qiz))
 
 
-async def javobsizlar(dan, gacha, owner_id=None, faqat_yangi=False):
-    holat["faqat_yangi"] = faqat_yangi
-    return holat["javobsiz"]
-
-
-async def javobsiz_belgila(owner, chat):
-    q.append(("belgi", owner, chat))
-
-
 b.bot = SoxtaBot()
 b.biznes_kun_xulosasi = xulosa
 b._hozir = lambda: holat["soat"]
@@ -132,8 +123,6 @@ database.pro_tarifmi = rost
 database.biznes_hisobot_band = band
 database.biznes_kun_hisobi = kun_hisobi
 database.biznes_mijoz_yangila = mijoz_yangila
-database.biznes_javobsizlar = javobsizlar
-database.biznes_javobsiz_belgila = javobsiz_belgila   # ⚠️ aks holda .env -> jonli baza
 database._biznes_kesh.clear()
 database._biznes_kesh["c1"] = {
     "owner_id": EGASI, "owner_chat": DM, "yoqilgan": True, "rejim": "yordamchi",
@@ -186,38 +175,14 @@ asyncio.run(b._hisobot(EGASI, DM))
 check(8, "model bo'sh qaytsa ham yiqilmaydi va hech narsa yuborilmaydi",
       not [x for x in q if x[0] == "send"])
 
-# ── 9-12. Javobsiz chat ogohlantirishi ───────────────────────────
-b._javobsiz_aytilgan.clear()
-holat["javobsiz"] = [{"chat_id": 9001, "owner_id": EGASI, "content": "narx?",
-                      "tg_ism": "Ali", "username": "ali"}]
-q.clear()
-n1 = asyncio.run(b.javobsiz_tekshir())
-n2 = asyncio.run(b.javobsiz_tekshir())
-check(9, "bitta javobsiz chat -> BITTA ogohlantirish (ikkinchi tekshiruvda yo'q)",
-      (n1, n2) == (1, 0) and len([x for x in q if x[0] == "send"]) == 1
-      and q[0][3].inline_keyboard[0][0].url == "https://t.me/ali")
-check("9b", "ogohlantirish BAZAGA belgilanadi (deploy RAM'ni bo'shatsa ham "
-      "takrorlanmasin), so'rov faqat yangilarini oladi",
-      ("belgi", EGASI, 9001) in q and holat.get("faqat_yangi") is True)
-
-holat["javobsiz"] = []
-asyncio.run(b.javobsiz_tekshir())
-holat["javobsiz"] = [{"chat_id": 9001, "owner_id": EGASI, "content": "yana savol",
-                      "tg_ism": "Ali", "username": "ali"}]
-check(10, "javob berilgach qayta qurollanadi, yangi kutish yana ogohlantiriladi",
-      asyncio.run(b.javobsiz_tekshir()) == 1)
-
-b._javobsiz_aytilgan.clear()
-holat["soat"] = soat(23)
-check(11, "tunda ogohlantirish yo'q", asyncio.run(b.javobsiz_tekshir()) == 0)
-holat["soat"] = soat(10)
-
-holat["send_xato"] = {DM}
-check(12, "yetib bormagan ogohlantirish «aytildi» deb belgilanmaydi",
-      asyncio.run(b.javobsiz_tekshir()) == 0 and not b._javobsiz_aytilgan)
-holat["send_xato"] = set()
-check(13, "keyingi tekshiruvda qayta urinadi va yetkazadi",
-      asyncio.run(b.javobsiz_tekshir()) == 1)
+# ── 9. «N daqiqadan beri javob kutmoqda» — O'CHIRILGAN ─────────────
+# Egasi (2026-10-06): "butunlay olib tashla, kerak emas". Qaytib kelmasin:
+# na funksiya, na kuzatuvchi, na main.py dagi ishga tushirish.
+main_src = kod(os.path.join(ROOT, "main.py"))
+check(9, "javob kutmoqda ogohlantirishi yo'q (funksiya, kuzatuvchi, main.py)",
+      not hasattr(b, "javobsiz_tekshir") and not hasattr(b, "javobsiz_watcher")
+      and "javobsiz_watcher" not in main_src
+      and not hasattr(database, "biznes_javobsiz_belgila"))
 
 # ── 14-15. /mijozlar va CSV ──────────────────────────────────────
 
@@ -333,13 +298,9 @@ check(24, "SQL: SUM ::bigint (Decimal emas), make_interval, manba ustuni va inde
       and "chat_messages (created_at) WHERE thread_id < 0" in manba)
 
 main = kod(os.path.join(ROOT, "main.py"))
-check(25, "main.py: kuzatuvchilar ishga tushadi, profil FSM AI'dan oldin, /mijozlar",
-      "biznes_hisobot_watcher()" in main and "javobsiz_watcher()" in main
+check(25, "main.py: kartoteka kuzatuvchisi ishga tushadi, profil FSM AI'dan oldin, /mijozlar",
+      "biznes_hisobot_watcher()" in main
       and main.index("process_profil") < main.index("register(handle_text")
       and 'Command("mijozlar")' in main)
 
-check(26, "tungi soat chegaralari (22:00-08:00)",
-      b.tungi_soatmi(soat(22)) and b.tungi_soatmi(soat(7, 59))
-      and not b.tungi_soatmi(soat(8)) and not b.tungi_soatmi(soat(21, 59)))
-
-print("\nHammasi o'tdi: 26/26")
+print("\nHammasi o'tdi.")

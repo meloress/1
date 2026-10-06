@@ -233,7 +233,6 @@ SECTIONS: dict[str, dict] = {
             "javoblar faqat shunga tayanadi. 🎨 <b>Uslub</b> — sizning "
             "yozish uslubingizni o'rganaman. Ovoz, rasm va hujjatni ham "
             "tushunaman.\n\n"
-            "⏰ Mijoz bir soat javob kutsa — bir marta eslataman.\n"
             "💬 «💼 Biznes» mavzusida oddiy gap bilan: «soat 8 da Xusanga "
             "salom deb yoz» — sizning nomingizdan yozaman (Telegram faqat "
             "oxirgi 24 soatda sizga yozgan odamga ruxsat beradi). Yozganimni "

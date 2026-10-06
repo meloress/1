@@ -273,10 +273,9 @@ async def main():
     # hisobot esa ertalab keladi — bu ikkalasining orasidagi
     # oynani yopadi (xatolar to'lqini va «bot jim»).
     asyncio.create_task(admin_daily.alert_watcher())
-    # Telegram Business (REJA.md 4.1-4.2): ertalabki hisobot va javobsiz
-    # chat ogohlantirishi — admin kuzatuvchilari bilan bir xil naqsh.
+    # Telegram Business (REJA.md 4.1): kunlik kartoteka va tozalash. «Javob
+    # kutmoqda» ogohlantirishi 2026-10-06 da egasining so'rovi bilan o'chirildi.
     asyncio.create_task(biznes_module.biznes_hisobot_watcher())
-    asyncio.create_task(biznes_module.javobsiz_watcher())
 
     # Web admin panel (Mini App). Bot jarayonining ICHIDA — limit va
     # kuzatuv sozlamalari RAM keshida yashaydi, alohida jarayon ularni
