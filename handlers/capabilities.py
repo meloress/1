@@ -397,39 +397,177 @@ def _section_text(key: str, is_pro: bool) -> str:
 # `SECTIONS` dan o'qiydi.
 _TEG_RE = re.compile(r"<[^>]+>")
 
+# ── Faqat model uchun: har bo'limning ichki tafsiloti ───────────────
+# ⚠️ NEGA ALOHIDA. /help ekrani qisqa bo'lishi kerak (telefonda o'qiladi),
+# model esa «bu tugma nima qiladi?» degan savolga javob berishi kerak.
+# Tafsilot FAQAT `open_capabilities(bolim=…)` shu bo'limni so'raganda
+# qaytadi — `hammasi` da qo'shilmaydi, ya'ni umumiy savol narxi o'zgarmaydi,
+# bitta bo'lim haqidagi savol esa butun ro'yxatdan arzonroq.
+# Kalitlar SECTIONS bilan bir xil (test tekshiradi). Tugma nomlari koddagi
+# bilan AYNAN bir xil yozilsin — odam ekranda shuni qidiradi.
+_BATAFSIL: dict = {
+    "chat": (
+        "Buyruqlar: /new — SHU suhbat (mavzu) xotirasini tozalaydi, boshqa "
+        "mavzularga va doimiy xotiraga tegmaydi; /profile — tarif, muddat va "
+        "bugungi limitlar; /pro — tariflar va narxlar; /promo — promokod "
+        "kiritish; /gift — do'stga Pro sovg'a qilish; /help — imkoniyatlar "
+        "ekrani.\n"
+        "Doimiy xotira (hamma tarifda): «buni eslab qol», «buni unut», «men "
+        "haqimda nimani bilasan» — ism, kasb kabi faktlarni saqlayman yoki "
+        "o'chiraman.\n"
+        "Javob yozilayotganda yangi xabar yuborsangiz — navbatga olaman, "
+        "javob tugagach ko'rib chiqaman. Xato bo'lsa «↻ Qayta so'rash» "
+        "tugmasi chiqadi.\n"
+        "Juda uzun suhbatning eski qismini qisqa xulosa qilib saqlayman — "
+        "butunlay unutmayman."
+    ),
+    "doc": (
+        "Fayl ichidagi savolga javob, xulosa, tarjima, jadvalga solish — "
+        "shunchaki so'rang. Faylni tahrirlab yoki boshqa formatga o'girib "
+        "qaytarish — «Fayl yaratish» bo'limi."
+    ),
+    "photo": lambda pro: (
+        "Albom (5 tagacha rasm) bitta so'rov bo'ladi — «solishtir» desa "
+        "bo'ladi. Rasmdagi narsa haqida kerak bo'lsa internetdan ham "
+        "qidiraman (masalan narxini).\n"
+        "Internetdan rasm topib ko'rsatish — hamma tarifda: «X ning rasmini "
+        "ko'rsat», 10 tagacha.\n"
+        f"Pro: «chizib ber» — yangi rasm; rasm yuborib «fonini o'zgartir» — "
+        f"tahrir. Ikkalasi bitta limitda: kuniga {_PRO['images']} ta."
+    ),
+    "voice": (
+        "Bepulda oddiy sintez ovozi, Pro'da tabiiyroq ovoz. Ovozli javob "
+        "FAQAT ovozli xabarga keladi — matn yozilsa ovozda javob bera "
+        "olmayman. Guruhda ham ovozli xabarni tushunaman."
+    ),
+    "file": (
+        "Shunchaki so'rang: «… haqida 10 slaydlik taqdimot», «shu jadvalni "
+        "Excel qil», «PDF ga o'gir». Taqdimot va hujjatga internetdan mos "
+        "rasmlar qo'shaman. Tayyorlash 1–2 daqiqa oladi. Faqat shaxsiy "
+        "chatda. Fayl chiqmasa limit qaytariladi. 30 qatordan uzun kod "
+        "alohida fayl bo'lib keladi."
+    ),
+    "guruh": (
+        "Guruhda yo'q: fayl yasash, rasm chizish va tahrirlash, eslatma — "
+        "bular shaxsiy chatda. Javob @bot deb yozilgan xabar o'rnida "
+        "chiqadi."
+    ),
+    "joy": (
+        "Lokatsiyani 30 daqiqa eslayman — keyin qaytadan yuborish kerak. "
+        "Lokatsiyasiz «eng yaqin» joyni topa olmayman. «Yo'nalish» tugmasi "
+        "Yandex xaritada yo'l ochadi. Ma'lumot OpenStreetMap'dan — ba'zi joy "
+        "u yerda belgilanmagan bo'lishi mumkin; manba javob bermasa, buni "
+        "ochiq aytaman."
+    ),
+    "biznes": (
+        "ULANISH: 1) Telegram: Sozlamalar → Telegram Biznes → Chatni "
+        "avtomatlashtirish (inglizchada Settings → Telegram Business → Chat "
+        "Automation; ruschada Настройки → Telegram для бизнеса → "
+        "Автоматизация чатов). 2) @uzchatgptaibot ni kiriting. 3) Huquqlar: "
+        "«Xabarlarni o'qish» va «Xabarlarga javob berish» — asosiylari; "
+        "«Tarjimayi holni tahrirlash», «Ismni tahrirlash», «Profil rasmini "
+        "tahrirlash», «Hikoyalarni boshqarish» — faqat profilni o'zgartirish "
+        "uchun. 4) Qaysi chatlarda ishlashimni Telegram'ning o'sha sahifasida "
+        "tanlaysiz. 5) Botga /biznes yozing. Telegram Premium KERAK EMAS. "
+        "Bepul tarifda ulansa bo'ladi, lekin hech qaysi buyruq va rejim "
+        "ishlamaydi — /biznes Pro'ni taklif qiladi.\n"
+        "/biznes EKRANI: «Rejim: … · o'zgartirish» — 4 rejim: ⌨️ Buyruq — "
+        "faqat nuqtali buyruqlar; ✍️ Yordamchi — mijoz yozsa javob "
+        "qoralamasini sizga yuboraman, «Yuborish»ni o'zingiz bosasiz; "
+        "👀 Kuzatuv — faqat yozishmani eslab qolaman (.xulosa uchun), hech "
+        "kimga yozmayman; 🤖 Avtomat — mijozga o'zim javob beraman. "
+        "📝 Bilim — narx, manzil, ish vaqti, qoidalar; yozilmasa narx va "
+        "mahsulot haqida umuman gapirmayman. 🎨 Uslub — mijozlarga o'zingiz "
+        "yozgan xabarlar va qoralamaga tuzatishlaringizdan o'rganaman "
+        "(10 ta xabardan keyin o'zi yoziladi); «✍️ Qoidalarimni yozish» — "
+        "eng ustun qoida, «🔄 Hozir o'rgan», «❌ Namunalarni o'chirish». "
+        "🧰 Sozlamalar — pastda.\n"
+        "SOZLAMALAR (birinchi beshtasi faqat Avtomat rejimida): ⏰ Ishlash "
+        "vaqti — kun bo'yi, 20:00–09:00, 18:00–09:00 yoki o'zingiz yozasiz "
+        "(Toshkent vaqti), qolgan vaqtda jim turaman; 💬 Chatlar bo'yicha — "
+        "muayyan chatda avtomatni o'chirish/yoqish; 🤖 Avto belgisi — javob "
+        "ostidagi kichik «avtojavob» belgisi bor/yo'q; ⏳ Kutish — javobdan "
+        "oldin kutish (0, 15, 30 soniya, 1, 2, 5, 10 daqiqa), 💤 Pauza — siz "
+        "o'zingiz yozgan chatda jim turish (1–24 soat); bu ikkisi bosgan sari "
+        "keyingi qiymatga o'tadi. ✏️ Bio, 👤 Ism, 🖼 Profil rasmi, 🎬 Story — "
+        "xohishingizni so'z bilan yozasiz (rasm/story uchun rasm yuborsangiz "
+        "ham bo'ladi), tayyorlab ko'rsataman, «✅ Ha, tasdiqlayman» "
+        "bosgandagina qo'yaman.\n"
+        "AVTOMAT bilmagan savolni sizga o'tkazadi: variant tugmalari, "
+        "«✏️ O'zim yozaman», «✖️ Kerak emas», ostida «💬 Chatga o'tish» va "
+        "«🔕 Bu chatda avtomatni o'chirish». Tanlagan javobingizni «Eslab "
+        "qol» bilan Bilimga qo'shsangiz, keyingi safar o'zim javob beraman."
+    ),
+    "pro": lambda pro: (
+        "/kunlik: soat tugmalari (00–23), kuniga 4 tagacha soat; keyin bot "
+        "mavzularni so'raydi — o'sha so'rovga javob qilib yozasiz. Mavzu "
+        "yozilmaguncha daydjest KELMAYDI. Tugmalar: «✏️ Mavzularni "
+        "o'zgartirish», «🧹 Tozalash», «🔕 Daydjestni to'xtatish». Daydjest "
+        "/kunlik yozilgan mavzu (topic)ga keladi. Bepulda soatlar ko'rinadi, "
+        "lekin bosilmaydi.\n"
+        f"/research savol — 10+ manbadan chuqur qidiruv, taqqoslash va PDF "
+        f"hisobot; kuniga {_PRO['research']} ta, bir necha daqiqa oladi.\n"
+        "Eslatmalar: «ertaga 9 da qo'ng'iroq qilishni eslat» — bir martalik, "
+        "bepulda ham bor; «har kuni / har dushanba …» — takroriy, Pro; «har "
+        "kuni 9 da dollar kursini yubor» — vazifa: vaqti kelganda o'zim "
+        "qidirib natijani yuboraman, Pro. «Eslatmalarimni ko'rsat», «falon "
+        "eslatmani bekor qil» ham ishlaydi. Eslatma qaysi mavzuda "
+        "o'rnatilgan bo'lsa, o'shanga keladi.\n"
+        "Pro olish: /pro (Telegram Stars bilan), sovg'a: /gift, promokod: "
+        "/promo, muddat: /profile."
+    ),
+}
+assert set(_BATAFSIL) <= set(SECTIONS)
 
-def model_uchun(is_pro: bool) -> str:
-    """Modelga beriladigan to'liq imkoniyatlar matni.
+# `open_capabilities(bolim=…)` qiymatlari — `services/ai.py` dagi enum bilan
+# bir xil bo'lishi shart (test_capabilities.py solishtiradi).
+BOLIMLAR = (*SECTIONS, "hammasi")
 
+
+def _bolim_matni(kalit: str, is_pro: bool, batafsil: bool) -> list:
+    s = SECTIONS[kalit]
+    qism = [f"## {s['title']}", _TEG_RE.sub("", _matn(s["body"], is_pro)).strip()]
+    izoh = _TEG_RE.sub("", _matn(s["note"], is_pro))
+    if izoh:
+        qism.append(izoh.strip())
+    if s["example"]:
+        qism.append(f"Misol so'rov: {s['example']}")
+    if batafsil and kalit in _BATAFSIL:
+        qism.append("Batafsil: " + _matn(_BATAFSIL[kalit], is_pro))
+    qism.append("")
+    return qism
+
+
+def model_uchun(is_pro: bool, bolim: str = "hammasi") -> str:
+    """Modelga beriladigan imkoniyatlar matni.
+
+    `bolim="hammasi"` — barcha bo'limlarning qisqa matni (ekrandagidek).
+    Bitta bo'lim — o'sha bo'lim + `_BATAFSIL` (tugmalar, qadamlar).
     HTML teglari olib tashlanadi: model uchun ular ma'nosiz, lekin
     tokenni yeydi va javobga sirqib chiqishi mumkin.
     """
     qismlar = [
-        "[BOT IMKONIYATLARI — TO'LIQ VA ANIQ RO'YXAT]",
+        "[BOT IMKONIYATLARI — ANIQ MA'LUMOT]",
         "Tarif: " + ("Pro — hamma narsa ochiq."
                      if is_pro else
                      "Bepul. Quyida «Pro» deb belgilangan imkoniyatlar bu "
                      "odamda HOZIR ISHLAMAYDI — ularni ochiq deb aytmang, "
-                     "lekin /pro da ochilishini ayting."),
+                     "lekin /pro da ochilishini va Pro'da qanday "
+                     "ishlashini ayting."),
         "",
     ]
-    for kalit, s in SECTIONS.items():
-        tana = _TEG_RE.sub("", _matn(s["body"], is_pro))
-        qismlar.append(f"## {s['title']}")
-        qismlar.append(tana.strip())
-        izoh = _TEG_RE.sub("", _matn(s["note"], is_pro))
-        if izoh:
-            qismlar.append(izoh.strip())
-        if s["example"]:
-            qismlar.append(f"Misol so'rov: {s['example']}")
-        qismlar.append("")
+    if bolim in SECTIONS:
+        qismlar += _bolim_matni(bolim, is_pro, batafsil=True)
+    else:
+        for kalit in SECTIONS:
+            qismlar += _bolim_matni(kalit, is_pro, batafsil=False)
     qismlar.append(
         "QANDAY JAVOB BERASIZ: odam nimani so'ragan bo'lsa O'SHANI "
-        "tushuntiring — bitta imkoniyat haqida so'rasa, faqat o'sha "
-        "haqida, qanday ishlashini va qanday boshlashini aniq ayting. "
+        "tushuntiring — bitta imkoniyat yoki tugma haqida so'rasa, faqat "
+        "o'sha haqida, qanday ishlashini va qanday boshlashini aniq ayting. "
         "Hammasini so'rasa — guruhlab, qisqa qilib sanang. Bu matnni "
         "so'zma-so'z ko'chirmang, o'z so'zlaringiz bilan yozing. "
-        "Ro'yxatda YO'Q narsani qo'shmang."
+        "Bu yerda YO'Q narsani qo'shmang va o'ylab topmang."
     )
     return "\n".join(qismlar)
 

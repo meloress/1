@@ -3749,17 +3749,24 @@ _IMKONIYAT_TOOL = {
     "description": (
         "BOTNING O\'ZI haqidagi savolda chaqiring: nima qila olasan, "
         "qanday funksiyalaring bor, falon narsa qanday ishlaydi "
-        "(\'lokatsiya yuborsam nima bo\'ladi\', \'guruhda ishlaysanmi\').\n"
-        "To\'liq imkoniyatlar ro\'yxatini va odamning tarifini "
-        "qaytaradi — javobni SHUNGA qarab yozing.\n"
-        "⛔️ O\'zingizdan ro\'yxat tuzmang: siz faqat shu so\'rovning "
-        "asboblarini ko\'rasiz, bot buyruqlari, guruh rejimi va "
-        "mavzular ularda YO\'Q — javob albatta chala chiqadi.\n"
-        "Argumentsiz chaqiring, oldidan hech narsa yozmang."
+        "(\'lokatsiya yuborsam nima bo\'ladi\', \'biznesni qanday ulayman\', "
+        "\'bu tugma nima qiladi\').\n"
+        "Imkoniyatlar, tugmalar va odamning tarifini qaytaradi — javobni "
+        "SHUNGA qarab yozing, o\'zingizdan ro\'yxat tuzmang.\n"
+        "bolim: savol mavzusi (pro = tarif, /kunlik, /research, "
+        "eslatmalar); umumiy savolda hammasi. Oldidan hech narsa yozmang."
     ),
+    # ⚠️ `bolim` — bitta bo'lim tugma va qadamlari bilan qaytadi (~500
+    # token), `hammasi` — butun qisqa ro'yxat (~2 200). Qiymatlar
+    # handlers/capabilities.py::BOLIMLAR bilan bir xil (test solishtiradi).
     "parameters": {
-        "type": "object", "properties": {},
-        "required": [], "additionalProperties": False,
+        "type": "object",
+        "properties": {"bolim": {
+            "type": "string",
+            "enum": ["chat", "doc", "photo", "voice", "file", "guruh", "joy",
+                     "biznes", "pro", "limits", "hammasi"],
+        }},
+        "required": ["bolim"], "additionalProperties": False,
     },
     "strict": True,
 }
@@ -4789,7 +4796,11 @@ async def get_openai_reply(
                 # `SECTIONS` (kech import: tsiklik bog'liqlik).
                 imkoniyat_rounds += 1
                 from handlers.capabilities import model_uchun
-                tool_output = model_uchun(is_pro)
+                bolim = str(args.get("bolim") or "hammasi")
+                # Faqat bo'lim nomi — matn yozilmaydi; kuniga necha marta va
+                # qaysi bo'lim ochilishini o'lchash uchun.
+                logger.info(f"[Imkoniyat] bolim={bolim} pro={is_pro}")
+                tool_output = model_uchun(is_pro, bolim)
             elif call_item.name == "open_memory":
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 # Raund byudjeti bu yerda YEYILMAYDI: `memory_rounds`

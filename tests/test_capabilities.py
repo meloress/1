@@ -225,8 +225,12 @@ async def main():
     from core.config import INTERNAL_TOOL_NAMES
     eshik = ai_module._IMKONIYAT_TOOL
     assert eshik["name"] == "open_capabilities"
-    assert eshik["parameters"]["properties"] == {}, (
-        "eshik argumentsiz bo'lishi kerak — har raundda to'lanadi")
+    # Yagona argument — bo'lim; qiymatlar capabilities.BOLIMLAR bilan
+    # aynan bir xil (ikki ro'yxatdan biri eskirsa, model mavjud bo'lmagan
+    # bo'limni so'raydi yoki yangi bo'lim modelga yetmaydi).
+    assert list(eshik["parameters"]["properties"]) == ["bolim"]
+    assert eshik["parameters"]["properties"]["bolim"]["enum"] == list(cap.BOLIMLAR), (
+        eshik["parameters"]["properties"]["bolim"]["enum"], cap.BOLIMLAR)
     # ⚠️ Nom INTERNAL_TOOL_NAMES da bo'lmasa strip_internal_names() uni
     # tozalamaydi va model asbob nomini foydalanuvchiga aytib qo'yadi.
     assert "open_capabilities" in INTERNAL_TOOL_NAMES
@@ -250,6 +254,30 @@ async def main():
     assert "imkoniyat_rounds < 1" in src, (
         "chegara yo'q — model bir xil matnni qayta-qayta yuklab olishi mumkin")
     print("[12d] eshik `else` dan yuqorida va bir martaga cheklangan OK")
+
+    # ── 12e) Bitta bo'lim — batafsil VA butun ro'yxatdan arzon ─────
+    # Bo'limga bo'lishning butun ma'nosi: «bu tugma nima qiladi?» degan
+    # savolga tafsilot beriladi, lekin narxi «hammasi» dan oshmaydi.
+    # «hammasi» da tafsilot YO'Q — aks holda umumiy savol qimmatlashadi.
+    hammasi = cap.model_uchun(False, "hammasi")
+    assert "Batafsil:" not in hammasi
+    assert cap.model_uchun(False) == hammasi
+    for kalit in cap.SECTIONS:
+        for p in (False, True):
+            b = cap.model_uchun(p, kalit)
+            assert cap.SECTIONS[kalit]["title"] in b
+            assert ("Batafsil:" in b) == (kalit in cap._BATAFSIL), kalit
+            assert "<" not in b, kalit
+            assert len(b) < len(cap.model_uchun(p, "hammasi")) * 0.75, (
+                kalit, len(b))
+    # Odam ekranda qidiradigan tugma nomlari koddagidek yozilgan.
+    bz = cap.model_uchun(True, "biznes")
+    for tugma in ("Kuzatuv", "⏰ Ishlash vaqti", "💬 Chatlar bo'yicha",
+                  "🤖 Avto belgisi", "💤 Pauza", "Xabarlarga javob berish"):
+        assert tugma in bz, tugma
+    assert "ISHLAMAYDI" in cap.model_uchun(False, "biznes")
+    print(f"[12e] {len(cap._BATAFSIL)} bo'lim batafsil, har biri butun "
+          "ro'yxatdan arzon OK")
 
     # ═══════════════════════════════════════════════════════════════
     # 13) EKRAN TARIFNI AYTADI

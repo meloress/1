@@ -284,9 +284,9 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 | | free | Pro |
 |---|---|---|
 | `instructions` (prompt + concise + image note) | 5 521 | 5 521 |
-| tool schemas (all doors closed) | 2 231 | 2 604 |
+| tool schemas (all doors closed) | 2 264 | 2 637 |
 | capability manifest | 495 | 445 |
-| **fixed total per round** | **8 247** | **8 570** |
+| **fixed total per round** | **8 280** | **8 603** |
 | history | 0 → ~8 200, then capped by the summary (~300) | |
 | median user message | ~10 | |
 | median reply | ~70 | |
@@ -355,7 +355,7 @@ Tools: `internet_search`, `run_python_sandbox`, `generate_image`, `edit_image`, 
 
 ⚠️ **`open_capabilities` is a fourth door of a different kind**: it attaches nothing, it
 *returns* the answer (the bot's feature list plus the reader's plan) and the model writes
-from that. Same economics — 211 tokens every round, 2 214 only when called — but it does
+from that. Same economics — 244 tokens every round, ~400-2 400 only when called — but it does
 not turn a mode on, so it has no `_mode` flag and it caps itself at one call. See "What
 the model may claim it can do".
 
@@ -505,7 +505,7 @@ The prompt also carries a phishing/social-engineering section that fixes the *sh
 
 ### The prompt is sent whole on every round, so duplication is expensive
 
-The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated — see the table in "Token budget" (8 247 free / 8 570 Pro per round).
+The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated — see the table in "Token budget" (8 280 free / 8 603 Pro per round; +33 from `open_capabilities(bolim)`, 2026-10-06).
 
 `STRICT_MATH_RULES` used to be appended after the whole prompt and was a near-verbatim copy of the template's own `MATH, PHYSICS & CHEMISTRY` section — nine rules stated twice, side by side in one string, 274 tokens per round. It is gone; the two phrases that were unique to it ("This is a hard requirement", "There are no other acceptable delimiters") were folded into the section that remains. `CONCISE_INSTRUCTION` likewise lost the three sentences that repeated `OUTPUT CONTRACT` rule 4.
 
@@ -1555,12 +1555,25 @@ reader's own plan, because none of those is a tool. The expensive features nobod
 discovers stayed undiscovered.
 
 `open_capabilities` is the fix and it is a **door** (`start_file_task`, `open_memory`,
-`open_reminder` are the same pattern): **211 tokens** per round measured with `tiktoken`,
-and on call it returns the full feature text — **2 214 tokens** (free plan; 1 767 before the Business section), paid only when someone
-actually asks. It is attached on every request including guest, because the question is
+`open_reminder` are the same pattern): **244 tokens** per round measured with `tiktoken`,
+paid only when someone actually asks. It is attached on every request including guest, because the question is
 asked in groups too and that is exactly where the model's own knowledge is thinnest
 (files, images, memory and reminders are all off there). `imkoniyat_rounds < 1` caps it
 at one call: the text never changes, so a second call is ~2 000 tokens for nothing.
+
+⚠️ **It takes a required `bolim` (2026-10-06).** `hammasi` returns every section's short
+text (**2 431** tokens, free) — the old behaviour, unchanged. A single section returns that
+section **plus `_BATAFSIL`**: buttons, modes, setup steps, written with the exact labels
+the user sees on screen (biznes 1 632, pro 829, the rest ~400-700). So "what does the
+Pauza button do?" is answered from fact, and costs less than the whole list. `_BATAFSIL`
+is model-only — `/help` stays short. The enum in `services/ai.py` must equal
+`capabilities.BOLIMLAR` (`test_capabilities.py` 12c); 12e asserts a section never
+outgrows `hammasi`. The parameter cost **+33 tokens per round** (211 → 244) and that
+number was fought for: a per-value description put it at 398, i.e. more than the whole
+saving. Live (`eval_chat.py` `biznes_free` / `biznes_tugma` / `kunlik_qanday`): the right
+section every time; without the "biznesni qanday ulayman" example in the description the
+model once web-searched Telegram Business instead. `[Imkoniyat] bolim=…` in the log is the
+only measure of how often the door opens — read it before re-weighing this.
 
 ⚠️ **The text comes from `handlers/capabilities.py::SECTIONS`, the same dict `/help`
 renders** — `model_uchun(is_pro)` strips the HTML and adds the reader's plan. A second
