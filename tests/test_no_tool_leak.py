@@ -66,4 +66,14 @@ check(9, "system promptda maxfiylik qoidasi bor",
 check(10, "qoida o'zbekcha so'rovga ham tegishli ekani aytilgan",
       "O'ZBEKCHA SO'ROVGA HAM" in SYSTEM_PROMPT)
 
-print("\nHammasi o'tdi: 10/10")
+# ── 4. Model chaqiruvni MATN qilib yozsa (jonli, 2026-10-06) ─────
+chaqiruv = ('to=functions.internet_search code: {"primary_query":"AI \\"Oct 5\\"",'
+            '"extra_queries":["site:x.com {y}"]} ')
+jonli = chaqiruv + "\U0005F7C2 " + chaqiruv + chaqiruv + "⏰ Bugungi yangiliklar {ok}"
+check(11, "matnga sizgan tool chaqiruvi (uch marta, JSON bilan) olib tashlanadi",
+      ai.strip_internal_names(jonli) == "⏰ Bugungi yangiliklar {ok}")
+check(12, "oddiy {qavsli} matn va yopilmagan qoralama",
+      ai.strip_internal_names("x {a: 1}") == "x {a: 1}"
+      and ai.strip_internal_names('ok to=functions.internet_search code: {"q":"A') == "ok ")
+
+print("\nHammasi o'tdi: 12/12")

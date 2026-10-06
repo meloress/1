@@ -4013,10 +4013,11 @@ async def take_due_digests() -> List[Dict[str, Any]]:
                SET digest_sent_date = (NOW() AT TIME ZONE 'Asia/Tashkent')::date,
                    digest_sent_hour = EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Tashkent'))::int
              WHERE digest_hours IS NOT NULL
-               -- ⛔️ digest_topics SHART EMAS. Soat bosilgach mavzu so'rovi
-               -- FSM'da (RAM) kutadi; deploy uni o'chirsa mavzu saqlanmasdi,
-               -- ekran «✅ Faol» desa ham daydjest HECH QACHON kelmasdi.
-               -- Mavzu yo'q — umumiy yangiliklar (digest._STANDART_MAVZU).
+               -- Mavzusiz obuna YUBORILMAYDI (egasi, 2026-10-06: "hech narsa
+               -- qo'shmasa ham har kuni yangilik yuboryapti"). Mavzu yo'qolmasin
+               -- deb javob reply orqali ham ushlanadi (digest.mavzu_javobimi),
+               -- ekran esa "mavzu yozilmagan — kelmaydi" deydi.
+               AND digest_topics IS NOT NULL
                AND plan_type <> 'free'
                AND (premium_until IS NULL OR premium_until > NOW())
                AND is_active = TRUE

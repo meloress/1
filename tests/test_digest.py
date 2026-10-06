@@ -340,10 +340,10 @@ async def main():
     sql = " ".join(n.value for n in ast.walk(fn)
                    if isinstance(n, ast.Constant) and isinstance(n.value, str))
     sql = "\n".join(q.split("--")[0] for q in sql.splitlines())
-    assert "digest_topics IS NOT NULL" not in sql, \
-        "mavzusi saqlanmagan obuna (FSM deployda o'chdi) yana jim o'ladi"
+    assert "digest_topics IS NOT NULL" in sql, \
+        "mavzu so'ramagan odamga har kuni yangilik ketadi (egasi, 2026-10-06)"
     assert "digest_thread_id" in sql
-    print("[18] mavzusiz obuna ham yuboriladi, topic qaytariladi OK")
+    print("[18] mavzusiz obuna YUBORILMAYDI, topic qaytariladi OK")
 
     # ── 19-20. Kuzatuvchi: standart mavzu, topic, bitta xato boshqalarni to'xtatmaydi
     qurildi, ketdi = [], []
@@ -363,13 +363,29 @@ async def main():
         sem = asyncio.Semaphore(dg._PARALLEL)
         await asyncio.gather(
             dg._bitta_daydjest({"user_id": 1, "digest_topics": "YIQIL", "digest_thread_id": 0}, sem),
-            dg._bitta_daydjest({"user_id": 2, "digest_topics": None, "digest_thread_id": 55}, sem))
+            dg._bitta_daydjest({"user_id": 2, "digest_topics": "sport", "digest_thread_id": 55}, sem),
+            dg._bitta_daydjest({"user_id": 3, "digest_topics": None, "digest_thread_id": 0}, sem))
     finally:
         dg._build_digest, dg._send_digest = real_build, real_send
-    assert dg._STANDART_MAVZU in qurildi, qurildi
+    assert None not in qurildi and len(qurildi) == 2, qurildi
     assert ketdi == [(2, 55)], f"bitta xato boshqasini to'xtatdi yoki topic yo'qoldi: {ketdi}"
-    print("[19] mavzusiz obuna standart mavzu bilan tayyorlanadi OK")
+    print("[19] mavzusiz qator model chaqirmaydi va hech narsa yubormaydi OK")
     print("[20] bir kishining xatosi boshqalarning daydjestini to'xtatmaydi OK")
+
+    # ── 23. FSM deployda yo'qolsa ham mavzu REPLY orqali ushlanadi ─────────
+    def xabar(reply_text, bot=True):
+        r = type("R", (), {"text": reply_text,
+                           "from_user": type("U", (), {"is_bot": bot})()})()
+        return type("M", (), {"reply_to_message": r})()
+    assert dg.mavzu_javobimi(xabar(f"📌 {dg._SOROV_SARLAVHA}\n\nBitta xabarda yozing."))
+    assert not dg.mavzu_javobimi(xabar("boshqa xabar"))
+    assert not dg.mavzu_javobimi(xabar(dg._SOROV_SARLAVHA, bot=False))
+    assert not dg.mavzu_javobimi(type("M", (), {"reply_to_message": None})())
+    main_src = kod(pathlib.Path(dg.__file__).parent.parent / "main.py")
+    i_reply = main_src.find("digest_module.mavzu_javobimi")
+    assert 0 < i_reply < main_src.find("dp.include_router(general_router)"), \
+        "reply filtri AI handlerlaridan OLDIN bo'lishi shart — aks holda mavzu savol bo'lib ketadi"
+    print("[23] mavzu so'roviga reply FSM'siz ham mavzu sifatida saqlanadi OK")
 
     # ── 21. Topic'ka yuboriladi; o'chirilgan bo'lsa mavzusiz qayta ────────
     urinish = []
@@ -407,7 +423,7 @@ async def main():
     assert any("birinchisi" in a for a in q.answers), q.answers
     print("[22] /kunlik sozlangan topic saqlanadi, birinchisi qachon aytiladi OK")
 
-    print("\ndigest: barcha tekshiruvlar o'tdi (22/22).")
+    print("\ndigest: barcha tekshiruvlar o'tdi (23/23).")
 
 
 if __name__ == "__main__":

@@ -160,6 +160,9 @@ async def main():
                         pro_module.PromoStates.waiting_for_code)
     dp.message.register(digest_module.process_digest_topics,
                         digest_module.DigestStates.waiting_for_topics)
+    # Xuddi shu, lekin FSM deployda yo'qolgan bo'lsa: mavzu so'roviga reply.
+    dp.message.register(digest_module.process_digest_topics, F.text,
+                        digest_module.mavzu_javobimi)
     # /biznes: bilim matni va loyiha tahriri. Shu yerda bo'lmasa, egasi
     # yozgan narxlar ro'yxati GPT'ga savol bo'lib ketardi.
     dp.message.register(biznes_module.process_bilim,

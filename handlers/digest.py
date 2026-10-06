@@ -33,10 +33,21 @@ _DEFAULT_HOUR = 8
 
 _MAX_TOPICS_LEN = 200
 
-# Mavzu yozilmagan obuna ham ISHLAYDI. Mavzu so'rovi FSM'da (RAM) kutadi va
-# har deploy uni o'chiradi — ilgari bunday obuna «✅ Faol» ko'rinib, daydjest
-# esa hech qachon kelmasdi (SQL mavzusizlarni o'tkazib yuborardi).
-_STANDART_MAVZU = "O'zbekiston va dunyodagi eng muhim yangiliklar"
+# Mavzu so'rovining sarlavhasi — javob `force_reply` bilan shu xabarga REPLY
+# bo'lib keladi. FSM holati RAM'da va har deploy uni o'chiradi (kuniga 20
+# tagacha): ilgari mavzu oddiy savol bo'lib AI'ga ketardi, obuna esa mavzusiz
+# qolib, daydjest hech qachon kelmasdi. `mavzu_javobimi` reply'ni taniydi.
+# ⛔️ Mavzusiz obunaga "umumiy yangiliklar" yuborish sinab ko'rildi va
+# qaytarildi (2026-10-06): so'ramagan odamga har kuni xabar — shikoyat.
+_SOROV_SARLAVHA = "Qaysi mavzular qiziqtiradi?"
+
+
+def mavzu_javobimi(message) -> bool:
+    """Filtr: xabar botning mavzu so'roviga reply'mi (FSM yo'qolgan bo'lsa ham)."""
+    r = getattr(message, "reply_to_message", None)
+    if r is None or not getattr(getattr(r, "from_user", None), "is_bot", False):
+        return False
+    return _SOROV_SARLAVHA in (getattr(r, "text", None) or "")
 
 # ⚠️ Kuniga ko'pi bilan shuncha daydjest. Har biri internet qidiruvli
 # to'liq javob (~15k token); «Barcha soatlar» bitta odamga kuniga 24 ta,
@@ -124,7 +135,8 @@ def _hozir() -> datetime:
 
 def _mavzu_label(topics) -> str:
     return (html_escape(topics) if topics else
-            "<i>yozilmagan — umumiy yangiliklar keladi</i> (✏️ bilan o'zgartiring)")
+            "❗ <b>yozilmagan — daydjest KELMAYDI.</b> «✏️ Mavzularni o'zgartirish» "
+            "ni bosib yozing")
 
 
 def _hours_label(hours) -> str:
@@ -173,7 +185,8 @@ async def _ekran(target, profile) -> None:
     if hours:
         status = (f"✅ <b>Faol:</b> har kuni <b>{_hours_label(hours)}</b>\n"
                   f"📌 <b>Mavzular:</b> {_mavzu_label(profile.get('digest_topics'))}\n"
-                  f"📨 <b>Keyingisi:</b> {keyingi_vaqt(hours, _hozir())}\n\n"
+                  + (f"📨 <b>Keyingisi:</b> {keyingi_vaqt(hours, _hozir())}\n"
+                     if profile.get("digest_topics") else "") + "\n"
                   f"<i>Soatni bosib qo'shasiz, qayta bosib olib tashlaysiz.</i>")
     else:
         status = ("🔕 Hozircha o'chirilgan.\n\n"
@@ -285,7 +298,7 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
             await query.answer("❗ Texnik nosozlik.", show_alert=True)
             return
 
-        if hours and action == "h" and javob.startswith("✅"):
+        if hours and action == "h" and javob.startswith("✅") and profile.get("digest_topics"):
             javob += f" · birinchisi {keyingi_vaqt(hours, _hozir())}"
         await query.answer(javob)
         if hours and not profile.get("digest_topics"):
@@ -304,11 +317,11 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
 async def _ask_topics(target, state: FSMContext) -> None:
     await state.set_state(DigestStates.waiting_for_topics)
     await send_rich(target, (
-        "📌 <b>Qaysi mavzular qiziqtiradi?</b>\n\n"
+        f"📌 <b>{_SOROV_SARLAVHA}</b>\n\n"
         "Bitta xabarda yozing.\n\n"
         "<blockquote>Masalan: <i>O'zbekistondagi yangiliklar, dollar kursi, "
         "IT sohasidagi o'zgarishlar</i></blockquote>\n\n"
-        "<i>Yozmasangiz ham daydjest keladi — umumiy yangiliklar bo'yicha.</i>"
+        "<i>Mavzu yozilmaguncha daydjest kelmaydi.</i>"
     # force_reply — foydalanuvchidan matn kutilyapti, kiritish maydoni
     # o'zi ochilsin (handlers/pro.py:_CANCEL_KB bilan bir xil sabab).
     ), InlineKeyboardMarkup(
@@ -400,11 +413,18 @@ async def _build_digest(topics: str) -> str:
     buzmasin, (b) daydjest uning tarixiga yozilib, ertangi savollariga
     ta'sir qilmasin. `output_files` berilmaydi → sandbox o'chiq, arzon.
     """
+    # Jonli (2026-10-06): har punktda "— TechCrunch (https://…)" va oxirida
+    # o'sha 10 havola yana ro'yxat bo'lib — har manba ikki marta. Manba
+    # endi punkt ichida havola-so'z, alohida ro'yxat yo'q. Mavzuda son
+    # ("top 10") bo'lsa — o'shancha; "6 punkt" qoidasi unga zid edi.
     prompt = (
-        f"Bugungi sana bo'yicha shu mavzular yuzasidan qisqa kunlik "
-        f"daydjest tayyorla: {topics}\n\n"
-        f"internet_search bilan tekshir. Format: har mavzu uchun 1-2 gap, "
-        f"eng ko'pi 6 punkt, oxirida manbalar. 1200 belgidan oshmasin."
+        f"Bugungi sana bo'yicha shu mavzular yuzasidan kunlik daydjest "
+        f"tayyorla: {topics}\n\n"
+        f"internet_search bilan tekshir. Format: har yangilik bitta punkt, "
+        f"1-2 gap; punkt oxirida manba faqat havola-so'z — [Nomi](url), "
+        f"xom URL yozma. Oxirida alohida manbalar ro'yxati YOZMA. Mavzuda "
+        f"son aytilgan bo'lsa (masalan «top 10») — shuncha punkt, aks holda "
+        f"ko'pi bilan 6. Kirish va xulosa bittadan qisqa gap."
     )
     parts: list[str] = []
     async for chunk in get_gpt_reply(0, prompt, is_pro=True):
@@ -427,7 +447,10 @@ async def _bitta_daydjest(row: dict, sem: asyncio.Semaphore) -> None:
     uid = row["user_id"]
     async with sem:
         try:
-            body = await _build_digest(row.get("digest_topics") or _STANDART_MAVZU)
+            topics = row.get("digest_topics")
+            if not topics:                  # SQL buni o'tkazmaydi — ikkinchi qavat
+                return
+            body = await _build_digest(topics)
             if not body:
                 # Ilgari jim edi: sanoq "yuborildi", foydalanuvchi esa hech narsa olmasdi.
                 logger.warning(f"[Daydjest] bo'sh javob (user={uid})")

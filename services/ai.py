@@ -925,6 +925,54 @@ _INTERNAL_NAME_RE = re.compile(
     "|".join(rf"\b{re.escape(n)}\b" for n in INTERNAL_TOOL_NAMES) or "(?!)")
 
 
+# Model ba'zan tool chaqiruvini API orqali emas, MATN qilib yozadi (ichki
+# "harmony" formati): `to=functions.internet_search code: {...}` va undan
+# keyin tayinlanmagan Unicode belgi. Jonli (2026-10-06, vazifa javobi): uch
+# marta ketma-ket, nom esa pastdagi almashtirishdan "internetdan qidirish"
+# bo'lib chiqqan. Shuning uchun bu tozalash nom almashtirishdan OLDIN.
+_SIZGAN_CHAQIRUV_RE = re.compile(r"(?:<\|[a-z_]+\|>\s*)*\bto=functions\.[\w.\-]+[^{\n]{0,60}")
+_HARMONY_TEG_RE = re.compile(r"<\|(?:start|end|channel|message|call|constrain|return)\|>")
+# Tayinlanmagan tekisliklar (4-13) va Private Use — matnda hech qachon kerak
+# emas, model maxsus tokenlari shunday ko'rinadi (jonli: U+5F7C2).
+_SIRLI_BELGI_RE = re.compile("[\U00040000-\U000DFFFF\U000F0000-\U0010FFFF-]")
+
+
+def _sizgan_chaqiruvni_ol(text: str) -> str:
+    """`to=functions.X ... {json}` bo'laklarini olib tashlaydi. JSON qavslari
+    satr ichidagi `{`/`}` ni hisobga olib sanaladi; yopilmagan bo'lsa (oqim
+    o'rtasidagi qoralama) — matn oxirigacha."""
+    if "to=functions" not in text:
+        return text
+    chiqish, i = [], 0
+    while True:
+        m = _SIZGAN_CHAQIRUV_RE.search(text, i)
+        if not m:
+            chiqish.append(text[i:])
+            break
+        chiqish.append(text[i:m.start()])
+        j = m.end()
+        if j < len(text) and text[j] == "{":
+            chuqurlik, satrda, oldingi = 0, False, ""
+            for k in range(j, len(text)):
+                c = text[k]
+                if satrda:
+                    satrda = not (c == '"' and oldingi != "\\")
+                elif c == '"':
+                    satrda = True
+                elif c == "{":
+                    chuqurlik += 1
+                elif c == "}":
+                    chuqurlik -= 1
+                    if chuqurlik == 0:
+                        j = k + 1
+                        break
+                oldingi = "" if oldingi == "\\" else c
+            else:
+                j = len(text)
+        i = j
+    return "".join(chiqish)
+
+
 def strip_internal_names(text: str) -> str:
     """Ichki tool nomlarini neytral tavsif bilan almashtiradi.
 
@@ -941,6 +989,9 @@ def strip_internal_names(text: str) -> str:
     """
     if not text:
         return text
+    text = _SIRLI_BELGI_RE.sub("", text)
+    if "to=functions" in text or "<|" in text:
+        text = _HARMONY_TEG_RE.sub("", _sizgan_chaqiruvni_ol(text)).lstrip()
     return _INTERNAL_NAME_RE.sub(
         lambda m: INTERNAL_TOOL_NAMES.get(m.group(0), m.group(0)), text)
 

@@ -572,7 +572,15 @@ lines in the Railway log) while users complained.** Every link was correct on it
 chain was not. The topics prompt waits in a **RAM** FSM state and every deploy (20+ on a busy
 day) wipes it, so the typed topics became an ordinary AI question, `digest_topics` stayed
 NULL, the screen still said «✅ Faol», and `take_due_digests()` required `digest_topics IS NOT
-NULL` — silently skipping that user forever. Now a missing topic means `_STANDART_MAVZU`.
+NULL` — silently skipping that user forever. ⛔️ Sending a default topic instead
+(`_STANDART_MAVZU`, 2026-10-02) was **reverted on 10-06**: a user who never wrote a topic
+got news every day and complained. Now the answer is caught as a **reply** to the
+`force_reply` prompt (`digest.mavzu_javobimi`, registered right after the FSM handler,
+before the AI handlers), the SQL keeps `digest_topics IS NOT NULL`, and the screen says
+"mavzu yozilmagan — daydjest kelmaydi". Separately, the model once wrote its tool call
+into the digest **as text** (`to=functions.internet_search code: {…}` ×3, plus an
+unassigned code point); `strip_internal_names()` — the gate every reply path already
+uses — now strips those before renaming tools (`test_no_tool_leak.py` 11-12).
 Also: `get_full_user_profile()` never returned `digest_hours` (the test's fake profile did,
 which is why it stayed green — check 15 reads the real return keys), the screen gated on
 `plan_type` alone while delivery also checks expiry (`_pro_faol`), one user's exception
