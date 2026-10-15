@@ -271,6 +271,10 @@ def build_app() -> web.Application:
     # (REJA 3.2). Import shu yerda: `api` ham `auth` ni chaqiradi.
     from web import api
     api.register(app)
+    # Instagram Direct webhook (5-bosqich poydevori) — `/api/*` emas,
+    # Meta imzo bilan keladi, admin cookie kerak emas.
+    from web import instagram as instagram_web
+    instagram_web.register(app)
     app.router.add_static("/static/", STATIC)
     return app
 

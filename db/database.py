@@ -479,6 +479,39 @@ async def create_users_table():
                 yangilangan TIMESTAMP NOT NULL DEFAULT NOW()
             );
         ''')
+        # Instagram Direct ulanishi (5-bosqich poydevori). Telegram'dagi
+        # `biznes_ulanish` dan farqli: bitta ega = bitta IG akkaunt (1-qaror).
+        # Rejim/bilim/uslub alohida saqlanmaydi — o'shalar `biznes_ulanish`
+        # va `biznes_profil` dan o'qiladi, bu yerda faqat ulanish holati.
+        # Token Page tokeni (uzoq muddatli) — logga HECH QACHON yozilmaydi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS instagram_ulanish (
+                owner_id    BIGINT PRIMARY KEY,
+                ig_id       TEXT NOT NULL,
+                page_id     TEXT NOT NULL,
+                sahifa_token TEXT NOT NULL,
+                yoqilgan    BOOLEAN NOT NULL DEFAULT TRUE,
+                yangilangan TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        ''')
+        # Instagram suhbat tarixi (5-bosqich 2-faza). Telegram `chat_messages`
+        # ga yozilmaydi: IG id'lar Telegram id'lar bilan to'qnashadi va
+        # `thread_id = -owner` namespace buziladi. Shuning uchun alohida
+        # kichik jadval — qoralama/avtojavob shu oxirgi N xabarni o'qiydi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS instagram_xabar (
+                id          BIGSERIAL PRIMARY KEY,
+                owner_id    BIGINT NOT NULL,
+                ig_sid      TEXT NOT NULL,
+                rol         TEXT NOT NULL,
+                matn        TEXT NOT NULL,
+                yaratilgan  TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_instagram_xabar
+                ON instagram_xabar (owner_id, ig_sid, id DESC)
+        ''')
         # Egasining biznes bilimi (REJA.md 2-bosqich) — har mijoz so'rovida
         # `developer` xabar bo'lib ketadi, `instructions`'ga HECH QACHON.
         await conn.execute('''
@@ -1191,6 +1224,101 @@ def biznes_egasi_ulanishi(owner_id: int) -> Optional[tuple]:
     topilgan = [(k, v) for k, v in _biznes_kesh.items() if v["owner_id"] == owner_id]
     topilgan.sort(key=lambda kv: not kv[1]["yoqilgan"])
     return topilgan[0] if topilgan else None
+
+
+# ─────────────────────────────────────────────────────────────
+# INSTAGRAM DIRECT ULANISHLARI (5-bosqich poydevori)
+# ─────────────────────────────────────────────────────────────
+# SQL faqat shu yerda (web/api.py da SQL yo'q qoidasi). Hamma so'rov
+# `owner_id` bo'yicha — `test_biznes_owner.py` naqshi. Token HECH QACHON
+# loglanmaydi, xato xabariga qo'shilmaydi.
+@with_db_retry()
+async def instagram_ulanish_yoz(owner_id: int, ig_id: str, page_id: str,
+                                sahifa_token: str) -> None:
+    """Eganing IG ulanishini saqlash (upsert). Rejimga tegmaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''
+            INSERT INTO instagram_ulanish (owner_id, ig_id, page_id, sahifa_token, yoqilgan)
+            VALUES ($1, $2, $3, $4, TRUE)
+            ON CONFLICT (owner_id) DO UPDATE SET
+                ig_id = EXCLUDED.ig_id, page_id = EXCLUDED.page_id,
+                sahifa_token = EXCLUDED.sahifa_token,
+                yoqilgan = TRUE, yangilangan = NOW()
+            ''',
+            owner_id, ig_id, page_id, sahifa_token)
+
+
+@with_db_retry()
+async def instagram_ulanish_ol(owner_id: int) -> Optional[dict]:
+    """Eganing IG ulanishi (o'chirilgan bo'lsa ham qaytadi)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        qator = await conn.fetchrow(
+            'SELECT owner_id, ig_id, page_id, sahifa_token, yoqilgan '
+            'FROM instagram_ulanish WHERE owner_id = $1',
+            owner_id)
+    return dict(qator) if qator else None
+
+
+@with_db_retry()
+async def instagram_ulanish_uz(owner_id: int) -> None:
+    """Ulanishni o'chirish — javoblar to'xtaydi, Bilim/Uslub qoladi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE instagram_ulanish SET yoqilgan = FALSE WHERE owner_id = $1',
+            owner_id)
+
+
+@with_db_retry()
+async def instagram_xabar_yoz(owner_id: int, ig_sid: str, rol: str, matn: str) -> None:
+    """IG suhbat satri. `rol`: mijoz/egasi/assistent. Tarix kesish 90 kunlik
+    `biznes_tozala()` ga tegmaydi — bu jadvalni alohida kesadi (pastda)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO instagram_xabar (owner_id, ig_sid, rol, matn) '
+            'VALUES ($1, $2, $3, $4)',
+            owner_id, ig_sid, rol, matn)
+
+
+@with_db_retry()
+async def instagram_tarix_ol(owner_id: int, ig_sid: str, limit: int = 30) -> list:
+    """Oxirgi N xabar (eskidan yangiga). Faqat shu eganing suhbati."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT rol, matn FROM instagram_xabar '
+            'WHERE owner_id = $1 AND ig_sid = $2 '
+            'ORDER BY id DESC LIMIT $3',
+            owner_id, ig_sid, limit)
+    return [{"rol": r["rol"], "matn": r["matn"]} for r in reversed(rows)]
+
+
+@with_db_retry()
+async def instagram_egasi_top(ig_id: str) -> Optional[dict]:
+    """IG akkaunt id bo'yicha ega (webhook → ega mapping). Yoqilmagan bo'lsa None."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        qator = await conn.fetchrow(
+            'SELECT owner_id, ig_id, page_id, sahifa_token, yoqilgan '
+            'FROM instagram_ulanish WHERE ig_id = $1 AND yoqilgan = TRUE',
+            ig_id)
+    return dict(qator) if qator else None
 
 
 @with_db_retry()

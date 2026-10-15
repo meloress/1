@@ -912,6 +912,20 @@ BIZNES_USLUB_ORGAN = (10, 30)
 # Egasining o'zi yozgan uslub qoidalari chegarasi.
 BIZNES_USLUB_MAX = 1500
 
+# ── INSTAGRAM DIRECT (5-bosqich, poydevor) ──────────────────────────
+# Telegram'dagi Bilim/Uslub/Rejim aynan qayta ishlatiladi — farq faqat
+# kirish/chiqish qatlamida. Bu konstantalar faqat standartlar; har ega
+# o'zinikini /biznes ekranida tanlaydi (Telegram'dagi `kutish_soniya`
+# / `pauza_soat` bilan bir xil).
+# Tokenlar bazada saqlanadi, `.env` da faqat Meta App sirlari.
+IG_VERIFY_TOKEN = ""
+IG_APP_SECRET = ""
+IG_GRAPH_API = "https://graph.facebook.com/v21.0"
+# Webhook imzo tekshiruvi uchun tana chegarasi (Meta POST — kichik JSON).
+IG_WEBHOOK_MAX_BYTES = 64 * 1024
+# IG oddiy matn kanali — rich markup (jadval, details) yo'q.
+IG_MATN_MAX = 1000
+
 
 # ── AUDIT AMALLARI — YAGONA MANBA ───────────────────────────────────
 # `log_admin_action(admin_id, AMAL, ...)` ga yoziladigan har bir amal va

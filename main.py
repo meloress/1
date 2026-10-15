@@ -175,6 +175,16 @@ async def main():
                         biznes_module.BiznesStates.vaqt)
     dp.message.register(biznes_module.process_profil,
                         biznes_module.BiznesStates.profil)
+    # Instagram ulash 3 qadami — shu yerda bo'lmasa, ID/token GPT'ga
+    # savol bo'lib ketardi (yuqoridagi izohdagi sabab).
+    dp.message.register(biznes_module.process_ig_id,
+                        biznes_module.BiznesStates.ig_id)
+    dp.message.register(biznes_module.process_ig_page,
+                        biznes_module.BiznesStates.ig_page)
+    dp.message.register(biznes_module.process_ig_token,
+                        biznes_module.BiznesStates.ig_token)
+    dp.message.register(biznes_module.process_ig_javob,
+                        biznes_module.BiznesStates.ig_javob)
 
     async def non_admin_predicate(message: types.Message):
         try:

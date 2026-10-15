@@ -8,13 +8,16 @@ oldin shu faylni o'qing. Bosqichlar rejasi va asl qarorlar — `REJA.md`.
 
 | Fayl | Nima |
 |---|---|
-| `handlers/biznes.py` | ulanish, `biznes_kimdan` (tsikl himoyasi), nuqtali buyruqlar, Yordamchi/Avtomat, `/biznes` ekrani, kartoteka, egasining topshirig'i (mavzu), `/mijozlar`, profil/story |
+| `handlers/biznes.py` | ulanish, `biznes_kimdan` (tsikl himoyasi), nuqtali buyruqlar, Yordamchi/Avtomat, `/biznes` ekrani, kartoteka, egasining topshirig'i (mavzu), `/mijozlar`, profil/story, Instagram ulash ekrani (`bz:ig*`) + IG FSM (`process_ig_*`) |
 | `handlers/biznes_uslub.py` | egasining USLUBI: namuna yig'ish, o'rganish, uslub bloki, «Uslubim» ekrani |
+| `handlers/instagram.py` | Instagram Direct qatlami: event parse (`hodisadan_xabarlar`), Graph API yuborish (`yubor`), ulash/qoralama matnlari (sof), `qoralama_yubor`, `mijoz_qoralamasi` — SQL YO'Q, UI yo'q (UI Sozlamalar ichida) |
+| `web/instagram.py` | Meta webhook: GET verify + POST imzo (`X-Hub-Signature-256`) + saqlash (javob yo'q — qoralama `mijoz_qoralamasi` orqali) |
 | `services/ai.py` | `BIZNES_INSTRUCTIONS` (mijoz yo'lining o'z prompti), `biznes_yoriqnoma=` parametri, `egasiga_ajrat`, `biznes_kun_xulosasi`, `BIZNES_MANBA` |
-| `db/database.py` | `biznes_*` jadvallar va funksiyalar (SQL faqat shu yerda) |
-| `core/config.py` | `BIZNES_*` konstantalar |
+| `db/database.py` | `biznes_*` + `instagram_*` jadvallar va funksiyalar (SQL faqat shu yerda) |
+| `core/config.py` | `BIZNES_*` + `IG_*` konstantalar |
 | `core/csv_fayl.py` | CSV formula-injection himoyasi (panel bilan umumiy) |
 | `tests/test_biznes*.py` | har bosqichga bitta test, hammasi oflayn |
+| `tests/test_instagram.py` | Instagram poydevori + Sozlamalar integratsiyasi, oflayn |
 | `tests/eval_biznes.py` | ANIQLIK — jonli model, qo'lda (prompt o'zgarsa oldin/keyin) |
 
 Menyu (2026-09-30, sinov davri tugadi): `/biznes` — HAMMAGA (`COMMON_COMMANDS`; bepul
@@ -371,10 +374,52 @@ tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL
 - Shu ish bilan topilgan eski xato: eslatmalar ro'yxati UTC'da edi (09:00 → "04:00") —
   asyncpg TIMESTAMPTZ ni UTC'da qaytaradi; endi `astimezone(TASHKENT_TZ)`.
 
+## Instagram Direct — Sozlamalar ichida (5-bosqich, 2026-10-15)
+
+Egasi qarori: alohida buyruq YO'Q — `/biznes` → 🧰 Sozlamalar → **📸 Instagram**.
+Qaror mantiqi (Bilim/Uslub/`BIZNES_SXEMA`) Telegram bilan BIR XIL; farq faqat
+kirish/chiqish qatlamida (Meta webhook + Graph API).
+
+- **Ekran:** `bz:ig` — holat + 3 qadamli yo'riqnoma (Professional → Page bog'lash →
+  «🔌 Ulash»). Ko'rish Pro'siz ham, ulash boshlash (`bz:igu`) — faqat Pro.
+- **Ulash FSM** (`BiznesStates.ig_id/ig_page/ig_token`, `process_ig_*`): IG ID →
+  Page ID → Page token. ID lar faqat raqam (5-25, `_raqam_mi`); token 20 belgidan
+  qisqa bo'lmasa saqlanadi, xabar o'chiriladi, logga yozilmaydi. Jonli Graph API
+  tekshiruvi ATAYLAB yo'q — handler'da tarmoq kutish javobni sekinlatadi;
+  noto'g'ri token birinchi webhook'da ko'rinadi va ega qayta kiritadi.
+- **FSM xavfsizligi:** uchala holat `_biznes_holatlari()` da (boshqa tugma bossa
+  kutish tozalanadi), `_bekor_ekrani` ularni Sozlamalarga qaytaradi, `main.py` da
+  AI handlerlardan OLDIN ro'yxatda (ID/token GPT'ga savol bo'lib ketmasin).
+- **Qabul:** `web/instagram.py` — GET verify, POST imzo (`X-Hub-Signature-256`,
+  `hmac.compare_digest`), sirsiz 404, yolg'on imzo 403, xatoda ham Meta'ga 200
+  (aks holda Meta qayta yuborib dublikat qiladi). `entry.id` → `instagram_egasi_top`
+  (faqat `yoqilgan`), topilmasa jim. Har matn `instagram_xabar` ga (`mijoz` roli),
+  keyin `mijoz_qoralamasi` — «💼 Biznes» mavzusiga karta + `bz:igj:<sid>` /
+  `bz:igx:<sid>`.
+- **Karta — xabarnoma, qoralama emas:** hozir model javob yozmaydi. Kartada mijoz
+  matni + «✏️ Javob yozish» / «✖️ Bekor». «Javob yozish» → `BiznesStates.ig_javob`
+  → egasi yozgan matn `javob_yubor()` orqali IG'ga (`assistent` tarixga). ⛔️ Birinchi
+  variant xato edi («✅ Yuborish» mijoz matnini o'ziga qaytarardi) — tuzatildi.
+  Model yozgan qoralama matni — keyingi qadam.
+- **Loop himoyasi:** `is_echo` tashlanadi (`biznes_kimdan` dagi `bot` shoxining
+  analogi); matnsiz/yuboruvchisiz event o'tmaydi.
+- **Tarix:** `chat_messages` ga YOZILMAYDI — IG id'lar Telegram id'lar bilan
+  to'qnashib `thread_id=-owner` namespace'ni buzardi. Alohida `instagram_xabar`
+  (`owner_id, ig_sid, rol, matn`) + `instagram_tarix_ol` (faqat shu ega, eskidan yangiga).
+- **Yuborish:** `yubor()` — Graph `me/messages`, token xato/logga chiqmaydi,
+  `(ok, sabab)` qaytaradi; rad etilsa "yuborildi" deyimaydi (24-soat naqshi).
+  Qoralama RAM'da (`_kutilayotgan`, 20-belgili sid — callback 64 baytga sig'adi);
+  deploy'da yo'qolsa tarix qoladi, keyingi xabarda yangisi keladi.
+- **Jadvallar:** `instagram_ulanish` (bitta ega = bitta IG akkaunt; o'chirish
+  Bilim/Uslub'ga tegmaydi), `instagram_xabar` + indeks. SQL faqat `db/database.py`
+  da, hamma so'rov `owner_id` bilan.
+- **Hozircha YO'Q (keyingi):** model yozgan qoralama matni (hozir kartada faqat
+  mijoz matni — javobni egasi yozadi), Avtomat rejimda IG'ga o'zi javob berish,
+  `/mijozlar` da IG.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.
-
 1. **Tahrirlash tugmasisiz o'rganish.** Egasi qoralamani e'tiborsiz qoldirib
    mijozga o'zi yozsa, hozir qoralama shunchaki `eskirgan` bo'ladi
    (`biznes_loyiha_eskirt`). O'rniga juftlik (qoralama → egasi aslida

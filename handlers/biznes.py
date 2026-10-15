@@ -900,6 +900,10 @@ class BiznesStates(StatesGroup):
     tahrir = State()    # egasi loyihaning o'rniga o'z matnini yozmoqda
     vaqt = State()      # egasi avtomat ish vaqtini yozmoqda
     profil = State()    # egasi bio/ism/rasm/story istagini yozmoqda
+    ig_id = State()     # Instagram ulash 1/3: IG akkaunt ID
+    ig_page = State()   # Instagram ulash 2/3: FB Page ID
+    ig_token = State()  # Instagram ulash 3/3: Page access token
+    ig_javob = State()  # IG mijoziga javob matni (kartadagi «✏️ Javob yozish»)
 
 
 REJIM_NOMI = {
@@ -1738,6 +1742,10 @@ def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
                      pro_module.btn("👤 Ism", "bz:pf:ism")])
     qatorlar.append([pro_module.btn("🖼 Profil rasmi", "bz:pf:rasm"),
                      pro_module.btn("🎬 Story", "bz:pf:story")])
+    # Instagram Direct (5-bosqich): holat matni alohida ekranda (`bz:ig`),
+    # bu yerda faqat kirish tugmasi — test pin'lagan to'plam kengayadi,
+    # toraymaydi (`{"bz:w", …} <= set(soz)`).
+    qatorlar.append([pro_module.btn("📸 Instagram", "bz:ig")])
     qatorlar.append([pro_module.btn("👈 Orqaga", "bz:e")])
     return InlineKeyboardMarkup(inline_keyboard=qatorlar)
 
@@ -1896,6 +1904,82 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             await query.message.answer(
                 "✏️ Mijozga yuboriladigan matnni yozing — o'sha holida ketadi.",
                 reply_markup=biznes_uslub.bekor_kb())
+        return
+
+    # ── Instagram Direct (Sozlamalar ichida, alohida buyruqsiz) ──
+    # Ko'rish (`bz:ig`) Pro'siz ham — holat va yo'riqnoma hammaga.
+    # Yozadigan amallar (`igu` — ulash boshlash) Pro talab qiladi.
+    if amal == "ig":
+        from handlers import instagram as _ig
+        try:
+            iul = await database.instagram_ulanish_ol(uid)
+        except Exception:
+            iul = None
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [pro_module.btn("🔌 Ulash", "bz:igu")] if not (iul and iul.get("yoqilgan"))
+            else [pro_module.btn("🔕 Uzish", "bz:iguz")],
+            [pro_module.btn("👈 Sozlamalar", "bz:s")],
+        ])
+        try:
+            await query.message.edit_text(_ig.ekran_matni(iul), reply_markup=kb)
+        except Exception:
+            await query.message.answer(_ig.ekran_matni(iul), reply_markup=kb)
+        await query.answer()
+        return
+    if amal == "igu":
+        if not await database.pro_tarifmi(uid):
+            await query.answer("Bu imkoniyat faqat Pro tarifida ishlaydi — /pro",
+                               show_alert=True)
+            return
+        from handlers import instagram as _ig2
+        try:
+            iul2 = await database.instagram_ulanish_ol(uid)
+        except Exception:
+            iul2 = None
+        if iul2 and iul2.get("yoqilgan"):
+            await query.answer("Allaachon ulangan.", show_alert=True)
+            return
+        await state.set_state(BiznesStates.ig_id)
+        await query.message.answer(
+            "1/3 — <b>Instagram akkaunt ID</b> ni yuboring (faqat raqam).\n"
+            "Qayerdan: Meta App → Messenger → Instagram sozlamalari → "
+            "ulangan akkaunt ID.", reply_markup=biznes_uslub.bekor_kb())
+        await query.answer()
+        return
+    if amal == "iguz":
+        try:
+            await database.instagram_ulanish_uz(uid)
+            iul3 = await database.instagram_ulanish_ol(uid)
+        except Exception:
+            iul3 = None
+        from handlers import instagram as _ig3
+        kb3 = InlineKeyboardMarkup(inline_keyboard=[
+            [pro_module.btn("🔌 Ulash", "bz:igu")],
+            [pro_module.btn("👈 Sozlamalar", "bz:s")],
+        ])
+        try:
+            await query.message.edit_text(_ig3.ekran_matni(iul3), reply_markup=kb3)
+        except Exception:
+            await query.message.answer(_ig3.ekran_matni(iul3), reply_markup=kb3)
+        await query.answer("Uzildi")
+        return
+    if amal in ("igj", "igx"):
+        from handlers import instagram as _ig4
+        sid = qism[2] if len(qism) > 2 else ""
+        if amal == "igx":
+            _ig4.qoralama_bekor(uid, sid)
+            try:
+                await query.message.edit_text("✖️ <i>Bekor qilindi</i>")
+            except Exception:
+                pass
+            await query.answer("Bekor qilindi")
+            return
+        await state.set_state(BiznesStates.ig_javob)
+        await state.update_data(ig_sid=sid)
+        await query.message.answer(
+            "✏️ IG mijoziga yuboriladigan javobni yozing — o'sha holida ketadi.",
+            reply_markup=biznes_uslub.bekor_kb())
+        await query.answer()
         return
 
     if not await database.pro_tarifmi(uid):
@@ -2126,7 +2210,10 @@ def _bekormi(message: Message) -> bool:
 
 def _biznes_holatlari() -> set:
     return {BiznesStates.bilim.state, BiznesStates.tahrir.state, BiznesStates.vaqt.state,
-            BiznesStates.profil.state, biznes_uslub.UslubStates.qoidalar.state}
+            BiznesStates.profil.state, BiznesStates.ig_id.state,
+            BiznesStates.ig_page.state, BiznesStates.ig_token.state,
+            BiznesStates.ig_javob.state,
+            biznes_uslub.UslubStates.qoidalar.state}
 
 
 async def _bekor_ekrani(uid: int, holat: str | None) -> tuple:
@@ -2138,7 +2225,9 @@ async def _bekor_ekrani(uid: int, holat: str | None) -> tuple:
         return ("Qoralama o'z joyida kutib turibdi — «✅ Yuborish» yoki "
                 "«✏️ O'zgartirib yuborish» ni istalgan payt bosishingiz mumkin.", None)
     matn, kb = await _ekran(uid)
-    if holat in (BiznesStates.vaqt.state, BiznesStates.profil.state):
+    if holat in (BiznesStates.vaqt.state, BiznesStates.profil.state,
+                 BiznesStates.ig_id.state, BiznesStates.ig_page.state,
+                 BiznesStates.ig_token.state, BiznesStates.ig_javob.state):
         topilgan = database.biznes_egasi_ulanishi(uid)
         ul = topilgan[1] if topilgan else None
         return sozlama_matni(matn, ul), _sozlama_kb(ul)
@@ -2209,6 +2298,92 @@ async def process_vaqt(message: Message, state: FSMContext) -> None:
     await state.clear()
     matn, kb = await _ekran(message.from_user.id)
     await message.answer("✅ Saqlandi.\n\n" + matn, reply_markup=kb)
+
+
+async def process_ig_id(message: Message, state: FSMContext) -> None:
+    """Instagram ulash 1/3: IG akkaunt ID. Main.py'da FSM'lar yonida."""
+    premium_biznes()
+    if _bekormi(message):
+        await _matn_bilan_bekor(message, state)
+        return
+    from handlers import instagram as _ig
+    if not _ig._raqam_mi(message.text or ""):
+        await message.answer("Faqat raqam bo'lsin (5-25 belgi). Qayta yuboring.",
+                             reply_markup=biznes_uslub.bekor_kb())
+        return
+    await state.update_data(ig_id=(message.text or "").strip())
+    await state.set_state(BiznesStates.ig_page)
+    await message.answer("2/3 — <b>Facebook Page ID</b> ni yuboring (faqat raqam).",
+                         reply_markup=biznes_uslub.bekor_kb())
+
+
+async def process_ig_page(message: Message, state: FSMContext) -> None:
+    """Instagram ulash 2/3: FB Page ID."""
+    premium_biznes()
+    if _bekormi(message):
+        await _matn_bilan_bekor(message, state)
+        return
+    from handlers import instagram as _ig
+    if not _ig._raqam_mi(message.text or ""):
+        await message.answer("Faqat raqam bo'lsin (5-25 belgi). Qayta yuboring.",
+                             reply_markup=biznes_uslub.bekor_kb())
+        return
+    await state.update_data(page_id=(message.text or "").strip())
+    await state.set_state(BiznesStates.ig_token)
+    await message.answer("3/3 — <b>Page access token</b> ni yuboring.\n"
+                         "U bazada saqlanadi va logga hech qachon yozilmaydi.",
+                         reply_markup=biznes_uslub.bekor_kb())
+
+
+async def process_ig_token(message: Message, state: FSMContext) -> None:
+    """Instagram ulash 3/3: Page token — saqlash va jonli tekshiruv keyinga.
+
+    Jonli Graph API tekshiruvi shu yerda emas: token noto'g'ri bo'lsa ham
+    saqlanadi, birinchi webhook'da xato ko'rinadi va ega qayta kiritadi.
+    Sabab — handler'da tarmoqqa chiqib kutish javobni sekinlatadi.
+    """
+    premium_biznes()
+    if _bekormi(message):
+        await _matn_bilan_bekor(message, state)
+        return
+    token = (message.text or "").strip()
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    if len(token) < 20:
+        await message.answer("Token juda qisqa — to'liq nusxalang.",
+                             reply_markup=biznes_uslub.bekor_kb())
+        return
+    data = await state.get_data()
+    try:
+        await database.instagram_ulanish_yoz(message.from_user.id, data["ig_id"],
+                                             data["page_id"], token)
+    except Exception:
+        await message.answer("Bazaga yozilmadi — keyinroq qayta urining.")
+        return
+    await state.clear()
+    logger.info(f"[BIZNES] instagram ulandi egasi={message.from_user.id}")
+    await message.answer("✅ <b>Ulandi!</b> Test uchun biznes IG'ga boshqa "
+                         "akkauntdan direct yozing — qoralama «💼 Biznes» "
+                         "mavzusiga keladi.")
+
+
+async def process_ig_javob(message: Message, state: FSMContext) -> None:
+    """FSM: egasi IG mijoziga javob yozdi — o'sha IG'ga yuboriladi."""
+    premium_biznes()
+    data = await state.get_data()
+    await state.clear()
+    if _bekormi(message):
+        await message.answer("↩️ Bekor qilindi.")
+        return
+    if not message.text:
+        await message.answer("Faqat matn yuborsa bo'ladi. Karta kutib turibdi.")
+        return
+    from handlers import instagram as _ig
+    ok, xabar = await _ig.javob_yubor(message.from_user.id,
+                                      data.get("ig_sid", ""), message.text)
+    await message.answer(("✅ " if ok else "❗ ") + xabar)
 
 
 # ═══════════════════════════════════════════════════════════════════
