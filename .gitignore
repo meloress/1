@@ -22,3 +22,9 @@ Bot_toliq_hujjat.pdf
 
 # eval_biznes.py natijasi (jonli model, har ishga tushirishda yangilanadi)
 tests/.eval_biznes_oxirgi.json
+
+# eval_tabiiy.py natijasi (jonli model + hakam)
+tests/.eval_tabiiy_oxirgi.json
+# Reklama uchun video manbalari (Gemini/Flow) — katta, repoga tegishli emas
+*.mp4
+*.MP4
