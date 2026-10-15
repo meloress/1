@@ -159,11 +159,13 @@ def sabab(xato: str) -> str:
 
 
 async def uz(egasi: int) -> bool:
-    """Egasining Instagram ulanishini o'chiradi (kalit qoladi: qayta ulash bir bosish)."""
+    """Egasining Instagram ulanishini o'chiradi va kalitini (token) bazadan
+    o'chiradi — `/maxfiylik` sahifasi shuni va'da qiladi. Qayta ulash — OAuth."""
     topilgan = database.biznes_egasi_ulanishi(egasi, instagram=True)
     if not topilgan:
         return False
     await database.biznes_ulanish_yoz(topilgan[0], egasi, egasi, False, HUQUQ)
+    await database.biznes_ig_ochir(egasi, topilgan[0])
     logger.info(f"[Instagram] uzildi egasi={egasi}")
     return True
 
@@ -479,7 +481,70 @@ async def ulash(request: web.Request):
                          "u yerda xabar kutib turibdi.")
 
 
+# ── Meta talab qiladigan ochiq sahifalar ─────────────────────────────
+# Ilovani nashr qilish (Live) uchun Privacy Policy va Data Deletion
+# Instructions havolalari majburiy. Matn kodda nima qilinsa, shuni aytadi:
+# saqlash muddati `BIZNES_SAQLASH_KUN`, uzilgandan keyin `BIZNES_TOZALASH_KUN`.
+def _hujjat(sarlavha: str, bolimlar: list) -> web.Response:
+    tana = "".join(f"<h2>{escape(s)}</h2><p>{escape(m)}</p>" for s, m in bolimlar)
+    return web.Response(content_type="text/html", text=(
+        "<!doctype html><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        f"<title>{escape(sarlavha)}</title>"
+        "<body style='font:16px/1.55 system-ui;padding:24px;max-width:720px;margin:auto'>"
+        f"<h1>{escape(sarlavha)}</h1>{tana}"))
+
+
+async def maxfiylik(request: web.Request):
+    from core.config import BIZNES_SAQLASH_KUN, BIZNES_TOZALASH_KUN
+    return _hujjat("Privacy Policy — UzBot Business", [
+        ("What this service does",
+         "UzBot (Telegram bot @uzchatgptaibot) lets a business owner connect their Telegram "
+         "Business account and their Instagram Professional account so that an AI assistant "
+         "can draft or send replies to the owner's customers in direct messages, using the "
+         "instructions and business information the owner provides."),
+        ("Data we process",
+         "Messages that customers send to the connected account and the replies sent by the "
+         "owner or by the assistant; the customer's public name and username; the access token "
+         "Instagram issues when the owner connects their account. Message text is sent to our "
+         "AI provider (OpenAI) only to generate the reply."),
+        ("How long we keep it",
+         f"Conversation history is kept for at most {BIZNES_SAQLASH_KUN} days. When the owner "
+         f"disconnects the service or their subscription ends, the related conversations, drafts "
+         f"and customer records are deleted after {BIZNES_TOZALASH_KUN} days. The Instagram access "
+         "token is deleted immediately when the owner presses «Uzish» (Disconnect)."),
+        ("What we never do",
+         "We do not sell data, do not use it for advertising, and do not share it with anyone "
+         "other than the AI provider needed to produce a reply."),
+        ("Contact",
+         "Write to the Telegram bot @uzchatgptaibot with any privacy question or request."),
+        ("Maxfiylik (o'zbekcha)",
+         "Bot faqat ulangan akkauntga kelgan xabarlarga javob yozish uchun ularni qayta "
+         f"ishlaydi, yozishmalarni ko'pi bilan {BIZNES_SAQLASH_KUN} kun saqlaydi, ma'lumotni "
+         "sotmaydi va reklamada ishlatmaydi. Savollar uchun: @uzchatgptaibot."),
+    ])
+
+
+async def ochirish(request: web.Request):
+    from core.config import BIZNES_TOZALASH_KUN
+    return _hujjat("Data Deletion — UzBot Business", [
+        ("Delete your Instagram data",
+         "1) In Telegram open @uzchatgptaibot and send /biznes. 2) Tap «Instagram» and then "
+         "«Uzish» (Disconnect). The Instagram access token is deleted immediately; the "
+         f"conversations, drafts and customer records are deleted within {BIZNES_TOZALASH_KUN} "
+         "days. 3) Optionally remove the app in Instagram: Settings → Apps and websites."),
+        ("Request full deletion",
+         "Send the message «delete my data» to @uzchatgptaibot. All data linked to your "
+         "account is deleted within 30 days and you receive a confirmation."),
+        ("O'zbekcha",
+         "Telegram'da @uzchatgptaibot → /biznes → «Instagram» → «Uzish». Kalit darhol, "
+         f"yozishmalar {BIZNES_TOZALASH_KUN} kun ichida o'chadi."),
+    ])
+
+
 def register(app: web.Application) -> None:
     app.router.add_get("/ig/webhook", webhook_tekshir)
     app.router.add_post("/ig/webhook", webhook)
     app.router.add_get("/ig/ulash", ulash)
+    app.router.add_get("/maxfiylik", maxfiylik)
+    app.router.add_get("/malumot-ochirish", ochirish)

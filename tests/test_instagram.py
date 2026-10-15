@@ -281,14 +281,19 @@ async def ekran():
 
     async def ulanish_yoz(conn, egasi, chat, yoqilgan, huquq):
         yozildi.append((conn, egasi, yoqilgan))
-    asl = database.biznes_ulanish_yoz
-    database.biznes_ulanish_yoz = ulanish_yoz
+    ochirildi = []
+
+    async def ig_ochir(egasi, conn):
+        ochirildi.append((egasi, conn))
+    asl, asl2 = database.biznes_ulanish_yoz, database.biznes_ig_ochir
+    database.biznes_ulanish_yoz, database.biznes_ig_ochir = ulanish_yoz, ig_ochir
     try:
         await ig.uz(EGASI)
     finally:
-        database.biznes_ulanish_yoz = asl
-    check(23, "«Uzish» — faqat shu egasining Instagram ulanishi o'chadi (Telegram'niki emas)",
-          yozildi == [(CONN, EGASI, False)])
+        database.biznes_ulanish_yoz, database.biznes_ig_ochir = asl, asl2
+    check(23, "«Uzish» — faqat shu egasining Instagram ulanishi o'chadi va kaliti "
+              "o'chiriladi (maxfiylik sahifasidagi va'da), Telegram'niki tegilmaydi",
+          yozildi == [(CONN, EGASI, False)] and ochirildi == [(EGASI, CONN)])
 
 asyncio.run(ekran())
 

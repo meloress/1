@@ -1258,6 +1258,18 @@ async def biznes_ig_ol(owner_id: int, conn_id: str) -> Optional[Dict[str, Any]]:
 
 
 @with_db_retry()
+async def biznes_ig_ochir(owner_id: int, conn_id: str) -> None:
+    """«Uzish» — kalit ham o'chadi (maxfiylik sahifasida va'da qilingan)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'DELETE FROM biznes_instagram WHERE owner_id = $1 AND conn_id = $2',
+            owner_id, conn_id)
+
+
+@with_db_retry()
 async def biznes_ig_kalit_yangila(owner_id: int, conn_id: str, token: str) -> None:
     global pool
     if pool is None:
