@@ -113,6 +113,58 @@ def ulash_havolasi(egasi: int) -> str:
         "state": holat_yasa(egasi)})
 
 
+def yoriqnoma(username: str | None, ulangan: bool) -> str:
+    """«📸 Instagram» tugmasi ekrani — oddiy foydalanuvchi uchun. Sof.
+    ⚠️ Egasi hech narsa KO'CHIRMAYDI va YOZMAYDI (token, ID): faqat Instagram
+    sahifasida kiradi va «Ruxsat» bosadi — qolganini kod qiladi."""
+    if ulangan:
+        return (f"📸 <b>Instagram ulangan</b>{f': @{escape(username)}' if username else ''}\n\n"
+                "Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
+                "ishlayman. /biznes da nima o'zgartirsangiz, Instagram'ga ham tushadi.\n\n"
+                "Boshqa akkaunt ulash — «Qayta ulash», to'xtatish — «Uzish».")
+    return (
+        "📸 <b>Instagram Direct'ni ulash</b>\n\n"
+        "Ulasangiz, Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
+        "javob beraman (Yordamchi rejimida — qoralamani shu yerga yuboraman).\n\n"
+        "<b>Oldin tekshiring:</b>\n"
+        "1. Akkauntingiz <b>Professional</b> bo'lsin (Biznes yoki Autor): Instagram → "
+        "Sozlamalar → Akkaunt turi va vositalar → Professional akkauntga o'tish.\n"
+        "2. Xabarlarga ruxsat yoqilgan bo'lsin: Instagram → Sozlamalar → Xabarlar va "
+        "hikoyalarga javoblar → Ulangan vositalar → <i>Allow access to messages</i>.\n\n"
+        "<b>Ulash:</b>\n"
+        "3. Pastdagi «📸 Instagram'ga kirish» tugmasini bosing.\n"
+        "4. Instagram login va parolingizni kiriting — u Instagram'ning o'z sahifasi, "
+        "parolingizni men ko'rmayman.\n"
+        "5. «Ruxsat berish» (Allow) ni bosing.\n\n"
+        "Boshqa hech narsa yozish yoki ko'chirish shart emas — ulanishim bilan shu "
+        "yerga xabar beraman. Havola 30 daqiqa amal qiladi.")
+
+
+def sabab(xato: str) -> str:
+    """Meta xatosi → egasi tushunadigan sabab va nima qilish. Sof."""
+    x = (xato or "").lower()
+    if any(s in x for s in ("developer role", "tester", "not authorized application",
+                            "app not active", "invalid platform app")):
+        return ("bu Instagram akkaunt hozircha ulanishga ruxsat etilmagan — xizmat Meta "
+                "tekshiruvida. Biroz keyin qayta urinib ko'ring yoki bot egasiga yozing.")
+    if any(s in x for s in ("professional", "business account", "creator", "personal account")):
+        return ("akkaunt Professional emas. Instagram → Sozlamalar → Akkaunt turi va "
+                "vositalar → Professional akkauntga o'ting va qayta ulang.")
+    if any(s in x for s in ("code has been used", "expired", "invalid authorization code")):
+        return "havola eskirgan — /biznes → «📸 Instagram» → «Instagram'ga kirish» ni qayta bosing."
+    return f"Instagram rad etdi ({xato[:150]}). Bir ozdan keyin qayta urinib ko'ring."
+
+
+async def uz(egasi: int) -> bool:
+    """Egasining Instagram ulanishini o'chiradi (kalit qoladi: qayta ulash bir bosish)."""
+    topilgan = database.biznes_egasi_ulanishi(egasi, instagram=True)
+    if not topilgan:
+        return False
+    await database.biznes_ulanish_yoz(topilgan[0], egasi, egasi, False, HUQUQ)
+    logger.info(f"[Instagram] uzildi egasi={egasi}")
+    return True
+
+
 def imzo_togrimi(tana: bytes, sarlavha: str | None) -> bool:
     """Meta webhook imzosi: `sha256=` + HMAC(ilova siri, xom tana). Sof."""
     if not IG_APP_SECRET or not sarlavha or not sarlavha.startswith("sha256="):
@@ -350,12 +402,20 @@ async def webhook(request: web.Request):
     return web.Response(text="EVENT_RECEIVED")
 
 
-def _sahifa(matn: str, holat: int = 200) -> web.Response:
+async def _sahifa(matn: str, holat: int = 200) -> web.Response:
+    """Brauzerda qoladigan sahifa — asosiy xabar baribir Telegram'ga ketadi."""
+    try:
+        from core.loader import bot
+        nom = (await bot.me()).username or ""
+    except Exception:
+        nom = ""
+    qayt = (f"<p><a href='https://t.me/{escape(nom)}' style='font-weight:600'>"
+            "Telegram'ga qaytish →</a></p>" if nom else "")
     return web.Response(status=holat, content_type="text/html", text=(
         "<!doctype html><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
         "<body style='font:18px system-ui;padding:24px;max-width:480px;margin:auto'>"
-        f"<p>{escape(matn)}</p>"))
+        f"<p>{escape(matn)}</p>{qayt}"))
 
 
 async def ulanish_yarat(egasi: int, code: str) -> str:
@@ -398,17 +458,22 @@ async def ulash(request: web.Request):
         raise web.HTTPNotFound()
     egasi = holat_tekshir(request.query.get("state", ""))
     if egasi is None:
-        return _sahifa("Havola eskirgan. Telegram'da /biznes → «📸 Instagram ulash» "
-                       "ni qayta bosing.", 400)
+        return await _sahifa("Havola eskirgan. Telegram'da /biznes → «📸 Instagram» → "
+                             "«Instagram'ga kirish» ni qayta bosing.", 400)
+    from handlers import biznes
     code = request.query.get("code", "").removesuffix("#_")
     if request.query.get("error") or not code:
-        return _sahifa("Ulanish bekor qilindi.", 400)
+        await biznes._egasiga(egasi, "📸 Instagram ulanmadi: ruxsat berilmadi. Qayta urinish "
+                                     "— /biznes → «📸 Instagram».")
+        return await _sahifa("Ulanish bekor qilindi. Telegram'ga qayting.", 400)
     try:
         username = await ulanish_yarat(egasi, code)
     except IgXato as e:
         logger.warning(f"[Instagram] ulanmadi egasi={egasi}: {e}")
-        return _sahifa(f"Ulanmadi: {e}", 502)
-    return _sahifa(f"✅ Instagram @{username} ulandi. Telegram'ga qayting.")
+        await biznes._egasiga(egasi, f"❗ Instagram ulanmadi: {escape(sabab(str(e)))}")
+        return await _sahifa(f"Ulanmadi: {sabab(str(e))}", 502)
+    return await _sahifa(f"✅ Instagram @{username} ulandi. Telegram'ga qayting — "
+                         "u yerda xabar kutib turibdi.")
 
 
 def register(app: web.Application) -> None:

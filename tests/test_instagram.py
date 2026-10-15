@@ -217,11 +217,80 @@ async def asosiy():
             r = await c.get("/ig/ulash", params={"state": "buzuq", "code": "x"})
             check(18, "OAuth qaytishi: soxta state — 400, kod almashtirilmaydi",
                   r.status == 400 and not any("oauth" in s[1] for s in sorovlar))
+            # Haqiqiy state, lekin Meta rad etdi — egasi Telegram'da SABABINI oladi.
+            egasiga = []
+
+            async def egasiga_yoz(chat, matn, **kw):
+                egasiga.append((chat, matn))
+                return True
+
+            async def rad(usul, url, **kw):
+                raise ig.IgXato("Instagram rad etdi: Insufficient developer role")
+            asl_eg, asl_sr = b._egasiga, ig._sorov
+            b._egasiga, ig._sorov = egasiga_yoz, rad
+            try:
+                r = await c.get("/ig/ulash", params={"state": ig.holat_yasa(EGASI), "code": "k"})
+                sahifa = await r.text()
+            finally:
+                b._egasiga, ig._sorov = asl_eg, asl_sr
+            check(18.1, "Meta rad etsa: sahifa 502 + Telegram'ga qaytish havolasi, egasiga "
+                        "tushunarli sabab (texnik matn emas)",
+                  r.status == 502 and "t.me/uzbot" in sahifa and len(egasiga) == 1
+                  and egasiga[0][0] == EGASI and "Meta tekshiruvida" in egasiga[0][1])
     finally:
         ig._fonda = asl_fonda
 
 
+
+class _SoxtaBot:
+    async def me(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(username="uzbot")
+
+
+import core.loader as _loader  # noqa: E402
+_loader.bot = _SoxtaBot()      # `_sahifa` bot nomini o'qiydi — tarmoqqa chiqmasin
+
 asyncio.run(asosiy())
+
+# ── 20-23. «📸 Instagram» ekrani (oddiy foydalanuvchi uchun) ──────────
+yoz = ig.yoriqnoma(None, False)
+check(20, "yo'riqnoma: Professional, xabarlarga ruxsat, kirish, Ruxsat — token/ID so'ramaydi",
+      all(k in yoz for k in ("Professional", "Allow access to messages", "Ruxsat berish",
+                              "xabar beraman"))
+      and not any(k in yoz.lower() for k in ("token", "app id", "kalit")))
+check(21, "Meta xatolari tushunarli sababga aylanadi",
+      "Meta tekshiruvida" in ig.sabab("Insufficient Developer Role")
+      and "Professional" in ig.sabab("The user is not an Instagram Business account professional")
+      and "eskirgan" in ig.sabab("This authorization code has been used")
+      and ig.sabab("boshqa") .startswith("Instagram rad etdi"))
+
+
+async def ekran():
+    database._biznes_kesh[CONN]["yoqilgan"] = False
+    m1, kb1 = await b.instagram_ekrani(EGASI)
+    database._biznes_kesh[CONN]["yoqilgan"] = True
+    m2, kb2 = await b.instagram_ekrani(EGASI)
+    t1 = [t for q in kb1.inline_keyboard for t in q]
+    t2 = [t for q in kb2.inline_keyboard for t in q]
+    check(22, "ulanmagan: yo'riqnoma + imzoli kirish havolasi, uzish YO'Q; ulangan: @nom + uzish",
+          "Oldin tekshiring" in m1 and any(t.url and "state=" in t.url for t in t1)
+          and not any(t.callback_data == "bz:igx" for t in t1)
+          and "@dokon" in m2 and any(t.callback_data == "bz:igx" for t in t2))
+    yozildi = []
+
+    async def ulanish_yoz(conn, egasi, chat, yoqilgan, huquq):
+        yozildi.append((conn, egasi, yoqilgan))
+    asl = database.biznes_ulanish_yoz
+    database.biznes_ulanish_yoz = ulanish_yoz
+    try:
+        await ig.uz(EGASI)
+    finally:
+        database.biznes_ulanish_yoz = asl
+    check(23, "«Uzish» — faqat shu egasining Instagram ulanishi o'chadi (Telegram'niki emas)",
+          yozildi == [(CONN, EGASI, False)])
+
+asyncio.run(ekran())
 
 # ── 19. web marshrutlari ro'yxatda ────────────────────────────────────
 import web as w  # noqa: E402

@@ -373,7 +373,11 @@ tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL
 
 ## Instagram Direct — ikkinchi kanal (2026-10-15)
 
-Egasi /biznes → «📸 Instagram ulash» → Instagram'da ruxsat. Telegram'dagi rejim, Bilim,
+Egasi /biznes → «📸 Instagram ulash» → **yo'riqnoma ekrani** (`instagram.yoriqnoma`:
+Professional akkaunt, xabarlarga ruxsat, kirish, «Ruxsat») → «📸 Instagram'ga kirish» →
+Instagram'da ruxsat → ulanadi va Telegram'ga xabar keladi. Egasi token/ID kiritmaydi.
+Rad etilsa — `instagram.sabab()` Meta xatosini tushunarli gapga aylantirib egasiga yozadi.
+Ulangan bo'lsa ekranda «🔄 Qayta ulash» va «🔌 Uzish». Telegram'dagi rejim, Bilim,
 uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram.py`.
 
 - **Ikkinchi javob yo'li YO'Q.** Webhook xabari `Message` shaklidagi obyektga (`_xabar()`)

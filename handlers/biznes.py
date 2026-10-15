@@ -1820,10 +1820,32 @@ async def _ekran(user_id: int):
         else:
             matn += ("\n\n📸 Instagram ulanmagan — ulasangiz, Direct'dagi mijozlarga ham "
                      "shu sozlamalar bilan javob beraman.")
-        qator = [pro_module.btn("📸 Instagram qayta ulash" if ig else "📸 Instagram ulash", "",
-                                url=instagram.ulash_havolasi(user_id))]
+        # Avval yo'riqnoma (`bz:ig`), havola o'sha ekranda — to'g'ridan-to'g'ri
+        # Instagram'ga otish oddiy egani nima kutayotganini bilmay qoldirardi.
+        qator = [pro_module.btn("📸 Instagram" if ig and ig[1]["yoqilgan"]
+                                else "📸 Instagram ulash", "bz:ig")]
         kb = InlineKeyboardMarkup(inline_keyboard=[*(kb.inline_keyboard if kb else []), qator])
     return matn, kb
+
+
+async def instagram_ekrani(uid: int) -> tuple:
+    """«📸 Instagram» — yo'riqnoma, kirish havolasi, ulangan bo'lsa uzish."""
+    ig = database.biznes_egasi_ulanishi(uid, instagram=True)
+    ulangan = bool(ig and ig[1]["yoqilgan"])
+    nom = None
+    if ig:
+        try:
+            nom = ((await database.biznes_ig_ol(uid, ig[0])) or {}).get("username")
+        except Exception:
+            pass
+    qatorlar = [[pro_module.btn("🔄 Qayta ulash" if ulangan else "📸 Instagram'ga kirish", "",
+                                url=instagram.ulash_havolasi(uid),
+                                style=None if ulangan else BTN_SUCCESS)]]
+    if ulangan:
+        qatorlar.append([pro_module.btn("🔌 Uzish", "bz:igx", style=BTN_DANGER)])
+    qatorlar.append([pro_module.btn("⬅️ Orqaga", "bz:e")])
+    return (instagram.yoriqnoma(nom, ulangan),
+            InlineKeyboardMarkup(inline_keyboard=qatorlar))
 
 
 def _probez_matni(uid: int) -> str:
@@ -2068,6 +2090,18 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             pass
         await query.answer()
         await query.message.answer(javob)
+    elif amal in ("ig", "igx"):
+        if not instagram.sozlanganmi():
+            await query.answer("Instagram hozircha ulanmaydi.", show_alert=True)
+            return
+        if amal == "igx":
+            await instagram.uz(uid)
+        matn, kb = await instagram_ekrani(uid)
+        try:
+            await query.message.edit_text(matn, reply_markup=kb)
+        except Exception:
+            await query.message.answer(matn, reply_markup=kb)
+        await query.answer("Instagram uzildi" if amal == "igx" else None)
     elif amal == "x":
         await query.answer("Tayyorlanmoqda…")
         await query.message.answer_document(BufferedInputFile(
