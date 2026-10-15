@@ -50,7 +50,7 @@ from services.ai import (BIZNES_MANBA, BIZNES_SXEMA, biznes_kun_xulosasi,
                          biznes_qaror_ajrat, egasiga_ajrat, tanlov_ajrat,
                          get_gpt_reply, safe_update_history)
 from db.history import biznes_keshini_tozala, get_chat_history
-from handlers import biznes_media, biznes_uslub
+from handlers import biznes_media, biznes_uslub, instagram
 from handlers import pro as pro_module
 from handlers.helpers import mavzu_kwargs, send_error_with_retry
 from handlers.messages import LOGO_EMOJI, track_user_activity
@@ -126,7 +126,9 @@ async def _mijozga(chat_id: int, conn_id: str, matn: str, belgi: bool = False):
     shu so'zlarni ko'radi. `belgi` — avtojavob ostidagi «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» (bot
     havolasi + logo). Rad etilsa pog'onama-pog'ona soddalashadi: premiumsiz
     HTML (havola qoladi) → oddiy matn. Javob hech qachon yo'qolmaydi.
-    429 — chaqiruvchiga."""
+    429 — chaqiruvchiga. `ig:` ulanish — Instagram Direct (oddiy matn)."""
+    if instagram.bizniki(conn_id):
+        return await instagram.yubor(conn_id, chat_id, avto_matn(matn, belgi)["text"])
     oddiy = escape(matn, quote=False)
     bot_nomi = logo = ""
     if belgi:
@@ -596,7 +598,10 @@ async def biznes_xabar(message: Message):
         return
     matn = message.text or message.caption or ""
     egasi = ul["owner_id"]
-    buyruq = buyruq_ajrat(matn) if kim == "egasi" else None
+    # Instagram'da buyruq YO'Q: egasining «.en …» xabarini o'chirib bo'lmaydi —
+    # mijoz buyruqni ham, natijani ham ko'rardi.
+    buyruq = (buyruq_ajrat(matn) if kim == "egasi"
+              and not instagram.bizniki(message.business_connection_id) else None)
     # Dublikat update (AUDIT 7.1) — faqat harakatga olib keladiganlari:
     # ikkinchi avtojavob / qoralama / buyruq. Oddiy yozuv takrori zararsiz.
     if ((buyruq or (kim == "mijoz" and ul["rejim"] in ("yordamchi", "avtomat")))
@@ -1398,7 +1403,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
                 await database.refund_daily(egasi, "biznes")
 
         try:
-            await bot.send_chat_action(chat_id, "typing", business_connection_id=conn_id)
+            if not instagram.bizniki(conn_id):
+                await bot.send_chat_action(chat_id, "typing", business_connection_id=conn_id)
         except Exception:
             pass
         boshlandi = _hozirgi_tartib()
@@ -1453,7 +1459,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
             return
         olchov.belgi("yuborish")
         try:
-            await bot.read_business_message(conn_id, chat_id, message.message_id)
+            if not instagram.bizniki(conn_id):
+                await bot.read_business_message(conn_id, chat_id, message.message_id)
         except Exception:
             pass
         await safe_update_history(chat_id, toza, role="assistant", thread_id=thread)
@@ -1479,8 +1486,10 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
 async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> None:
     u = message.from_user
     qatorlar = []
-    if u and u.username:
-        qatorlar.append([pro_module.btn("💬 Chatga o'tish", "", url=f"https://t.me/{u.username}")])
+    url = ((instagram.havola(u.username) if instagram.chatmi(message.chat.id)
+            else f"https://t.me/{u.username}") if u and u.username else None)
+    if url:
+        qatorlar.append([pro_module.btn("💬 Chatga o'tish", "", url=url)])
     qatorlar.append([pro_module.btn("🔕 Bu chatda avtomatni o'chirish",
                                     f"bz:o:{message.chat.id}", style=BTN_DANGER)])
     matni = (f"✋ <b>{escape(u.full_name if u else 'Mijoz')}</b> sizni kutmoqda\n"
@@ -1798,8 +1807,23 @@ async def _ekran(user_id: int):
         bot_nomi = (await bot.me()).username or ""
     except Exception:
         bot_nomi = ""
-    return (ekran_matni(ul, bilim, stat, namuna, uid=user_id, bot_nomi=bot_nomi),
-            _ekran_kb(ul))
+    matn, kb = ekran_matni(ul, bilim, stat, namuna, uid=user_id, bot_nomi=bot_nomi), _ekran_kb(ul)
+    if instagram.sozlanganmi():
+        ig = database.biznes_egasi_ulanishi(user_id, instagram=True)
+        if ig and ig[1]["yoqilgan"]:
+            try:
+                nom = ((await database.biznes_ig_ol(user_id, ig[0])) or {}).get("username")
+            except Exception:
+                nom = None
+            matn += (f"\n\n📸 Instagram{f' @{escape(nom)}' if nom else ''}: <b>ulangan</b> — "
+                     "Direct'da ham shu sozlamalar bilan ishlayman.")
+        else:
+            matn += ("\n\n📸 Instagram ulanmagan — ulasangiz, Direct'dagi mijozlarga ham "
+                     "shu sozlamalar bilan javob beraman.")
+        qator = [pro_module.btn("📸 Instagram qayta ulash" if ig else "📸 Instagram ulash", "",
+                                url=instagram.ulash_havolasi(user_id))]
+        kb = InlineKeyboardMarkup(inline_keyboard=[*(kb.inline_keyboard if kb else []), qator])
+    return matn, kb
 
 
 def _probez_matni(uid: int) -> str:
@@ -2610,6 +2634,8 @@ def _necha_oldin(vaqt) -> tuple:
 
 
 def _havola(m: dict) -> str:
+    if instagram.chatmi(m["chat_id"]):
+        return instagram.havola(m.get("username")) or "Instagram Direct"
     return (f"https://t.me/{m['username']}" if m.get("username")
             else f"tg://user?id={m['chat_id']}")
 
@@ -2631,7 +2657,12 @@ def _mijoz_qatori(i: int, m: dict) -> str:
             + (f", telefon: {m['telefon']}" if m.get("telefon") else "")
             + (f", qiziqishi: {m['qiziqish']}" if m.get("qiziqish") else "")
             + (" (hozir yozsa bo'ladi)" if ochiq else
-               " (24 soatdan oshgan — u yana yozmaguncha Telegram ruxsat bermaydi)"))
+               f" (24 soatdan oshgan — u yana yozmaguncha {_kanal(m['chat_id'])} "
+               "ruxsat bermaydi)"))
+
+
+def _kanal(chat_id) -> str:
+    return "Instagram" if instagram.chatmi(chat_id) else "Telegram"
 
 
 def mijoz_tanla(mijozlar: list, soz: str) -> tuple:
@@ -2679,10 +2710,12 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
     if not matn:
         return False, "matn bo'sh"
     nom = _mijoz_nomi(mijoz)
-    topilgan = database.biznes_egasi_ulanishi(egasi)
+    ig = instagram.chatmi(chat_id)
+    topilgan = database.biznes_egasi_ulanishi(egasi, instagram=ig)
     ul = topilgan[1] if topilgan else None
     if not ul or not ul["yoqilgan"]:
-        return False, f"{nom}ga yuborilmadi: bot Telegram Biznes'ga ulanmagan"
+        return False, (f"{nom}ga yuborilmadi: Instagram ulanmagan (/biznes → «📸 Instagram "
+                       "ulash»)" if ig else f"{nom}ga yuborilmadi: bot Telegram Biznes'ga ulanmagan")
     if not ul["huquqlar"].get("can_reply"):
         return False, (f"{nom}ga yuborilmadi: «{huquq_nomi(egasi, 'can_reply')}» huquqi "
                        f"yoqilmagan ({sozlama_yoli(egasi)} → botni tanlang)")
@@ -2692,10 +2725,12 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
     except Exception as e:
         logger.warning(f"[BIZNES] topshiriq yuborilmadi egasi={egasi} chat={chat_id}: {e}")
         oldin, _ = _necha_oldin(mijoz.get("oxirgi"))
-        havola = (f" Bir bosishda o'zingiz yuboring: https://t.me/{mijoz['username']}"
-                  f"?text={quote(matn[:500])}" if mijoz.get("username") else "")
-        return False, (f"{nom}ga yuborilmadi — Telegram rad etdi ({e}). Odatda sababi: "
-                       f"Telegram faqat oxirgi 24 soatda sizga yozgan odamga yozishga ruxsat "
+        kanal = _kanal(chat_id)
+        havola = ("" if ig or not mijoz.get("username") else
+                  f" Bir bosishda o'zingiz yuboring: https://t.me/{mijoz['username']}"
+                  f"?text={quote(matn[:500])}")
+        return False, (f"{nom}ga yuborilmadi — {kanal} rad etdi ({e}). Odatda sababi: "
+                       f"{kanal} faqat oxirgi 24 soatda sizga yozgan odamga yozishga ruxsat "
                        f"beradi, {nom} esa oxirgi marta {oldin} yozgan.{havola}")
     if ul["huquqlar"].get("can_read_messages"):
         await safe_update_history(chat_id, matn, role="assistant",
@@ -3143,6 +3178,10 @@ async def _yuborilganga(egasi: int, amal: str, args: dict) -> str:
         return f"bunday raqam yo'q (hozir {len(rows)} ta) — avval yuborilganlar"
     r = rows[idx - 1]
     nom = nomlar.get(r["chat_id"], "suhbatdosh")
+    if instagram.chatmi(r["chat_id"]):
+        return (f"bajarilmadi: Instagram yuborilgan xabarni o'chirish va tahrirlashga "
+                f"ruxsat bermaydi — egasi {nom}ga to'g'rilovchi xabar yozsin yoki "
+                f"Instagram ilovasida o'zi o'chirsin")
     topilgan = database.biznes_egasi_ulanishi(egasi)
     ul = topilgan[1] if topilgan else None
     if not ul or not ul["yoqilgan"]:

@@ -151,7 +151,7 @@ async def _bekor(user_id, task_id):
 
 
 database.biznes_mijozlar = _mijozlar
-database.biznes_egasi_ulanishi = lambda o: ("conn-1", {
+database.biznes_egasi_ulanishi = lambda o, instagram=None: ("conn-1", {
     "yoqilgan": holat["yoqilgan"], "huquqlar": holat["huquq"], "rejim": "yordamchi",
     "ish_vaqti": None}) if o == EGASI else None
 database.create_scheduled_task = _yarat

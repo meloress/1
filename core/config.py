@@ -897,6 +897,21 @@ BIZNES_HISOBOT_SOAT = 9
 BIZNES_TOPSHIRIQ_MAX = 2000
 # Topshiriq bilan yuborilgan xabarlar shuncha kun saqlanadi («o'chir/tuzat» uchun).
 BIZNES_YUBORILGAN_KUN = 7
+
+# ── Instagram Direct (Business'ning ikkinchi kanali, 2026-10-15) ──────
+# Meta ilovasi (developers.facebook.com → «Instagram API with Instagram
+# Login») kalitlari. Uchalasi ham bo'lmasa — «📸 Instagram ulash» tugmasi
+# chiqmaydi va webhook 404 qaytaradi; Telegram qismi o'zgarishsiz.
+# Webhook: {WEB_APP_URL}/ig/webhook, OAuth qaytish: {WEB_APP_URL}/ig/ulash.
+IG_APP_ID: str = os.getenv("IG_APP_ID", "")
+IG_APP_SECRET: str = os.getenv("IG_APP_SECRET", "")
+IG_VERIFY_TOKEN: str = os.getenv("IG_VERIFY_TOKEN", "")
+IG_GRAPH = "https://graph.instagram.com/v23.0"
+# Uzun muddatli kalit 60 kun yashaydi; shundan eski bo'lsa yangilanadi
+# (Meta: kamida 24 soatlik kalitni yangilash mumkin).
+IG_KALIT_YANGILA_KUN = 30
+# Instagram Direct'da bitta xabar matni — 1000 BAYT (UTF-8), belgi emas.
+IG_MATN_BAYT = 1000
 # Telegram 24 soatdan eski chatga bot javobini rad etadi — undan eski
 # loyihani yuborish tugmasi baribir ishlamasdi.
 BIZNES_LOYIHA_TTL_SOAT = 24

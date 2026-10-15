@@ -271,6 +271,10 @@ def build_app() -> web.Application:
     # (REJA 3.2). Import shu yerda: `api` ham `auth` ni chaqiradi.
     from web import api
     api.register(app)
+    # Instagram webhook va OAuth qaytishi — `/api/` ostida EMAS (ularni Meta
+    # va brauzer chaqiradi, cookie yo'q); himoya o'sha modulda (imzo).
+    from handlers import instagram
+    instagram.register(app)
     app.router.add_static("/static/", STATIC)
     return app
 

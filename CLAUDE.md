@@ -744,6 +744,10 @@ owner-style learning) and the planned next work. The four rules that break silen
   scheduled — none of which is in the topic history), the text of a bot message the owner
   replied to, and can read a customer chat, edit Knowledge **by line number** and change
   settings. Every write (send / Knowledge / setting) is a proposal confirmed by "ha" in code.
+- Instagram Direct (2026-10-15, `handlers/instagram.py`): the same pipeline, not a copy — a
+  webhook message is shaped like a `Message` and fed to `biznes_xabar()`, and `_mijozga()`
+  routes `ig:` connections to the Graph API. Customer chat id is `-IGSID`. ⛔️ Unsigned
+  webhooks are rejected and the bot's own echo must not read as "owner wrote" (auto-pause).
 
 ### Inline mode must stay OFF — it breaks guest mode
 

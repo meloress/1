@@ -634,6 +634,19 @@ async def create_users_table():
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_biznes_yuborilgan_egasi "
             "ON biznes_yuborilgan (owner_id, id DESC)")
+        # Instagram ulanishi (`biznes_ulanish.conn_id = 'ig:<IG ID>'`) kaliti.
+        # ⛔️ `token` — sir: logga ham, egasiga ham chiqmaydi. Ulanishning
+        # o'zi (rejim, huquq) `biznes_ulanish` da — Telegram bilan bitta jadval,
+        # shuning uchun sozlamalar `WHERE owner_id` bilan ikkalasiga tushadi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS biznes_instagram (
+                conn_id    TEXT PRIMARY KEY,
+                owner_id   BIGINT NOT NULL,
+                username   TEXT,
+                token      TEXT NOT NULL,
+                token_vaqt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        ''')
 
         # Eski, ishlatib bo'lingan eslatmalarni tozalash. Ilgari ular
         # active=FALSE bo'lib jadvalda qolib ketardi; endi yuborilgach
@@ -1185,12 +1198,74 @@ def biznes_faol_egalar() -> Dict[int, int]:
             if v["yoqilgan"]}
 
 
-def biznes_egasi_ulanishi(owner_id: int) -> Optional[tuple]:
+def biznes_egasi_ulanishi(owner_id: int, instagram: Optional[bool] = None) -> Optional[tuple]:
     """(conn_id, yozuv) — egasining ulanishi (/biznes ekrani uchun).
-    Bir nechta bo'lsa yoqilgani afzal."""
-    topilgan = [(k, v) for k, v in _biznes_kesh.items() if v["owner_id"] == owner_id]
-    topilgan.sort(key=lambda kv: not kv[1]["yoqilgan"])
+    Bir nechta bo'lsa yoqilgani, keyin Telegram'niki afzal (`ig:` —
+    Instagram). `instagram=True/False` — faqat shu kanal."""
+    topilgan = [(k, v) for k, v in _biznes_kesh.items() if v["owner_id"] == owner_id
+                and (instagram is None or k.startswith("ig:") == instagram)]
+    topilgan.sort(key=lambda kv: (not kv[1]["yoqilgan"], kv[0].startswith("ig:")))
     return topilgan[0] if topilgan else None
+
+
+@with_db_retry()
+async def biznes_sozlamani_kochir(owner_id: int, conn_id: str) -> None:
+    """Yangi ulanish (Instagram) egasining BOSHQA ulanishidagi rejim va
+    sozlamalarni oladi — egasi hammasini Telegram'da bir marta sozlagan."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            '''
+            UPDATE biznes_ulanish t SET rejim = s.rejim, ish_vaqti = s.ish_vaqti,
+                avto_belgi = s.avto_belgi, kutish_soniya = s.kutish_soniya,
+                pauza_soat = s.pauza_soat
+            FROM (SELECT * FROM biznes_ulanish WHERE owner_id = $1 AND conn_id <> $2
+                  ORDER BY yoqilgan DESC LIMIT 1) s
+            WHERE t.owner_id = $1 AND t.conn_id = $2
+            RETURNING t.rejim, t.ish_vaqti, t.avto_belgi, t.kutish_soniya, t.pauza_soat
+            ''', owner_id, conn_id)
+    if r and conn_id in _biznes_kesh:
+        _biznes_kesh[conn_id].update(dict(r))
+
+
+@with_db_retry()
+async def biznes_ig_yoz(owner_id: int, conn_id: str, username: Optional[str],
+                        token: str) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO biznes_instagram (conn_id, owner_id, username, token) '
+            'VALUES ($1, $2, $3, $4) ON CONFLICT (conn_id) DO UPDATE SET '
+            'owner_id = EXCLUDED.owner_id, username = EXCLUDED.username, '
+            'token = EXCLUDED.token, token_vaqt = NOW()',
+            conn_id, owner_id, username, token)
+
+
+@with_db_retry()
+async def biznes_ig_ol(owner_id: int, conn_id: str) -> Optional[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            'SELECT username, token, token_vaqt FROM biznes_instagram '
+            'WHERE owner_id = $1 AND conn_id = $2', owner_id, conn_id)
+    return dict(r) if r else None
+
+
+@with_db_retry()
+async def biznes_ig_kalit_yangila(owner_id: int, conn_id: str, token: str) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE biznes_instagram SET token = $3, token_vaqt = NOW() '
+            'WHERE owner_id = $1 AND conn_id = $2', owner_id, conn_id, token)
 
 
 @with_db_retry()

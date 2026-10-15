@@ -371,6 +371,33 @@ tabiiy"). Model `biznes_xabar` asbobi bilan (`services/ai.py::_BIZNES_XABAR_TOOL
 - Shu ish bilan topilgan eski xato: eslatmalar ro'yxati UTC'da edi (09:00 → "04:00") —
   asyncpg TIMESTAMPTZ ni UTC'da qaytaradi; endi `astimezone(TASHKENT_TZ)`.
 
+## Instagram Direct — ikkinchi kanal (2026-10-15)
+
+Egasi /biznes → «📸 Instagram ulash» → Instagram'da ruxsat. Telegram'dagi rejim, Bilim,
+uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram.py`.
+
+- **Ikkinchi javob yo'li YO'Q.** Webhook xabari `Message` shaklidagi obyektga (`_xabar()`)
+  aylanib, o'sha `biznes.biznes_xabar()` dan o'tadi; yuborish `_mijozga()` ichida `ig:`
+  ulanishda Instagram'ga buriladi. Yangi qoida faqat bitta joyda yoziladi.
+- Kalitlar: ulanish `biznes_ulanish.conn_id = 'ig:<IG ID>'` (huquq doim o'qish+javob);
+  mijoz chati **`-IGSID`** — Business chati doim musbat, to'qnashmaydi (`instagram.chatmi`).
+  Kalit (token) `biznes_instagram` da; sozlamalar `WHERE owner_id` bilan ikkala kanalga tushadi,
+  ulanganda `biznes_sozlamani_kochir` Telegram'dagini oladi.
+- ⛔️ Webhook `X-Hub-Signature-256` (ilova siri) tekshirilmaguncha o'qilmaydi; OAuth `state` —
+  imzolangan ega id'si (30 daqiqa). Token logga/egasiga chiqmaydi (`_sorov` → `from None`).
+- ⛔️ **Echo.** Instagram bot yuborganini `is_echo` bilan qaytaradi. Tanilmasa "egasi o'zi
+  yozdi" → avtomat pauza. Matn yuborishdan OLDIN `_yuborilgan` ga yoziladi (echo API
+  javobidan oldin kelishi mumkin); boshqa echo — egasining o'zi (pauza, uslub namunasi).
+- Instagram'da: nuqtali buyruq yo'q (egasining xabarini o'chirib bo'lmaydi — mijoz ko'rardi);
+  yuborilganni o'chirish/tahrirlash yo'q; rasm/video ko'rilmaydi (belgi bilan modelga);
+  matn 1000 **bayt**dan bo'linadi. 24 soat qoidasi bor — rad etilgani "yuborildi" emas.
+- Kalit 60 kun yashaydi, 30 kundan eski bo'lsa ishlatilganda yangilanadi (ponytail: 60 kun
+  jim ulanish qayta ulanadi).
+- Muhit: `IG_APP_ID`, `IG_APP_SECRET`, `IG_VERIFY_TOKEN`. Yo'q bo'lsa tugma yo'q, endpointlar
+  404. Meta'da: webhook `{WEB_APP_URL}/ig/webhook` (`messages`), redirect `{WEB_APP_URL}/ig/ulash`.
+  App Review'gacha faqat ilovaga sinovchi qilib qo'shilgan Instagram hisoblari ishlaydi.
+- `tests/test_instagram.py` (oflayn): state, imzo, echo, yo'naltirish, kalit sizmasligi.
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.
