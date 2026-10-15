@@ -1815,15 +1815,15 @@ async def _ekran(user_id: int):
                 nom = ((await database.biznes_ig_ol(user_id, ig[0])) or {}).get("username")
             except Exception:
                 nom = None
-            matn += (f"\n\n📸 Instagram{f' @{escape(nom)}' if nom else ''}: <b>ulangan</b> — "
+            matn += (f"\n\n{instagram.IG} Instagram{f' @{escape(nom)}' if nom else ''}: <b>ulangan</b> — "
                      "Direct'da ham shu sozlamalar bilan ishlayman.")
         else:
-            matn += ("\n\n📸 Instagram ulanmagan — ulasangiz, Direct'dagi mijozlarga ham "
+            matn += (f"\n\n{instagram.IG} Instagram ulanmagan — ulasangiz, Direct'dagi mijozlarga ham "
                      "shu sozlamalar bilan javob beraman.")
         # Avval yo'riqnoma (`bz:ig`), havola o'sha ekranda — to'g'ridan-to'g'ri
         # Instagram'ga otish oddiy egani nima kutayotganini bilmay qoldirardi.
-        qator = [pro_module.btn("📸 Instagram" if ig and ig[1]["yoqilgan"]
-                                else "📸 Instagram ulash", "bz:ig")]
+        qator = [pro_module.btn("Instagram" if ig and ig[1]["yoqilgan"]
+                                else "Instagram ulash", "bz:ig", icon="instagram")]
         kb = InlineKeyboardMarkup(inline_keyboard=[*(kb.inline_keyboard if kb else []), qator])
     return matn, kb
 
@@ -1838,8 +1838,8 @@ async def instagram_ekrani(uid: int) -> tuple:
             nom = ((await database.biznes_ig_ol(uid, ig[0])) or {}).get("username")
         except Exception:
             pass
-    qatorlar = [[pro_module.btn("🔄 Qayta ulash" if ulangan else "📸 Instagram'ga kirish", "",
-                                url=instagram.ulash_havolasi(uid),
+    qatorlar = [[pro_module.btn("Qayta ulash" if ulangan else "Instagram'ga kirish", "",
+                                url=instagram.ulash_havolasi(uid), icon="instagram",
                                 style=None if ulangan else BTN_SUCCESS)]]
     if ulangan:
         qatorlar.append([pro_module.btn("🔌 Uzish", "bz:igx", style=BTN_DANGER)])
@@ -2748,7 +2748,7 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
     topilgan = database.biznes_egasi_ulanishi(egasi, instagram=ig)
     ul = topilgan[1] if topilgan else None
     if not ul or not ul["yoqilgan"]:
-        return False, (f"{nom}ga yuborilmadi: Instagram ulanmagan (/biznes → «📸 Instagram "
+        return False, (f"{nom}ga yuborilmadi: Instagram ulanmagan (/biznes → «Instagram "
                        "ulash»)" if ig else f"{nom}ga yuborilmadi: bot Telegram Biznes'ga ulanmagan")
     if not ul["huquqlar"].get("can_reply"):
         return False, (f"{nom}ga yuborilmadi: «{huquq_nomi(egasi, 'can_reply')}» huquqi "

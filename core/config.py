@@ -1492,6 +1492,9 @@ CUSTOM_EMOJI: dict[str, str] = {
     "build":        "5357315181649076022",   # 🛠 Fayl yaratish
     "pro":          "5246734896356936944",   # 💎 Pro
     "limits":       "5280803324273115630",   # 🚫 Chegaralarim
+    # Instagram logosi — Business'dagi Instagram tugmalari va xabarlari
+    # (egasi bergan, 2026-10-15). Matnda `instagram.IG`, tugmada icon="instagram".
+    "instagram":    "5803251100437975285",
 }
 # ⚠️ "document" kaliti 🛠 ID'sini saqlaydi, lekin handlers/pro.py da
 # pe('document', '📄') deb ishlatiladi — ya'ni Pro xabarida 📄 o'rniga

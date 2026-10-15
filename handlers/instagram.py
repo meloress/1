@@ -38,11 +38,14 @@ from aiohttp import web
 
 from core.config import (BOT_TOKEN, IG_APP_ID, IG_APP_SECRET, IG_GRAPH,
                          IG_KALIT_YANGILA_KUN, IG_MATN_BAYT, IG_VERIFY_TOKEN,
-                         WEB_APP_URL)
+                         CUSTOM_EMOJI, WEB_APP_URL)
 from core.loader import logger
 from db import database
 
 PREFIKS = "ig:"
+# Instagram logosi (animatsiyali custom emoji) — egasiga ketadigan HTML matnda.
+# Premium bo'lmagan ko'zda ichidagi 📸 ko'rinadi. Tugmada: icon="instagram".
+IG = f'<tg-emoji emoji-id="{CUSTOM_EMOJI["instagram"]}">📸</tg-emoji>'
 HUQUQ = {"can_reply": True, "can_read_messages": True}
 _TIMEOUT = aiohttp.ClientTimeout(total=20)
 _STATE_TTL = 1800
@@ -118,12 +121,12 @@ def yoriqnoma(username: str | None, ulangan: bool) -> str:
     ⚠️ Egasi hech narsa KO'CHIRMAYDI va YOZMAYDI (token, ID): faqat Instagram
     sahifasida kiradi va «Ruxsat» bosadi — qolganini kod qiladi."""
     if ulangan:
-        return (f"📸 <b>Instagram ulangan</b>{f': @{escape(username)}' if username else ''}\n\n"
+        return (f"{IG} <b>Instagram ulangan</b>{f': @{escape(username)}' if username else ''}\n\n"
                 "Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
                 "ishlayman. /biznes da nima o'zgartirsangiz, Instagram'ga ham tushadi.\n\n"
                 "Boshqa akkaunt ulash — «Qayta ulash», to'xtatish — «Uzish».")
     return (
-        "📸 <b>Instagram Direct'ni ulash</b>\n\n"
+        f"{IG} <b>Instagram Direct'ni ulash</b>\n\n"
         "Ulasangiz, Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
         "javob beraman (Yordamchi rejimida — qoralamani shu yerga yuboraman).\n\n"
         "<b>Oldin tekshiring:</b>\n"
@@ -132,7 +135,7 @@ def yoriqnoma(username: str | None, ulangan: bool) -> str:
         "2. Xabarlarga ruxsat yoqilgan bo'lsin: Instagram → Sozlamalar → Xabarlar va "
         "hikoyalarga javoblar → Ulangan vositalar → <i>Allow access to messages</i>.\n\n"
         "<b>Ulash:</b>\n"
-        "3. Pastdagi «📸 Instagram'ga kirish» tugmasini bosing.\n"
+        f"3. Pastdagi «{IG} Instagram'ga kirish» tugmasini bosing.\n"
         "4. Instagram login va parolingizni kiriting — u Instagram'ning o'z sahifasi, "
         "parolingizni men ko'rmayman.\n"
         "5. «Ruxsat berish» (Allow) ni bosing.\n\n"
@@ -151,7 +154,7 @@ def sabab(xato: str) -> str:
         return ("akkaunt Professional emas. Instagram → Sozlamalar → Akkaunt turi va "
                 "vositalar → Professional akkauntga o'ting va qayta ulang.")
     if any(s in x for s in ("code has been used", "expired", "invalid authorization code")):
-        return "havola eskirgan — /biznes → «📸 Instagram» → «Instagram'ga kirish» ni qayta bosing."
+        return "havola eskirgan — /biznes → «Instagram» → «Instagram'ga kirish» ni qayta bosing."
     return f"Instagram rad etdi ({xato[:150]}). Bir ozdan keyin qayta urinib ko'ring."
 
 
@@ -445,7 +448,7 @@ async def ulanish_yarat(egasi: int, code: str) -> str:
     await database.biznes_sozlamani_kochir(egasi, conn_id)
     logger.info(f"[Instagram] ulandi egasi={egasi} hisob={conn_id}")
     await biznes._egasiga(egasi, (
-        f"📸 <b>Instagram @{escape(username or '')} ulandi.</b>\n\n"
+        f"{IG} <b>Instagram @{escape(username or '')} ulandi.</b>\n\n"
         "Telegram'dagi rejim, Bilim, uslub va sozlamalar Direct'da ham ishlaydi — "
         "/biznes da nima o'zgartirsangiz, ikkalasiga tushadi. Qoralamalar shu "
         "mavzuga «(Instagram)» belgisi bilan keladi."))
@@ -458,19 +461,19 @@ async def ulash(request: web.Request):
         raise web.HTTPNotFound()
     egasi = holat_tekshir(request.query.get("state", ""))
     if egasi is None:
-        return await _sahifa("Havola eskirgan. Telegram'da /biznes → «📸 Instagram» → "
+        return await _sahifa("Havola eskirgan. Telegram'da /biznes → «Instagram» → "
                              "«Instagram'ga kirish» ni qayta bosing.", 400)
     from handlers import biznes
     code = request.query.get("code", "").removesuffix("#_")
     if request.query.get("error") or not code:
-        await biznes._egasiga(egasi, "📸 Instagram ulanmadi: ruxsat berilmadi. Qayta urinish "
-                                     "— /biznes → «📸 Instagram».")
+        await biznes._egasiga(egasi, f"{IG} Instagram ulanmadi: ruxsat berilmadi. Qayta "
+                                     f"urinish — /biznes → «{IG} Instagram».")
         return await _sahifa("Ulanish bekor qilindi. Telegram'ga qayting.", 400)
     try:
         username = await ulanish_yarat(egasi, code)
     except IgXato as e:
         logger.warning(f"[Instagram] ulanmadi egasi={egasi}: {e}")
-        await biznes._egasiga(egasi, f"❗ Instagram ulanmadi: {escape(sabab(str(e)))}")
+        await biznes._egasiga(egasi, f"❗ {IG} Instagram ulanmadi: {escape(sabab(str(e)))}")
         return await _sahifa(f"Ulanmadi: {sabab(str(e))}", 502)
     return await _sahifa(f"✅ Instagram @{username} ulandi. Telegram'ga qayting — "
                          "u yerda xabar kutib turibdi.")
