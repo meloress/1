@@ -846,8 +846,13 @@ dots flying in (memory), sound bars (voice/tts). It lives in `handlers/messages.
 is only the fallback when the set is missing
 (`assets/status_*.webm`, each ≤ 64 KB — 207 KB was rejected live as "file is too big"; one
 custom-emoji set `holat4_by_<bot>` (plus a `kichik` logo drawn at ~46% of the frame for the Business «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» mark — custom emoji cannot be scaled) created once at startup by `logo_emojini_tayyorla()`, owned by
-the superadmin, sticker order = `_LOGO_TURLAR`; bump `_LOGO_TOPLAM` when any animation changes —
-Telegram never re-creates an existing set). A **new** type is appended to the end of
+the superadmin, sticker order = `_LOGO_TURLAR`). ⛔️ **Never bump `_LOGO_TOPLAM`**: owners
+have added `holat4` to their own emoji, and a new name is a new set they would have to find
+and add again. A **changed** animation gets a new emoji in `_LOGO_BELGI` instead — at
+startup any sticker whose emoji differs (ignoring U+FE0F) is `replace_sticker_in_set`-ed in
+place (`text` went 🤖 → 💭 on 2026-10-16: the old one was clipped at the frame edge and the
+neon tube's half-transparent middle left stray lines; the mask is now solid, logo at 70%
+with a spinner arc). A **new** type is appended to the end of
 `_LOGO_TURLAR` instead: at startup the missing ones are `add_sticker_to_set`-ed onto the
 **same** set, in order, stopping at the first failure — the owner has that set in their
 emoji, a bump would hand them a new one to re-add. Since 2026-10-16 the set also replaces

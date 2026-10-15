@@ -353,7 +353,7 @@ async def flood_tests():
         async def get_sticker_set(self, nom):
             if not self.bor:
                 raise RuntimeError("STICKERSET_INVALID")
-            return NS(stickers=[NS(custom_emoji_id=f"LOGO_{t}") for t in hm._LOGO_TURLAR])
+            return NS(stickers=[NS(custom_emoji_id=f"LOGO_{t}", file_id=f"F_{t}", emoji=hm._LOGO_BELGI.get(t, "🤖")) for t in hm._LOGO_TURLAR])
         async def create_new_sticker_set(self, **kw):
             yaratildi.append(kw); self.bor = True
 
@@ -400,7 +400,7 @@ async def flood_tests():
 
     class EskiBot:
         def __init__(self, nechta, yiqil=None):
-            self.st = [NS(custom_emoji_id=f"LOGO_{t}") for t in hm._LOGO_TURLAR[:nechta]]
+            self.st = [NS(custom_emoji_id=f"LOGO_{t}", file_id=f"F_{t}", emoji=hm._LOGO_BELGI.get(t, "🤖")) for t in hm._LOGO_TURLAR[:nechta]]
             self.yiqil = yiqil
         async def get_sticker_set(self, nom):
             return NS(stickers=list(self.st))
@@ -409,7 +409,7 @@ async def flood_tests():
             if tur == self.yiqil:
                 raise RuntimeError("STICKERS_TOO_MUCH")
             qoshildi.append((user_id, tur, sticker.emoji_list[0]))
-            self.st.append(NS(custom_emoji_id=f"LOGO_{tur}"))
+            self.st.append(NS(custom_emoji_id=f"LOGO_{tur}", file_id=f"F_{tur}", emoji=sticker.emoji_list[0]))
         async def create_new_sticker_set(self, **kw):
             raise AssertionError("bor to'plam qayta yaratilmasin")
 
@@ -433,6 +433,32 @@ async def flood_tests():
         hm.bot, dbm.get_superadmin_id = asl
         hm.LOGO_EMOJI.clear()
     print("[14m] eski to'plamga yangi emojilar tartib bilan qo'shiladi, pe()/tugma logodan OK")
+
+    # ── 14n) O'zgargan animatsiya — `_LOGO_BELGI` dagi belgi to'plamdagidan farq
+    # qiladi — JOYIDA almashtiriladi; keyingi ishga tushishda takrorlanmaydi;
+    # Telegram qaytargan U+FE0F (🛠️) farq hisoblanmaydi.
+    almashdi = []
+
+    class AlmashBot(EskiBot):
+        async def replace_sticker_in_set(self, user_id, name, old_sticker, sticker):
+            almashdi.append((user_id, old_sticker, sticker.emoji_list[0]))
+            i = [s.file_id for s in self.st].index(old_sticker)
+            self.st[i] = NS(custom_emoji_id="LOGO_yangi", file_id="F_yangi", emoji=sticker.emoji_list[0])
+
+    ab = AlmashBot(len(hm._LOGO_TURLAR))
+    ab.st[0].emoji = "🤖"                                   # eski «o'ylayapman»
+    ab.st[hm._LOGO_TURLAR.index("build")].emoji = "🛠️"
+    hm.bot, dbm.get_superadmin_id = ab, superadmin
+    try:
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")
+        assert almashdi == [(777, "F_text", "💭")], almashdi
+        assert hm.LOGO_EMOJI["text"] == "LOGO_yangi" and hm.LOGO_EMOJI["search"] == "LOGO_search"
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")
+        assert len(almashdi) == 1, almashdi
+    finally:
+        hm.bot, dbm.get_superadmin_id = asl
+        hm.LOGO_EMOJI.clear()
+    print("[14n] o'zgargan animatsiya to'plamda joyida almashadi, bir marta OK")
 
     # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi
     import inspect

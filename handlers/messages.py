@@ -867,17 +867,28 @@ from core.config import LOGO_EMOJI  # noqa: E402
 _LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
                 "image", "reminder", "memory", "kichik",
                 "wave", "broom", "chat", "build", "pro", "limits", "capabilities")
-# To'plamni ochgan odam emojini qidirganda shu belgi bilan topadi.
-_LOGO_BELGI = {"wave": "👋", "broom": "🧹", "chat": "💬", "build": "🛠",
+# Har stikerning emojisi — to'plamni ochgan odam shu bilan qidiradi, VA
+# animatsiya versiyasi: to'plamdagi emoji shu yerdagidan farq qilsa, stiker
+# ishga tushganda yangi webm bilan JOYIDA almashtiriladi (replaceStickerInSet).
+# Animatsiyani o'zgartirdingizmi — belgisini ham o'zgartiring (eskisi "🤖").
+# "text" 💭 — 2026-10-16: eskisi kadr chetida kesilardi, atrofida izlar bor edi.
+_LOGO_BELGI = {"text": "💭", "wave": "👋", "broom": "🧹", "chat": "💬", "build": "🛠",
                "pro": "💎", "limits": "📊", "capabilities": "🎯"}
 # Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
 _LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
-# ⚠️ Nomdagi raqam — ANIMATSIYA VERSIYASI. Telegram mavjud to'plamni
-# qayta yaratmaydi: webm o'zgarsa, raqamni oshiring (yangi to'plam).
+# ⚠️ Nomdagi raqam — to'plam nomi. Uni OSHIRMANG: egalari bu to'plamni o'z
+# emojilariga qo'shgan, yangi nom ularga yangi to'plam bo'lib qoladi.
+# Yangi tur — `_LOGO_TURLAR` oxiriga; o'zgargan animatsiya — `_LOGO_BELGI`.
 _LOGO_TOPLAM = "holat4"
 _ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 _LOGO_FAYLLAR = {t: os.path.join(_ASSETS, "status_emoji.webm" if t == "text"
                                  else f"status_{t}.webm") for t in _LOGO_TURLAR}
+
+
+def _belgi(e: str | None) -> str:
+    """Telegram emojini «🛠️» (U+FE0F bilan) qaytarishi mumkin — solishtirishda
+    olib tashlanadi, aks holda har ishga tushishda almashtirish takrorlanardi."""
+    return (e or "").replace("️", "")
 
 
 def status_emoji_id(content_type: str) -> str:
@@ -928,6 +939,18 @@ async def logo_emojini_tayyorla(bot_username: str) -> None:
                     break
             toplam = await bot.get_sticker_set(nom)
             logger.info(f"[Logo emoji] to'plam to'ldirildi: {len(toplam.stickers)} ta")
+        eskirgan = [(tur, s) for tur, s in zip(_LOGO_TURLAR, toplam.stickers)
+                    if _belgi(s.emoji) != _belgi(_LOGO_BELGI.get(tur, "🤖"))]
+        if eskirgan:
+            egasi = await get_superadmin_id()
+            for tur, s in eskirgan:
+                try:
+                    await bot.replace_sticker_in_set(user_id=egasi, name=nom,
+                                                     old_sticker=s.file_id, sticker=stiker(tur))
+                    logger.info(f"[Logo emoji] «{tur}» yangilandi")
+                except Exception as e:
+                    logger.warning(f"[Logo emoji] «{tur}» yangilanmadi: {e}")
+            toplam = await bot.get_sticker_set(nom)
         LOGO_EMOJI.clear()
         LOGO_EMOJI.update({tur: s.custom_emoji_id for tur, s in
                            zip(_LOGO_TURLAR, toplam.stickers) if s.custom_emoji_id})
