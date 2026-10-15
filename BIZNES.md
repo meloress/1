@@ -433,6 +433,30 @@ uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram
 - `tests/test_instagram.py` (oflayn, 38+): state, imzo, echo, yo'naltirish, kalit sizmasligi,
   190 → uzildi, HUMAN_AGENT, izoh oqimi, media, obuna, tez savollar, kirish logi.
 
+## Tabiiylik — «bot yozgani sezilmasin» (2026-10-15)
+
+`tests/eval_tabiiy.py` (jonli, qo'lda): 16 suhbat × (uslubsiz / uslubli ega), ko'r hakam
+(`gpt-5.4`) «telefonda yozayotgan haqiqiy sotuvchi» ehtimolini 1-10 baholaydi + regex izlar.
+`eval_biznes.py` (to'g'rilik) PASAYMASLIGI shart — to'g'rilik tabiiylikdan muhim.
+
+| | hakam (uslubsiz) | hakam (uslubli) | eval_biznes |
+|---|---|---|---|
+| oldin | 4.4 | 7.2 | 54/56 |
+| `JONLI YOZ` bloki | 8.1-8.7 | 8.7-8.9 | 108/112 (uzatishga sizdi) |
+| + `tanlov_matni` himoyasi, `shim`/`tashqi_shaxsiy` tuzatishi | 8.5 | 9.0 | **112/112** |
+
+- Asosiy iz **Bilim matnini so'zma-so'z ko'chirish** edi («Futbolka 80 000 so'm turadi.»,
+  «Chilonzor 9-kvartalda joylashganmiz.») va rasmiy so'zlar. `BIZNES_INSTRUCTIONS`dagi
+  `JONLI YOZ` bloki: so'ralganiga, savoldan uzun emas, og'zaki raqam («80 ming»), rasmiy
+  so'zlar ro'yxati, 3 ta EMAS/HA misol. +319 token har biznes so'roviga (993 → 1 312).
+- ⛔️ «O'z so'zing bilan yoz» tanlovga SIZDI: model neytral gap o'rniga «Chekni ko'rdim,
+  tushganini tekshirib olaman» yozdi (egasi nomidan fakt, avtomatda mijozga ketardi).
+  Endi `tanlov_matni()` (kod) HAR uzatishda (tanlov va egasiga) neytral gapsiz matnni almashtiradi — eval ham o'shandan o'tadi.
+- Qolgan past baholarning HAMMASI — uzatish gapi («Olimjon online bo'lganda o'zi javob
+  beradi», egasi 2026-09-26 tanlagan) va «botmisan?» ga rost javob (ataylab, o'zgarmaydi).
+- `⛔️` Mahsulot/narx/razmer savoli — bilimda bo'lmasa ham tashqi savol EMAS (`shim` holati
+  «shim haqida bilmayman» deb javob berardi).
+
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.

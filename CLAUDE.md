@@ -16,6 +16,7 @@ python services/sandbox_helpers/deck.py   # PPTX maketlarini tekshirish
 python tests/test_tts_lang.py --live  # jonli TTS sintezi bilan
 python tests/eval_chat.py [--takror N] [id...]              # asosiy chat sifati — JONLI model
 python tests/eval_biznes.py [--takror N] [--qoralama] [id...]  # Business — JONLI model
+python tests/eval_tabiiy.py [--takror N] [id...]            # Business: «bot sezilyaptimi» — JONLI + hakam
 ```
 
 ```bash

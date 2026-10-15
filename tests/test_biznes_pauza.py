@@ -179,10 +179,12 @@ def egasiga():
 
 
 # ── 4-5. Uzatish: kirill neytral gap lotinga, pauza YO'Q ─────────
-holat["model"] = "[tanlov: 10 da borasizmi? | boraman | bugun yo'q] кейин aytaman."
+holat["model"] = ("[tanlov: 10 da borasizmi? | boraman | bugun yo'q] "
+                  "Олимжон онлайн бўлганда ўзи жавоб беради.")
 ishga(xabar("bugun kech 10 larda cs2 ga borasanmi?"))
 check(4, "uzatishdagi neytral gap lotinga o'girildi (suhbatdosh lotinda yozgan)",
-      mijozga() == ["keyin aytaman."])
+      len(mijozga()) == 1 and not b._KIRILL_RE.search(mijozga()[0])
+      and "onlayn" in mijozga()[0].lower())
 check(5, "uzatishdan keyin pauza qo'yilmaydi", not any(x[0] == "pauza" for x in q))
 
 # ── 6. Uzatishdan keyin yana yozdi — har biriga javob ────────────

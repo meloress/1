@@ -156,7 +156,8 @@ def qaror(xom: str, xabar: str) -> tuple:
     """Prod bilan AYNAN bir xil: sxema parseri + alifbo moslash."""
     q = ai.biznes_qaror_ajrat(xom)
     var = [b.alifboga_mosla(v, xabar) for v in b.egasi_variantlari(q["variantlar"], "Olimjon")]
-    return q["qaror"], b.alifboga_mosla(q["matn"], xabar), var, q["matn"]
+    matn = b.tanlov_matni(q["matn"], "Olimjon") if q["qaror"] != "javob" else q["matn"]
+    return q["qaror"], b.alifboga_mosla(matn, xabar), var, q["matn"]
 
 
 def nor(matn: str) -> str:

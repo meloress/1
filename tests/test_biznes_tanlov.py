@@ -267,13 +267,16 @@ holat["model"] = ("[tanlov: sigaret chekasizmi? | yo'q, chekmayman | ha] "
                   "keyinroq yozaman")
 ishga(xabar("sigareting bormi menda qolmadi"))
 m, e = mijozga(), egasiga()
-check(13, "avtomat: suhbatdoshga faqat neytral gap + kichik belgi, marker yo'q",
-      len(m) == 1 and m[0][2] == "keyinroq yozaman\n" + b.AVTO_BELGI
-      and "tanlov" not in m[0][2])
+# Model o'zi yozgan «keyinroq yozaman» (va'da) — `tanlov_matni` neytral gapga almashtiradi.
+NG = b.neytral_gap(b._ism_kesh.get(EGASI))
+check(13, "avtomat: suhbatdoshga faqat neytral gap + kichik belgi, marker yo'q, "
+          "model o'zi yozgan gap emas",
+      len(m) == 1 and m[0][2] == NG + "\n" + b.AVTO_BELGI
+      and "tanlov" not in m[0][2] and "keyinroq" not in m[0][2])
 check(14, "avtomat: tarixga BELGISIZ matn; pauza YO'Q (javob beraveradi); egasiga tanlov tugmalari",
-      ("tarix", "keyinroq yozaman", "assistant") in q and ("pauza", MIJOZ) not in q
+      ("tarix", NG, "assistant") in q and ("pauza", MIJOZ) not in q
       and len(e) == 1 and any(t.startswith("bz:yv:") for t in tugmalar(e[0]))
-      and "keyinroq yozaman" in e[0][2])
+      and __import__('html').escape(NG) in e[0][2])
 
 holat["model"] = "[tanlov: nimadir buzuq"
 ishga(xabar("ertaga kelasanmi"))
@@ -305,4 +308,12 @@ kb = str(b._sozlama_kb(UL))
 check(19, "avtomat Sozlamalarida «🤖 belgisi» tugmasi, ekranda holati",
       "bz:bl" in kb and b.AVTO_BELGI in b.ekran_matni(UL, ""))
 
-print("\nHammasi o'tdi: 19/19")
+check(20, "tanlovda suhbatdoshga faqat neytral gap: model o'zi yozgan fakt "
+          "(«Chekni ko'rdim») almashtiriladi, neytral gap (tarjimasi ham) qoladi",
+      b.tanlov_matni("Chekni ko'rdim, tushganini tekshirib olaman", "Olimjon")
+      == b.neytral_gap("Olimjon")
+      and b.tanlov_matni("", None) == b.neytral_gap(None)
+      and b.tanlov_matni("Олимжон онлайн бўлганда ўзи жавоб беради.", "Olimjon")
+      .startswith("Олимжон"))
+
+print("\nHammasi o'tdi: 20/20")

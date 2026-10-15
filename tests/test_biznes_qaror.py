@@ -189,8 +189,9 @@ check(8, "avtomat: uzilgan JSON — suhbatdoshga neytral gap, xom JSON YO'Q, ega
 holat["model"] = j(qaror="tanlov", matn="keyinroq yozaman", savol="kelasanmi?",
                    variantlar=["kelaman", "bugun yo'q"])
 ishga("ertaga kelasanmi")
-check(9, "avtomat: JSON tanlov — neytral gap suhbatdoshga, variant tugmalari egasiga",
-      mijozga() == ["keyinroq yozaman"] and ("yarat", "kelaman", ["kelaman", "bugun yo'q"]) in q
+check(9, "avtomat: JSON tanlov — neytral gap suhbatdoshga (model o'zi yozgan "
+          "«keyinroq yozaman» emas — `tanlov_matni`), variant tugmalari egasiga",
+      mijozga() == [b.neytral_gap(None)] and ("yarat", "kelaman", ["kelaman", "bugun yo'q"]) in q
       and "bz:yv:1:0" in str(egasiga()[0][4]))
 
 # ── 10-11. Yordamchi ─────────────────────────────────────────────
