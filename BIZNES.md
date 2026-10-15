@@ -382,11 +382,10 @@ kirish/chiqish qatlamida (Meta webhook + Graph API).
 
 - **Ekran:** `bz:ig` — holat + 3 qadamli yo'riqnoma (Professional → Page bog'lash →
   «🔌 Ulash»). Ko'rish Pro'siz ham, ulash boshlash (`bz:igu`) — faqat Pro.
-- **Ulash FSM** (`BiznesStates.ig_id/ig_page/ig_token`, `process_ig_*`): IG ID →
-  Page ID → Page token. ID lar faqat raqam (5-25, `_raqam_mi`); token 20 belgidan
-  qisqa bo'lmasa saqlanadi, xabar o'chiriladi, logga yozilmaydi. Jonli Graph API
-  tekshiruvi ATAYLAB yo'q — handler'da tarmoq kutish javobni sekinlatadi;
-  noto'g'ri token birinchi webhook'da ko'rinadi va ega qayta kiritadi.
+- **Ulash FSM — 1 qadam** (egasi: "3 qadam tushunarsiz", 2026-10-15): `bz:igu` →
+  faqat token so'raladi → `token_tekshir()` (`me/accounts`) ID'larni o'zi topadi →
+  saqlanadi. Topolmasa zaxira qo'lda yo'l (`ig_id` → `ig_page`, token state'da
+  turadi). Token xabar o'chiriladi, logga yozilmaydi.
 - **FSM xavfsizligi:** uchala holat `_biznes_holatlari()` da (boshqa tugma bossa
   kutish tozalanadi), `_bekor_ekrani` ularni Sozlamalarga qaytaradi, `main.py` da
   AI handlerlardan OLDIN ro'yxatda (ID/token GPT'ga savol bo'lib ketmasin).

@@ -1939,11 +1939,15 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         if iul2 and iul2.get("yoqilgan"):
             await query.answer("Allaachon ulangan.", show_alert=True)
             return
-        await state.set_state(BiznesStates.ig_id)
+        await state.set_state(BiznesStates.ig_token)
         await query.message.answer(
-            "1/3 — <b>Instagram akkaunt ID</b> ni yuboring (faqat raqam).\n"
-            "Qayerdan: Meta App → Messenger → Instagram sozlamalari → "
-            "ulangan akkaunt ID.", reply_markup=biznes_uslub.bekor_kb())
+            "🔑 <b>Page access token</b> ni yuboring — qolgani (IG ID, Page ID) "
+            "ni o'zim topaman.\n\n"
+            "Token qayerdan: Meta App → Graph API Explorer → "
+            "o'z Page'ingizni tanlab, <code>instagram_manage_messages</code> "
+            "va <code>pages_messaging</code> bilan Generate.\n\n"
+            "Topolmasam — qo'lda kiritishni so'rayman (2 daqiqa).",
+            reply_markup=biznes_uslub.bekor_kb())
         await query.answer()
         return
     if amal == "iguz":
@@ -2301,7 +2305,7 @@ async def process_vaqt(message: Message, state: FSMContext) -> None:
 
 
 async def process_ig_id(message: Message, state: FSMContext) -> None:
-    """Instagram ulash 1/3: IG akkaunt ID. Main.py'da FSM'lar yonida."""
+    """Instagram ulash (zaxira yo'l 1/2): avtomatik topilmasa, qo'lda IG ID."""
     premium_biznes()
     if _bekormi(message):
         await _matn_bilan_bekor(message, state)
@@ -2313,12 +2317,12 @@ async def process_ig_id(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(ig_id=(message.text or "").strip())
     await state.set_state(BiznesStates.ig_page)
-    await message.answer("2/3 — <b>Facebook Page ID</b> ni yuboring (faqat raqam).",
+    await message.answer("2/2 — <b>Facebook Page ID</b> ni yuboring (faqat raqam).",
                          reply_markup=biznes_uslub.bekor_kb())
 
 
 async def process_ig_page(message: Message, state: FSMContext) -> None:
-    """Instagram ulash 2/3: FB Page ID."""
+    """Instagram ulash (zaxira yo'l 2/2): FB Page ID — token allaqachon olingan."""
     premium_biznes()
     if _bekormi(message):
         await _matn_bilan_bekor(message, state)
@@ -2328,19 +2332,31 @@ async def process_ig_page(message: Message, state: FSMContext) -> None:
         await message.answer("Faqat raqam bo'lsin (5-25 belgi). Qayta yuboring.",
                              reply_markup=biznes_uslub.bekor_kb())
         return
-    await state.update_data(page_id=(message.text or "").strip())
-    await state.set_state(BiznesStates.ig_token)
-    await message.answer("3/3 — <b>Page access token</b> ni yuboring.\n"
-                         "U bazada saqlanadi va logga hech qachon yozilmaydi.",
-                         reply_markup=biznes_uslub.bekor_kb())
+    data = await state.get_data()
+    token = data.get("ig_token", "")
+    if len(token) < 20:
+        await state.set_state(BiznesStates.ig_token)
+        await message.answer("Token topilmadi — uni qayta yuboring.",
+                             reply_markup=biznes_uslub.bekor_kb())
+        return
+    try:
+        await database.instagram_ulanish_yoz(
+            message.from_user.id, data["ig_id"], (message.text or "").strip(), token)
+    except Exception:
+        await message.answer("Bazaga yozilmadi — keyinroq qayta urining.")
+        return
+    await state.clear()
+    logger.info(f"[BIZNES] instagram ulandi (qo'lda) egasi={message.from_user.id}")
+    await message.answer("✅ <b>Ulandi!</b> Test uchun biznes IG'ga boshqa "
+                         "akkauntdan direct yozing — karta «💼 Biznes» "
+                         "mavzusiga keladi.")
 
 
 async def process_ig_token(message: Message, state: FSMContext) -> None:
-    """Instagram ulash 3/3: Page token — saqlash va jonli tekshiruv keyinga.
+    """Instagram ulash: faqat token — ID'larni bot o'zi topadi.
 
-    Jonli Graph API tekshiruvi shu yerda emas: token noto'g'ri bo'lsa ham
-    saqlanadi, birinchi webhook'da xato ko'rinadi va ega qayta kiritadi.
-    Sabab — handler'da tarmoqqa chiqib kutish javobni sekinlatadi.
+    Topolmasa qo'lda kiritishga o'tadi (eski 3 qadam zaxira yo'li).
+    Token xabar o'chiriladi, logga yozilmaydi.
     """
     premium_biznes()
     if _bekormi(message):
@@ -2355,18 +2371,27 @@ async def process_ig_token(message: Message, state: FSMContext) -> None:
         await message.answer("Token juda qisqa — to'liq nusxalang.",
                              reply_markup=biznes_uslub.bekor_kb())
         return
-    data = await state.get_data()
+    from handlers import instagram as _ig
+    ok, ig_id, page_id, nom, xato = await _ig.token_tekshir(token)
+    if not ok:
+        await state.update_data(ig_token=token)
+        await state.set_state(BiznesStates.ig_id)
+        await message.answer(
+            f"❗ Avtomatik topilmadi ({xato}). Qo'lda kiritamiz (2 daqiqa):\n\n"
+            "1/2 — <b>Instagram akkaunt ID</b> ni yuboring (faqat raqam).",
+            reply_markup=biznes_uslub.bekor_kb())
+        return
     try:
-        await database.instagram_ulanish_yoz(message.from_user.id, data["ig_id"],
-                                             data["page_id"], token)
+        await database.instagram_ulanish_yoz(message.from_user.id, ig_id,
+                                             page_id, token)
     except Exception:
         await message.answer("Bazaga yozilmadi — keyinroq qayta urining.")
         return
     await state.clear()
     logger.info(f"[BIZNES] instagram ulandi egasi={message.from_user.id}")
-    await message.answer("✅ <b>Ulandi!</b> Test uchun biznes IG'ga boshqa "
-                         "akkauntdan direct yozing — qoralama «💼 Biznes» "
-                         "mavzusiga keladi.")
+    await message.answer(f"✅ <b>Ulandi!</b> ({nom or 'sahifa'})\n\n"
+                         "Test uchun biznes IG'ga boshqa akkauntdan direct yozing — "
+                         "karta «💼 Biznes» mavzusiga keladi.")
 
 
 async def process_ig_javob(message: Message, state: FSMContext) -> None:

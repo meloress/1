@@ -76,6 +76,49 @@ def matn_tozala(matn: str, chegara: int = 1000) -> str:
     return matn[:chegara]
 
 
+async def token_tekshir(sahifa_token: str, _get=None) -> tuple:
+    """Page token → (ok, ig_id, page_id, sahifa_nomi, xato). Sof emas (tarmoq).
+
+    `me/accounts?fields=id,name,instagram_business_account` — bog'langan
+    IG'si bor birinchi Page olinadi. `_get` — test injeksiyasi
+    (`async (url) → dict`). Token xatoga qo'shilmaydi.
+    """
+    if not sahifa_token or len(sahifa_token) < 20:
+        return False, "", "", "", "token juda qisqa"
+    try:
+        from core import config as cfg
+        bazaviy = str(getattr(cfg, "IG_GRAPH_API", "") or
+                      "https://graph.facebook.com/v21.0")
+    except Exception:
+        bazaviy = "https://graph.facebook.com/v21.0"
+    url = (f"{bazaviy}/me/accounts"
+           f"?fields=id,name,instagram_business_account&limit=25")
+    try:
+        if _get is not None:
+            javob = await _get(url)
+        else:
+            import aiohttp
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(
+                        url, headers={"Authorization": f"Bearer {sahifa_token}"},
+                        timeout=15) as r:
+                    try:
+                        javob = await r.json()
+                    except Exception:
+                        javob = {}
+                    if r.status != 200:
+                        return False, "", "", "", "token rad etildi"
+        for sahifa in (javob or {}).get("data") or []:
+            ig = (sahifa or {}).get("instagram_business_account") or {}
+            if ig.get("id"):
+                return True, str(ig["id"]), str(sahifa.get("id", "")), \
+                    str(sahifa.get("name", "")), ""
+        return False, "", "", "", "bog'langan Instagram topilmadi"
+    except Exception as exc:
+        logger.warning("[instagram] tekshirilmadi: %s", type(exc).__name__)
+        return False, "", "", "", type(exc).__name__
+
+
 async def yubor(sahifa_token: str, ig_sid: str, matn: str,
                 _post=None) -> tuple:
     """Graph API'ga yuborish → (ok, sabab). Sof bo'lmagan yagona joy.
@@ -137,13 +180,13 @@ def ekran_matni(ul: dict | None) -> str:
     qator = ["📸 <b>Instagram Direct</b>\n"]
     if not ul or not ul.get("yoqilgan"):
         qator.append("❌ Ulanmagan.")
-        qator.append("\n<b>Ulash (3 qadam, 5 daqiqa):</b>\n"
-                     "1. Instagram'ni <b>Professional</b> akkauntga o'tkazing.\n"
-                     "2. Uni <b>Facebook Page</b>'ga bog'lang.\n"
-                     "3. Pastdagi «🔌 Ulash» ni bosing — men ketma-ket so'rayman:\n"
-                     "IG ID → Page ID → Page token.\n\n"
+        qator.append("\n<b>Ulash — 1 qadam:</b>\n"
+                     "Pastdagi «🔌 Ulash» ni bosing va <b>Page token</b> ni yuboring — "
+                     "qolganini (IG ID, Page ID) o'zim topaman.\n\n"
+                     "Oldin faqat 2 shart: Instagram <b>Professional</b> bo'lsin va "
+                     "<b>Facebook Page</b>'ga bog'langan bo'lsin.\n\n"
                      "Javoblar Telegram'dagi Bilim/Uslub/Rejim bilan — "
-                     "Yordamchida qoralama sizga keladi, Avtomatda o'zi yuboradi.")
+                     "kartadagi «✏️ Javob yozish» ni bossangiz, yozganingiz IG'ga ketadi.")
         return "\n".join(qator)
     qator.append(f"✅ Ulangan (IG ID: <code>{escape(str(ul.get('ig_id', '')))}</code>).")
     qator.append("Javoblar Telegram'dagi Bilim/Uslub/Rejim bilan ishlaydi.")

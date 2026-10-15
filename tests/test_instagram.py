@@ -180,12 +180,32 @@ def main():
     ok(hi._raqam_mi("123456") is True and hi._raqam_mi("abc") is False
        and hi._raqam_mi("1234") is False and hi._raqam_mi("12 34") is False, f"{n}")
 
-    # 18 — ulash ekrani: ulanmaganga 3 qadam, ulanganga IG ID
+    # 18 — ulash ekrani: ulanmaganga 1 qadam, ulanganga IG ID
     n += 1
     ulanmagan = hi.ekran_matni(None)
     ulangan = hi.ekran_matni({"yoqilgan": True, "ig_id": "999"})
     ok("IG ID" in ulanmagan and "Professional" in ulanmagan
        and "999" in ulangan and "Ulanmagan" not in ulangan, f"{n}")
+
+    # 19 — token tekshiruvi: bog'langan IG topiladi
+    n += 1
+    async def _get_ok(url):
+        assert "me/accounts" in url
+        return {"data": [
+            {"id": "P1", "name": "Dokon",
+             "instagram_business_account": {"id": "IG1"}},
+            {"id": "P2", "name": "Bosqa"},
+        ]}
+    nat = asyncio.run(hi.token_tekshir("UZUN-TOKEN-1234567890", _get=_get_ok))
+    ok(nat == (True, "IG1", "P1", "Dokon", ""), f"{n} {nat}")
+    n += 1
+    async def _get_yoq(url):
+        return {"data": [{"id": "P2", "name": "Bosqa"}]}
+    nat = asyncio.run(hi.token_tekshir("UZUN-TOKEN-1234567890", _get=_get_yoq))
+    ok(nat[0] is False and "topilmadi" in nat[4], f"{n} {nat}")
+    n += 1
+    nat = asyncio.run(hi.token_tekshir("qisqa", _get=_get_ok))
+    ok(nat[0] is False, f"{n} {nat}")
 
     # 19 — qoralama matni mijoz HTML'ini qochiradi (mijoz matni — ishonchsiz)
     n += 1
