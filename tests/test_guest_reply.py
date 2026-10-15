@@ -391,6 +391,49 @@ async def flood_tests():
         assert os.path.getsize(yol) <= 64 * 1024, f"Telegram: video emoji ≤ 64 KB — {yol}"
     print("[14l] logo emoji to'plami bir marta yaratiladi, har status o'z animatsiyasini oladi, xatoda jim OK")
 
+    # ── 14m) Eski to'plam (9 ta) — yangi turlar O'SHA to'plamga, tartib bilan
+    # qo'shiladi (egalari uni o'z emojilariga qo'shgan); /start, /help, Pro
+    # emojilari va tugma ikonkalari logodan; Instagram — o'z belgisi.
+    from handlers import pro as pm
+    from core.config import CUSTOM_EMOJI
+    qoshildi = []
+
+    class EskiBot:
+        def __init__(self, nechta, yiqil=None):
+            self.st = [NS(custom_emoji_id=f"LOGO_{t}") for t in hm._LOGO_TURLAR[:nechta]]
+            self.yiqil = yiqil
+        async def get_sticker_set(self, nom):
+            return NS(stickers=list(self.st))
+        async def add_sticker_to_set(self, user_id, name, sticker):
+            tur = sticker.sticker.filename[:-5]
+            if tur == self.yiqil:
+                raise RuntimeError("STICKERS_TOO_MUCH")
+            qoshildi.append((user_id, tur, sticker.emoji_list[0]))
+            self.st.append(NS(custom_emoji_id=f"LOGO_{tur}"))
+        async def create_new_sticker_set(self, **kw):
+            raise AssertionError("bor to'plam qayta yaratilmasin")
+
+    hm.bot, dbm.get_superadmin_id = EskiBot(9), superadmin
+    try:
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")
+        assert [t for _, t, _ in qoshildi] == list(hm._LOGO_TURLAR[9:]), qoshildi
+        assert all(u == 777 for u, _, _ in qoshildi) and ("wave", "👋") in [(t, e) for _, t, e in qoshildi]
+        assert pm.pe("wave", "👋") == '<tg-emoji emoji-id="LOGO_wave">👋</tg-emoji>'
+        assert 'LOGO_build' in pm.pe("tools", "🛠") and 'LOGO_image' in pm.pe("write", "✍️")
+        assert pm.btn("x", "c", icon="capabilities").icon_custom_emoji_id == "LOGO_capabilities"
+        assert pm.btn("x", "c", icon="instagram").icon_custom_emoji_id == CUSTOM_EMOJI["instagram"]
+        # O'rtada yiqilsa — keyingilari qo'shilmaydi (zip turlarni surmasin).
+        qoshildi.clear(); hm.LOGO_EMOJI.clear()
+        hm.bot = EskiBot(9, yiqil="chat")
+        await hm.logo_emojini_tayyorla("uzchatgptaibot")
+        assert [t for _, t, _ in qoshildi] == ["wave", "broom"], qoshildi
+        assert "chat" not in hm.LOGO_EMOJI and hm.LOGO_EMOJI["broom"] == "LOGO_broom"
+        assert pm.pe("chat", "💬") == f'<tg-emoji emoji-id="{CUSTOM_EMOJI["chat"]}">💬</tg-emoji>'
+    finally:
+        hm.bot, dbm.get_superadmin_id = asl
+        hm.LOGO_EMOJI.clear()
+    print("[14m] eski to'plamga yangi emojilar tartib bilan qo'shiladi, pe()/tugma logodan OK")
+
     # ── 14k) Javob JONLI chiqadi — oqim har bo'lakda _jonli ga uzatiladi
     import inspect
     manba = inspect.getsource(guest)

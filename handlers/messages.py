@@ -855,13 +855,21 @@ EMOJI_ID_BY_TYPE: dict[str, str] = {
 # xotiraga uchgan nuqtalar; qolgani aylanish). Shaxsiy chat ham, guest ham.
 # main.py ishga tushganda `logo_emojini_tayyorla()` to'ldiradi; bo'sh qolsa
 # (to'plam yaratilmadi) oddiy botdagi emojilar ishlatiladi.
-LOGO_EMOJI: dict[str, str] = {}
+# Lug'atning o'zi core/config.py da (pro.pe() ham o'qiydi) — shu yerda to'ldiriladi.
+from core.config import LOGO_EMOJI  # noqa: E402
 # To'plamdagi TARTIB = shu ro'yxat tartibi; birinchisi — umumiy (aylanish).
 # "kichik" — status emas: Business avtojavob belgisi yonidagi logo. Custom
 # emoji'ni kichraytirib bo'lmaydi, shuning uchun logo kadrning ~46% ida,
 # atrofi shaffof — «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» ustki harflari bilan teng ko'rinadi.
+# "kichik" dan keyingilari (2026-10-16) — /start, /help, Pro ekranlaridagi
+# premium emojilar o'rniga. ⛔️ Faqat OXIRIGA qo'shing: mavjud to'plamga
+# yetishmagani qo'shiladi va tur tartib bo'yicha bog'lanadi.
 _LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
-                "image", "reminder", "memory", "kichik")
+                "image", "reminder", "memory", "kichik",
+                "wave", "broom", "chat", "build", "pro", "limits", "capabilities")
+# To'plamni ochgan odam emojini qidirganda shu belgi bilan topadi.
+_LOGO_BELGI = {"wave": "👋", "broom": "🧹", "chat": "💬", "build": "🛠",
+               "pro": "💎", "limits": "📊", "capabilities": "🎯"}
 # Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
 _LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
 # ⚠️ Nomdagi raqam — ANIMATSIYA VERSIYASI. Telegram mavjud to'plamni
@@ -885,27 +893,41 @@ async def logo_emojini_tayyorla(bot_username: str) -> None:
     if not bot_username:
         return
     nom = f"{_LOGO_TOPLAM}_by_{bot_username}"
+
+    def stiker(tur: str) -> InputSticker:
+        with open(_LOGO_FAYLLAR[tur], "rb") as f:
+            return InputSticker(sticker=BufferedInputFile(f.read(), filename=f"{tur}.webm"),
+                                format="video", emoji_list=[_LOGO_BELGI.get(tur, "🤖")])
+
     try:
+        from db.database import get_superadmin_id
         try:
             toplam = await bot.get_sticker_set(nom)
         except Exception:
             # Telegram to'plamni haqiqiy odamga bog'laydi — bot egasiga.
-            from db.database import get_superadmin_id
             egasi = await get_superadmin_id()
             if not egasi:
                 logger.warning("[Logo emoji] superadmin yo'q — to'plam yaratilmadi")
                 return
-            stikerlar = []
-            for tur in _LOGO_TURLAR:
-                with open(_LOGO_FAYLLAR[tur], "rb") as f:
-                    stikerlar.append(InputSticker(
-                        sticker=BufferedInputFile(f.read(), filename=f"{tur}.webm"),
-                        format="video", emoji_list=["🤖"]))
             await bot.create_new_sticker_set(
                 user_id=egasi, name=nom, title="ChatGPT AI",
-                stickers=stikerlar, sticker_type="custom_emoji")
+                stickers=[stiker(t) for t in _LOGO_TURLAR], sticker_type="custom_emoji")
             toplam = await bot.get_sticker_set(nom)
             logger.info(f"[Logo emoji] to'plam yaratildi: t.me/addemoji/{nom}")
+        if len(toplam.stickers) < len(_LOGO_TURLAR):
+            # Yangi tur qo'shilgan — O'SHA to'plamga qo'shamiz: odamlar uni
+            # allaqachon o'z emojilariga qo'shgan, yangi to'plam ularda yo'q
+            # bo'lardi. Tartib bilan, birinchi xatoda to'xtaydi — aks holda
+            # zip() turlarni noto'g'ri stikerga bog'lardi.
+            egasi = await get_superadmin_id()
+            for tur in _LOGO_TURLAR[len(toplam.stickers):]:
+                try:
+                    await bot.add_sticker_to_set(user_id=egasi, name=nom, sticker=stiker(tur))
+                except Exception as e:
+                    logger.warning(f"[Logo emoji] «{tur}» qo'shilmadi: {e}")
+                    break
+            toplam = await bot.get_sticker_set(nom)
+            logger.info(f"[Logo emoji] to'plam to'ldirildi: {len(toplam.stickers)} ta")
         LOGO_EMOJI.clear()
         LOGO_EMOJI.update({tur: s.custom_emoji_id for tur, s in
                            zip(_LOGO_TURLAR, toplam.stickers) if s.custom_emoji_id})

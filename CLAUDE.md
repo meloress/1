@@ -847,7 +847,13 @@ is only the fallback when the set is missing
 (`assets/status_*.webm`, each ≤ 64 KB — 207 KB was rejected live as "file is too big"; one
 custom-emoji set `holat4_by_<bot>` (plus a `kichik` logo drawn at ~46% of the frame for the Business «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» mark — custom emoji cannot be scaled) created once at startup by `logo_emojini_tayyorla()`, owned by
 the superadmin, sticker order = `_LOGO_TURLAR`; bump `_LOGO_TOPLAM` when any animation changes —
-Telegram never re-creates an existing set). `[STATUS]search` switches the wording, and
+Telegram never re-creates an existing set). A **new** type is appended to the end of
+`_LOGO_TURLAR` instead: at startup the missing ones are `add_sticker_to_set`-ed onto the
+**same** set, in order, stopping at the first failure — the owner has that set in their
+emoji, a bump would hand them a new one to re-add. Since 2026-10-16 the set also replaces
+the `/start`, `/help` and Pro emoji: `pro.pe()` and `btn(icon=)` go through
+`config.emoji_id()` (`LOGO_ORNIGA` maps each `CUSTOM_EMOJI` key to a logo type; Instagram
+stays its own mark). `[STATUS]search` switches the wording, and
 once ≥`_JONLI_MIN_BELGI` characters exist the answer streams into the message (" ✍️"),
 falling back to status on the next tool round. Two budget rules hold it together: a
 rejected premium frame sets `rad` and the rest of the request goes plain (never two

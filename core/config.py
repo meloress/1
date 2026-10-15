@@ -1496,6 +1496,28 @@ CUSTOM_EMOJI: dict[str, str] = {
     # (egasi bergan, 2026-10-15). Matnda `instagram.IG`, tugmada icon="instagram".
     "instagram":    "5803251100437975285",
 }
+# Bot logosidan yasalgan animatsiyali emoji (`holat4_by_<bot>` to'plami).
+# `handlers.messages.logo_emojini_tayyorla()` ishga tushganda TO'LDIRADI —
+# shu yerda turishi uchun: pro.pe() / btn() ham messages'ni import qilmasdan
+# o'qiy oladi. Bo'sh qolsa (to'plam yo'q) CUSTOM_EMOJI ishlatiladi.
+LOGO_EMOJI: dict[str, str] = {}
+# CUSTOM_EMOJI kaliti -> logo to'plamidagi tur. Instagram yo'q ATAYLAB:
+# u brend belgisi, logo bilan almashtirilmaydi.
+LOGO_ORNIGA: dict[str, str] = {
+    "text": "text", "bot": "text", "search": "search", "photo": "photo",
+    "voice": "voice", "document": "document", "file": "document",
+    "write": "image", "reminder": "reminder", "memory": "memory",
+    "wave": "wave", "broom": "broom", "chat": "chat", "build": "build",
+    "tools": "build", "pro": "pro", "limits": "limits",
+    "capabilities": "capabilities",
+}
+
+
+def emoji_id(nom: str) -> str | None:
+    """Premium emoji ID: avval logo to'plamidan, bo'lmasa CUSTOM_EMOJI."""
+    return LOGO_EMOJI.get(LOGO_ORNIGA.get(nom, "")) or CUSTOM_EMOJI.get(nom)
+
+
 # ⚠️ "document" kaliti 🛠 ID'sini saqlaydi, lekin handlers/pro.py da
 # pe('document', '📄') deb ishlatiladi — ya'ni Pro xabarida 📄 o'rniga
 # kalit yasovchi animatsiya chiqadi. Bu ATAYLAB o'zgartirilmadi: kalitni

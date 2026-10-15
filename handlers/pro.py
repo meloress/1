@@ -33,7 +33,7 @@ from core.config import (
     PRO_PLANS, PRO_PLANS_BY_DAYS, PRO_PAYLOAD_VERSION, daily_limit,
     MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO, MESSAGE_COST_VOICE, MESSAGE_COST_DOCUMENT,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
-    CUSTOM_EMOJI, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
+    CUSTOM_EMOJI, emoji_id, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
     BTN_LINK,
 )
 from db import database
@@ -59,10 +59,10 @@ def pe(name: str, fallback: str) -> str:
     ham ko'rinadi (u oddiy emoji sifatida tushadi), shuning uchun bu
     hech kimga xizmatni buzmaydi.
     """
-    emoji_id = CUSTOM_EMOJI.get(name)
-    if not emoji_id:
+    eid = emoji_id(name)
+    if not eid:
         return fallback
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 
 def btn(text: str, callback_data: str, *, style: str | None = None,
@@ -90,8 +90,8 @@ def btn(text: str, callback_data: str, *, style: str | None = None,
         kwargs["callback_data"] = callback_data
     if style:
         kwargs["style"] = style
-    if icon and CUSTOM_EMOJI.get(icon):
-        kwargs["icon_custom_emoji_id"] = CUSTOM_EMOJI[icon]
+    if icon and emoji_id(icon):
+        kwargs["icon_custom_emoji_id"] = emoji_id(icon)
     return InlineKeyboardButton(**kwargs)
 
 
