@@ -269,6 +269,11 @@ def main():
     akod = kod(ILDIZ / "main.py")
     ok('Command("instagram")' not in akod and "instagram_module" not in akod, f"{n}")
 
+    # 23 — sinov tugmasi Sozlamalar ichida (tokensiz test uchun)
+    n += 1
+    mkod2 = kod(ILDIZ / "handlers" / "biznes.py")
+    ok("bz:igt" in mkod2, f"{n}")
+
     print(f"JAMI: {n} tekshiruv — hammasi OK")
 
 

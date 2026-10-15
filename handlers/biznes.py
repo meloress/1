@@ -1920,6 +1920,9 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             else [pro_module.btn("🔕 Uzish", "bz:iguz")],
             [pro_module.btn("👈 Sozlamalar", "bz:s")],
         ])
+        if not (iul and iul.get("yoqilgan")):
+            # Token'siz sinov: Meta kerak emas, karta «💼 Biznes» ga keladi.
+            kb.inline_keyboard.insert(1, [pro_module.btn("🧪 Sinov kartasi", "bz:igt")])
         try:
             await query.message.edit_text(_ig.ekran_matni(iul), reply_markup=kb)
         except Exception:
@@ -1949,6 +1952,22 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             "Topolmasam — qo'lda kiritishni so'rayman (2 daqiqa).",
             reply_markup=biznes_uslub.bekor_kb())
         await query.answer()
+        return
+    if amal == "igt":
+        # Token'siz sinov: soxta mijoz xabari → xuddi webhook'dek karta.
+        # Yuborish bosqichi tokensiz rad etiladi (halol xato bilan).
+        from handlers import instagram as _igt
+        top = database.biznes_egasi_ulanishi(uid)
+        if not top or not top[1].get("yoqilgan"):
+            await query.answer("Avval Telegram Business'ni ulang — karta "
+                               "«💼 Biznes» mavzusiga keladi.", show_alert=True)
+            return
+        ok = await _igt.mijoz_qoralamasi(
+            uid, top[1]["owner_chat"], "sinov",
+            "Salom, shu futbolka narxi qancha?")
+        await query.answer("Karta yuborildi — «💼 Biznes» mavzusini oching."
+                           if ok else "Yuborilmadi — keyinroq urining.",
+                           show_alert=not ok)
         return
     if amal == "iguz":
         try:
