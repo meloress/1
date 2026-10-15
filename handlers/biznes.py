@@ -638,6 +638,7 @@ async def biznes_xabar(message: Message):
                 except Exception as e:
                     logger.debug(f"[BIZNES] kutayotgan tanlov o'qilmadi: {e}")
             await database.biznes_loyiha_eskirt(egasi, message.chat.id)
+            await _kartochka_hal(egasi, message.chat.id, tugmasini_ol=True)
             if tanlov:
                 await _egasi_tanlovga_javob(egasi, ul["owner_chat"], tanlov["id"], matn)
         # Avtomatda — tabiiy "qo'lga olish": egasi yozgan chatda bot
@@ -1200,11 +1201,15 @@ async def _loyiha(buf: dict) -> None:
             variantlar if savol is not None else None)
         olchov.belgi("loyiha_yarat")
     ism = escape(message.from_user.full_name if message.from_user else "Mijoz")
+    # Yangi loyiha eskisini eskirtirdi — eski kartochka ham ketadi, mijozning
+    # avvalgi xabarlari yangisida ko'rinadi.
+    oldingi = _oldingi_matnlar(egasi, chat_id)
     if savol is not None:
         olchov.qosh(natija="tanlov")
-        await _tanlov_korsat(dm, lid, ism, matn, savol, variantlar)
+        xabar = await _tanlov_korsat(dm, lid, ism, matn, savol, variantlar, oldingi=oldingi)
     else:
-        await _loyiha_korsat(dm, lid, ism, matn, loyiha)
+        xabar = await _loyiha_korsat(dm, lid, ism, matn, loyiha, oldingi=oldingi)
+    await _kartochka_almashtir(egasi, chat_id, xabar, [*oldingi, matn], lid)
     olchov.belgi("egasiga")
     track_user_activity(egasi, None, "biznes_loyiha")
     logger.info(f"[BIZNES] loyiha id={lid} egasi={egasi} chat={chat_id}")
@@ -1508,9 +1513,17 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
             toza = uzatish_matni(q["qaror"], toza, matn)
         toza = alifboga_mosla(toza, matn)
         variantlar = [alifboga_mosla(v, matn) for v in variantlar]
+        # Egasi oldingi uzatishni hali hal qilmagan — mijozga o'sha gapni
+        # qaytarmaymiz, faqat egasining kartochkasi yangilanadi.
+        oldingi = _oldingi_matnlar(egasi, chat_id)
+        jim = uzat is not None and bool(oldingi)
+        if jim:
+            olchov.qosh(natija="takror_jim")
+            logger.info(f"[BIZNES] uzatish takrori — mijozga jim chat={chat_id}")
         try:
-            _bot_yubordi(await _qayta_429(lambda: _mijozga(
-                chat_id, conn_id, toza, belgi=ul.get("avto_belgi", True))))
+            if not jim:
+                _bot_yubordi(await _qayta_429(lambda: _mijozga(
+                    chat_id, conn_id, toza, belgi=ul.get("avto_belgi", True))))
         except Exception as e:
             olchov.qosh(natija="yuborilmadi")
             await _qaytar()
@@ -1524,19 +1537,24 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
                 await bot.read_business_message(conn_id, chat_id, message.message_id)
         except Exception:
             pass
-        await safe_update_history(chat_id, toza, role="assistant", thread_id=thread)
+        if not jim:
+            await safe_update_history(chat_id, toza, role="assistant", thread_id=thread)
         olchov.belgi("tarix")
 
-    olchov.qosh(natija="tanlov" if savol is not None
-                else "uzatildi" if uzat is not None else "javob")
+    if not jim:
+        olchov.qosh(natija="tanlov" if savol is not None
+                    else "uzatildi" if uzat is not None else "javob")
     if savol is not None:
         lid = await database.biznes_loyiha_yarat(
             egasi, conn_id, chat_id, matn, variantlar[0] if variantlar else "", variantlar)
         ism = escape(message.from_user.full_name if message.from_user else "Mijoz")
-        await _tanlov_korsat(dm, lid, ism, matn, savol, variantlar, neytral=toza)
+        xabar = await _tanlov_korsat(dm, lid, ism, matn, savol, variantlar, neytral=toza,
+                                     oldingi=oldingi, jim=jim)
+        await _kartochka_almashtir(egasi, chat_id, xabar, [*oldingi, matn], lid)
         track_user_activity(egasi, None, "biznes_uzatish")
     elif uzat is not None:
-        await _uzatish_xabari(dm, message, matn, uzat)
+        xabar = await _uzatish_xabari(dm, message, matn, uzat, oldingi=oldingi, jim=jim)
+        await _kartochka_almashtir(egasi, chat_id, xabar, [*oldingi, matn])
         track_user_activity(egasi, None, "biznes_uzatish")
     else:
         track_user_activity(egasi, None, "biznes_avtojavob")
@@ -1544,7 +1562,61 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
                 f"uzatildi={uzat is not None}")
 
 
-async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> None:
+# ── Bitta chat — egasida BITTA kartochka (egasi so'radi, 2026-10-16) ──
+# Mijoz «qayerdasan» → bot «keyinroq yozaman», mijoz «nimaga» → bot yana
+# «keyinroq yozaman», egasiga esa ikki kartochka keldi va eskisining tugmasi
+# «endi faol emas» derdi (yangi loyiha eskisini eskirtiradi — to'g'ri, chunki
+# u butun suhbatni ko'rgan). Endi: yangisi kelganda eskisi O'CHIRILADI va
+# yangisida mijozning hamma xabari turadi; egasi hal qilmaguncha bot mijozga
+# o'sha gapni QAYTARMAYDI (tirik odam ham «keyinroq yozaman» ni takrorlamaydi).
+# ponytail: RAM — deploy'da unutiladi; eng yomoni bitta takroriy gap.
+_KARTOCHKA_OYNA = 3600
+_kartochka: dict[tuple[int, int], dict] = {}
+
+
+def _oldingi_matnlar(egasi: int, chat_id: int) -> list[str]:
+    """Egasi hali hal qilmagan kartochkadagi mijoz xabarlari (bo'sh — yo'q)."""
+    k = _kartochka.get((egasi, chat_id))
+    return list(k["matnlar"]) if k and time.time() - k["t"] < _KARTOCHKA_OYNA else []
+
+
+def _mijoz_blok(matnlar: list[str]) -> str:
+    if len(matnlar) == 1:
+        return escape(matnlar[0][:1200])
+    return "\n".join(f"• {escape(m[:400])}" for m in matnlar[-5:])
+
+
+async def _kartochka_almashtir(egasi: int, chat_id: int, yangi, matnlar: list[str],
+                               lid: int | None = None) -> None:
+    """Yangi kartochkani eslab qoladi, eskisini o'chiradi (o'chmasa — tugmasini)."""
+    eski = _kartochka.pop((egasi, chat_id), None)
+    if yangi is not None and getattr(yangi, "message_id", None):
+        _kartochka[(egasi, chat_id)] = {"dm": yangi.chat.id, "mid": yangi.message_id,
+                                        "matnlar": matnlar[-5:], "t": time.time(), "lid": lid}
+    if eski:
+        try:
+            await bot.delete_message(eski["dm"], eski["mid"])
+        except Exception:
+            try:
+                await bot.edit_message_reply_markup(chat_id=eski["dm"], message_id=eski["mid"],
+                                                    reply_markup=None)
+            except Exception:
+                pass
+
+
+async def _kartochka_hal(egasi: int, chat_id: int, tugmasini_ol: bool = False) -> None:
+    """Egasi hal qildi (yubordi, bekor qildi yoki chatda o'zi yozdi)."""
+    k = _kartochka.pop((egasi, chat_id), None)
+    if k and tugmasini_ol and k.get("lid"):
+        try:
+            await bot.edit_message_reply_markup(chat_id=k["dm"], message_id=k["mid"],
+                                                reply_markup=None)
+        except Exception:
+            pass
+
+
+async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str,
+                          oldingi: list[str] = (), jim: bool = False):
     u = message.from_user
     qatorlar = []
     url = ((instagram.havola(u.username) if instagram.chatmi(message.chat.id)
@@ -1554,16 +1626,19 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
     qatorlar.append([pro_module.btn("🔕 Bu mijozga javob bermasin",
                                     f"bz:o:{message.chat.id}", style=BTN_DANGER)])
     matni = (f"✋ <b>{escape(u.full_name if u else 'Mijoz')}</b> sizni kutmoqda\n"
-             f"Sabab: {escape(sabab)}\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
-             "Unga «aniqlab yozaman» degan ma'noda javob berdim — qolganini o'zingiz "
-             "yozing. U yana yozsa, javob beraveraman.")
+             f"Sabab: {escape(sabab)}\n<blockquote>{_mijoz_blok([*oldingi, matn])}</blockquote>\n"
+             + ("U yana yozdi — o'sha gapni qaytarmadim, javobingizni kutyapti."
+                if jim else
+                "Unga «aniqlab yozaman» degan ma'noda javob berdim — qolganini o'zingiz "
+                "yozing. Boshqa savol bersa, javob beraveraman."))
     try:
-        await _dm_yubor(dm, matni, parse_mode="HTML",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
+        return await _dm_yubor(dm, matni, parse_mode="HTML",
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
     except Exception as e:
         # URL tugma rad etilishi mumkin — xabar baribir yetib borsin.
         logger.warning(f"[BIZNES] uzatish tugmasi rad etildi: {e}")
         await _egasiga(dm, matni)
+        return None
 
 
 # ── Avtomat javob belgisi ────────────────────────────────────────────
@@ -1593,9 +1668,10 @@ def _tanlov_kb(lid: int, variantlar: list) -> InlineKeyboardMarkup:
 
 
 async def _tanlov_korsat(dm: int, lid: int, ism: str, matn: str, savol: str,
-                         variantlar: list, neytral: str | None = None) -> None:
+                         variantlar: list, neytral: str | None = None,
+                         oldingi: list[str] = (), jim: bool = False):
     """Faqat egasi biladigan savol: soxta javob o'rniga egasiga tanlov."""
-    qator = [f"🤔 <b>{ism}</b> yozdi:\n<blockquote>{escape(matn[:1200])}</blockquote>",
+    qator = [f"🤔 <b>{ism}</b> yozdi:\n<blockquote>{_mijoz_blok([*oldingi, matn])}</blockquote>",
              "Buni faqat siz bilasiz, shuning uchun o'zim javob bermadim. "
              + ("Variantlardan birini bosing — o'sha yuboriladi, yoki o'zingiz yozing."
                 if variantlar else "«O'zim yozaman» ni bosing va javobni yozing.")]
@@ -1603,14 +1679,17 @@ async def _tanlov_korsat(dm: int, lid: int, ism: str, matn: str, savol: str,
         qator.append(f"<b>{escape(savol)}</b>")
     if variantlar:
         qator.append("\n".join(f"{i + 1}) {escape(v)}" for i, v in enumerate(variantlar)))
-    if neytral:
-        qator.append(f"Unga «{escape(neytral[:200])}» deb yozdim. U yana yozsa, "
+    if jim:
+        qator.append("U yana yozdi — o'sha gapni qaytarmadim, javobingizni kutyapti.")
+    elif neytral:
+        qator.append(f"Unga «{escape(neytral[:200])}» deb yozdim. Boshqa savol bersa, "
                      "javob beraveraman.")
     try:
-        await _dm_yubor(dm, "\n\n".join(qator), parse_mode="HTML",
-                        reply_markup=_tanlov_kb(lid, variantlar))
+        return await _dm_yubor(dm, "\n\n".join(qator), parse_mode="HTML",
+                               reply_markup=_tanlov_kb(lid, variantlar))
     except Exception as e:
         logger.warning(f"[BIZNES] tanlov egasiga ko'rsatilmadi: {e}")
+        return None
 
 
 def _loyiha_kb(lid: int) -> InlineKeyboardMarkup:
@@ -1621,18 +1700,20 @@ def _loyiha_kb(lid: int) -> InlineKeyboardMarkup:
     ])
 
 
-async def _loyiha_korsat(dm: int, lid: int, ism: str, matn: str, loyiha: str) -> None:
+async def _loyiha_korsat(dm: int, lid: int, ism: str, matn: str, loyiha: str,
+                         oldingi: list[str] = ()):
     # 4096 belgi chegarasi: ko'rsatish qisqartiriladi, yuboriladigan
     # matn esa bazadan to'liq olinadi.
     try:
-        await _dm_yubor(
+        return await _dm_yubor(
             dm,
-            f"✍️ <b>{ism}</b> yozdi:\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
+            f"✍️ <b>{ism}</b> yozdi:\n<blockquote>{_mijoz_blok([*oldingi, matn])}</blockquote>\n"
             f"Men shunday javob berardim:\n<blockquote>{escape(loyiha[:2400])}</blockquote>\n"
             "To'g'ri bo'lsa — «Yuborish». Mijoz buni sizning nomingizdan oladi.",
             parse_mode="HTML", reply_markup=_loyiha_kb(lid))
     except Exception as e:
         logger.warning(f"[BIZNES] loyiha egasiga ko'rsatilmadi: {e}")
+        return None
 
 
 @olchov.oqim("yuborish")
@@ -1681,6 +1762,7 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
         # Egasi qoralamani o'z so'zi bilan almashtirdi — bu uning haqiqiy
         # xabari. Juftlik (loyiha → yakuniy) `biznes_loyiha` da qoladi.
         await biznes_uslub.namuna_saqla(egasi, matn)
+    await _kartochka_hal(egasi, r["chat_id"])
     track_user_activity(egasi, None, "biznes_yuborildi")
     # 3-bosqichga o'tish mezoni shu qatordan hisoblanadi (REJA.md).
     logger.info(f"[BIZNES] yuborildi id={lid} egasi={egasi} tahrirsiz={tahrirsiz}")
@@ -1995,11 +2077,12 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
                 await _tugmasiz(query, "\n\n✅ <i>Yuborildi</i>", await _fakt_kb(lid, uid))
             await query.answer(javob[:200], show_alert=not javob.startswith("✅"))
         elif amal == "b":
-            if await database.biznes_loyiha_band(lid, uid, yangi="bekor"):
+            if r := await database.biznes_loyiha_band(lid, uid, yangi="bekor"):
+                await _kartochka_hal(uid, r["chat_id"])
                 await _tugmasiz(query, "\n\n✖️ <i>Bekor qilindi</i>")
                 await query.answer("Bekor qilindi")
             else:
-                await query.answer("Bu qoralama endi faol emas.", show_alert=True)
+                await query.answer("Bu kartochka eskirgan — mijoz yana yozgan bo'lsa, yangisi pastda.", show_alert=True)
         else:
             await state.set_state(BiznesStates.tahrir)
             await state.update_data(loyiha_id=lid)

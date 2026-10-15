@@ -202,6 +202,7 @@ def xabar(matn, kimdan=MIJOZ):
 
 def ishga(*xabarlar):
     q.clear()
+    b._kartochka.clear()
 
     async def run():
         for x in xabarlar:

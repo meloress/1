@@ -157,6 +157,7 @@ mid = [1]
 def ishga(matn):
     q.clear()
     b._aytilgan.clear()
+    b._kartochka.clear()
     mid[0] += 1
     x = NS(business_connection_id="c1", text=matn, caption=None, sender_business_bot=None,
            voice=None, photo=None, from_user=NS(id=MIJOZ, username="a", full_name="Ali"),

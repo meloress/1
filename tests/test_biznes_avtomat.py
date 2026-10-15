@@ -153,6 +153,9 @@ class SoxtaBot:
     async def send_chat_action(self, chat_id, action, business_connection_id=None):
         q.append(("typing", chat_id, business_connection_id))
 
+    async def delete_message(self, chat_id, message_id):
+        q.append(("ochir", chat_id, message_id))
+
     async def read_business_message(self, conn_id, chat_id, message_id):
         q.append(("read", chat_id, message_id))
 
@@ -302,6 +305,7 @@ def xabar(matn, kimdan=MIJOZ, **qosh):
 def ishga(*xabarlar):
     q.clear()
     b._aytilgan.clear()
+    b._kartochka.clear()   # har qadam — yangi suhbat (takror-jim alohida, 32)
 
     async def run():
         for x in xabarlar:
@@ -504,4 +508,42 @@ check(30, "ustunlar migratsiyada, pauza SQL'da NOW() bilan solishtiriladi",
 check(31, "avtomat bayrog'i OCHIQ (egasining qarori, 2026-09-26)",
       c.BIZNES_AVTOMAT_OCHIQ is True)
 
-print("\nHammasi o'tdi: 31/31")
+
+# ── 32. Uzatilgan savolga mijoz yana yozdi (egasi so'radi, 2026-10-16) ──
+# Ilgari: «qayerdasan» → «keyinroq yozaman», «nimaga» → yana «keyinroq yozaman»,
+# egasiga ikki kartochka, eskisining tugmasi «endi faol emas».
+holat["model"] = "[egasiga: shaxsiy savol]"
+ishga(xabar("qayerdasan"))
+birinchi = (list(mijozga()), b._kartochka[(EGASI, MIJOZ)]["mid"])
+
+
+def davom(*xabarlar):
+    q.clear()
+
+    async def run():
+        for x in xabarlar:
+            await b.biznes_xabar(x)
+        await asyncio.sleep(0.15)
+    asyncio.run(run())
+
+
+davom(xabar("nimaga"))
+karta = egasiga()
+check(32, "egasi hal qilmagan uzatish: mijozga gap TAKRORLANMAYDI, egasida bitta kartochka "
+          "(eskisi o'chadi, yangisida ikkala xabar)",
+      len(birinchi[0]) == 1 and mijozga() == []
+      and len(karta) == 1 and "qayerdasan" in karta[0] and "nimaga" in karta[0]
+      and "qaytarmadim" in karta[0]
+      and ("ochir", DM, birinchi[1]) in q)
+holat["model"] = "Atirgul 25 000 so'm."
+davom(xabar("atirgul qancha?"))
+javob_berdi = mijozga() == ["Atirgul 25 000 so'm."]
+holat["model"] = "[egasiga: shaxsiy savol]"
+asyncio.run(b._kartochka_hal(EGASI, MIJOZ))
+davom(xabar("qachon kelasan"))
+check(33, "kutish paytida oddiy savolga javob beradi; egasi hal qilgach — gap yana boradi",
+      javob_berdi and len(mijozga()) == 1
+      and mijozga()[0] in b.UZATISH_GAPLARI["shaxsiy"]["uz"] + b.UZATISH_GAPLARI["biznes"]["uz"])
+b._kartochka.clear()
+
+print("\nHammasi o'tdi: 33/33")

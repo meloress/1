@@ -727,3 +727,21 @@ button alone in its row holds ~28 characters, two in a row ~14 each. A long name
 its own row; `test_biznes_ekran.py` check 1a fails on anything over 30 / 16.
 `handlers/capabilities.py` `_BATAFSIL` must quote the same labels — the model tells owners
 which button to press (`test_capabilities.py` check 12 lists them).
+
+## One chat, one card (2026-10-16)
+
+Live complaint from the owner: a customer asked «qayerdasan», the bot said «keyinroq yozaman»;
+«nimaga» — the same sentence again; the owner got two cards, and the older card's buttons
+answered "no longer active" (a new draft marks the older one `eskirgan`, correctly — it was
+written from the whole conversation).
+
+- `_kartochka[(owner, chat)]` (RAM) remembers the open card. A new card for the same chat
+  **deletes** the old one (falls back to stripping its buttons) and lists every pending
+  customer message (`_mijoz_blok`, up to 5).
+- While that card is open (`_KARTOCHKA_OYNA`, 1 h), a new **handoff** decision is not sent to
+  the customer (`jim`, olchov `takror_jim`) — a person who said "I'll write later" does not
+  repeat it. An answerable question still gets answered.
+- Resolved = sent (`loyihani_yubor`), cancelled («Kerak emas»), or the owner wrote in the
+  chat — each calls `_kartochka_hal()`.
+- RAM on purpose: a deploy forgets it, and the worst case is one repeated sentence.
+  `test_biznes_avtomat.py` checks 32-33; other Business tests clear `_kartochka` per step.
