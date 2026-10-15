@@ -304,4 +304,283 @@ yollar = {(r.method, r.resource.canonical) for r in w.build_app().router.routes(
 check(19, "panel serverida /ig/webhook (GET+POST) va /ig/ulash bor",
       {("GET", "/ig/webhook"), ("POST", "/ig/webhook"), ("GET", "/ig/ulash")} <= yollar)
 
+
+# ══ 2-versiya: ishonchlilik, media, izohlar, tez savollar, HUMAN_AGENT ══
+import handlers.biznes_media as bm  # noqa: E402
+
+
+async def v2():
+    from aiohttp import web
+
+    # ── 24. Meta xato kodi IgXato'da qoladi (190 / 24 soat) ─────────────
+    async def xato_qaytar(request):
+        return web.json_response({"error": {"message": "Error validating access token",
+                                            "code": 190, "error_subcode": 460}}, status=400)
+    app = web.Application()
+    app.router.add_get("/x", xato_qaytar)
+    async with TestServer(app) as srv:
+        try:
+            await ASL_SOROV("GET", str(srv.make_url("/x")), token="MAXFIY")
+            e = None
+        except ig.IgXato as x:
+            e = x
+    check(24, "Meta xatosi: IgXato.kod=190, subkod=460, matnida kalit yo'q",
+          e is not None and e.kod == 190 and e.subkod == 460 and "MAXFIY" not in str(e))
+
+    # Umumiy soxta Instagram: har chaqiruv yoziladi, `javob` funksiyasi qaror qiladi.
+    chaqiruv = []
+    javob = {"f": None}
+
+    async def soxta(usul, url, *, token=None, params=None, data=None, json_=None):
+        chaqiruv.append((usul, url, params, json_))
+        if javob["f"]:
+            return await javob["f"](usul, url, params, json_)
+        return {"message_id": f"mid-{len(chaqiruv)}"}
+    ig._sorov = soxta
+
+    yozildi, ochirildi, egasiga = [], [], []
+
+    async def ulanish_yoz(conn, egasi, chat, yoqilgan, huquq):
+        yozildi.append((conn, egasi, yoqilgan))
+        database._biznes_kesh[conn]["yoqilgan"] = yoqilgan
+
+    async def ig_ochir(egasi, conn):
+        ochirildi.append((egasi, conn))
+
+    async def egasiga_yoz(chat, matn, **kw):
+        egasiga.append((chat, matn))
+        return True
+    asl = (database.biznes_ulanish_yoz, database.biznes_ig_ochir, b._egasiga)
+    database.biznes_ulanish_yoz, database.biznes_ig_ochir, b._egasiga = (
+        ulanish_yoz, ig_ochir, egasiga_yoz)
+    try:
+        # ── 25. O'lik kalit → ulanish o'chadi, kalit o'chadi, egasi BIR MARTA biladi
+        async def olik(usul, url, params, jsn):
+            raise ig.IgXato("Instagram rad etdi: Error validating access token", 190)
+        javob["f"] = olik
+        for _ in range(2):
+            try:
+                await ig.yubor(CONN, -IGSID, "salom")
+            except ig.IgXato:
+                pass
+        check(25, "kalit o'lgan (190): ulanish o'chdi, kalit o'chirildi, egasiga bitta "
+                  "«uzildi» xabari, keyingi yuborish APIga chiqmaydi",
+              yozildi == [(CONN, EGASI, False)] and ochirildi == [(EGASI, CONN)]
+              and len(egasiga) == 1 and "uzildi" in egasiga[0][1] and len(chaqiruv) == 1)
+        database._biznes_kesh[CONN]["yoqilgan"] = True
+
+        # ── 26. 24 soat: inson=True — HUMAN_AGENT bilan qayta; avtojavob — yo'q
+        async def deraza(usul, url, params, jsn):
+            if jsn and jsn.get("tag") == "HUMAN_AGENT":
+                return {"message_id": "mid-tag"}
+            raise ig.IgXato("Instagram rad etdi: outside of allowed window", 10, 2534022)
+        javob["f"] = deraza
+        chaqiruv.clear()
+        x = await ig.yubor(CONN, -IGSID, "Buyurtmangiz tayyor", inson=True)
+        tegli = [j for _, _, _, j in chaqiruv if j and j.get("tag") == "HUMAN_AGENT"]
+        chaqiruv.clear()
+        try:
+            await ig.yubor(CONN, -IGSID, "Avtojavob")
+            rad = False
+        except ig.IgXato:
+            rad = True
+        check(26, "24 soat o'tgan: egasining matni HUMAN_AGENT bilan qayta ketadi; "
+                  "avtojavob belgisiz rad etiladi (Meta qoidasi)",
+              x is not None and len(tegli) == 1
+              and tegli[0]["messaging_type"] == "MESSAGE_TAG"
+              and rad and not any(j and j.get("tag") for _, _, _, j in chaqiruv))
+        javob["f"] = None
+
+        # ── 27-29. Postga izoh → Direct'ga yopiq javob ───────────────────
+        izoh_d = {"object": "instagram", "entry": [{"id": HISOB, "changes": [
+            {"field": "comments", "value": {"id": "c-1", "text": "narxi qancha?",
+                                            "from": {"id": str(IGSID), "username": "ali_v"},
+                                            "media": {"id": "post-1"}}}]}]}
+        check(27, "izohlar(): comments maydoni olinadi; savol — ha, «🔥»/«zo'r» — yo'q, "
+                  "«+» — ha (Instagram'da «narxini yozing»)",
+              ig.izohlar(izoh_d) == [(HISOB, izoh_d["entry"][0]["changes"][0]["value"])]
+              and ig.hodisalar(izoh_d) == []
+              and ig.izoh_savolmi("narxi qancha?") and ig.izoh_savolmi("+")
+              and ig.izoh_savolmi("Сколько стоит") and not ig.izoh_savolmi("🔥🔥")
+              and not ig.izoh_savolmi("zo'r ekan"))
+
+        kelgan = []
+
+        async def ushla(xabar):
+            kelgan.append((xabar, b.biznes_kimdan(xabar, database._biznes_kesh[CONN])))
+        asl_bx = b.biznes_xabar
+        b.biznes_xabar = ushla
+
+        async def post(usul, url, params, jsn):
+            if url.endswith("/post-1"):
+                return {"caption": "Qizil ko'ylak, 42-48 razmer"}
+            return {"message_id": f"mid-{len(chaqiruv)}"}
+        javob["f"] = post
+        try:
+            await ig.izoh_keldi(HISOB, izoh_d["entry"][0]["changes"][0]["value"])
+            n = len(kelgan)
+            await ig.izoh_keldi(HISOB, {"id": "c-2", "text": "narxi?",
+                                        "from": {"id": HISOB}, "media": {"id": "post-1"}})
+            await ig.izoh_keldi(HISOB, {"id": "c-3", "text": "🔥",
+                                        "from": {"id": "555"}, "media": {"id": "post-1"}})
+            xabar, kim = kelgan[0]
+            check(28, "savol-izoh mijoz xabari bo'lib keladi (post tavsifi bilan); egasining "
+                      "o'z izohi va «🔥» — e'tiborsiz",
+                  n == 1 and len(kelgan) == 1 and kim == "mijoz" and xabar.chat.id == -IGSID
+                  and "postingizga izoh" in xabar.text and "Qizil ko'ylak" in xabar.text
+                  and xabar.text.endswith("narxi qancha?"))
+
+            chaqiruv.clear()
+            await ig.yubor(CONN, -IGSID, "Narxi 150 ming")
+            msg = [j for u, url, _, j in chaqiruv if url.endswith("/me/messages")]
+            ochiq = [(url, p) for u, url, p, _ in chaqiruv if url.endswith("/c-1/replies")]
+            chaqiruv.clear()
+            await ig.yubor(CONN, -IGSID, "Yana savol bormi?")
+            keyin = [j for u, url, _, j in chaqiruv if url.endswith("/me/messages")]
+            check(29, "birinchi javob izoh orqali (comment_id) + ochiq «Direct'ga yozdik»; "
+                      "keyingisi oddiy (recipient id)",
+                  msg and msg[0]["recipient"] == {"comment_id": "c-1"}
+                  and ochiq and ochiq[0][1]["message"] == ig.IZOH_JAVOBI
+                  and keyin and keyin[0]["recipient"] == {"id": str(IGSID)})
+
+            # ── 30. Yopiq javob echo'si boshqa id bilan qaytsa ham — bot ──
+            ig._yuborilgan.append((None, "Yopiq javob"))
+            await ig.xabar_keldi({"sender": {"id": HISOB}, "recipient": {"id": "424242"},
+                                  "message": {"mid": "e2", "is_echo": True,
+                                              "text": "Yopiq javob"}})
+            check(30, "izoh javobining echo'si (boshqa id) — kim=bot, chat pauzaga tushmaydi",
+                  kelgan[-1][1] == "bot")
+
+            # ── 31. Tez savol tugmasi (postback) — oddiy xabar ────────────
+            pb = {"object": "instagram", "entry": [{"id": HISOB, "messaging": [
+                {"sender": {"id": str(IGSID)}, "recipient": {"id": HISOB},
+                 "postback": {"mid": "pb-1", "title": "Narxlar qancha?", "payload": "tez:0"}}]}]}
+            h = ig.hodisalar(pb)
+            await ig.xabar_keldi(h[0])
+            check(31, "«tez savol» bosilishi (postback) — matni shu savol bo'lgan mijoz xabari",
+                  len(h) == 1 and kelgan[-1][1] == "mijoz"
+                  and kelgan[-1][0].text == "Narxlar qancha?")
+
+            # ── 32. Rasm, ovoz, reels, storis — ig_media bilan keladi ──────
+            for m in ({"mid": "r1", "attachments": [{"type": "image", "payload": {"url": "https://cdn/r.jpg"}}]},
+                      {"mid": "r2", "attachments": [{"type": "audio", "payload": {"url": "https://cdn/a.mp4"}}]},
+                      {"mid": "r3", "attachments": [{"type": "ig_reel", "payload": {"url": "https://cdn/v"}}]},
+                      {"mid": "r4", "text": "narxi?", "reply_to": {"story": {"url": "https://cdn/s.jpg", "id": "s1"}}}):
+                await ig.xabar_keldi({"sender": {"id": str(IGSID)}, "recipient": {"id": HISOB},
+                                      "message": m})
+            rasm, ovoz, reels, storis = [x for x, _ in kelgan[-4:]]
+        finally:
+            b.biznes_xabar = asl_bx
+            javob["f"] = None
+        check(32, "rasm/ovoz/reels/storis: ig_media bilan, matnsizlarida text=None; "
+                  "media_bormi — ha",
+              rasm.text is None and rasm.ig_media["ilova"]["type"] == "image"
+              and storis.text == "narxi?" and storis.ig_media["storis"]["id"] == "s1"
+              and all(bm.media_bormi(x) for x in (rasm, ovoz, reels, storis)))
+
+        yuklangan = []
+
+        async def url_yukla(url, tur):
+            yuklangan.append(url)
+            return (b"\xff\xd8rasm", "image/jpeg") if tur == "image/" else (b"ovoz", "audio/mp4")
+
+        async def tavsif(baytlar, mime="image/jpeg"):
+            return "qizil ko'ylak, narx yorlig'i 150 000"
+
+        async def stt(yol, is_pro=False):
+            return "ertaga olib kelasizmi"
+        asl_m = (bm._url_yukla, bm.rasm_tavsifi, bm.speech_to_text_smart)
+        bm._url_yukla, bm.rasm_tavsifi, bm.speech_to_text_smart = url_yukla, tavsif, stt
+        bm._sanoq.clear()
+        try:
+            t_rasm = await bm.media_matn(rasm, EGASI, True)
+            t_ovoz = await bm.media_matn(ovoz, EGASI, True)
+            t_reels = await bm.media_matn(reels, EGASI, True)
+            t_storis = await bm.media_matn(storis, EGASI, True)
+            n = len(yuklangan)
+            t_kuzat = await bm.media_matn(rasm, EGASI, False)
+            t_egasi = await bm.media_matn(rasm, EGASI, True, mijoz=False)
+        finally:
+            bm._url_yukla, bm.rasm_tavsifi, bm.speech_to_text_smart = asl_m
+        check(33, "rasm → tavsif, ovoz → matn, reels → belgi, storisga javob → storis "
+                  "tavsifi + savol; Kuzatuv va egasining rasmi — yuklanmaydi, faqat belgi",
+              t_rasm == "[rasm: qizil ko'ylak, narx yorlig'i 150 000]"
+              and t_ovoz == "[ovozli xabar] ertaga olib kelasizmi"
+              and "reels" in t_reels and "ko'ra olmaysan" in t_reels
+              and t_storis.startswith("[storisingizga javob — storisda: qizil ko'ylak")
+              and t_storis.endswith("\nnarxi?")
+              and n == 3 and t_kuzat == "[rasm]" and t_egasi == "[rasm]"
+              and len(yuklangan) == 3)
+
+        # ── 34. «yozmoqda» / «ko'rildi» ─────────────────────────────────
+        chaqiruv.clear()
+        await ig.harakat(CONN, -IGSID, "typing_on")
+        ig._izohlar[-555] = ("c-9", __import__("time").time())
+        await ig.harakat(CONN, -555, "typing_on")
+        ig._izohlar.pop(-555, None)
+        check(34, "typing_on — sender_action; izoh orqali kelgan chatda yuborilmaydi "
+                  "(u hali Direct'da yozmagan)",
+              len(chaqiruv) == 1 and chaqiruv[0][3] == {"recipient": {"id": str(IGSID)},
+                                                         "sender_action": "typing_on"})
+
+        # ── 35. Soatlik kalit/obuna ────────────────────────────────────
+        async def egalar():
+            return [(EGASI, True)]
+        asl_eg = database.biznes_egalar
+        database.biznes_egalar = egalar
+        ig._obuna.clear()
+        chaqiruv.clear()
+        try:
+            await ig.kalitlarni_yangila()
+            await ig.kalitlarni_yangila()
+        finally:
+            database.biznes_egalar = asl_eg
+        obuna = [p for u, url, p, _ in chaqiruv if url.endswith("/subscribed_apps")]
+        check(35, "soatlik: eski ulanish yangi maydonlarga (izoh, postback) BIR MARTA "
+                  "qayta obuna bo'ladi",
+              len(obuna) == 1 and obuna[0]["subscribed_fields"] == ig.OBUNA
+              and "comments" in ig.OBUNA and "messaging_postbacks" in ig.OBUNA)
+
+        # ── 36. Tez savollar ──────────────────────────────────────────
+        async def bilim(egasi):
+            return ""
+        asl_b = database.biznes_bilim_ol
+        database.biznes_bilim_ol = bilim
+        chaqiruv.clear()
+        try:
+            savollar = await ig.tez_savollar_qoy(EGASI)
+        finally:
+            database.biznes_bilim_ol = asl_b
+        tana = chaqiruv[-1][3]
+        cta = tana["ice_breakers"][0]["call_to_actions"]
+        check(36, "Bilim bo'sh — standart savollar; Instagram'ga ≤4 ta, har biri ≤80 belgi",
+              savollar == ig.STANDART_SAVOLLAR and chaqiruv[-1][1].endswith("/messenger_profile")
+              and tana["platform"] == "instagram" and 1 <= len(cta) <= 4
+              and all(len(c["question"]) <= 80 for c in cta))
+    finally:
+        database.biznes_ulanish_yoz, database.biznes_ig_ochir, b._egasiga = asl
+        ig._sorov = ASL_SOROV
+
+asyncio.run(v2())
+
+check(37, "OAuth so'rovi izohlar ruxsatini ham oladi",
+      "instagram_business_manage_comments" in ig.ulash_havolasi(EGASI))
+
+
+# ── 38. Kirish logida query-satr yo'q (OAuth kodi) ─────────────────────
+class _Log:
+    def __init__(self):
+        self.yozuv = []
+
+    def info(self, fmt, *a):
+        self.yozuv.append(fmt % a)
+
+
+_l = _Log()
+_so = type("S", (), {"remote": "1.2.3.4", "method": "GET", "path": "/ig/ulash",
+                     "path_qs": "/ig/ulash?code=SIRLI&state=x"})()
+w.KirishLogi(_l, "").log(_so, type("R", (), {"status": 200})(), 0.01)
+check(38, "kirish logi: yo'l bor, ?code=… yo'q",
+      "/ig/ulash" in _l.yozuv[0] and "SIRLI" not in _l.yozuv[0])
+
 print("\ninstagram: barcha tekshiruvlar o'tdi.")

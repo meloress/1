@@ -119,16 +119,20 @@ def avto_belgi_html(bot_nomi: str, logo_id: str) -> str:
     return belgi + (f'<tg-emoji emoji-id="{logo_id}">🤖</tg-emoji>' if logo_id else "")
 
 
-async def _mijozga(chat_id: int, conn_id: str, matn: str, belgi: bool = False):
+async def _mijozga(chat_id: int, conn_id: str, matn: str, belgi: bool = False,
+                   inson: bool = False):
     """MIJOZGA (egasining nomidan) — AI javobidagi emoji paketdagi animatsiyali
     nusxasida, xuddi botdagi javoblar kabi (egasi so'radi, 2026-09-29).
     Matn o'zi oddiy: HTML'ga faqat escape bilan o'tadi, ya'ni mijoz aynan
     shu so'zlarni ko'radi. `belgi` — avtojavob ostidagi «ᵃᵛᵗᵒʲᵃᵛᵒᵇ» (bot
     havolasi + logo). Rad etilsa pog'onama-pog'ona soddalashadi: premiumsiz
     HTML (havola qoladi) → oddiy matn. Javob hech qachon yo'qolmaydi.
-    429 — chaqiruvchiga. `ig:` ulanish — Instagram Direct (oddiy matn)."""
+    429 — chaqiruvchiga. `ig:` ulanish — Instagram Direct (oddiy matn).
+    `inson` — matnni egasi yubordi/tasdiqladi (faqat Instagram'ning 7 kunlik
+    HUMAN_AGENT belgisi uchun; avtojavobda HECH QACHON)."""
     if instagram.bizniki(conn_id):
-        return await instagram.yubor(conn_id, chat_id, avto_matn(matn, belgi)["text"])
+        return await instagram.yubor(conn_id, chat_id, avto_matn(matn, belgi)["text"],
+                                     inson=inson)
     oddiy = escape(matn, quote=False)
     bot_nomi = logo = ""
     if belgi:
@@ -1403,7 +1407,9 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
                 await database.refund_daily(egasi, "biznes")
 
         try:
-            if not instagram.bizniki(conn_id):
+            if instagram.bizniki(conn_id):
+                await instagram.harakat(conn_id, chat_id, "typing_on")
+            else:
                 await bot.send_chat_action(chat_id, "typing", business_connection_id=conn_id)
         except Exception:
             pass
@@ -1459,7 +1465,9 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
             return
         olchov.belgi("yuborish")
         try:
-            if not instagram.bizniki(conn_id):
+            if instagram.bizniki(conn_id):
+                await instagram.harakat(conn_id, chat_id, "mark_seen")
+            else:
                 await bot.read_business_message(conn_id, chat_id, message.message_id)
         except Exception:
             pass
@@ -1602,7 +1610,8 @@ async def loyihani_yubor(lid: int, egasi: int, yangi_matn: str | None = None,
         await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         return "Tayyor javob yo'q — «O'zim yozaman» ni bosing."
     try:
-        _bot_yubordi(await _qayta_429(lambda: _mijozga(r["chat_id"], r["conn_id"], matn)))
+        _bot_yubordi(await _qayta_429(lambda: _mijozga(r["chat_id"], r["conn_id"], matn,
+                                                       inson=True)))
     except Exception as e:
         await database.biznes_loyiha_yakun(lid, egasi, "kutmoqda")
         logger.warning(f"[BIZNES] loyiha id={lid} yuborilmadi: {e}")
@@ -1842,6 +1851,7 @@ async def instagram_ekrani(uid: int) -> tuple:
                                 url=instagram.ulash_havolasi(uid), icon="instagram",
                                 style=None if ulangan else BTN_SUCCESS)]]
     if ulangan:
+        qatorlar.append([pro_module.btn("❓ Tez savollar", "bz:igq")])
         qatorlar.append([pro_module.btn("🔌 Uzish", "bz:igx", style=BTN_DANGER)])
     qatorlar.append([pro_module.btn("⬅️ Orqaga", "bz:e")])
     return (instagram.yoriqnoma(nom, ulangan),
@@ -2090,6 +2100,27 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
             pass
         await query.answer()
         await query.message.answer(javob)
+    elif amal in ("igq", "igqx"):
+        if not instagram.sozlanganmi():
+            await query.answer("Instagram hozircha ulanmaydi.", show_alert=True)
+            return
+        await query.answer("Tayyorlanmoqda…" if amal == "igq" else None)
+        try:
+            if amal == "igqx":
+                await instagram.tez_savollar_ochir(uid)
+                javob, kb = "Tez savollar olib tashlandi.", None
+            else:
+                savollar = await instagram.tez_savollar_qoy(uid)
+                javob = (f"{instagram.IG} <b>Tez savollar o'rnatildi</b> — mijoz Direct'ni "
+                         "birinchi ochganda shu tugmalarni ko'radi, bossa — men javob "
+                         "beraman:\n\n" + "\n".join(f"• {escape(q)}" for q in savollar)
+                         + "\n\nBilimni o'zgartirsangiz — «Yangilash» ni bosing.")
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    pro_module.btn("🔄 Yangilash", "bz:igq"),
+                    pro_module.btn("🗑 Olib tashlash", "bz:igqx", style=BTN_DANGER)]])
+        except instagram.IgXato as e:
+            javob, kb = f"❗ Bo'lmadi: {escape(instagram.sabab(str(e)))}", None
+        await query.message.answer(javob, reply_markup=kb)
     elif amal in ("ig", "igx"):
         if not instagram.sozlanganmi():
             await query.answer("Instagram hozircha ulanmaydi.", show_alert=True)
@@ -2340,6 +2371,11 @@ async def biznes_hisobot_watcher():
                 await egalarni_tozala()
             except Exception:
                 logger.exception("[BIZNES] egalarni tozalash yiqildi")
+            if instagram.sozlanganmi():
+                try:
+                    await instagram.kalitlarni_yangila()
+                except Exception:
+                    logger.exception("[Instagram] kalitlarni yangilash yiqildi")
         if _hozir().hour >= BIZNES_HISOBOT_SOAT:
             # Kunlik tozalash (AUDIT S2) — kuniga bir marta, RAM bayroq:
             # qayta ishga tushishda ikkinchi DELETE zararsiz.
@@ -2754,7 +2790,7 @@ async def _topshiriq_yubor(egasi: int, chat_id: int, matn: str) -> tuple:
         return False, (f"{nom}ga yuborilmadi: «{huquq_nomi(egasi, 'can_reply')}» huquqi "
                        f"yoqilmagan ({sozlama_yoli(egasi)} → botni tanlang)")
     try:
-        xabar = await _qayta_429(lambda: _mijozga(chat_id, topilgan[0], matn))
+        xabar = await _qayta_429(lambda: _mijozga(chat_id, topilgan[0], matn, inson=True))
         _bot_yubordi(xabar)
     except Exception as e:
         logger.warning(f"[BIZNES] topshiriq yuborilmadi egasi={egasi} chat={chat_id}: {e}")

@@ -748,6 +748,10 @@ owner-style learning) and the planned next work. The four rules that break silen
   webhook message is shaped like a `Message` and fed to `biznes_xabar()`, and `_mijozga()`
   routes `ig:` connections to the Graph API. Customer chat id is `-IGSID`. ⛔️ Unsigned
   webhooks are rejected and the bot's own echo must not read as "owner wrote" (auto-pause).
+  v2: photos/voice/story replies via `ig_media` → `biznes_media._ig_matn`, post comments →
+  one private reply (`_izohlar`), ice breakers, `HUMAN_AGENT` only for owner-approved sends
+  (`_mijozga(inson=True)`), every token call through `_api()` (code 190 → `_uzildi()`).
+  Meta review texts: `META_REVIEW.md`.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

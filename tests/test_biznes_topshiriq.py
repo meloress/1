@@ -62,7 +62,9 @@ async def _mijozlar(owner_id, limit=1000):
     return list(MIJOZLAR) if owner_id == EGASI else []
 
 
-async def _mijozga(chat_id, conn_id, matn, belgi=False):
+async def _mijozga(chat_id, conn_id, matn, belgi=False, inson=False):
+    # Topshiriq — egasining o'z buyrug'i: Instagram'da HUMAN_AGENT uchun shart.
+    assert inson, "topshiriq inson=True bilan yuborilishi kerak"
     if holat["rad"]:
         raise RuntimeError(holat["rad"])
     yuborilgan.append((chat_id, conn_id, matn))

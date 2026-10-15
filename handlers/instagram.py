@@ -26,6 +26,9 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
+import re
+import tempfile
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -51,8 +54,18 @@ _TIMEOUT = aiohttp.ClientTimeout(total=20)
 _STATE_TTL = 1800
 
 
+# Webhook maydonlari: Direct, postlarga izoh, «tez savol» tugmasi bosilishi.
+# Eski ulanishlar ham yangisiga o'tadi — `kalitlarni_yangila()` qayta obuna qiladi.
+OBUNA = "messages,comments,messaging_postbacks"
+
+
 class IgXato(Exception):
-    """Instagram rad etdi yoki javob bermadi. Matnida kalit YO'Q."""
+    """Instagram rad etdi yoki javob bermadi. Matnida kalit YO'Q.
+    `kod`/`subkod` — Meta xato kodi (190 = kalit o'lgan, 10/2534022 = 24 soat)."""
+
+    def __init__(self, matn: str, kod=None, subkod=None):
+        super().__init__(matn)
+        self.kod, self.subkod = kod, subkod
 
 
 def sozlanganmi() -> bool:
@@ -112,7 +125,8 @@ def ulash_havolasi(egasi: int) -> str:
     return "https://www.instagram.com/oauth/authorize?" + urlencode({
         "client_id": IG_APP_ID, "redirect_uri": qaytish_manzili(),
         "response_type": "code",
-        "scope": "instagram_business_basic,instagram_business_manage_messages",
+        "scope": "instagram_business_basic,instagram_business_manage_messages,"
+                 "instagram_business_manage_comments",
         "state": holat_yasa(egasi)})
 
 
@@ -124,6 +138,12 @@ def yoriqnoma(username: str | None, ulangan: bool) -> str:
         return (f"{IG} <b>Instagram ulangan</b>{f': @{escape(username)}' if username else ''}\n\n"
                 "Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
                 "ishlayman. /biznes da nima o'zgartirsangiz, Instagram'ga ham tushadi.\n\n"
+                "• Rasm va ovozli xabarni tushunaman, storisga javob bo'lsa — qaysi "
+                "storis ekanini ham.\n"
+                "• Postingizga «narxi?», «+» kabi savol yozilsa — o'sha odamga Direct'da "
+                "javob beraman, izohga esa «Direct'ga yozdik» deb qo'yaman.\n"
+                "• «Tez savollar» — mijoz Direct'ni ochganda chiqadigan tugmalar, "
+                "Bilimingizdan tuziladi.\n\n"
                 "Boshqa akkaunt ulash — «Qayta ulash», to'xtatish — «Uzish».")
     return (
         f"{IG} <b>Instagram Direct'ni ulash</b>\n\n"
@@ -201,8 +221,36 @@ async def _sorov(usul: str, url: str, *, token: str | None = None,
         d = {}
     if holat >= 400 or d.get("error"):
         x = d.get("error") if isinstance(d.get("error"), dict) else {}
-        raise IgXato(f"Instagram rad etdi: {x.get('message') or holat}"[:300])
+        raise IgXato(f"Instagram rad etdi: {x.get('message') or holat}"[:300],
+                     x.get("code"), x.get("error_subcode"))
     return d
+
+
+async def _uzildi(egasi: int, conn_id: str) -> None:
+    """Kalit o'lgan (190): parol o'zgargan, ruxsat olib tashlangan yoki 60 kun
+    yangilanmagan. Jim qolmaslik uchun — ulanish o'chadi va egasi BIR MARTA
+    biladi (keyingi so'rovlar ulanishni o'chiq ko'radi)."""
+    from handlers import biznes
+    ul = database.biznes_ulanish_ol(conn_id)
+    if not ul or not ul["yoqilgan"]:
+        return
+    await database.biznes_ulanish_yoz(conn_id, egasi, egasi, False, HUQUQ)
+    await database.biznes_ig_ochir(egasi, conn_id)
+    logger.warning(f"[Instagram] kalit o'lgan — ulanish o'chirildi egasi={egasi}")
+    await biznes._egasiga(egasi, (
+        f"❗ {IG} <b>Instagram ulanishi uzildi</b> — Direct'ga endi javob bermayman.\n\n"
+        "Sababi odatda: Instagram parolingiz o'zgargan yoki ilovaga ruxsat olib "
+        "tashlangan. Qayta ulash: /biznes → «Instagram» → «Instagram'ga kirish»."))
+
+
+async def _api(egasi: int, conn_id: str, usul: str, url: str, **kw) -> dict:
+    """Egasining kaliti bilan so'rov. O'lik kalit — `_uzildi()` va xato yuqoriga."""
+    try:
+        return await _sorov(usul, url, token=await _kalit_ol(egasi, conn_id), **kw)
+    except IgXato as e:
+        if e.kod == 190:
+            await _uzildi(egasi, conn_id)
+        raise
 
 
 async def _kalit_ol(egasi: int, conn_id: str) -> str:
@@ -212,9 +260,8 @@ async def _kalit_ol(egasi: int, conn_id: str) -> str:
     vaqt = r["token_vaqt"]
     if vaqt.tzinfo is None:
         vaqt = vaqt.replace(tzinfo=timezone.utc)
-    # ponytail: yangilash faqat ishlatilganda — 60 kun birorta ham xabarsiz
-    # qolgan ulanishning kaliti o'ladi va egasi qayta ulaydi; kerak bo'lsa
-    # kunlik kuzatuvchiga ko'chiriladi.
+    # Xabar kelmasa ham soatlik `kalitlarni_yangila()` shu yerdan o'tadi —
+    # 60 kun jim turgan do'konning kaliti o'lmaydi.
     if datetime.now(timezone.utc) - vaqt > timedelta(days=IG_KALIT_YANGILA_KUN):
         try:
             d = await _sorov("GET", "https://graph.instagram.com/refresh_access_token",
@@ -224,8 +271,34 @@ async def _kalit_ol(egasi: int, conn_id: str) -> str:
                 await database.biznes_ig_kalit_yangila(egasi, conn_id, d["access_token"])
                 return d["access_token"]
         except IgXato as e:
+            if e.kod == 190:
+                await _uzildi(egasi, conn_id)
+                raise
             logger.warning(f"[Instagram] kalit yangilanmadi egasi={egasi}: {e}")
     return r["token"]
+
+
+_obuna: set = set()
+
+
+async def kalitlarni_yangila() -> None:
+    """Soatlik (`biznes` kuzatuvchisi): har ulanishning kaliti 30 kundan eski
+    bo'lsa yangilanadi va jarayon boshida bir marta webhook maydonlariga
+    (`OBUNA`) qayta obuna qilinadi — yangi maydon qo'shilsa eski ulanishlar
+    qayta ulanmasdan oladi. Bitta egasining xatosi qolganlarini to'xtatmaydi."""
+    for egasi, ulangan in await database.biznes_egalar():
+        ig = database.biznes_egasi_ulanishi(egasi, instagram=True)
+        if not ulangan or not ig or not ig[1]["yoqilgan"]:
+            continue
+        try:
+            if ig[0] in _obuna:
+                await _kalit_ol(egasi, ig[0])
+            else:
+                await _api(egasi, ig[0], "POST", f"{IG_GRAPH}/me/subscribed_apps",
+                           params={"subscribed_fields": OBUNA})
+                _obuna.add(ig[0])
+        except IgXato as e:
+            logger.warning(f"[Instagram] kalit/obuna egasi={egasi}: {e}")
 
 
 # ── Yuborish ─────────────────────────────────────────────────────────
@@ -254,40 +327,99 @@ _yuborilgan: deque = deque(maxlen=500)
 
 
 def _ozimizniki(chat_id: int, matn: str) -> bool:
-    kalit = (chat_id, matn.strip())
-    if kalit in _yuborilgan:
-        _yuborilgan.remove(kalit)
-        return True
+    # (None, matn) — izohga yopiq javob: echo qaysi id bilan qaytishini Meta
+    # kafolatlamaydi, tanilmasa chat "egasi yozdi" bo'lib pauzaga tushardi.
+    for kalit in ((chat_id, matn.strip()), (None, matn.strip())):
+        if kalit in _yuborilgan:
+            _yuborilgan.remove(kalit)
+            return True
     return False
 
 
-async def yubor(conn_id: str, chat_id: int, matn: str):
-    """Egasi nomidan Instagram Direct'ga. Rad etilsa — `IgXato`."""
+# Izohga javob kutayotgan chat → (comment_id, vaqt). Birinchi javob Direct'ga
+# shu izoh orqali (private reply) ketadi: mijoz hali Direct'ga yozmagan, oddiy
+# yuborish rad etiladi. Meta: izohga 7 kun ichida, BITTA yopiq javob.
+# ponytail: RAM — deploydan keyin Yordamchi qoralamasi oddiy yuborishga tushadi
+# (rad etilsa egasi matnni oladi).
+_izohlar: dict = {}
+_IZOH_MUDDAT = 7 * 86400
+IZOH_JAVOBI = "📩 Direct'ga yozdik"
+
+
+def _deraza_xatosi(e: IgXato) -> bool:
+    return (e.kod == 10 and e.subkod == 2534022) or "allowed window" in str(e).lower()
+
+
+async def yubor(conn_id: str, chat_id: int, matn: str, inson: bool = False):
+    """Egasi nomidan Instagram Direct'ga. Rad etilsa — `IgXato`.
+
+    `inson` — matnni EGASI yubordi/tasdiqladi (qoralama, topshiriq). 24 soat
+    o'tgan bo'lsa `HUMAN_AGENT` belgisi bilan qayta urinadi (7 kun). ⛔️
+    Avtojavobda HECH QACHON: Meta qoidasi — bu belgi faqat odam javobi uchun.
+    Ruxsat (Advanced Access) hali berilmagan bo'lsa Meta rad etadi — asl xato."""
     ul = database.biznes_ulanish_ol(conn_id)
     if not ul or not ul["yoqilgan"]:
         raise IgXato("Instagram ulanishi o'chirilgan")
-    token = await _kalit_ol(ul["owner_id"], conn_id)
+    egasi = ul["owner_id"]
+    izoh = _izohlar.pop(chat_id, None)
+    if izoh and time.time() - izoh[1] > _IZOH_MUDDAT:
+        izoh = None
     oxirgi = None
-    for bolak in matn_bolaklari(matn):
+    for i, bolak in enumerate(matn_bolaklari(matn)):
+        if izoh and i == 0:
+            _yuborilgan.append((None, bolak.strip()))
+            d = await _api(egasi, conn_id, "POST", f"{IG_GRAPH}/me/messages",
+                           json_={"recipient": {"comment_id": izoh[0]},
+                                  "message": {"text": bolak}})
+            oxirgi = d.get("message_id") or oxirgi
+            try:  # ommaga «Direct'ga yozdik» — bezak, xatosi javobni to'xtatmaydi
+                await _api(egasi, conn_id, "POST", f"{IG_GRAPH}/{izoh[0]}/replies",
+                           params={"message": IZOH_JAVOBI})
+            except IgXato as e:
+                logger.info(f"[Instagram] izohga ochiq javob yozilmadi: {e}")
+            continue
         _yuborilgan.append((chat_id, bolak.strip()))
-        d = await _sorov("POST", f"{IG_GRAPH}/me/messages", token=token,
-                         json_={"recipient": {"id": str(-chat_id)},
-                                "message": {"text": bolak}})
+        tana = {"recipient": {"id": str(-chat_id)}, "message": {"text": bolak}}
+        try:
+            d = await _api(egasi, conn_id, "POST", f"{IG_GRAPH}/me/messages", json_=tana)
+        except IgXato as e:
+            if izoh:
+                # ponytail: yopiq javobdan keyingi bo'lak — mijoz hali Direct'da
+                # yozmagan, rad etiladi; birinchisi yetib borgan, xato emas.
+                logger.info(f"[Instagram] izoh javobining davomi ketmadi: {e}")
+                break
+            if not (inson and _deraza_xatosi(e)):
+                raise
+            d = await _api(egasi, conn_id, "POST", f"{IG_GRAPH}/me/messages",
+                           json_={**tana, "messaging_type": "MESSAGE_TAG",
+                                  "tag": "HUMAN_AGENT"})
         oxirgi = d.get("message_id") or oxirgi
     return (SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=mid_raqam(oxirgi))
             if oxirgi else None)
 
 
+async def harakat(conn_id: str, chat_id: int, amal: str) -> None:
+    """«yozmoqda…» (`typing_on`) / «ko'rildi» (`mark_seen`) — Telegram'dagi
+    `send_chat_action` / `read_business_message` o'rnida. Bezak: xato yutiladi."""
+    ul = database.biznes_ulanish_ol(conn_id)
+    if not ul or not ul["yoqilgan"] or chat_id in _izohlar:
+        return
+    try:
+        await _api(ul["owner_id"], conn_id, "POST", f"{IG_GRAPH}/me/messages",
+                   json_={"recipient": {"id": str(-chat_id)}, "sender_action": amal})
+    except IgXato:
+        pass
+
+
 # ── Kiruvchi xabar ────────────────────────────────────────────────────
 _ILOVA = {"image": "rasm", "video": "video", "audio": "ovozli xabar", "file": "fayl",
-          "share": "post", "ig_reel": "reels", "reel": "reels",
+          "share": "post", "ig_post": "post", "ig_reel": "reels", "reel": "reels",
           "story_mention": "storisida sizni belgiladi"}
 
 
 def ilova_matni(ilovalar) -> str:
-    """Matnsiz xabar (rasm, reels …) — modelga belgi. Sof.
-    ponytail: rasm ko'rilmaydi (Telegram'dagi `biznes_media` URL emas, fayl
-    oladi); kerak bo'lsa `rasm_tavsifi` ga URL'dan yuklab beriladi."""
+    """Ko'rib/eshitib bo'lmaydigan ilova (reels, post, video …) — modelga
+    belgi. Rasm va ovoz `biznes_media.media_matn()` da matnga aylanadi. Sof."""
     turlar = [_ILOVA.get((i or {}).get("type"), "fayl")
               for i in (ilovalar or []) if isinstance(i, dict)]
     if not turlar:
@@ -296,23 +428,61 @@ def ilova_matni(ilovalar) -> str:
 
 
 def hodisalar(d) -> list:
-    """Webhook tanasidan xabar hodisalari (o'qildi, reaksiya … — tashlanadi). Sof."""
+    """Webhook tanasidan Direct hodisalari: xabar va «tez savol» tugmasi
+    (`postback` — xabarga aylantiriladi). O'qildi, reaksiya — tashlanadi. Sof."""
     if not isinstance(d, dict) or d.get("object") != "instagram":
         return []
-    return [h for e in (d.get("entry") or []) if isinstance(e, dict)
-            for h in (e.get("messaging") or [])
-            if isinstance(h, dict) and isinstance(h.get("message"), dict)]
+    natija = []
+    for e in d.get("entry") or []:
+        for h in (e.get("messaging") or []) if isinstance(e, dict) else []:
+            if not isinstance(h, dict):
+                continue
+            if isinstance(h.get("message"), dict):
+                natija.append(h)
+            elif isinstance(h.get("postback"), dict) and h["postback"].get("title"):
+                pb = h["postback"]
+                natija.append({**h, "message": {"mid": pb.get("mid") or "",
+                                                "text": pb["title"]}})
+    return natija
+
+
+def izohlar(d) -> list:
+    """Webhook tanasidan postga yozilgan izohlar: [(hisob, qiymat)]. Sof."""
+    if not isinstance(d, dict) or d.get("object") != "instagram":
+        return []
+    return [(str(e.get("id")), c["value"]) for e in (d.get("entry") or [])
+            if isinstance(e, dict)
+            for c in (e.get("changes") or [])
+            if isinstance(c, dict) and c.get("field") == "comments"
+            and isinstance(c.get("value"), dict)]
+
+
+# Izoh — sotuv savolimi? «🔥», «zo'r», do'stini belgilash — Direct'ga
+# yozilmaydi: har izohga xabar spam bo'lardi. «+» — Instagram'da «narxini
+# Direct'ga yozing» degani.
+# ponytail: kalit so'zlar; yetmasa — mini model bilan saralash.
+_SAVOL_RE = re.compile(
+    r"\?|^\s*\+|narx|qancha|nechpul|necha|bormi|bor\s*mi|sotil|razmer|o'lcham|olcham|"
+    r"yetkaz|dostav|manzil|qayer|buyurtma|zakaz|info|price|how much|cost|size|deliver|"
+    r"order|direct|директ|цен|сколько|почем|почём|размер|доставк|где|есть ли|инфо|заказ",
+    re.I)
+
+
+def izoh_savolmi(matn: str) -> bool:
+    return bool(_SAVOL_RE.search(matn or ""))
 
 
 def _xabar(conn_id: str, chat_id: int, mid: str, matn: str, kimdan: int,
-           ism: str | None, username: str | None, bot_ozi: bool):
-    """`biznes_xabar()` o'qiydigan `Message` maydonlari — boshqasi yo'q."""
+           ism: str | None, username: str | None, bot_ozi: bool, media=None):
+    """`biznes_xabar()` o'qiydigan `Message` maydonlari — boshqasi yo'q.
+    `ig_media` — rasm/ovoz URL'i va storis (`biznes_media.media_matn` o'qiydi)."""
     nom = ism or (f"@{username}" if username else "Mijoz")
     return SimpleNamespace(
         business_connection_id=conn_id, chat=SimpleNamespace(id=chat_id, type="private"),
-        message_id=mid_raqam(mid or f"{chat_id}:{time.time()}"), text=matn, caption=None,
-        sender_business_bot=True if bot_ozi else None, reply_to_message=None,
+        message_id=mid_raqam(mid or f"{chat_id}:{time.time()}"), text=matn or None,
+        caption=None, sender_business_bot=True if bot_ozi else None, reply_to_message=None,
         voice=None, video_note=None, audio=None, photo=None, document=None, video=None,
+        ig_media=media,
         from_user=SimpleNamespace(id=kimdan, full_name=f"{nom} (Instagram)",
                                   first_name=nom, username=username, language_code=None))
 
@@ -325,8 +495,8 @@ async def _ism(egasi: int, conn_id: str, igsid: int) -> tuple:
     if igsid in _ismlar:
         return _ismlar[igsid]
     try:
-        d = await _sorov("GET", f"{IG_GRAPH}/{igsid}", token=await _kalit_ol(egasi, conn_id),
-                         params={"fields": "name,username"})
+        d = await _api(egasi, conn_id, "GET", f"{IG_GRAPH}/{igsid}",
+                       params={"fields": "name,username"})
         q = (d.get("name"), d.get("username"))
     except IgXato as e:
         logger.info(f"[Instagram] profil o'qilmadi: {e}")
@@ -352,14 +522,101 @@ async def xabar_keldi(h: dict) -> None:
     ul = database.biznes_ulanish_ol(conn_id)
     if not ul or not ul["yoqilgan"]:
         return
-    matn = (m.get("text") or "").strip() or ilova_matni(m.get("attachments"))
-    if not matn:
+    matn = (m.get("text") or "").strip()
+    ilova = next((i for i in m.get("attachments") or [] if isinstance(i, dict)), None)
+    storis = (m.get("reply_to") or {}).get("story") if isinstance(m.get("reply_to"), dict) else None
+    if not matn and not ilova:
         return
+    media = ({"ilova": ilova, "storis": storis if isinstance(storis, dict) else None}
+             if ilova or storis else None)
     chat_id, egasi = -igsid, ul["owner_id"]
     ism, username = (None, None) if echo else await _ism(egasi, conn_id, igsid)
     await biznes.biznes_xabar(_xabar(
         conn_id, chat_id, m.get("mid") or "", matn, egasi if echo else igsid,
-        ism, username, echo and _ozimizniki(chat_id, matn)))
+        ism, username, echo and bool(matn) and _ozimizniki(chat_id, matn), media))
+
+
+_postlar: dict = {}
+
+
+async def _post_matni(egasi: int, conn_id: str, media_id) -> str:
+    """Izoh yozilgan postning tavsifi — "narxi?" QAYSI mahsulot haqida
+    ekanini model shundan biladi. RAM kesh; o'qilmasa bo'sh."""
+    if not media_id:
+        return ""
+    if media_id not in _postlar:
+        try:
+            d = await _api(egasi, conn_id, "GET", f"{IG_GRAPH}/{media_id}",
+                           params={"fields": "caption"})
+            _postlar[media_id] = " ".join((d.get("caption") or "").split())[:400]
+        except IgXato as e:
+            logger.info(f"[Instagram] post o'qilmadi: {e}")
+            return ""
+        if len(_postlar) > 2000:   # ponytail: oddiy chegara
+            _postlar.clear()
+    return _postlar.get(media_id, "")
+
+
+async def izoh_keldi(hisob: str, v: dict) -> None:
+    """Postga izoh → savol bo'lsa, o'sha odamga Direct'da javob (private
+    reply) — oddiy mijoz xabari kabi `biznes_xabar()` dan o'tadi: rejim,
+    Bilim, uslub, qoralama — hammasi o'sha. Javob `yubor()` da izohga boradi."""
+    from handlers import biznes
+    conn_id = PREFIKS + hisob
+    ul = database.biznes_ulanish_ol(conn_id)
+    if not ul or not ul["yoqilgan"]:
+        return
+    kim, cid = v.get("from") or {}, v.get("id")
+    matn = " ".join(str(v.get("text") or "").split())
+    # Egasining o'z izohi va botning «Direct'ga yozdik» javobi — hisob o'zi.
+    if not cid or not matn or str(kim.get("id")) == hisob or not izoh_savolmi(matn):
+        return
+    try:
+        igsid = int(kim["id"])
+    except (KeyError, TypeError, ValueError):
+        return
+    chat_id, egasi = -igsid, ul["owner_id"]
+    post = await _post_matni(egasi, conn_id, (v.get("media") or {}).get("id"))
+    _izohlar[chat_id] = (str(cid), time.time())
+    if len(_izohlar) > 5000:     # ponytail: eng eskisi emas, hammasi — kamdan-kam
+        _izohlar.clear()
+        _izohlar[chat_id] = (str(cid), time.time())
+    sarlavha = f"[Instagram postingizga izoh{f' — post: «{post}»' if post else ''}]"
+    logger.info(f"[Instagram] izoh egasi={egasi} chat={chat_id}")
+    await biznes.biznes_xabar(_xabar(conn_id, chat_id, str(cid), f"{sarlavha}\n{matn}",
+                                     igsid, None, kim.get("username"), False))
+
+
+# ── «Tez savollar» (ice breakers) ─────────────────────────────────────
+# Mijoz Direct'ni birinchi ochganda chiqadigan tugmalar. Bosilsa — oddiy
+# mijoz xabari (`hodisalar()` postback'ni xabarga aylantiradi).
+STANDART_SAVOLLAR = ["Narxlar qancha?", "Yetkazib berish bormi?",
+                     "Qayerda joylashgansiz?", "Ish vaqtingiz qanday?"]
+
+
+async def tez_savollar_qoy(egasi: int) -> list:
+    """Bilimdan 4 ta savol (mini model; Bilim bo'sh yoki xato — standart)
+    yasab Instagram'ga o'rnatadi. Qaytadi: o'rnatilgan savollar. `IgXato`."""
+    from services.ai import tez_savollar
+    ig = database.biznes_egasi_ulanishi(egasi, instagram=True)
+    if not ig or not ig[1]["yoqilgan"]:
+        raise IgXato("Instagram ulanmagan")
+    bilim = await database.biznes_bilim_ol(egasi)
+    savollar = (await tez_savollar(bilim) if bilim.strip() else []) or STANDART_SAVOLLAR
+    await _api(egasi, ig[0], "POST", f"{IG_GRAPH}/me/messenger_profile", json_={
+        "platform": "instagram",
+        "ice_breakers": [{"locale": "default", "call_to_actions": [
+            {"question": q, "payload": f"tez:{i}"} for i, q in enumerate(savollar)]}]})
+    logger.info(f"[Instagram] tez savollar o'rnatildi egasi={egasi} soni={len(savollar)}")
+    return savollar
+
+
+async def tez_savollar_ochir(egasi: int) -> None:
+    ig = database.biznes_egasi_ulanishi(egasi, instagram=True)
+    if not ig or not ig[1]["yoqilgan"]:
+        raise IgXato("Instagram ulanmagan")
+    await _api(egasi, ig[0], "DELETE", f"{IG_GRAPH}/me/messenger_profile",
+               params={"fields": '["ice_breakers"]', "platform": "instagram"})
 
 
 _fon: set = set()
@@ -404,6 +661,8 @@ async def webhook(request: web.Request):
     # Meta 20 s ichida 200 kutadi, aks holda qayta yuboradi — ish FONDA.
     for h in hodisalar(d):
         _fonda(xabar_keldi(h))
+    for hisob, v in izohlar(d):
+        _fonda(izoh_keldi(hisob, v))
     return web.Response(text="EVENT_RECEIVED")
 
 
@@ -443,8 +702,9 @@ async def ulanish_yarat(egasi: int, code: str) -> str:
     if not men.get("user_id"):
         raise IgXato("Instagram hisobi o'qilmadi")
     await _sorov("POST", f"{IG_GRAPH}/me/subscribed_apps", token=uzun,
-                 params={"subscribed_fields": "messages"})
+                 params={"subscribed_fields": OBUNA})
     conn_id, username = PREFIKS + str(men["user_id"]), men.get("username")
+    _obuna.add(conn_id)
     await database.biznes_ig_yoz(egasi, conn_id, username, uzun)
     await database.biznes_ulanish_yoz(conn_id, egasi, egasi, True, HUQUQ)
     await database.biznes_sozlamani_kochir(egasi, conn_id)
@@ -504,8 +764,10 @@ async def maxfiylik(request: web.Request):
          "can draft or send replies to the owner's customers in direct messages, using the "
          "instructions and business information the owner provides."),
         ("Data we process",
-         "Messages that customers send to the connected account and the replies sent by the "
-         "owner or by the assistant; the customer's public name and username; the access token "
+         "Messages that customers send to the connected account (including photos and voice "
+         "messages, which are converted to text to understand them) and the replies sent by the "
+         "owner or by the assistant; comments on the owner's posts that ask a question, and the "
+         "caption of that post; the customer's public name and username; the access token "
          "Instagram issues when the owner connects their account. Message text is sent to our "
          "AI provider (OpenAI) only to generate the reply."),
         ("How long we keep it",

@@ -393,14 +393,45 @@ uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram
   yozdi" → avtomat pauza. Matn yuborishdan OLDIN `_yuborilgan` ga yoziladi (echo API
   javobidan oldin kelishi mumkin); boshqa echo — egasining o'zi (pauza, uslub namunasi).
 - Instagram'da: nuqtali buyruq yo'q (egasining xabarini o'chirib bo'lmaydi — mijoz ko'rardi);
-  yuborilganni o'chirish/tahrirlash yo'q; rasm/video ko'rilmaydi (belgi bilan modelga);
-  matn 1000 **bayt**dan bo'linadi. 24 soat qoidasi bor — rad etilgani "yuborildi" emas.
-- Kalit 60 kun yashaydi, 30 kundan eski bo'lsa ishlatilganda yangilanadi (ponytail: 60 kun
-  jim ulanish qayta ulanadi).
+  yuborilganni o'chirish/tahrirlash yo'q; matn 1000 **bayt**dan bo'linadi. 24 soat qoidasi
+  bor — rad etilgani "yuborildi" emas.
+- Kalit 60 kun yashaydi. Soatlik `kalitlarni_yangila()` (biznes kuzatuvchisi) 30 kundan
+  eskisini yangilaydi va jarayon boshida har ulanishni `OBUNA` maydonlariga qayta obuna
+  qiladi — yangi maydon qo'shilsa eski ulanishlar qayta ulanmasdan oladi.
+- ⛔️ **Kalit o'lsa (Meta kodi 190 — parol o'zgargan, ruxsat olib tashlangan) jim qolinmaydi.**
+  `_api()` → `_uzildi()`: ulanish o'chadi, kalit o'chadi, egasiga BIR MARTA «uzildi, qayta
+  ulang». Har token so'rovi `_api()` dan o'tadi — to'g'ridan-to'g'ri `_sorov(token=…)` yozilsa
+  bu himoya chetlab o'tiladi.
+
+### 2-versiya (2026-10-15)
+
+- **Rasm, ovoz, storis.** Webhook ilovasi Telegram'dagi kabi faylda emas, Meta CDN
+  havolasida: `_xabar(media=…)` → `ig_media`, `biznes_media._ig_matn()` uni yuklab
+  (`_url_yukla`: faqat https, tur va hajm tekshiruvi) o'sha `rasm_tavsifi` /
+  `speech_to_text_smart` ga beradi. Qoidalar Telegram'niki: rasm faqat mijozniki, kunlik
+  sanoq faqat aylantirilganda, Kuzatuvda faqat belgi. Storisga javob — storis rasmining
+  tavsifi + savol ("narxi?" qaysi mahsulot haqida). Reels/post/video — belgi.
+- **Postga izoh → Direct.** `comments` webhook → `izoh_keldi()`: savol bo'lsa
+  (`izoh_savolmi`, kalit so'zlar + «+»; ponytail) post tavsifi bilan oddiy mijoz xabari
+  bo'lib `biznes_xabar()` ga. `_izohlar[chat] = comment_id` (RAM, 7 kun): birinchi javob
+  `recipient.comment_id` bilan (private reply — mijoz hali Direct'da yozmagan), izohga ochiq
+  «📩 Direct'ga yozdik». Egasining o'z izohi (hisob id) — e'tiborsiz. Echo boshqa id bilan
+  kelishi mumkin — `(None, matn)` kaliti.
+- **Tez savollar (ice breakers).** «❓ Tez savollar» → `services.ai.tez_savollar()` (mini
+  model, Bilimdan 4 ta; bo'sh — `STANDART_SAVOLLAR`) → `/me/messenger_profile`. Bosilishi
+  `messaging_postbacks` bo'lib keladi, `hodisalar()` uni matnli xabarga aylantiradi.
+- **«yozmoqda» / «ko'rildi»** — `harakat()` (`typing_on`, `mark_seen`), avtojavobda
+  Telegram'dagi `send_chat_action` / `read_business_message` o'rnida.
+- **HUMAN_AGENT.** `_mijozga(inson=True)` — faqat egasi tasdiqlagan qoralama va topshiriq.
+  24 soat o'tgan bo'lsa (10/2534022) teg bilan qayta (7 kun). ⛔️ Avtojavobda hech qachon —
+  Meta qoidasi; ruxsat (App Review) berilmaguncha Meta rad etadi va asl xato qaytadi.
+- Kirish logi query-satrsiz (`web.KirishLogi`) — `/ig/ulash?code=…` logga tushardi.
 - Muhit: `IG_APP_ID`, `IG_APP_SECRET`, `IG_VERIFY_TOKEN`. Yo'q bo'lsa tugma yo'q, endpointlar
-  404. Meta'da: webhook `{WEB_APP_URL}/ig/webhook` (`messages`), redirect `{WEB_APP_URL}/ig/ulash`.
-  App Review'gacha faqat ilovaga sinovchi qilib qo'shilgan Instagram hisoblari ishlaydi.
-- `tests/test_instagram.py` (oflayn): state, imzo, echo, yo'naltirish, kalit sizmasligi.
+  404. Meta'da: webhook `{WEB_APP_URL}/ig/webhook` (`messages`, `comments`,
+  `messaging_postbacks`), redirect `{WEB_APP_URL}/ig/ulash`. App Review'gacha faqat ilovaga
+  sinovchi qilib qo'shilgan Instagram hisoblari ishlaydi — topshirish matnlari `META_REVIEW.md`.
+- `tests/test_instagram.py` (oflayn, 38+): state, imzo, echo, yo'naltirish, kalit sizmasligi,
+  190 → uzildi, HUMAN_AGENT, izoh oqimi, media, obuna, tez savollar, kirish logi.
 
 ## Keyingi ishlar (rejalashtirilgan, 2026-09-25)
 

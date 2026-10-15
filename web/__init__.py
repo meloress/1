@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from aiohttp import web
+from aiohttp.abc import AbstractAccessLogger
 
 from web.auth import (
     COOKIE_NAME, SESSION_TTL, XFF_TEKSHIR, _klient_ip, admin_only,
@@ -279,13 +280,23 @@ def build_app() -> web.Application:
     return app
 
 
+class KirishLogi(AbstractAccessLogger):
+    """aiohttp kirish logi — query-satrSIZ. ⛔️ Standart format `path_qs`
+    yozardi: `/ig/ulash?code=…&state=…` (Instagram OAuth kodi) Railway
+    logiga tushdi; `/api/users?q=…` esa qidirilgan ismni yozardi."""
+
+    def log(self, request, response, time):
+        self.logger.info('%s "%s %s" %s %.3fs', request.remote, request.method,
+                         request.path, response.status, time)
+
+
 async def start_web_server() -> None:
     """Polling bilan yonma-yon ishlaydi — `main()` da `create_task` bilan.
 
     Port Railway'dan `PORT` orqali keladi; qotirilgan port yo'q.
     """
     port = int(os.getenv("PORT", "8080"))
-    runner = web.AppRunner(build_app())
+    runner = web.AppRunner(build_app(), access_log_class=KirishLogi)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", port).start()
     logger.info(f"✅ Web panel {port}-portda ishga tushdi")

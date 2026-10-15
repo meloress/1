@@ -24,6 +24,7 @@ import re
 import tempfile
 from datetime import date
 
+import aiohttp
 from aiogram.types import Message
 
 from core.config import (BIZNES_HUJJAT_BELGI, BIZNES_HUJJAT_MAX_MB,
@@ -44,7 +45,7 @@ _TIZIM_RE = re.compile(r"\[TIZIM XABARI:[^\]]*\]")
 
 def media_bormi(message: Message) -> bool:
     return any(getattr(message, k, None) for k in
-               ("voice", "video_note", "audio", "photo", "document", "video"))
+               ("voice", "video_note", "audio", "photo", "document", "video", "ig_media"))
 
 
 def _ruxsat(egasi: int) -> bool:
@@ -111,6 +112,92 @@ async def _hujjat(message: Message) -> str:
     return f"[hujjat: {nom}] {qisqa}{'…' if len(matn) > len(qisqa) else ''}"
 
 
+async def _url_yukla(url: str, tur: str) -> tuple:
+    """Meta CDN'dan (havola imzoli webhookdan keladi) — (baytlar, mime) yoki
+    (b"", mime): turi `tur` bilan boshlanmasa yoki juda katta bo'lsa yuklanmaydi."""
+    if not str(url).startswith("https://"):
+        return b"", ""
+    chegara = BIZNES_HUJJAT_MAX_MB * 1024 * 1024
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as s:
+        async with s.get(url) as r:
+            mime = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+            if r.status != 200 or not mime.startswith(tur) or (r.content_length or 0) > chegara:
+                return b"", mime
+            baytlar = await r.content.read(chegara + 1)
+    return (b"", mime) if len(baytlar) > chegara else (baytlar, mime)
+
+
+async def _ig_ovoz(url: str) -> str:
+    try:
+        baytlar, mime = await _url_yukla(url, "audio/")
+        if not baytlar:
+            # Instagram ovozi ba'zan video/mp4 bo'lib keladi.
+            baytlar, mime = await _url_yukla(url, "video/")
+    except Exception as e:
+        logger.warning(f"[BIZNES] Instagram ovozi yuklanmadi: {type(e).__name__}")
+        baytlar = b""
+    if not baytlar:
+        return "[ovozli xabar — eshitib bo'lmadi]"
+    fd, yol = tempfile.mkstemp(suffix=".mp4")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(baytlar)
+        matn = (await speech_to_text_smart(yol, is_pro=True) or "").strip()
+    except Exception as e:
+        logger.warning(f"[BIZNES] Instagram ovozi o'qilmadi: {e}")
+        matn = ""
+    finally:
+        try:
+            os.remove(yol)
+        except OSError:
+            pass
+    return f"[ovozli xabar] {matn}" if matn else "[ovozli xabar — eshitib bo'lmadi]"
+
+
+async def _ig_rasm(url: str) -> str:
+    try:
+        baytlar, mime = await _url_yukla(url, "image/")
+    except Exception as e:
+        logger.warning(f"[BIZNES] Instagram rasmi yuklanmadi: {type(e).__name__}")
+        baytlar = b""
+    return await _rasm(baytlar, mime) if baytlar else "[rasm — ko'rib bo'lmadi]"
+
+
+async def _ig_matn(message, egasi: int, aylantir: bool, mijoz: bool) -> str:
+    """Instagram: fayl Telegram'da emas — Meta CDN havolasida. Qoidalar
+    Telegram'niki: rasm faqat mijozniki, ovoz — ikkalasiniki, kunlik sanoq
+    faqat haqiqatan aylantirilganda. Storisga javob — storis rasmi tavsifi
+    (video storis — faqat belgi): "narxi?" qaysi mahsulot haqida ekanini
+    model shundan biladi."""
+    from handlers.instagram import ilova_matni
+    ig = message.ig_media
+    qismlar = []
+    storis = ig.get("storis")
+    if storis is not None:
+        tavsif = ""
+        if storis.get("url") and aylantir and mijoz and _ruxsat(egasi):
+            try:
+                baytlar, mime = await _url_yukla(storis["url"], "image/")
+                if baytlar:
+                    tavsif = _KARTA_RE.sub(r"**** \1", await rasm_tavsifi(baytlar, mime))
+            except Exception as e:
+                logger.warning(f"[BIZNES] storis yuklanmadi: {type(e).__name__}")
+        qismlar.append(f"[storisingizga javob{f' — storisda: {tavsif}' if tavsif else ''}]")
+    il = ig.get("ilova")
+    if il:
+        tur, url = il.get("type"), (il.get("payload") or {}).get("url")
+        aylanadi = tur == "audio" or (mijoz and tur == "image")
+        if url and aylantir and aylanadi and _ruxsat(egasi):
+            qismlar.append(await (_ig_ovoz(url) if tur == "audio" else _ig_rasm(url)))
+        elif tur in ("audio", "image"):
+            qismlar.append("[ovozli xabar]" if tur == "audio" else "[rasm]")
+        else:
+            qismlar.append(ilova_matni([il]))
+    if not mijoz and qismlar and qismlar[-1].startswith("[ovozli xabar] "):
+        qismlar[-1] = qismlar[-1][len("[ovozli xabar] "):]
+    return "\n".join(x for x in (*qismlar, message.text or "") if x)
+
+
 async def media_matn(message: Message, egasi: int, aylantir: bool,
                      mijoz: bool = True) -> str:
     """Xabarning matn ko'rinishi (izoh bilan). Media yo'q bo'lsa — matn/izoh,
@@ -120,6 +207,8 @@ async def media_matn(message: Message, egasi: int, aylantir: bool,
     egasi: faqat ovoz aylantiriladi (bot uning javobini bilishi kerak),
     rasm/hujjat — belgi.
     """
+    if getattr(message, "ig_media", None):
+        return await _ig_matn(message, egasi, aylantir, mijoz)
     izoh = message.caption or ""
     if message.text:
         return message.text
