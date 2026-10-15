@@ -267,12 +267,11 @@ holat["model"] = ("[tanlov: sigaret chekasizmi? | yo'q, chekmayman | ha] "
                   "keyinroq yozaman")
 ishga(xabar("sigareting bormi menda qolmadi"))
 m, e = mijozga(), egasiga()
-# Model o'zi yozgan «keyinroq yozaman» (va'da) — `tanlov_matni` neytral gapga almashtiradi.
-NG = b.neytral_gap(b._ism_kesh.get(EGASI))
-check(13, "avtomat: suhbatdoshga faqat neytral gap + kichik belgi, marker yo'q, "
-          "model o'zi yozgan gap emas",
-      len(m) == 1 and m[0][2] == NG + "\n" + b.AVTO_BELGI
-      and "tanlov" not in m[0][2] and "keyinroq" not in m[0][2])
+# Gapni kod tanlaydi (`uzatish_matni`), model matni tashlanadi.
+NG = m[0][2].split("\n")[0] if m else ""
+check(13, "avtomat: suhbatdoshga faqat uzatish gapi + kichik belgi, marker yo'q",
+      len(m) == 1 and NG in b.UZATISH_GAPLARI["shaxsiy"]["uz"] and m[0][2] == NG + "\n" + b.AVTO_BELGI
+      and "tanlov" not in m[0][2])
 check(14, "avtomat: tarixga BELGISIZ matn; pauza YO'Q (javob beraveradi); egasiga tanlov tugmalari",
       ("tarix", NG, "assistant") in q and ("pauza", MIJOZ) not in q
       and len(e) == 1 and any(t.startswith("bz:yv:") for t in tugmalar(e[0]))
@@ -282,7 +281,7 @@ holat["model"] = "[tanlov: nimadir buzuq"
 ishga(xabar("ertaga kelasanmi"))
 m = mijozga()
 check(15, "avtomat: buzilgan marker — neytral gap, marker sizmaydi",
-      len(m) == 1 and m[0][2].startswith(b.neytral_gap(None)) and "tanlov" not in m[0][2])
+      len(m) == 1 and m[0][2].split("\n")[0] in b.UZATISH_GAPLARI["shaxsiy"]["uz"] and "tanlov" not in m[0][2])
 
 UL["avto_belgi"] = False
 holat["model"] = "Salom!"
@@ -308,12 +307,8 @@ kb = str(b._sozlama_kb(UL))
 check(19, "avtomat Sozlamalarida «🤖 belgisi» tugmasi, ekranda holati",
       "bz:bl" in kb and b.AVTO_BELGI in b.ekran_matni(UL, ""))
 
-check(20, "tanlovda suhbatdoshga faqat neytral gap: model o'zi yozgan fakt "
-          "(«Chekni ko'rdim») almashtiriladi, neytral gap (tarjimasi ham) qoladi",
-      b.tanlov_matni("Chekni ko'rdim, tushganini tekshirib olaman", "Olimjon")
-      == b.neytral_gap("Olimjon")
-      and b.tanlov_matni("", None) == b.neytral_gap(None)
-      and b.tanlov_matni("Олимжон онлайн бўлганда ўзи жавоб беради.", "Olimjon")
-      .startswith("Олимжон"))
+check(20, "tanlovda model o'zi yozgan fakt («Chekni ko'rdim») suhbatdoshga ketmaydi",
+      b.uzatish_matni("tanlov", "Chekni ko'rdim, tushganini tekshirib olaman", "to'ladim",
+                      lambda x: x[0]) == "keyinroq yozaman")
 
 print("\nHammasi o'tdi: 20/20")

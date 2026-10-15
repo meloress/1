@@ -182,9 +182,9 @@ def egasiga():
 holat["model"] = ("[tanlov: 10 da borasizmi? | boraman | bugun yo'q] "
                   "Олимжон онлайн бўлганда ўзи жавоб беради.")
 ishga(xabar("bugun kech 10 larda cs2 ga borasanmi?"))
-check(4, "uzatishdagi neytral gap lotinga o'girildi (suhbatdosh lotinda yozgan)",
-      len(mijozga()) == 1 and not b._KIRILL_RE.search(mijozga()[0])
-      and "onlayn" in mijozga()[0].lower())
+check(4, "uzatish: suhbatdosh lotinda yozgan — gap lotinda, model yozgan kirill "
+          "matn emas (gapni kod tanlaydi)",
+      len(mijozga()) == 1 and mijozga()[0] in b.UZATISH_GAPLARI["shaxsiy"]["uz"])
 check(5, "uzatishdan keyin pauza qo'yilmaydi", not any(x[0] == "pauza" for x in q))
 
 # ── 6. Uzatishdan keyin yana yozdi — har biriga javob ────────────
@@ -204,11 +204,25 @@ ishga(xabar("kelaman", kimdan=EGASI), xabar("zo'r, kutaman"))
 check(8, "egasi o'zi yozgan (uning qo'lidagi) suhbat: bot JIM",
       ("pauza", "egasi") in q and mijozga() == [])
 
-# ── 9. Neytral gap ───────────────────────────────────────────────
-check(9, "neytral gap egasining ismi bilan, hech narsa va'da qilmaydi",
-      b.neytral_gap("Og'abek") == "Og'abek online bo'lganda o'zi javob beradi."
-      and b.neytral_gap(None).startswith("Akkaunt egasi")
-      and "Og'abek online" in b.mijoz_yoriqnomasi("", avtomat=True, ism="Og'abek"))
+# ── 9. Uzatish gapi ──────────────────────────────────────────────
+birinchi = lambda x: x[0]  # noqa: E731
+check(9, "uzatish gapi: birinchi shaxsda, suhbatdosh tilida, vaqt va'dasiz; "
+         "botni fosh qiladigan «online bo'lganda» yo'q",
+      b.uzatish_matni("tanlov", "Chekni ko'rdim", "ovqatlandingmi", birinchi) == "keyinroq yozaman"
+      and b.uzatish_matni("egasiga", "", "Хочу заказать", birinchi) == "уточню и напишу"
+      and b.uzatish_matni("egasiga", "", "нарх канча", birinchi) == "аниқлаб ёзаман"
+      and b.uzatish_matni("tanlov", "", "are you free tomorrow?", birinchi) == "I'll text you later"
+      and not any(any(k in g.lower() for k in ("online", "hozir", "сейчас", "daqiqa"))
+                  for t in b.UZATISH_GAPLARI.values() for gl in t.values() for g in gl)
+      and "online" not in b.mijoz_yoriqnomasi("", avtomat=True, ism="Og'abek"))
+check("9b", "egasiga: bilimdagi fakt + yangi qatorda gap; uchinchi shaxs yoki modelning "
+            "o'z va'dasi fakt emas — tashlanadi",
+      b.uzatish_matni("egasiga", "Ko'ylak 150 ming", "ko'ylak bormi", birinchi)
+      == "Ko'ylak 150 ming\naniqlab yozaman"
+      and b.uzatish_matni("egasiga", "XL ni egasi aniqlaydi", "XL bormi", birinchi)
+      == "aniqlab yozaman"
+      and b.uzatish_matni("egasiga", "Hozir aniqlab aytaman.", "chegirma bormi", birinchi)
+      == "aniqlab yozaman")
 
 check(10, "variantdan neytral gap va egasining ismi olib tashlanadi (egasi bosadi)",
       b.egasi_variantlari(["Ha, boraman", "Og'abek online bo'lganda o'zi javob beradi.",

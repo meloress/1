@@ -156,7 +156,8 @@ def qaror(xom: str, xabar: str) -> tuple:
     """Prod bilan AYNAN bir xil: sxema parseri + alifbo moslash."""
     q = ai.biznes_qaror_ajrat(xom)
     var = [b.alifboga_mosla(v, xabar) for v in b.egasi_variantlari(q["variantlar"], "Olimjon")]
-    matn = b.tanlov_matni(q["matn"], "Olimjon") if q["qaror"] != "javob" else q["matn"]
+    matn = (b.uzatish_matni(q["qaror"], q["matn"], xabar) if q["qaror"] != "javob"
+            else q["matn"])
     return q["qaror"], b.alifboga_mosla(matn, xabar), var, q["matn"]
 
 
@@ -235,8 +236,9 @@ async def main():
                 sabablar.append("tanlov variantsiz")
             # Egasi so'radi (2026-09-26): uzatishda "Olimjon online bo'lganda o'zi
             # javob beradi" — bot kimligini aytadi, jim qolmaydi.
-            if tur != "javob" and not QORALAMA and not re.search(r"(?i)online|онлайн", tekshir):
-                sabablar.append("neytral gap yo'q («... online bo'lganda»)")
+            # Uzatish gapi birinchi shaxsda (egasi, 2026-10-15) — uchinchi shaxs botni fosh qiladi.
+            if re.search(r"(?i)online bo|онлайн бў|\begasi\b", tekshir):
+                sabablar.append("uchinchi shaxs («online bo'lganda», «egasi»)")
             if any(re.search(r"(?i)olimjon|online|онлайн", v) for v in var):
                 sabablar.append("variantda neytral gap / egasi ismi")
             if any(re.search(r"\.\.\.|…|\[|<", v) for v in var):

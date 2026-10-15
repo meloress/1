@@ -14,6 +14,7 @@ Ro'yxatga olish tartibi bu yerda MUHIM EMAS: business update'lari
 """
 import asyncio
 import io
+import random
 import re
 import secrets
 import time
@@ -967,10 +968,9 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "• qaror=\"tanlov\" — faqat egasi biladigan narsa: savol — egasiga "
         "qisqa savol (o'zbekcha); variantlar — egasi bosib yuborishi mumkin "
         "bo'lgan 2-3 ta TAYYOR, TO'LIQ javob (EGASINING O'ZI birinchi shaxsda "
-        "yozgandek, uning uslubida, suhbatdosh tilida; quyidagi neytral gap "
-        "va egasining ismi variantda YO'Q; «...» yoki bo'sh joy YO'Q — ma'lumot kerak bo'lsa, bunday "
-        f"variantni yozma); matn — aynan shu gap, suhbatdosh tilida: "
-        f"«{neytral_gap(ism)}»\n"
+        "yozgandek, uning uslubida, suhbatdosh tilida; egasining ismi "
+        "variantda YO'Q; «...» yoki bo'sh joy YO'Q — ma'lumot kerak bo'lsa, bunday "
+        "variantni yozma); matn — BO'SH (suhbatdoshga gapni kod yozadi).\n"
         "• qaror=\"egasiga\" — egasining biznesi bo'lsa va suhbatdosh sotib "
         "olmoqchi yoki buyurtma bermoqchi; jahli chiqqan yoki shikoyat "
         "qilyapti; savolga bilimda javob yo'q; chegirma, narx kelishuvi "
@@ -978,11 +978,12 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "manzil, ish vaqti — bilimda bor) — bu \"javob\", uzatish EMAS. Bu hollarda javobni bilsang ham (masalan narx "
         "bilimda bor) qaror BARIBIR \"egasiga\" — sotuv va shikoyatdan egasi "
         "albatta xabar topishi kerak. savol — egasiga qisqa sabab; matn — "
-        f"bilimdagi aniq javob (bo'lsa) va «{neytral_gap(ism)}» (suhbatdosh "
-        "tilida); buyurtma yoki to'lovni «qabul qilindi» DEMA — buni egasi hal "
+        "FAQAT bilimdagi aniq javob, bo'lsa (suhbatdosh tilida), aks holda "
+        "bo'sh; «aniqlab yozaman» kabi gapni QO'SHMA — uni kod qo'shadi; "
+        "buyurtma yoki to'lovni «qabul qilindi» DEMA — buni egasi hal "
         "qiladi; variantlar bo'sh.\n"
         "• «botmisan?» deyilsa: qaror=\"javob\", matn — «bu avtojavob, "
-        f"{neytral_gap(ism)}» (suhbatdosh tilida).\n"
+        f"{ism or 'egasi'} o'zi keyinroq yozadi» (suhbatdosh tilida).\n"
         if avtomat else
         "[QORALAMA] Sen javob LOYIHASINI yozasan; egasi uni ko'rib yuboradi. "
         "JSON qaytar:\n"
@@ -1217,26 +1218,63 @@ async def _loyiha(buf: dict) -> None:
 # ⛔️ Mijozga hech qachon: texnik xato matni, `[egasiga:]` markeri,
 # limit yoki pauza haqida xabar. Bular faqat EGASIGA.
 
-# Uzatish (tanlov / egasiga) paytida suhbatdoshga. Egasi so'radi (2026-09-26):
-# "Og'abek online bo'lsa o'zi javob beradi" — bot kimligini ochiq aytadi,
-# vaqt ham, mazmun ham va'da qilmaydi. Keyin bot JIM QOLMAYDI: suhbatdosh yana
-# yozsa, odatdagidek javob beradi (ilgari 3 soat pauza + "Hozir bandman" edi,
-# jonli sinovda bu "javob bermayapti" bo'lib ko'rindi).
-def neytral_gap(ism: str | None) -> str:
-    return f"{ism or 'Akkaunt egasi'} online bo'lganda o'zi javob beradi."
+# Uzatish (tanlov / egasiga) paytida suhbatdoshga — EGASINING O'ZI yozgandek,
+# birinchi shaxsda (egasi so'radi, 2026-10-15). Avvalgi «Olimjon online
+# bo'lganda o'zi javob beradi» botni darhol fosh qilardi: ko'r hakam 2-4/10
+# (`tests/eval_tabiiy.py`). Keyin bot JIM QOLMAYDI: suhbatdosh yana yozsa,
+# odatdagidek javob beradi (pauza yo'q — jonli sinovda u "javob bermayapti"
+# bo'lib ko'rindi).
+# ⛔️ Matnni KOD tanlaydi, model emas: model o'zi yozganda egasi nomidan fakt
+# to'qidi («Chekni ko'rdim, tushganini tekshirib olaman»). Vaqt va'da
+# qilinmaydi («hozir», «5 daqiqada» yo'q). Har safar bir xil gap — o'zi bot
+# izi, shuning uchun bir nechtasidan tasodifiy. «botmisan?» ga javob boshqa:
+# u yerda rost (avtojavob ekani aytiladi).
+UZATISH_GAPLARI = {
+    # «egasiga» — biznes: sotuv, shikoyat, bilimda yo'q savol.
+    "biznes": {"uz": ("aniqlab yozaman", "tekshirib yozaman", "aniqlab aytaman"),
+               "kir": ("аниқлаб ёзаман", "текшириб ёзаман", "аниқлаб айтаман"),
+               "ru": ("уточню и напишу", "уточню и отвечу", "проверю и напишу"),
+               "en": ("let me check and get back to you", "I'll check and text you")},
+    # «tanlov» — faqat egasi biladigan narsa (shaxsiy savol, va'da).
+    "shaxsiy": {"uz": ("keyinroq yozaman", "keyin yozaman", "keyinroq gaplashamiz"),
+                "kir": ("кейинроқ ёзаман", "кейин ёзаман", "кейинроқ гаплашамиз"),
+                "ru": ("позже напишу", "напишу попозже", "потом напишу"),
+                "en": ("I'll text you later", "will write later")},
+}
+_UZ_KIRILL_RE = re.compile(r"[ўқғҳЎҚҒҲ]|\b(салом|канча|бор|йук|йўқ|рахмат|нарх|сиз|мен|нима)\b",
+                           re.I)
+_UZ_LOTIN_RE = re.compile(r"(?i)[og][ʻ'‘’`]|\b(salom|qancha|bormi|bor|yo'q|rahmat|narx|men|sen|"
+                          r"siz|nima|qayer|ha|ok|xop)\b|(ing|lar|mi)\b")
+_EN_RE = re.compile(r"(?i)\b(the|you|are|is|what|how|hi|hello|price|can|do|have|please)\b")
+# Model «egasiga» matniga baribir gap qo'shsa — eski uslubdagi uchinchi shaxs
+# yoki o'zining va'dasi («hozir aniqlab aytaman») — u fakt EMAS, tashlanadi.
+_FAKT_EMAS_RE = re.compile(r"(?i)online|onlayn|онлайн|\begas[ia]|\begam\b|akkaunt|владел|хозя|"
+                           r"\bowner\b|o'zi javob|ўзи жавоб|yozaman|aytaman|ёзаман|айтаман|"
+                           r"напишу|отвечу|уточню|get back|text you")
 
 
-def tanlov_matni(matn: str, ism: str | None) -> str:
-    """Uzatish (tanlov — faqat egasi biladigan narsa; egasiga — sotuv, shikoyat)
-    paytida suhbatdoshga ketadigan matnda neytral gap BO'LISHI shart. Model
-    ba'zan o'zi yozadi — eval'da «Chekni ko'rdim, tushganini tekshirib olaman»
-    (egasi nomidan to'qilgan fakt) avtomatda mijozga ketardi.
-    «egasi aniqlab, o'zi javob beradi» (uchinchi shaxs) ham shunday. Prompt
-    kafolat emas: neytral gap bo'lmasa — butun matn o'rniga u qo'yiladi. Sof."""
-    k = (matn or "").lower()
-    if "online" in k or "онлайн" in k or "onlayn" in k:
-        return matn
-    return neytral_gap(ism)
+def suhbatdosh_tili(matn: str) -> str:
+    """"uz" | "kir" | "ru" | "en" — uzatish gapi uchun. Sof.
+    ponytail: kalit so'zlar; adashsa ham gap qisqa va tushunarli."""
+    matn = matn or ""
+    if _KIRILL_RE.search(matn):
+        return "kir" if _UZ_KIRILL_RE.search(matn) else "ru"
+    if _EN_RE.search(matn) and not _UZ_LOTIN_RE.search(matn):
+        return "en"
+    return "uz"
+
+
+def uzatish_matni(qaror: str, matn: str, suhbatdosh: str, tanla=random.choice) -> str:
+    """Uzatishda suhbatdoshga ketadigan matn. «egasiga»: modelning bilimdagi
+    faktlari (bo'lsa) + yangi qatorda gap; «tanlov» va boshqasi — faqat gap
+    (model matni tashlanadi: u yerda fakt bo'lishi mumkin emas). Sof
+    (`tanla` — testda deterministik)."""
+    gap = tanla(UZATISH_GAPLARI["biznes" if qaror == "egasiga" else "shaxsiy"]
+                [suhbatdosh_tili(suhbatdosh)])
+    fakt = (matn or "").strip()
+    if qaror != "egasiga" or not fakt or _FAKT_EMAS_RE.search(fakt):
+        return gap
+    return f"{fakt}\n{gap}"
 
 
 def egasi_variantlari(variantlar: list, ism: str | None) -> list:
@@ -1467,7 +1505,7 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
         if uzat is None and not toza:
             uzat = "model javob yozmadi"
         if uzat is not None:
-            toza = tanlov_matni(toza, _ism_kesh.get(egasi))
+            toza = uzatish_matni(q["qaror"], toza, matn)
         toza = alifboga_mosla(toza, matn)
         variantlar = [alifboga_mosla(v, matn) for v in variantlar]
         try:
@@ -1517,8 +1555,8 @@ async def _uzatish_xabari(dm: int, message: Message, matn: str, sabab: str) -> N
                                     f"bz:o:{message.chat.id}", style=BTN_DANGER)])
     matni = (f"✋ <b>{escape(u.full_name if u else 'Mijoz')}</b> sizni kutmoqda\n"
              f"Sabab: {escape(sabab)}\n<blockquote>{escape(matn[:1200])}</blockquote>\n"
-             "Unga siz online bo'lganda javob berishingizni aytdim. U yana yozsa, "
-             "javob beraveraman.")
+             "Unga «aniqlab yozaman» degan ma'noda javob berdim — qolganini o'zingiz "
+             "yozing. U yana yozsa, javob beraveraman.")
     try:
         await _dm_yubor(dm, matni, parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))

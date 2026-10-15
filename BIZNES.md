@@ -443,7 +443,16 @@ uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram
 |---|---|---|---|
 | oldin | 4.4 | 7.2 | 54/56 |
 | `JONLI YOZ` bloki | 8.1-8.7 | 8.7-8.9 | 108/112 (uzatishga sizdi) |
-| + `tanlov_matni` himoyasi, `shim`/`tashqi_shaxsiy` tuzatishi | 8.5 | 9.0 | **112/112** |
+| + uzatish matni kodda, `shim`/`tashqi_shaxsiy` tuzatishi | 8.5 | 9.0 | 112/112 |
+| + uzatish gapi birinchi shaxsda (`uzatish_matni`) | **9.5** | **9.5** | **112/112** |
+
+- **Uzatish gapi (egasi so'radi, 2026-10-15).** «Olimjon online bo'lganda o'zi javob
+  beradi» hakamdan 2-4/10 olardi — eng katta iz. Endi `uzatish_matni()`: egasiga →
+  «aniqlab yozaman / tekshirib yozaman / aniqlab aytaman», tanlov → «keyinroq yozaman …»,
+  `suhbatdosh_tili()` bo'yicha (uz / kir / ru / en), tasodifiy (bir xil gap — o'zi iz).
+  Vaqt va'dasi yo'q. Gapni KOD tanlaydi: tanlovda model matni tashlanadi, egasiga'da faqat
+  bilimdagi fakt qoladi (uchinchi shaxs yoki modelning o'z va'dasi — `_FAKT_EMAS_RE` —
+  tashlanadi). «botmisan?» ga javob o'zgarmadi: rost, «bu avtojavob, X o'zi keyinroq yozadi».
 
 - Asosiy iz **Bilim matnini so'zma-so'z ko'chirish** edi («Futbolka 80 000 so'm turadi.»,
   «Chilonzor 9-kvartalda joylashganmiz.») va rasmiy so'zlar. `BIZNES_INSTRUCTIONS`dagi
@@ -451,9 +460,8 @@ uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram
   so'zlar ro'yxati, 3 ta EMAS/HA misol. +319 token har biznes so'roviga (993 → 1 312).
 - ⛔️ «O'z so'zing bilan yoz» tanlovga SIZDI: model neytral gap o'rniga «Chekni ko'rdim,
   tushganini tekshirib olaman» yozdi (egasi nomidan fakt, avtomatda mijozga ketardi).
-  Endi `tanlov_matni()` (kod) HAR uzatishda (tanlov va egasiga) neytral gapsiz matnni almashtiradi — eval ham o'shandan o'tadi.
-- Qolgan past baholarning HAMMASI — uzatish gapi («Olimjon online bo'lganda o'zi javob
-  beradi», egasi 2026-09-26 tanlagan) va «botmisan?» ga rost javob (ataylab, o'zgarmaydi).
+  Shuning uchun uzatish matnini kod yozadi (`uzatish_matni()`, pastda) — eval ham
+  o'shandan o'tadi.
 - `⛔️` Mahsulot/narx/razmer savoli — bilimda bo'lmasa ham tashqi savol EMAS (`shim` holati
   «shim haqida bilmayman» deb javob berardi).
 
