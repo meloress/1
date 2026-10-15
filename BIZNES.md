@@ -417,7 +417,7 @@ uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram
   `recipient.comment_id` bilan (private reply — mijoz hali Direct'da yozmagan), izohga ochiq
   «📩 Direct'ga yozdik». Egasining o'z izohi (hisob id) — e'tiborsiz. Echo boshqa id bilan
   kelishi mumkin — `(None, matn)` kaliti.
-- **Tez savollar (ice breakers).** «❓ Tez savollar» → `services.ai.tez_savollar()` (mini
+- **Tez savollar (ice breakers).** «❓ Tayyor savol tugmalari» → `services.ai.tez_savollar()` (mini
   model, Bilimdan 4 ta; bo'sh — `STANDART_SAVOLLAR`) → `/me/messenger_profile`. Bosilishi
   `messaging_postbacks` bo'lib keladi, `hodisalar()` uni matnli xabarga aylantiradi.
 - **«yozmoqda» / «ko'rildi»** — `harakat()` (`typing_on`, `mark_seen`), avtojavobda
@@ -706,3 +706,24 @@ still advances `uslub_jami` and keeps the old text, or every owner message durin
 outage would start a new call (check 14). `_organmoqda` makes two concurrent triggers one call.
 Style lookup is decoration: `uslub_ol()` swallows DB errors, so a draft is written without style
 rather than not at all.
+
+## Button and screen names (2026-10-16)
+
+The owner asked for plain words: a new user did not know what «Bilim» or «Kuzatuv» meant.
+What the owner **sees** changed; code names, callbacks and DB columns did not.
+
+| code | on screen |
+|---|---|
+| `bilim` | «📝 Biznes ma'lumotlari» (in sentences: "biznes ma'lumotlariga qo'shdim") |
+| uslub | «🎨 Yozish uslubim» |
+| rejim | «Ishlash usuli»; the button is «⚙️ Ishlash usulini tanlash» |
+| `buyruq` / `yordamchi` / `kuzatuv` / `avtomat` | Faqat buyruq bilan / Javobni men tasdiqlayman / Faqat eslab qolsin / O'zi javob bersin |
+| ish vaqti, chatlar, avto belgi | ⏰ Javob beradigan soatlar, 💬 Javob bermaydigan chatlar, 🤖 «avtojavob» yozuvi |
+| kutish, pauza | ⏳ Kutish vaqti, 💤 Men yozganda jim |
+| ice breakers, uzish | ❓ Tayyor savol tugmalari, 🔌 Instagram'ni uzish |
+
+⚠️ **Telegram cuts a button that does not fit with «…», it never wraps it.** On a phone a
+button alone in its row holds ~28 characters, two in a row ~14 each. A long name goes on
+its own row; `test_biznes_ekran.py` check 1a fails on anything over 30 / 16.
+`handlers/capabilities.py` `_BATAFSIL` must quote the same labels — the model tells owners
+which button to press (`test_capabilities.py` check 12 lists them).

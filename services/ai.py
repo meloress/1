@@ -3829,7 +3829,7 @@ _BIZNES_XABAR_TOOL = {
     "name": "biznes_xabar",
     "description": (
         "Egasining Telegram Biznesi: suhbatdoshlariga (mijoz, do'st) uning "
-        "NOMIDAN yozish, yozishmalarni ko'rish, Bilim va sozlamalar. Bu ESLATMA "
+        "NOMIDAN yozish, yozishmalarni ko'rish, Bilim va sozlamalar (egasiga «Bilim» emas, «biznes ma'lumotlari» deng). Bu ESLATMA "
         "EMAS — manage_reminder/open_reminder bu yerda ishlatilmaydi. "
         "[BIZNES HOLATI] blokida hozirgi javob kutayotganlar, qoralamalar, "
         "yuborilgan va rejalashtirilganlar bor (chat_id bilan) — 'unga', "

@@ -273,8 +273,8 @@ async def main():
             assert len(b) < len(cap.model_uchun(p, "hammasi")), (kalit, len(b))
     # Odam ekranda qidiradigan tugma nomlari koddagidek yozilgan.
     bz = cap.model_uchun(True, "biznes")
-    for tugma in ("Kuzatuv", "⏰ Ishlash vaqti", "💬 Chatlar bo'yicha",
-                  "🤖 Avto belgisi", "💤 Pauza", "Xabarlarga javob berish"):
+    for tugma in ("Faqat eslab qolsin", "⏰ Javob beradigan soatlar", "💬 Javob bermaydigan chatlar",
+                  "🤖 «avtojavob» yozuvi", "💤 Men yozganda jim", "Xabarlarga javob berish"):
         assert tugma in bz, tugma
     assert "ISHLAMAYDI" in cap.model_uchun(False, "biznes")
     print(f"[12e] {len(cap._BATAFSIL)} bo'lim batafsil, har biri butun "

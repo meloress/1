@@ -136,19 +136,19 @@ def yoriqnoma(username: str | None, ulangan: bool) -> str:
     sahifasida kiradi va «Ruxsat» bosadi — qolganini kod qiladi."""
     if ulangan:
         return (f"{IG} <b>Instagram ulangan</b>{f': @{escape(username)}' if username else ''}\n\n"
-                "Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
+                "Direct'ga yozgan mijozlarga ham shu yerdagi ishlash usuli, biznes ma'lumotlari va uslub bilan "
                 "ishlayman. /biznes da nima o'zgartirsangiz, Instagram'ga ham tushadi.\n\n"
                 "• Rasm va ovozli xabarni tushunaman, storisga javob bo'lsa — qaysi "
                 "storis ekanini ham.\n"
                 "• Postingizga «narxi?», «+» kabi savol yozilsa — o'sha odamga Direct'da "
                 "javob beraman, izohga esa «Direct'ga yozdik» deb qo'yaman.\n"
-                "• «Tez savollar» — mijoz Direct'ni ochganda chiqadigan tugmalar, "
-                "Bilimingizdan tuziladi.\n\n"
-                "Boshqa akkaunt ulash — «Qayta ulash», to'xtatish — «Uzish».")
+                "• «Tayyor savol tugmalari» — mijoz Direct'ni ochganda chiqadigan tugmalar, "
+                "biznes ma'lumotlaringizdan tuziladi.\n\n"
+                "Boshqa akkaunt ulash — «Qayta ulash», to'xtatish — «Instagram'ni uzish».")
     return (
         f"{IG} <b>Instagram Direct'ni ulash</b>\n\n"
-        "Ulasangiz, Direct'ga yozgan mijozlarga ham shu yerdagi rejim, Bilim va uslub bilan "
-        "javob beraman (Yordamchi rejimida — qoralamani shu yerga yuboraman).\n\n"
+        "Ulasangiz, Direct'ga yozgan mijozlarga ham shu yerdagi ishlash usuli, biznes ma'lumotlari va uslub bilan "
+        "javob beraman («Javobni men tasdiqlayman» usulida — qoralamani shu yerga yuboraman).\n\n"
         "<b>Oldin tekshiring:</b>\n"
         "1. Akkauntingiz <b>Professional</b> bo'lsin (Biznes yoki Autor): Instagram → "
         "Sozlamalar → Akkaunt turi va vositalar → Professional akkauntga o'tish.\n"
@@ -711,7 +711,7 @@ async def ulanish_yarat(egasi: int, code: str) -> str:
     logger.info(f"[Instagram] ulandi egasi={egasi} hisob={conn_id}")
     await biznes._egasiga(egasi, (
         f"{IG} <b>Instagram @{escape(username or '')} ulandi.</b>\n\n"
-        "Telegram'dagi rejim, Bilim, uslub va sozlamalar Direct'da ham ishlaydi — "
+        "Telegram'dagi ishlash usuli, biznes ma'lumotlari, uslub va sozlamalar Direct'da ham ishlaydi — "
         "/biznes da nima o'zgartirsangiz, ikkalasiga tushadi. Qoralamalar shu "
         "mavzuga «(Instagram)» belgisi bilan keladi."))
     return username or ""
@@ -774,7 +774,7 @@ async def maxfiylik(request: web.Request):
          f"Conversation history is kept for at most {BIZNES_SAQLASH_KUN} days. When the owner "
          f"disconnects the service or their subscription ends, the related conversations, drafts "
          f"and customer records are deleted after {BIZNES_TOZALASH_KUN} days. The Instagram access "
-         "token is deleted immediately when the owner presses «Uzish» (Disconnect)."),
+         "token is deleted immediately when the owner presses «Instagram'ni uzish» (Disconnect)."),
         ("What we never do",
          "We do not sell data, do not use it for advertising, and do not share it with anyone "
          "other than the AI provider needed to produce a reply."),
@@ -792,14 +792,14 @@ async def ochirish(request: web.Request):
     return _hujjat("Data Deletion — UzBot Business", [
         ("Delete your Instagram data",
          "1) In Telegram open @uzchatgptaibot and send /biznes. 2) Tap «Instagram» and then "
-         "«Uzish» (Disconnect). The Instagram access token is deleted immediately; the "
+         "«Instagram'ni uzish» (Disconnect). The Instagram access token is deleted immediately; the "
          f"conversations, drafts and customer records are deleted within {BIZNES_TOZALASH_KUN} "
          "days. 3) Optionally remove the app in Instagram: Settings → Apps and websites."),
         ("Request full deletion",
          "Send the message «delete my data» to @uzchatgptaibot. All data linked to your "
          "account is deleted within 30 days and you receive a confirmation."),
         ("O'zbekcha",
-         "Telegram'da @uzchatgptaibot → /biznes → «Instagram» → «Uzish». Kalit darhol, "
+         "Telegram'da @uzchatgptaibot → /biznes → «Instagram» → «Instagram'ni uzish». Kalit darhol, "
          f"yozishmalar {BIZNES_TOZALASH_KUN} kun ichida o'chadi."),
     ])
 

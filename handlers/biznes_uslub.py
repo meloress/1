@@ -203,7 +203,7 @@ def bekor_kb(*qator) -> InlineKeyboardMarkup:
 
 def uslub_ekrani(u: dict) -> str:
     """Sof funksiya."""
-    q = ["🎨 <b>USLUBIM</b>\n",
+    q = ["🎨 <b>YOZISH USLUBIM</b>\n",
          "Mijozlarga o'zingiz yozgan xabarlardan va qoralamani qanday "
          "tuzatganingizdan o'rganaman — javoblar sizdek chiqsin.\n",
          f"Namunalar: <b>{len(u.get('namunalar') or [])}</b> ta xabar, "
@@ -219,9 +219,9 @@ def uslub_ekrani(u: dict) -> str:
 
 def _kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [pro_module.btn("✍️ Qoidalarimni yozish", "bz:uy", style=BTN_PRIMARY)],
-        [pro_module.btn("🔄 Hozir o'rgan", "bz:uo"),
-         pro_module.btn("❌ Namunalarni o'chirish", "bz:ud")],
+        [pro_module.btn("✍️ Qanday yozishini aytish", "bz:uy", style=BTN_PRIMARY)],
+        [pro_module.btn("🔄 Xabarlarimdan o'rgansin", "bz:uo")],
+        [pro_module.btn("❌ O'rganganini o'chirish", "bz:ud")],
         [pro_module.btn("👈 Orqaga", "bz:e")]])
 
 

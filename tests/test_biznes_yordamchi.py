@@ -357,7 +357,7 @@ UL["huquqlar"] = {"can_reply": True, "can_read_messages": True}
 
 # ── 22-24. Ekran, ro'yxatga olish, uyg'otish himoyasi ────────────
 check(22, "ekran: rejim, bilim uzunligi, bilimsiz ogohlantirish",
-      "Yordamchi" in b.ekran_matni(UL, BILIM) and str(len(BILIM)) in b.ekran_matni(UL, BILIM)
+      b.REJIM_NOMI["yordamchi"][0] in b.ekran_matni(UL, BILIM) and str(len(BILIM)) in b.ekran_matni(UL, BILIM)
       and "hech narsa bilmayman" in b.ekran_matni(UL, "")
       and "ulanmagan" in b.ekran_matni(None, ""))
 

@@ -76,7 +76,7 @@ H = [
     # ── Bitta bo'lim tafsiloti (open_capabilities(bolim=…), 2026-10-06) ──
     ("biznes_free", "Telegram biznesni botga qanday ulayman?", False, {"open_capabilities"},
      set(), [r"(?i)\bpro\b", r"(?i)avtomatlashtirish"], [r"(?i)premium kerak(?! emas)"]),
-    ("biznes_tugma", "biznesdagi Pauza tugmasi nima qiladi?", True, {"open_capabilities"},
+    ("biznes_tugma", "biznesdagi «Men yozganda jim» tugmasi nima qiladi?", True, {"open_capabilities"},
      set(), [r"(?i)jim|to'xtat|javob berma|aralashma", r"(?i)soat"], []),
     ("kunlik_qanday", "kunlik daydjestni qanday sozlayman?", True, {"open_capabilities"},
      set(), [r"/kunlik", r"(?i)mavzu"], []),

@@ -94,7 +94,7 @@ video hammasiga yetadi; har ruxsat formasiga o'sha videoni yuklang.
    beradi (Avtomat) **yoki** Telegram'ga qoralama keladi → «Yuborish» → mijoz javobni
    ko'radi. Subtitr: *"instagram_business_manage_messages: the customer's message is
    answered; in Assistant mode the owner approves it first."*
-5. Telegram'da «❓ Tez savollar» → savollar o'rnatiladi → mijoz telefonida chat ochilganda
+5. Telegram'da «❓ Tayyor savol tugmalari» → savollar o'rnatiladi → mijoz telefonida chat ochilganda
    tugmalar chiqadi → bosiladi → javob keladi. Subtitr: *"Ice breakers set from the
    owner's business info."*
 6. Mijoz akkauntidan postga «narxi?» izohi → izoh ostida «📩 Direct'ga yozdik», mijoz
@@ -103,7 +103,7 @@ video hammasiga yetadi; har ruxsat formasiga o'sha videoni yuklang.
 7. (Human Agent) Telegram'da 24 soatdan eski chat uchun qoralamani «Yuborish» → yetib
    boradi. Subtitr: *"Human Agent: only owner-approved messages, after the 24-hour
    window."* (24 soat kutib bo'lmasa bu qadamni tushuntirish matni bilan almashtiring.)
-8. /biznes → Instagram → «Uzish» → «Instagram uzildi». Subtitr: *"The owner can
+8. /biznes → Instagram → «🔌 Instagram'ni uzish» → «Instagram uzildi». Subtitr: *"The owner can
    disconnect at any time; the token is deleted."*
 
 ## 7. Test instructions (formadagi «How can we test»)

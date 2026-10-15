@@ -557,7 +557,7 @@ blok = run(b.holat_bloki(EGASI))
 check(44, "holat: taklif, javob kutayotgan, yuborilgan, reja, rejim; yiqilgan qism boshqalarni to'xtatmaydi",
       "[BIZNES HOLATI" in blok and "Tasdiq kutayotgan taklif" in blok
       and "Хусан (chat_id=11)" in blok and "Oxirgi yuborilganlar" in blok
-      and "Rejalashtirilgan" in blok and "Rejim: Yordamchi" in blok
+      and "Rejalashtirilgan" in blok and f"Rejim: {b.REJIM_NOMI['yordamchi'][0]}" in blok
       and "Hal qilinmagan" not in blok)
 
 # ── 45. Reply konteksti ──────────────────────────────────────────

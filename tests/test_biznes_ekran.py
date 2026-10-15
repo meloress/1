@@ -35,10 +35,21 @@ UL = {"owner_id": 1, "owner_chat": 1, "yoqilgan": True, "rejim": "avtomat",
 kb = b._ekran_kb(UL)
 bosh = tugmalar(kb)
 # Egasi: "qo'pol tuyulyapti" (2026-09-29) — ikki qator, rangsiz, rejimlar ichkarida.
-check(1, "bosh ekran: Rejim + Bilim + Uslub + Sozlamalar, 2 qator, rangsiz",
-      bosh == ["bz:rm", "bz:k", "bz:us", "bz:s"] and len(kb.inline_keyboard) == 2
-      and all(t.style is None for q in kb.inline_keyboard for t in q)
-      and "Avtomat" in kb.inline_keyboard[0][0].text)
+check(1, "bosh ekran: usul + biznes ma'lumotlari + uslub + sozlamalar, 3 qator, rangsiz",
+      bosh == ["bz:rm", "bz:k", "bz:us", "bz:s"] and len(kb.inline_keyboard) == 3
+      and all(t.style is None for q in kb.inline_keyboard for t in q))
+
+
+def sigadimi(kb):
+    """Telefonda yolg'iz tugmaga ~28, juftiga ~14 belgi sig'adi; oshgani «…» bilan
+    kesiladi (egasi: "to'liq chiqmay qolmaydimi", 2026-10-16). Zaxira bilan 30/16."""
+    return [t.text for q in kb.inline_keyboard for t in q
+            if len(t.text) > (30 if len(q) == 1 else 16)]
+
+
+uzun = (sigadimi(kb) + sigadimi(b._sozlama_kb(UL)) + sigadimi(b._rejim_kb(UL))
+        + sigadimi(b.biznes_uslub._kb()) + sigadimi(b._tanlov_kb(1, ["a"])))
+check("1a", "bosh, sozlama, rejim, uslub va tanlov tugmalari telefonga sig'adi", not uzun)
 rj = tugmalar(b._rejim_kb(UL))
 check("1b", "rejim menyusi: to'rt rejim + orqaga, tanlangani ✓",
       rj == [f"bz:r:{r}" for r in b.BIZNES_REJIMLAR] + ["bz:e"]
@@ -56,7 +67,7 @@ check(4, "statistika: bugungi javob/uzatish, 30 kunlik foiz, namuna soni",
       and "<b>34</b> ta namuna" in m)
 m0 = b.ekran_matni(UL, "", {"javob": 0, "uzatish": 0, "tahrirsiz": 0, "yuborilgan": 0})
 check(5, "yuborilgan qoralama yo'q — foiz qatori yo'q (0 ga bo'linmaydi)", "%" not in m0)
-check(6, "statistikasiz ham ekran (eski chaqiruvchilar)", "Rejim" in b.ekran_matni(UL, ""))
+check(6, "statistikasiz ham ekran (eski chaqiruvchilar)", "Ishlash usuli" in b.ekran_matni(UL, ""))
 
 
 async def yiqiladi(*a, **k):
@@ -72,7 +83,7 @@ database.biznes_uslub_ol = yiqiladi
 database._biznes_kesh["c1"] = UL
 matn, kb = asyncio.run(b._ekran(1))
 check(7, "statistika o'qilmasa ham ekran ochiladi (bezak — darvoza emas)",
-      "Rejim" in matn and kb is not None)
+      "Ishlash usuli" in matn and kb is not None)
 
 # ── 8-11. Ulanmagan ekran: to'g'ri holat, Premium yo'q, menyu egasining tilida ──
 from types import SimpleNamespace as NS  # noqa: E402
