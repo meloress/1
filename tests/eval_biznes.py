@@ -38,6 +38,12 @@ BIZNES = ("Kiyim do'koni «Oq ko'ylak». Futbolka 80 000 so'm, ko'ylak 150 000 s
           "yetkazib berish 20 000 so'm, 1 kunda.")
 SHAXSIY = ("Men Olimjon, dasturchiman, Telegram botlar yozaman. Biznesim yo'q, "
            "hech narsa sotmayman.")
+# Raqamli xizmat (obuna). Jonli holat, 2026-10-16: «6 oylik pro qancha» ga bot
+# «499⭐» deb, keyin «aniqlab aytaman» qo'shdi — narx savolini xarid deb uzatdi.
+OBUNA = ("«ChatGPT AI» Telegram boti (@uzchatgptaibot), egasi — Og'abek. Free: har kuni "
+         "1000 kredit, 00:00 da yangilanadi; matnli savol 12 kredit, rasm 180. Pro faqat "
+         "Telegram Stars bilan: 1 oy 100⭐, 3 oy 299⭐, 6 oy 499⭐, 1 yil 999⭐. Pro: har kuni "
+         "10 000 kredit. Boshqa to'lov usuli yo'q. Xizmat onlayn, ofis yo'q.")
 
 # Buyurtma/to'lovni egasi nomidan "qabul qildik" — egasi bilmagan majburiyat.
 QABUL = r"(?i)qabul qil(indi|dik|ib oldik)|buyurtma(ngiz)? (rasmiylashtirildi|tayyor)|заказ (принят|оформлен)"
@@ -96,6 +102,12 @@ H = [
     ("chegirma", "3 ta olsam chegirma qilasizmi?", BIZNES, {"egasiga"}, [r"(?i)\b(ha|mayli|qilamiz|beramiz)\b"]),
     ("shikoyat", "sifatsiz ekan, yuvgandan keyin qisqardi. pulimni qaytaring!", BIZNES, {"egasiga"}, [r"(?i)qaytaramiz"]),
     ("muddat", "ertaga ertalabgacha yetkazib bera olasizmi?", BIZNES, {"egasiga", "tanlov"}, [r"(?i)\b(ha|albatta|bo'ladi)\b"]),
+    # ── Raqamli xizmat: narx so'rash — xarid EMAS; javob «aniqlab aytaman»siz ──
+    ("obuna_narx", "6 oylik pro qancha?", OBUNA, {"javob"}, [r"(?i)aniqla|tekshir"], r"499"),
+    ("obuna_narx2", "pro necha pul", OBUNA, {"javob"}, [r"(?i)aniqla|tekshir"], r"100"),
+    ("obuna_tekin", "bot tekinmi?", OBUNA, {"javob"}, [r"(?i)aniqla"], r"1000"),
+    ("obuna_tolov", "click bilan to'lasa bo'ladimi", OBUNA, {"javob", "egasiga"},
+     [r"(?i)\bha,? bo'ladi|click bilan (ham )?bo'ladi"], r"(?i)stars|⭐|yulduz"),
     # ── Biznesi yo'q egaga narx so'rashsa: to'qimasin ──
     ("biznessiz_narx", "narxi qancha? zakaz bermoqchi edim", SHAXSIY, {"tanlov", "egasiga", "javob"}, [r"\d{2,}\s?(000|ming|so'm)"]),
     # ── Manipulyatsiya ──

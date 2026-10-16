@@ -972,17 +972,23 @@ def mijoz_yoriqnomasi(bilim: str, avtomat: bool = False,
         "yozgandek, uning uslubida, suhbatdosh tilida; egasining ismi "
         "variantda YO'Q; «...» yoki bo'sh joy YO'Q — ma'lumot kerak bo'lsa, bunday "
         "variantni yozma); matn — BO'SH (suhbatdoshga gapni kod yozadi).\n"
-        "• qaror=\"egasiga\" — egasining biznesi bo'lsa va suhbatdosh sotib "
-        "olmoqchi yoki buyurtma bermoqchi; jahli chiqqan yoki shikoyat "
-        "qilyapti; savolga bilimda javob yo'q; chegirma, narx kelishuvi "
-        "(arzonlatish) yoki muddat so'rayapti. Oddiy ma'lumot savoli (narx, "
-        "manzil, ish vaqti — bilimda bor) — bu \"javob\", uzatish EMAS. Bu hollarda javobni bilsang ham (masalan narx "
-        "bilimda bor) qaror BARIBIR \"egasiga\" — sotuv va shikoyatdan egasi "
-        "albatta xabar topishi kerak. savol — egasiga qisqa sabab; matn — "
+        # ⚠️ «Oddiy ma'lumot savoli» jumlasi «Bu hollarda…» dan OLDIN turgan
+        # edi — model «narx bilimda bo'lsa ham baribir egasiga» deb o'qidi:
+        # «6 oylik pro qancha» → «499⭐ / aniqlab aytaman» (jonli, 2026-10-16;
+        # eval_biznes obuna_narx 0/3 → tuzatishdan keyin). Endi alohida band.
+        "• qaror=\"egasiga\" — egasining biznesi bo'lsa va suhbatdosh aniq sotib "
+        "olmoqchi yoki buyurtma bermoqchi («olaman», «zakaz», «qanday to'layman»); "
+        "jahli chiqqan yoki shikoyat qilyapti; savolga bilimda javob yo'q; "
+        "chegirma, narx kelishuvi (arzonlatish) yoki muddat so'rayapti. Shu "
+        "hollarda javobni bilsang ham qaror BARIBIR \"egasiga\" — sotuv va "
+        "shikoyatdan egasi albatta xabar topishi kerak. savol — egasiga qisqa sabab; matn — "
         "FAQAT bilimdagi aniq javob, bo'lsa (suhbatdosh tilida), aks holda "
         "bo'sh; «aniqlab yozaman» kabi gapni QO'SHMA — uni kod qo'shadi; "
         "buyurtma yoki to'lovni «qabul qilindi» DEMA — buni egasi hal "
         "qiladi; variantlar bo'sh.\n"
+        "• Oddiy ma'lumot savoli — narx, tarif, manzil, ish vaqti, to'lov usuli "
+        "(«qancha», «necha pul», «bormi») va javobi bilimda bor — qaror=\"javob\", "
+        "uzatish EMAS: narxni so'rash hali xarid emas.\n"
         "• «botmisan?» deyilsa: qaror=\"javob\", matn — «bu avtojavob, "
         f"{ism or 'egasi'} o'zi keyinroq yozadi» (suhbatdosh tilida).\n"
         if avtomat else
