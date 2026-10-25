@@ -829,8 +829,16 @@ What did **not** move, because Telegram ties it to the bot: Business connections
 owner reconnects), Stars from old payments (refunds only work from the old bot — the panel's
 refund fails safely, Telegram first), private-chat topics, and the right to message a user
 who has not pressed /start on the new bot. The logo emoji set is per bot
-(`holat4_by_vexonai` is created on first start) and still uses the **old** animations in
-`assets/status_*.webm`; `web/static/logo.jpg` and `assets/vexon_logo.jpg` are the new logo.
+(`holat4_by_vexonai` is created on first start); `web/static/logo.jpg` and
+`assets/vexon_logo.jpg` are the new logo.
+
+**The 16 status animations are generated, not hand-made:** `python assets/status_yasash.py
+[tur…]` draws each from `assets/vexon_v.png` (the «V» cut out of the logo) and fits it under
+64 KB by raising `crf`. The previous scripts lived in a scratchpad and were lost, which is
+why the logo change meant redrawing everything — edit this file instead. Every type's
+`_LOGO_BELGI` emoji changed on 2026-10-25 so the startup `replaceStickerInSet` swaps all 16;
+change a type's emoji again whenever its animation changes, and pick emoji that need no
+U+FE0F.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

@@ -840,7 +840,7 @@ def _kim(user_id: Optional[int], username: Optional[str]) -> Optional[str]:
 
     ⚠️ Bitta odam bitta joyda bitta nom bilan atalishi kerak. Ilgari
     jurnalning filtr chiplari `ID:2001717965`, o'sha adminning jadvaldagi
-    qatori esa `@jumayeevou` deb yozilardi — bir ekranda ikki nom, va
+    qatori esa `@jumayevou` deb yozilardi — bir ekranda ikki nom, va
     admin ular boshqa-boshqa odam deb o'ylashi mumkin edi. Sabab oddiy
     edi: chiplar ro'yxati faqat `admin_id` dan yig'ilardi, username
     umuman so'ralmasdi.

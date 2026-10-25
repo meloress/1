@@ -871,9 +871,14 @@ _LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
 # animatsiya versiyasi: to'plamdagi emoji shu yerdagidan farq qilsa, stiker
 # ishga tushganda yangi webm bilan JOYIDA almashtiriladi (replaceStickerInSet).
 # Animatsiyani o'zgartirdingizmi — belgisini ham o'zgartiring (eskisi "🤖").
-# "text" 💭 — 2026-10-16: eskisi kadr chetida kesilardi, atrofida izlar bor edi.
-_LOGO_BELGI = {"text": "💭", "wave": "👋", "broom": "🧹", "chat": "💬", "build": "🛠",
-               "pro": "💎", "limits": "📊", "capabilities": "🎯"}
+# 2026-10-25: 16 tasi ham Vexon «V» bilan qayta chizildi (assets/status_yasash.py),
+# shuning uchun HAR BIRINING belgisi yangi — eskisi bilan bir xil qolgani
+# yangilanmay, eski OpenAI tuguni bilan qolib ketardi. Belgilar U+FE0F'siz
+# yoziladigan emojilardan tanlangan (🎙️, 🖐️ kabilar emas).
+_LOGO_BELGI = {"text": "🤔", "search": "🔍", "document": "📄", "photo": "📷",
+               "voice": "🎤", "image": "🎨", "reminder": "⏰", "memory": "🧠",
+               "kichik": "🔹", "wave": "✋", "broom": "✨", "chat": "💭",
+               "build": "🔧", "pro": "👑", "limits": "📈", "capabilities": "🧭"}
 # Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
 _LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
 # ⚠️ Nomdagi raqam — to'plam nomi. Uni OSHIRMANG: egalari bu to'plamni o'z

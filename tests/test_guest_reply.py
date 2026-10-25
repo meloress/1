@@ -417,7 +417,7 @@ async def flood_tests():
     try:
         await hm.logo_emojini_tayyorla("uzchatgptaibot")
         assert [t for _, t, _ in qoshildi] == list(hm._LOGO_TURLAR[9:]), qoshildi
-        assert all(u == 777 for u, _, _ in qoshildi) and ("wave", "👋") in [(t, e) for _, t, e in qoshildi]
+        assert all(u == 777 for u, _, _ in qoshildi) and ("wave", hm._LOGO_BELGI["wave"]) in [(t, e) for _, t, e in qoshildi]
         assert pm.pe("wave", "👋") == '<tg-emoji emoji-id="LOGO_wave">👋</tg-emoji>'
         assert 'LOGO_build' in pm.pe("tools", "🛠") and 'LOGO_image' in pm.pe("write", "✍️")
         assert pm.btn("x", "c", icon="capabilities").icon_custom_emoji_id == "LOGO_capabilities"
@@ -447,11 +447,12 @@ async def flood_tests():
 
     ab = AlmashBot(len(hm._LOGO_TURLAR))
     ab.st[0].emoji = "🤖"                                   # eski «o'ylayapman»
-    ab.st[hm._LOGO_TURLAR.index("build")].emoji = "🛠️"
+    # Telegram belgini U+FE0F bilan qaytaradi — bu farq EMAS
+    ab.st[hm._LOGO_TURLAR.index("build")].emoji = hm._LOGO_BELGI["build"] + "️"
     hm.bot, dbm.get_superadmin_id = ab, superadmin
     try:
         await hm.logo_emojini_tayyorla("uzchatgptaibot")
-        assert almashdi == [(777, "F_text", "💭")], almashdi
+        assert almashdi == [(777, "F_text", hm._LOGO_BELGI["text"])], almashdi
         assert hm.LOGO_EMOJI["text"] == "LOGO_yangi" and hm.LOGO_EMOJI["search"] == "LOGO_search"
         await hm.logo_emojini_tayyorla("uzchatgptaibot")
         assert len(almashdi) == 1, almashdi
