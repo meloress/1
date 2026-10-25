@@ -293,7 +293,8 @@ written into `~/.railway/config.json` by hand, keyed by directory path. That fil
 - workspace `Melores's Projects` `e4ee0499-8975-4fdb-a58d-3070e58dd692`
 - project `truthful-prosperity` `ca061dfe-9a94-41a1-a135-9312e8fbfbc5`
 - environment `production` `598aeb0b-1ff2-4a49-b055-44b39b9d764a`
-- service **`1`** (this bot, `@uzchatgptaibot`) `d644a705-d075-440b-a68d-9fd21dcbd44b`
+- service **`1`** (this bot — `@vexonai` since 2026-10-25, `@uzchatgptaibot` before; the
+  old one runs in the same service as a redirect, see "The bot moved to @vexonai") `d644a705-d075-440b-a68d-9fd21dcbd44b`
 - the same project also runs `Melores-Bot`, `Hisobotchi-bot`, `Trello-bot`, `Web-panel`
   and several Postgres instances — ours is the one named `1`
 
@@ -803,6 +804,33 @@ owner-style learning) and the planned next work. The four rules that break silen
   `messaging_postbacks` webhook fields must be ticked in the Meta dashboard or v2's comment
   replies and ice breakers never fire. Meta sends webhooks as `v26.0` while
   `IG_GRAPH` is `v23.0` — works today, check it first if a Graph call starts failing.
+
+### The bot moved to @vexonai; the old one only redirects
+
+On 2026-10-25 the bot moved from `@uzchatgptaibot` to **`@vexonai`** (brand **Vexon AI**).
+`BOT_TOKEN` is the new bot; the old token sits in **`ESKI_BOT_TOKEN`** and
+`handlers/eski_bot.py` polls it **inside the same process** with its own `Dispatcher`.
+Whatever anyone does there — text, photo, a stale button, `@mention` in a group — gets one
+fixed message (logo + "@vexonai, your Pro and history are kept there"). Same database, same
+user ids, so the claim is true. `tests/test_eski_bot.py` pins the rules below.
+
+- ⛔️ **A Business customer of the old bot gets nothing.** They think they are talking to
+  the owner; "this bot has stopped" would land in the owner's name. Only the owner is told,
+  once, to connect `@vexonai` (check 2).
+- `pre_checkout_query` is **rejected**, so nobody pays the dead bot (check 3).
+- `ESKI_BOT_TOKEN == BOT_TOKEN` is refused in `main.py`: two pollers on one token raise
+  `TelegramConflictError` and the **main** bot starts losing updates (check 7).
+- The module touches no database (check 8) and never raises into `main()`.
+- The bot's own name is read from `getMe` (`pro.BOT_USERNAME`) in every user-facing text,
+  with `'vexonai'` as the fallback — the old name hard-coded in the Business setup steps
+  would have sent every new owner to the dead bot.
+
+What did **not** move, because Telegram ties it to the bot: Business connections (each
+owner reconnects), Stars from old payments (refunds only work from the old bot — the panel's
+refund fails safely, Telegram first), private-chat topics, and the right to message a user
+who has not pressed /start on the new bot. The logo emoji set is per bot
+(`holat4_by_vexonai` is created on first start) and still uses the **old** animations in
+`assets/status_*.webm`; `web/static/logo.jpg` and `assets/vexon_logo.jpg` are the new logo.
 
 ### Inline mode must stay OFF — it breaks guest mode
 

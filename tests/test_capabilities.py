@@ -317,7 +317,7 @@ async def main():
     # ═══════════════════════════════════════════════════════════════
     # Bularning hammasi kodda ISHLAYDI, lekin ekranda aytilmagani uchun
     # foydalanuvchilar mavjudligini ham bilmasdi.
-    for key, kalit_soz in (("guruh", "@uzchatgptaibot"),
+    for key, kalit_soz in (("guruh", "@vexonai"),
                            ("joy", "Joylashuv"),
                            ("chat", "Mavzular")):
         assert key in cap.SECTIONS, f"'{key}' bo'limi yo'q"

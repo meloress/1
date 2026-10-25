@@ -755,11 +755,19 @@ def _hujjat(sarlavha: str, bolimlar: list) -> web.Response:
         f"<h1>{escape(sarlavha)}</h1>{tana}"))
 
 
+def _bot_nomi() -> str:
+    # Bot nomi qo'lda yozilmaydi: bot @uzchatgptaibot -> @vexonai ga
+    # ko'chganda bu sahifalar Meta'ga eski manzilni ko'rsatib turardi.
+    from handlers import pro
+    return pro.BOT_USERNAME or "vexonai"
+
+
 async def maxfiylik(request: web.Request):
     from core.config import BIZNES_SAQLASH_KUN, BIZNES_TOZALASH_KUN
+    bot_nom = _bot_nomi()
     return _hujjat("Privacy Policy — UzBot Business", [
         ("What this service does",
-         "UzBot (Telegram bot @uzchatgptaibot) lets a business owner connect their Telegram "
+         f"UzBot (Telegram bot @{bot_nom}) lets a business owner connect their Telegram "
          "Business account and their Instagram Professional account so that an AI assistant "
          "can draft or send replies to the owner's customers in direct messages, using the "
          "instructions and business information the owner provides."),
@@ -779,27 +787,28 @@ async def maxfiylik(request: web.Request):
          "We do not sell data, do not use it for advertising, and do not share it with anyone "
          "other than the AI provider needed to produce a reply."),
         ("Contact",
-         "Write to the Telegram bot @uzchatgptaibot with any privacy question or request."),
+         f"Write to the Telegram bot @{bot_nom} with any privacy question or request."),
         ("Maxfiylik (o'zbekcha)",
          "Bot faqat ulangan akkauntga kelgan xabarlarga javob yozish uchun ularni qayta "
          f"ishlaydi, yozishmalarni ko'pi bilan {BIZNES_SAQLASH_KUN} kun saqlaydi, ma'lumotni "
-         "sotmaydi va reklamada ishlatmaydi. Savollar uchun: @uzchatgptaibot."),
+         f"sotmaydi va reklamada ishlatmaydi. Savollar uchun: @{bot_nom}."),
     ])
 
 
 async def ochirish(request: web.Request):
     from core.config import BIZNES_TOZALASH_KUN
+    bot_nom = _bot_nomi()
     return _hujjat("Data Deletion — UzBot Business", [
         ("Delete your Instagram data",
-         "1) In Telegram open @uzchatgptaibot and send /biznes. 2) Tap «Instagram» and then "
+         f"1) In Telegram open @{bot_nom} and send /biznes. 2) Tap «Instagram» and then "
          "«Instagram'ni uzish» (Disconnect). The Instagram access token is deleted immediately; the "
          f"conversations, drafts and customer records are deleted within {BIZNES_TOZALASH_KUN} "
          "days. 3) Optionally remove the app in Instagram: Settings → Apps and websites."),
         ("Request full deletion",
-         "Send the message «delete my data» to @uzchatgptaibot. All data linked to your "
+         f"Send the message «delete my data» to @{bot_nom}. All data linked to your "
          "account is deleted within 30 days and you receive a confirmation."),
         ("O'zbekcha",
-         "Telegram'da @uzchatgptaibot → /biznes → «Instagram» → «Instagram'ni uzish». Kalit darhol, "
+         f"Telegram'da @{bot_nom} → /biznes → «Instagram» → «Instagram'ni uzish». Kalit darhol, "
          f"yozishmalar {BIZNES_TOZALASH_KUN} kun ichida o'chadi."),
     ])
 

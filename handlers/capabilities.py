@@ -168,7 +168,7 @@ SECTIONS: dict[str, dict] = {
         # yolg'on manzil ko'rsatib turardi.
         "body": lambda pro: (
             "Meni guruhga qo'shish shart emas — istalgan chatda "
-            f"<b>@{pro_module.BOT_USERNAME or 'uzchatgptaibot'}</b> deb "
+            f"<b>@{pro_module.BOT_USERNAME or 'vexonai'}</b> deb "
             "yozib, savolingizni qo'shsangiz kifoya. Javob o'sha yerda, "
             "hamma ko'radigan qilib chiqadi.\n\n"
             "Guruhda ham: internetdan qidiraman, rasm topaman, jadval "
@@ -211,7 +211,7 @@ SECTIONS: dict[str, dict] = {
         "body": lambda pro: (
             ("" if pro else "🔒 <b>Pro tarifida.</b>\n\n")
             + "Meni o'z profilingizga ulang: Sozlamalar → Telegram Biznes "
-            "→ Chatni avtomatlashtirish → @uzchatgptaibot. Ulandimmi — /biznes "
+            f"→ Chatni avtomatlashtirish → @{pro_module.BOT_USERNAME or 'vexonai'}. Ulandimmi — /biznes "
             "o'zi ko'rsatadi. Istalgan shaxsiy chatingizda nuqta bilan "
             "yozing — buyruq o'chadi, natija o'rniga chiqadi:\n\n"
             "├ <code>.javob</code> nima demoqchisiz — chiroyli javob\n"
@@ -468,7 +468,7 @@ _BATAFSIL: dict = {
         "ULANISH: 1) Telegram: Sozlamalar → Telegram Biznes → Chatni "
         "avtomatlashtirish (inglizchada Settings → Telegram Business → Chat "
         "Automation; ruschada Настройки → Telegram для бизнеса → "
-        "Автоматизация чатов). 2) @uzchatgptaibot ni kiriting. 3) Huquqlar: "
+        "Автоматизация чатов). 2) @vexonai ni kiriting. 3) Huquqlar: "
         "«Xabarlarni o'qish» va «Xabarlarga javob berish» — asosiylari; "
         "«Tarjimayi holni tahrirlash», «Ismni tahrirlash», «Profil rasmini "
         "tahrirlash», «Hikoyalarni boshqarish» — faqat profilni o'zgartirish "

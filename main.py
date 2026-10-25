@@ -1,4 +1,5 @@
 import asyncio
+import os
 from aiogram import types, F, Router
 from aiogram.filters import CommandStart
 from aiogram.methods import DeleteWebhook
@@ -342,6 +343,18 @@ async def main():
                                   scope=BotCommandScopeAllPrivateChats())
     except Exception as e:
         logger.warning(f"Buyruqlar menyusi qo'yilmadi: {e}")
+
+    # Eski bot (@uzchatgptaibot) — faqat yangi botga yo'naltiradi
+    # (handlers/eski_bot.py). getMe'dan KEYIN: xabar yangi botning
+    # username'ini o'qiydi.
+    # ⛔️ Token bir xil bo'lsa ishga tushirilmaydi: bitta tokenda ikki polling
+    # TelegramConflictError beradi va ASOSIY bot update'larni yo'qotadi.
+    eski_token = os.getenv("ESKI_BOT_TOKEN", "").strip()
+    if eski_token and eski_token != config.BOT_TOKEN:
+        from handlers import eski_bot
+        asyncio.create_task(eski_bot.ishga_tushir(eski_token))
+    elif eski_token:
+        logger.warning("ESKI_BOT_TOKEN = BOT_TOKEN — eski bot ishga tushirilmadi")
 
     await bot(DeleteWebhook(drop_pending_updates=True))
 

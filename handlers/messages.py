@@ -921,7 +921,7 @@ async def logo_emojini_tayyorla(bot_username: str) -> None:
                 logger.warning("[Logo emoji] superadmin yo'q — to'plam yaratilmadi")
                 return
             await bot.create_new_sticker_set(
-                user_id=egasi, name=nom, title="ChatGPT AI",
+                user_id=egasi, name=nom, title="Vexon AI",
                 stickers=[stiker(t) for t in _LOGO_TURLAR], sticker_type="custom_emoji")
             toplam = await bot.get_sticker_set(nom)
             logger.info(f"[Logo emoji] to'plam yaratildi: t.me/addemoji/{nom}")
