@@ -536,8 +536,20 @@ def _huquqlar(conn: BusinessConnection) -> dict:
 
 
 async def _saqla(conn: BusinessConnection) -> dict:
-    return await database.biznes_ulanish_yoz(
+    ul = await database.biznes_ulanish_yoz(
         conn.id, conn.user.id, conn.user_chat_id, conn.is_enabled, _huquqlar(conn))
+    if conn.is_enabled:
+        # Bot almashgan bo'lsa (@uzchatgptaibot -> @vexonai) yangi ulanish
+        # `buyruq` rejimida ochilardi va mijozlarga JIM turardi — sozlamalar
+        # eski ulanishdan olinadi, eskisi o'chiriladi.
+        try:
+            if await database.biznes_telegram_almashdi(conn.user.id, conn.id):
+                logger.info(f"[BIZNES] egasi={conn.user.id} botni almashtirdi — "
+                            f"sozlamalar yangi ulanishga ko'chdi")
+                ul = database.biznes_ulanish_ol(conn.id) or ul
+        except Exception:
+            logger.exception("[BIZNES] eski ulanishdan sozlama ko'chmadi")
+    return ul
 
 
 async def _ulanish(conn_id: str) -> dict | None:

@@ -54,6 +54,14 @@ async def main():
     await database.load_watch_cache()
     # Business ulanishlari — har `business_message` shu keshdan o'qiydi.
     await database.biznes_keshni_yukla()
+    # Bot almashgandan keyin ulanib, `buyruq` rejimida qolib ketgan egalar
+    # (2026-10-25). Yiqilsa ham bot ishga tushadi — bu tuzatish, shart emas.
+    try:
+        n = await database.biznes_almashuvni_tuzat()
+        if n:
+            logger.info(f"[BIZNES] {n} ta egada eski ulanish sozlamasi ko'chirildi")
+    except Exception:
+        logger.exception("[BIZNES] almashuvni tuzatish yiqildi")
     # Admin panelida sozlangan kunlik limitlar. Bazadan BIR MARTA
     # o'qiladi va xotiraga qo'yiladi — `daily_limit()` har xabarda
     # chaqiriladi, u yerdan DB so'rovi qilib bo'lmaydi.

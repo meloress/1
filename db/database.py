@@ -1230,6 +1230,86 @@ async def biznes_sozlamani_kochir(owner_id: int, conn_id: str) -> None:
         _biznes_kesh[conn_id].update(dict(r))
 
 
+_SOZLAMA = "rejim, ish_vaqti, avto_belgi, kutish_soniya, pauza_soat"
+
+
+@with_db_retry()
+async def biznes_telegram_almashdi(owner_id: int, yangi: str) -> bool:
+    """Egasi Telegram'da boshqa botni ulagan (2026-10-25: @uzchatgptaibot ->
+    @vexonai). Telegram bitta akkauntga BITTA bot ulaydi, ya'ni egasining
+    boshqa yoqilgan Telegram ulanishi — o'lik, lekin bazada «yoqilgan» turibdi:
+    uzilish update'i eski botga ketgan, bu jarayon uni ko'rmagan.
+
+    Uchta ish, bitta tranzaksiyada:
+    - rejim va sozlamalar eskisidan olinadi — aks holda yangi ulanish
+      `buyruq` rejimida ochiladi va bot mijozlarga JIM turadi (jonli shikoyat);
+    - eskisi o'chiriladi — `/biznes` ekrani ikki «yoqilgan»dan eskisini
+      tanlab, sozlamani o'lik yozuvga yozishi mumkin edi;
+    - kutayotgan qoralamalar yangisiga o'tadi — «Yuborish» o'lik ulanish
+      orqali ketib, rad etilardi.
+    Instagram (`ig:`) tegilmaydi. Eski yo'q bo'lsa — False, hech narsa."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            eski = [r["conn_id"] for r in await conn.fetch(
+                "SELECT conn_id FROM biznes_ulanish WHERE owner_id = $1 AND conn_id <> $2 "
+                "AND conn_id NOT LIKE 'ig:%' AND yoqilgan ORDER BY yangilangan DESC",
+                owner_id, yangi)]
+            if not eski:
+                return False
+            r = await conn.fetchrow(
+                f'''
+                UPDATE biznes_ulanish t SET rejim = s.rejim, ish_vaqti = s.ish_vaqti,
+                    avto_belgi = s.avto_belgi, kutish_soniya = s.kutish_soniya,
+                    pauza_soat = s.pauza_soat
+                FROM (SELECT {_SOZLAMA} FROM biznes_ulanish
+                      WHERE owner_id = $1 AND conn_id = $3) s
+                WHERE t.owner_id = $1 AND t.conn_id = $2
+                RETURNING t.rejim, t.ish_vaqti, t.avto_belgi, t.kutish_soniya, t.pauza_soat
+                ''', owner_id, yangi, eski[0])
+            await conn.execute(
+                "UPDATE biznes_ulanish SET yoqilgan = FALSE, yangilangan = NOW() "
+                "WHERE owner_id = $1 AND conn_id = ANY($2::text[])", owner_id, eski)
+            await conn.execute(
+                "UPDATE biznes_loyiha SET conn_id = $2 WHERE owner_id = $1 "
+                "AND holat = 'kutmoqda' AND conn_id = ANY($3::text[])", owner_id, yangi, eski)
+    for k in eski:
+        if k in _biznes_kesh:
+            _biznes_kesh[k]["yoqilgan"] = False
+    if r and yangi in _biznes_kesh:
+        _biznes_kesh[yangi].update(dict(r))
+    return True
+
+
+async def biznes_almashuvni_tuzat() -> int:
+    """Ishga tushganda: bot almashganidan KEYIN, lekin bu tuzatishdan OLDIN
+    ulangan egalar (ularning yangi ulanishi allaqachon `buyruq`da turibdi).
+    Keshdan o'qiydi — bir egada ikki yoqilgan Telegram ulanishi bo'lsa,
+    eng yangisi (`yangilangan`) qoladi. Bir marta ishlagach o'zi tinchiydi:
+    har egada bitta yoqilgan qoladi."""
+    global pool
+    egalar: Dict[int, list] = {}
+    for k, v in _biznes_kesh.items():
+        if v["yoqilgan"] and not k.startswith("ig:"):
+            egalar.setdefault(v["owner_id"], []).append(k)
+    tuzatildi = 0
+    for owner_id, ulanishlar in egalar.items():
+        if len(ulanishlar) < 2:
+            continue
+        if pool is None:
+            await create_db_pool()
+        async with pool.acquire() as conn:
+            yangi = await conn.fetchval(
+                "SELECT conn_id FROM biznes_ulanish WHERE owner_id = $1 "
+                "AND conn_id = ANY($2::text[]) ORDER BY yangilangan DESC LIMIT 1",
+                owner_id, ulanishlar)
+        if yangi and await biznes_telegram_almashdi(owner_id, yangi):
+            tuzatildi += 1
+    return tuzatildi
+
+
 @with_db_retry()
 async def biznes_ig_yoz(owner_id: int, conn_id: str, username: Optional[str],
                         token: str) -> None:

@@ -825,6 +825,17 @@ user ids, so the claim is true. `tests/test_eski_bot.py` pins the rules below.
   with `'vexonai'` as the fallback — the old name hard-coded in the Business setup steps
   would have sent every new owner to the dead bot.
 
+⛔️ **A new Business connection inherits the owner's settings** (live complaint, the same
+day: "I connected @vexonai and it does not answer"). Reconnecting to another bot brings a
+**new `conn_id`**, settings were keyed by the old one, so the new row opened in `buyruq`
+mode — commands only, customers get silence — while the dead old row stayed `yoqilgan`
+(its disconnect update went to the old bot) and `/biznes` could pick it. Telegram allows one
+bot per account, so `_saqla()` → `database.biznes_telegram_almashdi()` copies the settings
+from the owner's other enabled Telegram connection, disables it and moves `kutmoqda`
+drafts, in one transaction; `ig:` is never touched. `biznes_almashuvni_tuzat()` runs once at
+startup for owners who connected before the fix. SQL verified on a local Postgres;
+`tests/test_biznes_almashuv.py`.
+
 What did **not** move, because Telegram ties it to the bot: Business connections (each
 owner reconnects), Stars from old payments (refunds only work from the old bot — the panel's
 refund fails safely, Telegram first), private-chat topics, and the right to message a user
