@@ -568,6 +568,22 @@
       ? "—" : million(b.token) + " · " + b.ulush + "%";
   }
 
+  /* VAQTINCHALIK «Ko'chish» kartasi. `k` null — eski bot o'chirilgan,
+     karta yashirin qoladi. Foiz faqat «o'tganlar» yonida: bitta ulush
+     yetadi, ikkinchisi undan kelib chiqadi. */
+  function kochishChiz(k) {
+    var karta = $("kochish");
+    if (!karta) return;
+    karta.hidden = !k;
+    if (!k) return;
+    var jami = (k.otgan || 0) + (k.qolgan || 0);
+    $("ko-otgan").textContent = son(k.otgan) +
+      (jami ? " · " + Math.round(k.otgan / jami * 100) + "%" : "");
+    $("ko-qolgan").textContent = son(k.qolgan);
+    $("ko-ulagan").textContent = son(k.ega_ulagan);
+    $("ko-ulamagan").textContent = son(k.ega_ulamagan);
+  }
+
   /* 1 840 000 -> «1.84M». Uzun raqam telefonda kartochkadan chiqib
      ketardi va uni bir qarashda o'qib ham bo'lmasdi. */
   function million(n) {
@@ -728,6 +744,7 @@
 
     tokenChiz(k.token);
     biznesChiz(d.biznes);
+    kochishChiz(d.kochish);
 
     kunChiplari(d.kun_variantlari, d.kun_oynasi);
     grafik(d.kunlar);

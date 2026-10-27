@@ -2284,6 +2284,47 @@ async def biznes_panel_stats() -> Dict[str, Any]:
             "token": token['biznes'] or 0, "token_jami": token['jami'] or 0}
 
 
+# Bot @uzchatgptaibot -> @vexonai ga ko'chgan payt (2227190 commit'i). VAQTINCHALIK:
+# panelning «Ko'chish» kartasi uchun, eski bot o'chirilgach olib tashlanadi.
+KOCHISH_VAQTI = datetime(2026, 10, 25, 8, 40, tzinfo=TASHKENT_TZ)
+
+
+@with_db_retry()
+async def kochish_stats() -> Dict[str, int]:
+    """Kim yangi botga o'tdi, kim qoldi (VAQTINCHALIK karta).
+
+    Ikkala bot bitta bazada, lekin bazaga faqat YANGI bot yozadi
+    (`save_user` -> `last_seen`), eski bot esa ataylab tegmaydi. Demak
+    ko'chishdan keyin `last_seen` yangilangan odam — yangi botga yozgan.
+    «Qolgan» — qolgan hammasi: eski botga yozib o'tmaganlar ham, umuman
+    jim turganlar ham (ularni ajratib bo'lmaydi).
+
+    Biznes: eski bot ulanishi bu jarayonga hech qachon yozilmaydi, yangisi
+    esa ulanganda yoziladi — ko'chishdan keyin yangilangan yoqilgan
+    Telegram ulanishi = yangi botni ulagan ega. Instagram (`ig:`) ikki
+    botdan ham mustaqil, hisobga kirmaydi.
+
+    Odamlar soni adminlarsiz (`_ODDIY_USER`, panelning hamma joyidagi kabi).
+    Egalar esa Business kartasidagi kabi hammasi — u yerda ham admin ega
+    sanaladi, ikki karta bir-biriga zid bo'lmasin."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        odam = await conn.fetchrow(
+            f'''SELECT COUNT(*) AS jami,
+                       COUNT(*) FILTER (WHERE last_seen >= $1) AS otgan
+                FROM users WHERE TRUE {_ODDIY_USER}''', KOCHISH_VAQTI)
+        ega = await conn.fetchrow(
+            '''SELECT COUNT(DISTINCT owner_id) FILTER (WHERE yangilangan >= $1) AS ulagan,
+                      COUNT(DISTINCT owner_id) FILTER (WHERE yangilangan < $1) AS ulamagan
+               FROM biznes_ulanish
+               WHERE yoqilgan AND conn_id NOT LIKE 'ig:%' ''',
+            KOCHISH_VAQTI.astimezone(timezone.utc).replace(tzinfo=None))
+    return {"otgan": odam["otgan"] or 0, "qolgan": (odam["jami"] or 0) - (odam["otgan"] or 0),
+            "ega_ulagan": ega["ulagan"] or 0, "ega_ulamagan": ega["ulamagan"] or 0}
+
+
 # Oxirgi bazaga YOZILGAN kuzatuv holati. Faqat holat o'zgarganda
 # yoziladi.
 #

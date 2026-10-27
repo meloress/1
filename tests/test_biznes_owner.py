@@ -38,6 +38,7 @@ DML = re.compile(r"^\s*(SELECT|UPDATE|DELETE|INSERT|WITH)\b", re.I)
 ISTISNO = {
     ("biznes_keshni_yukla", "SELECT"): "ishga tushishda butun kesh yuklanadi",
     ("biznes_panel_stats", "SELECT"): "admin paneli — hamma egalar soni",
+    ("kochish_stats", "SELECT"): "admin paneli — yangi botni ulagan/ulamagan egalar soni (vaqtinchalik)",
     ("biznes_tozala", "DELETE"): "kunlik saqlash muddati (egasi kiritmasi yo'q)",
     ("biznes_egalar", "SELECT"): "soatlik tozalash — hamma egalar ro'yxati (egasi kiritmasi yo'q)",
 }

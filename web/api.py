@@ -144,6 +144,10 @@ def _biznes_kpi(d: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _yoq() -> None:
+    return None
+
+
 def _token_kpi(d: Dict[str, Any]) -> Dict[str, Any]:
     """Bugungi token sarfi — kunlik grantga nisbatan.
 
@@ -195,7 +199,7 @@ async def overview(request: web.Request):
     # Telegram baribir bazadan OLDIN turishi shart, `watch_set` da esa
     # kesh yangilanishi yozuvdan keyin bo'lishi kerak.
     (kunlik, daromad, xatolar, xato_jami,
-     tatil, st, token, kuzatuv, biznes) = await asyncio.gather(
+     tatil, st, token, kuzatuv, biznes, kochish) = await asyncio.gather(
         database_module.daily_report_stats(),
         database_module.revenue_stats(),
         database_module.recent_errors(limit=4),
@@ -205,6 +209,10 @@ async def overview(request: web.Request):
         database_module.token_stats(2),
         database_module.get_watch_health(),
         database_module.biznes_panel_stats(),
+        # VAQTINCHALIK «Ko'chish» kartasi: faqat eski bot hali yoqiq ekan.
+        # Token olib tashlansa karta o'zi yo'qoladi — o'chirishni unutish
+        # mumkin bo'lgan qadam yo'q.
+        database_module.kochish_stats() if os.getenv("ESKI_BOT_TOKEN") else _yoq(),
     )
 
     kunlar = _kun_qatori(st["daily_activity"], kun_oynasi,
@@ -261,6 +269,7 @@ async def overview(request: web.Request):
         },
         "tatil": bool(tatil.get("active")),
         "biznes": _biznes_kpi(biznes),
+        "kochish": kochish,
         # ⚠️ «Bot ishlayapti» BELGISI QOTIRILGAN MATN EMAS. Panel bot
         # jarayonining ICHIDA ishlaydi, ya'ni bu javobning kelishi
         # jarayon tirikligining o'zi; qolgan ikkitasi esa haqiqatan

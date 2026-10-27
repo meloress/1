@@ -836,6 +836,14 @@ drafts, in one transaction; `ig:` is never touched. `biznes_almashuvni_tuzat()` 
 startup for owners who connected before the fix. SQL verified on a local Postgres;
 `tests/test_biznes_almashuv.py`.
 
+**The panel's «Ko'chish» card is temporary.** `database.kochish_stats()` counts who moved
+by `users.last_seen >= KOCHISH_VAQTI` — only the new bot writes to the database, so that is
+exact — and owners by the `yangilangan` of their enabled Telegram connection. "Not moved"
+cannot separate "wrote to the old bot and stayed" from "silent"; the old bot writes nothing.
+`/api/overview` returns `kochish` only while `ESKI_BOT_TOKEN` is set, so removing the token
+hides the card with no cleanup step (`test_web_stats.py` 15). Delete the card,
+`kochish_stats()` and `KOCHISH_VAQTI` together once the old bot is switched off.
+
 What did **not** move, because Telegram ties it to the bot: Business connections (each
 owner reconnects), Stars from old payments (refunds only work from the old bot — the panel's
 refund fails safely, Telegram first), private-chat topics, and the right to message a user

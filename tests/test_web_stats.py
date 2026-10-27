@@ -384,7 +384,29 @@ async def main():
         assert k["guruh"] is False, k
         print("[14] kuzatuv guruhi banneri: sog'lom / yiqilgan / sozlanmagan OK")
 
-    print("\nweb stats: barcha tekshiruvlar o'tdi (14/14).")
+        # 15) VAQTINCHALIK «Ko'chish» kartasi faqat eski bot yoqiq ekan.
+        #     Token olib tashlansa karta o'zi yo'qoladi va baza so'ralmaydi.
+        sorandi = []
+
+        async def kochish_stats():
+            sorandi.append(1)
+            return {"otgan": 120, "qolgan": 80, "ega_ulagan": 3, "ega_ulamagan": 2}
+        api.database_module.kochish_stats = kochish_stats
+        eski = os.environ.pop("ESKI_BOT_TOKEN", None)
+        try:
+            os.environ["ESKI_BOT_TOKEN"] = "1:eski"
+            k = (await (await client.get("/api/overview", headers=h)).json())["kochish"]
+            assert k == {"otgan": 120, "qolgan": 80, "ega_ulagan": 3, "ega_ulamagan": 2}, k
+            del os.environ["ESKI_BOT_TOKEN"]
+            sorandi.clear()
+            k = (await (await client.get("/api/overview", headers=h)).json())["kochish"]
+            assert k is None and not sorandi, (k, sorandi)
+        finally:
+            if eski is not None:
+                os.environ["ESKI_BOT_TOKEN"] = eski
+        print("[15] «Ko'chish» kartasi faqat ESKI_BOT_TOKEN bor ekan OK")
+
+    print("\nweb stats: barcha tekshiruvlar o'tdi (15/15).")
 
 
 async def _nol_kecha():
