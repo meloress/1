@@ -53,6 +53,7 @@ PRO_COMMANDS = [
 ADMIN_COMMANDS = [
     BotCommand(command="xabar", description="📢 Tarqatma"),
     BotCommand(command="kod", description="🎁 Promokod/referal yuborish"),
+    BotCommand(command="eski_xabar", description="📨 Eski botdan «ko'chdik» e'loni"),
 ]
 
 # ponytail: RAM keshi — bot qayta ishga tushganda tozalanadi, ya'ni har

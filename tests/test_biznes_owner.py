@@ -39,6 +39,7 @@ ISTISNO = {
     ("biznes_keshni_yukla", "SELECT"): "ishga tushishda butun kesh yuklanadi",
     ("biznes_panel_stats", "SELECT"): "admin paneli — hamma egalar soni",
     ("kochish_stats", "SELECT"): "admin paneli — yangi botni ulagan/ulamagan egalar soni (vaqtinchalik)",
+    ("eski_tarqatma_oluvchilar", "SELECT"): "admin /eski_xabar — ulamagan egalar ro'yxati (vaqtinchalik)",
     ("biznes_tozala", "DELETE"): "kunlik saqlash muddati (egasi kiritmasi yo'q)",
     ("biznes_egalar", "SELECT"): "soatlik tozalash — hamma egalar ro'yxati (egasi kiritmasi yo'q)",
 }

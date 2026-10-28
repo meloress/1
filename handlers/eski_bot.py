@@ -22,6 +22,7 @@ import time
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
+from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from aiogram.methods import AnswerGuestQuery
 from aiogram.types import (
     BotCommandScopeAllPrivateChats, BotCommandScopeChat, BotCommandScopeDefault,
@@ -67,6 +68,97 @@ _oxirgi: dict[int, float] = {}       # ponytail: RAM, deploy'da tozalanadi — b
 _tozalangan: set[int] = set()        # menyusi tozalangan chatlar
 _egasiga_aytilgan: set[int] = set()  # Business egalari
 _logo_id: str | None = None          # birinchi yuborishdan keyin file_id
+_bot: Bot | None = None              # /eski_xabar shu orqali yuboradi
+_eski_nom: str = "uzchatgptaibot"    # getMe dan keyin aniq nom
+
+
+def _elon(ega: bool = False) -> str:
+    """Bir martalik tarqatma matni (/eski_xabar). Javob matnidan (`_matn`)
+    farqi: bu odam hech narsa so'ramagan — shuning uchun avval NIMA
+    o'zgargani, keyin «hech narsa yo'qolmadi», keyin bitta aniq qadam.
+
+    ⚠️ Rasm izohi (caption) 1024 belgi — ega varianti ham sig'ishi shart
+    (tests/test_eski_bot.py)."""
+    y = _yangi()
+    matn = (
+        "🚀 <b>Biz yangi manzilga ko'chdik!</b>\n\n"
+        f"Bot endi <b>Vexon AI</b> nomi bilan ishlaydi: <b>@{y}</b>\n\n"
+        "✅ <b>Hech narsa yo'qolmadi</b> — hammasi o'sha yerda:\n"
+        "• Pro obunangiz va uning muddati\n"
+        "• Suhbat tarixingiz va bot siz haqingizda eslab qolganlar\n"
+        "• Limitlaringiz va sozlamalaringiz\n\n"
+        f"⏰ Eslatma va kunlik daydjestlar endi faqat @{y} dan keladi — "
+        "u yerda /start bosmaguningizcha ular sizga <b>yetib bormaydi</b>.\n\n"
+        "👇 Tugmani bosing va <b>/start</b> — shu bilan tamom.\n"
+    )
+    if ega:
+        matn += (
+            "\n💼 <b>Telegram Business:</b> mijozlaringizga avtojavob hozir "
+            "<b>to'xtagan</b>. Qayta yoqish: Sozlamalar → Telegram Biznes → "
+            f"Chatni avtomatlashtirish → <b>@{y}</b>. Sozlamalaringiz o'zi ko'chadi.\n"
+        )
+    return matn + f"\n<i>@{_eski_nom} endi savollarga javob bermaydi.</i>"
+
+
+def tayyormi() -> bool:
+    return _bot is not None
+
+
+async def _rasmli(bot: Bot, chat_id: int, matn: str) -> None:
+    """Logo + matn + tugma. Rasm o'tmasa — matnning o'zi. Bloklagan odam
+    (Forbidden) xatosi CHAQIRUVCHIGA chiqadi: tarqatma uni sanaydi."""
+    global _logo_id
+    try:
+        if _logo_id is None:
+            with open(_LOGO, "rb") as f:
+                rasm = BufferedInputFile(f.read(), filename="vexon_ai.jpg")
+        else:
+            rasm = _logo_id
+        m = await bot.send_photo(chat_id, rasm, caption=matn, reply_markup=_tugma())
+        _logo_id = m.photo[-1].file_id
+    except (TelegramForbiddenError, TelegramRetryAfter):
+        raise
+    except Exception as e:
+        # Rasm o'tmasa ham xabar yetib borishi shart — asosiysi manzil.
+        logger.warning(f"[Eski bot] rasm yuborilmadi: {e}")
+        await bot.send_message(chat_id, matn, reply_markup=_tugma())
+
+
+async def namuna(chat_id: int) -> None:
+    """Adminning o'ziga ikkala variant — odamlar aynan nimani ko'rishi."""
+    await _rasmli(_bot, chat_id, _elon())
+    await _rasmli(_bot, chat_id, _elon(ega=True))
+
+
+async def tarqat(oddiy: list[int], egalar: list[int], progress=None) -> dict:
+    """Hammaga bir marta. Bazaga tegmaydi — ro'yxat chaqiruvchidan keladi.
+
+    Sekundiga ~20 ta (Telegram chegarasi ~30): 429 kelsa aytilgan vaqt
+    kutiladi va o'sha odamga qayta yuboriladi."""
+    egalar_set = set(egalar)
+    hammasi = list(dict.fromkeys(list(egalar) + list(oddiy)))   # takrorsiz, egalar oldin
+    natija = {"yuborildi": 0, "bloklagan": 0, "xato": 0, "jami": len(hammasi)}
+    for i, uid in enumerate(hammasi, 1):
+        for _ in range(3):
+            try:
+                await _rasmli(_bot, uid, _elon(ega=uid in egalar_set))
+                natija["yuborildi"] += 1
+                break
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after + 0.5)
+            except (TelegramForbiddenError, TelegramNotFound):
+                natija["bloklagan"] += 1
+                break
+            except Exception as e:
+                natija["xato"] += 1
+                logger.warning(f"[Eski bot] tarqatma: {uid} ga yetmadi: {e}")
+                break
+        else:
+            natija["xato"] += 1
+        if progress and i % 200 == 0:
+            await progress(i, len(hammasi))
+        await asyncio.sleep(0.05)
+    return natija
 
 
 async def _menyuni_tozala(bot: Bot, chat_id: int) -> None:
@@ -84,27 +176,15 @@ async def _menyuni_tozala(bot: Bot, chat_id: int) -> None:
 
 
 async def _yubor(bot: Bot, chat_id: int) -> None:
-    global _logo_id
     hozir = time.monotonic()
     if hozir - _oxirgi.get(chat_id, 0) < _JIM_SONIYA:
         return
     _oxirgi[chat_id] = hozir
     await _menyuni_tozala(bot, chat_id)
     try:
-        if _logo_id is None:
-            with open(_LOGO, "rb") as f:
-                rasm = BufferedInputFile(f.read(), filename="vexon_ai.jpg")
-        else:
-            rasm = _logo_id
-        m = await bot.send_photo(chat_id, rasm, caption=_matn(), reply_markup=_tugma())
-        _logo_id = m.photo[-1].file_id
+        await _rasmli(bot, chat_id, _matn())
     except Exception as e:
-        # Rasm o'tmasa ham xabar yetib borishi shart — asosiysi manzil.
-        logger.warning(f"[Eski bot] rasm yuborilmadi: {e}")
-        try:
-            await bot.send_message(chat_id, _matn(), reply_markup=_tugma())
-        except Exception as e2:
-            logger.warning(f"[Eski bot] xabar yuborilmadi (chat={chat_id}): {e2}")
+        logger.warning(f"[Eski bot] xabar yuborilmadi (chat={chat_id}): {e}")
 
 
 async def _egasiga(bot: Bot, owner_id: int, owner_chat: int) -> None:
@@ -208,9 +288,11 @@ async def _profilni_yangila(bot: Bot) -> None:
 async def ishga_tushir(token: str) -> None:
     """main.py fonda chaqiradi. Hech qachon yiqilmaydi — asosiy bot
     eski botning muammosi tufayli to'xtamasligi shart."""
+    global _bot, _eski_nom
     try:
         bot = Bot(token=token, default=DefaultBotProperties(parse_mode="HTML"))
         me = await bot.get_me()
+        _bot, _eski_nom = bot, me.username or _eski_nom
         logger.info(f"[Eski bot] @{me.username} → @{_yangi()} ga yo'naltiradi")
         await _profilni_yangila(bot)
         dp = _dispatcher()

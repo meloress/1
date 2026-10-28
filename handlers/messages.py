@@ -2043,7 +2043,8 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
                 "va sozlamalar.\n\n"
                 "Botda qolgani:\n"
                 "├ /xabar — tarqatma (yuborganingiz aynan o'sha holida boradi)\n"
-                "└ /kod — promokod yoki referal taklifini odamga yuborish",
+                "├ /kod — promokod yoki referal taklifini odamga yuborish\n"
+                "└ /eski_xabar — eski botdan «@vexonai ga ko'chdik» e'loni",
                 reply_markup=ReplyKeyboardRemove())
             return
     except Exception:

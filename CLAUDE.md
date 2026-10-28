@@ -307,8 +307,9 @@ ones that break silently:
 - ⛔️ A new Business connection inherits the owner's settings
   (`database.biznes_telegram_almashdi()`); without it a reconnected owner sat in `buyruq`
   mode and customers got silence.
-- The panel's «Ko'chish» card, `kochish_stats()` and `KOCHISH_VAQTI` are temporary — delete
-  them together once the old bot is switched off. Keep the old token for months anyway:
+- The panel's «Ko'chish» card, `kochish_stats()`, `KOCHISH_VAQTI` and the admin
+  `/eski_xabar` announcement are temporary — delete them together once the old bot is
+  switched off. Keep the old token for months anyway:
   Stars from old payments refund only through it.
 - Status animations come from `python assets/status_yasash.py`; a changed animation needs a
   new `_LOGO_BELGI` emoji, and ⛔️ never bump `_LOGO_TOPLAM`.

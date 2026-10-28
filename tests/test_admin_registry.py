@@ -49,6 +49,7 @@ KUTILGAN = [
     # Kirish nuqtalari — endi BUYRUQ, matnli tugma emas.
     ("message", "start_broadcast", 1),
     ("message", "show_giveaway_menu", 1),
+    ("message", "start_eski_xabar", 1),
     # FSM: tugma va oluvchi holatlari waiting_for_content dan OLDIN.
     ("message", "process_broadcast_schedule", 1),
     ("message", "process_broadcast_button", 1),
@@ -69,6 +70,7 @@ KUTILGAN = [
     ("callback", "broadcast_cancel_send_callback", 1),
     ("callback", "broadcast_later_callback", 1),
     ("callback", "giveaway_callback", 1),
+    ("callback", "eski_xabar_callback", 1),
 ]
 
 if dp.calls != KUTILGAN:
@@ -147,7 +149,7 @@ src = kod(ROOT / "handlers" / "admin" / "__init__.py")
 assert "F.text ==" not in src, (
     "matnli tugmaga bog'langan handler qolgan — klaviatura yo'q, u o'lik")
 buyruqlar = set(re.findall(r'Command\("(\w+)"\)', src))
-assert buyruqlar == {"xabar", "kod"}, buyruqlar
+assert buyruqlar == {"xabar", "kod", "eski_xabar"}, buyruqlar
 # Panel ham, `/start` ham aynan shu ikki buyruqni nomlaydi — nom
 # o'zgarsa uchala joy birdan yangilanishi kerak.
 msgs = kod(ROOT / "handlers" / "messages.py")

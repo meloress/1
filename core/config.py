@@ -982,6 +982,9 @@ AUDIT_ACTIONS: Dict[str, tuple[str, str]] = {
     "watch_group":       ("Kuzatuv guruhi o'zgartirildi", "kuzatuv"),
     "referral_config":   ("Referal sharti o'zgartirildi", "referal"),
     "cancel_broadcast":  ("Tarqatma bekor qilindi",     "tarqatma_bekor"),
+    # Vaqtinchalik — /eski_xabar (eski botdan «ko'chdik» e'loni). Buyruq
+    # o'chirilganda bu yerdan AUDIT_ESKI ga ko'chadi (jurnalda yozuvi qoladi).
+    "eski_tarqatma":     ("Eski botdan e'lon",          "tarqatma"),
 }
 
 # Kod ENDI YOZMAYDIGAN, lekin jonli bazada YOZUVI BOR amallar.

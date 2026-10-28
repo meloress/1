@@ -34,8 +34,8 @@ from handlers.admin.broadcast import (
     broadcast_confirm_send_callback, broadcast_later_callback,
     broadcast_next_callback, process_broadcast_schedule,
     broadcast_preview_callback, broadcast_segment_callback,
-    capture_broadcast_content, process_broadcast_button,
-    process_broadcast_recipients, start_broadcast,
+    capture_broadcast_content, eski_xabar_callback, process_broadcast_button,
+    process_broadcast_recipients, start_broadcast, start_eski_xabar,
 )
 from handlers.admin.promo import (
     GiveawayStates, giveaway_callback, process_promo_recipients,
@@ -66,6 +66,8 @@ def register_admin_handlers(dp, bot=None):
     # qolmaydi — klaviatura esa `/start` bosilgunicha ekranda turardi.
     dp.message.register(start_broadcast, Command("xabar"))
     dp.message.register(show_giveaway_menu, Command("kod"))
+    # Vaqtinchalik: eski botdan bir martalik «ko'chdik» e'loni.
+    dp.message.register(start_eski_xabar, Command("eski_xabar"))
 
     # ⚠️ TARTIB: tugma va oluvchi holatlari waiting_for_content dan OLDIN.
     # Konstruktor ochiq turganda admin yozgan matn "yangi kontent" bo'lib
@@ -94,3 +96,4 @@ def register_admin_handlers(dp, bot=None):
     dp.callback_query.register(broadcast_cancel_send_callback, lambda q: q.data == "bcast:cancel")
     dp.callback_query.register(broadcast_later_callback, lambda q: q.data == "bcast:later")
     dp.callback_query.register(giveaway_callback, lambda q: q.data and q.data.startswith("gv:"))
+    dp.callback_query.register(eski_xabar_callback, lambda q: q.data and q.data.startswith("eski:"))

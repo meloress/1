@@ -165,7 +165,43 @@ async def asosiy():
     e = kod("handlers/eski_bot.py")
     check(8, "eski bot bazani import qilmaydi", "database" not in e and "db." not in e)
 
+    # 9. /eski_xabar e'loni rasm izohiga (1024 belgi) sig'adi — ega varianti ham.
+    # Telegram teglarni emas, ko'rinadigan matnni sanaydi.
+    import html as _html
+    import re as _re
+    uzun = [len(_html.unescape(_re.sub(r"<[^>]+>", "", eb._elon(ega)))) for ega in (False, True)]
+    check(9, f"e'lon izohga sig'adi ({uzun[0]} / {uzun[1]} ≤ 1024)", max(uzun) <= 1024)
+
+    # 10-11. Tarqatma: ega o'z variantini oladi, takror yo'q, bloklagan
+    # sanaladi va to'xtatmaydi, 429 dan keyin o'sha odamga qayta yuboriladi.
+    from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+
+    class TarqatmaSessiya(Sessiya):
+        def __init__(self):
+            super().__init__()
+            self.kutildi = False
+
+        async def make_request(self, bot, method, timeout=None):
+            if isinstance(method, SendPhoto) and method.chat_id == 2:
+                raise TelegramForbiddenError(method=method, message="bot was blocked by the user")
+            if isinstance(method, SendPhoto) and method.chat_id == 3 and not self.kutildi:
+                self.kutildi = True
+                raise TelegramRetryAfter(method=method, message="Too Many Requests", retry_after=0)
+            return await super().make_request(bot, method, timeout)
+
+    _tozala()
+    s = TarqatmaSessiya()
+    eb._bot = Bot("1:a", session=s)
+    n = await eb.tarqat([1, 2, 3, EGASI], [EGASI])
+    rasmlar = {m.chat_id: m.caption for m in yuborilgan(s, SendPhoto) if m.chat_id != 2}
+    check(10, "ega o'z variantini oladi, takror yo'q, bloklagan sanaladi",
+          n == {"yuborildi": 3, "bloklagan": 1, "xato": 0, "jami": 4}
+          and "Telegram Business" in rasmlar[EGASI] and "Telegram Business" not in rasmlar[1]
+          and sum(1 for m in yuborilgan(s, SendPhoto) if m.chat_id == EGASI) == 1)
+    check(11, "429 dan keyin o'sha odamga qayta yuborildi", s.kutildi and 3 in rasmlar)
+    eb._bot = None
+
 
 asyncio.run(asosiy())
-print(f"\neski_bot: {8 - _xato}/8 o'tdi.")
+print(f"\neski_bot: {11 - _xato}/11 o'tdi.")
 sys.exit(1 if _xato else 0)

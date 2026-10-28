@@ -2325,6 +2325,33 @@ async def kochish_stats() -> Dict[str, int]:
             "ega_ulagan": ega["ulagan"] or 0, "ega_ulamagan": ega["ulamagan"] or 0}
 
 
+@with_db_retry()
+async def eski_tarqatma_oluvchilar() -> tuple[list[int], list[int]]:
+    """/eski_xabar kimga boradi (VAQTINCHALIK, `kochish_stats` bilan birga
+    o'chiriladi): (hali o'tmagan odamlar, yangi botni ulamagan egalar).
+
+    Ta'rif `kochish_stats` niki bilan AYNAN bir xil — karta «qolgan: N»
+    desa, tarqatma ham N kishiga ketadi. Yangi botga o'tib bo'lganlar
+    olmaydi: ularga bu shovqin. Ega esa yangi botga YOZGAN bo'lsa ham
+    oladi, agar Business'ni qayta ulamagan bo'lsa — mijozlari javobsiz."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        odam = await conn.fetch(
+            f'''SELECT user_id FROM users
+                WHERE (last_seen IS NULL OR last_seen < $1)
+                  AND NOT COALESCE(is_banned, FALSE) {_ODDIY_USER}''', KOCHISH_VAQTI)
+        ega = await conn.fetch(
+            '''SELECT DISTINCT b.owner_id FROM biznes_ulanish b
+               WHERE b.yoqilgan AND b.conn_id NOT LIKE 'ig:%' AND b.yangilangan < $1
+                 AND NOT EXISTS (SELECT 1 FROM biznes_ulanish n
+                                 WHERE n.owner_id = b.owner_id AND n.yoqilgan
+                                   AND n.conn_id NOT LIKE 'ig:%' AND n.yangilangan >= $1)''',
+            KOCHISH_VAQTI.astimezone(timezone.utc).replace(tzinfo=None))
+    return [r["user_id"] for r in odam], [r["owner_id"] for r in ega]
+
+
 # Oxirgi bazaga YOZILGAN kuzatuv holati. Faqat holat o'zgarganda
 # yoziladi.
 #

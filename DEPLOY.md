@@ -114,6 +114,18 @@ cannot separate "wrote to the old bot and stayed" from "silent"; the old bot wri
 hides the card with no cleanup step (`test_web_stats.py` 15). Delete the card,
 `kochish_stats()` and `KOCHISH_VAQTI` together once the old bot is switched off.
 
+**`/eski_xabar` (admin, 2026-10-28) — one announcement from the old bot to everyone who has
+not moved.** The new bot cannot write to someone who never pressed its `/start`; the old
+one can. Recipients come from `database.eski_tarqatma_oluvchilar()` — the **same**
+definition as the card's «qolgan», plus owners whose Business is still on the old bot even
+if they already write to the new one (their customers get silence). The text is fixed
+(`eski_bot._elon()`, owner variant adds the reconnect path) and sent as a logo caption,
+so it must stay under 1 024 visible characters (`test_eski_bot.py` 9). The command first
+sends both variants to the admin **through the old bot**, then asks for confirmation; the
+send is ~20/s, honours 429 and counts blocked users without stopping (checks 10-11). The
+module still touches no database — the list is passed in. Delete the command, its callback,
+the menu row and the `eski_tarqatma` audit label (→ `AUDIT_ESKI`) with the card.
+
 What did **not** move, because Telegram ties it to the bot: Business connections (each
 owner reconnects), Stars from old payments (refunds only work from the old bot — the panel's
 refund fails safely, Telegram first), private-chat topics, and the right to message a user

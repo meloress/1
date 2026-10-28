@@ -724,3 +724,105 @@ async def process_broadcast_schedule(message: Message, state: FSMContext):
         f"Kimga: {nom}\n\n"
         "<i>Bekor qilish: Panel → «Tarqatma» → «Rejalashtirilgan tarqatmalar».</i>",
         parse_mode=ParseMode.HTML)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ESKI BOTDAN BIR MARTALIK E'LON (/eski_xabar) — VAQTINCHALIK
+# ═══════════════════════════════════════════════════════════════════
+# Bot @vexonai ga ko'chdi; eski botga yozmagan, jim turgan odamlar buni
+# hech qachon bilmaydi. Yangi bot ularga yoza olmaydi (/start bosishmagan),
+# eski bot esa yoza oladi. Matn qat'iy (`eski_bot._elon`), shuning uchun
+# /xabar konstruktori emas: avval adminning o'ziga namuna, keyin tasdiq.
+# `kochish_stats` va Ko'chish kartasi bilan birga o'chiriladi.
+
+_eski_ketmoqda = False
+
+
+def _eski_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🚀 Hammaga yuborish", callback_data="eski:yubor"),
+        InlineKeyboardButton(text="✖️ Bekor", callback_data="eski:bekor"),
+    ]])
+
+
+async def start_eski_xabar(message: Message):
+    if not await require_admin_or_deny(message):
+        return
+    from handlers import eski_bot
+    if not eski_bot.tayyormi():
+        await message.answer("❌ Eski bot ishlamayapti (ESKI_BOT_TOKEN yo'q yoki ulanmadi).")
+        return
+    if _eski_ketmoqda:
+        await message.answer("⏳ Tarqatma hozir ketyapti — tugashini kuting.")
+        return
+    try:
+        await eski_bot.namuna(message.from_user.id)
+    except Exception as e:
+        await message.answer(
+            f"❌ Eski bot sizga namunani yubora olmadi: <code>{html.escape(str(e))[:200]}</code>\n"
+            f"Eski botni oching va /start bosing, keyin qayta urining.",
+            parse_mode=ParseMode.HTML)
+        return
+    oddiy, egalar = await database_module.eski_tarqatma_oluvchilar()
+    jami = len(set(oddiy) | set(egalar))
+    await message.answer(
+        "📨 <b>ESKI BOTDAN E'LON</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Eski bot (@{eski_bot._eski_nom}) sizga ikkita namuna yubordi ☝️ — "
+        "odamlar aynan shuni ko'radi.\n\n"
+        f"👥 Kimga: <b>{jami}</b> kishi — hali @{pro_module.BOT_USERNAME or 'vexonai'} ga "
+        "o'tmaganlar\n"
+        f"💼 Shundan Business egasi (2-namuna): <b>{len(egalar)}</b>\n\n"
+        "<i>Yangi botga o'tib bo'lganlar olmaydi. Bloklaganlarga yetmaydi — "
+        f"bu normal. Taxminan {max(1, jami // 1200)} daqiqa.</i>",
+        parse_mode=ParseMode.HTML, reply_markup=_eski_kb())
+
+
+async def eski_xabar_callback(query: CallbackQuery):
+    global _eski_ketmoqda
+    if not await require_admin_or_deny_query(query):
+        return
+    if query.data == "eski:bekor":
+        await query.answer("Bekor qilindi")
+        await query.message.edit_text("✖️ E'lon yuborilmadi.")
+        return
+    if _eski_ketmoqda:
+        await query.answer("Tarqatma allaqachon ketyapti.", show_alert=True)
+        return
+    from handlers import eski_bot
+    _eski_ketmoqda = True
+    await query.answer("Boshlandi")
+    try:
+        oddiy, egalar = await database_module.eski_tarqatma_oluvchilar()
+        await query.message.edit_text("⏳ Yuborilmoqda… 0%")
+
+        async def _progress(i, n):
+            try:
+                await query.message.edit_text(f"⏳ Yuborilmoqda… {i * 100 // n}% ({i}/{n})")
+            except Exception:
+                pass
+
+        n = await eski_bot.tarqat(oddiy, egalar, progress=_progress)
+        try:
+            await database_module.log_admin_action(
+                query.from_user.id, "eski_tarqatma", None,
+                f"jami={n['jami']} yuborildi={n['yuborildi']} "
+                f"bloklagan={n['bloklagan']} xato={n['xato']}")
+        except Exception:
+            logger.exception("eski tarqatma auditga yozilmadi")
+        await query.message.edit_text(
+            "✅ <b>E'lon yuborildi</b>\n\n"
+            f"📨 Yetdi: <b>{n['yuborildi']}</b>\n"
+            f"🚫 Botni bloklagan: <b>{n['bloklagan']}</b>\n"
+            f"⚠️ Xato: <b>{n['xato']}</b>\n"
+            f"👥 Jami: <b>{n['jami']}</b>\n\n"
+            "<i>Natijani bir necha kundan keyin panelning «Ko'chish» kartasida ko'ring.</i>",
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        logger.exception("eski tarqatma yiqildi")
+        try:
+            await query.message.answer("❌ Tarqatma to'xtadi — logni qarang.")
+        except Exception:
+            pass
+    finally:
+        _eski_ketmoqda = False
