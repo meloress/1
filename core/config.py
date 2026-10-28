@@ -924,6 +924,8 @@ BIZNES_TAHRIR_KORSAT = 5
 # Egasi qoralamani chetlab o'zi yozgan javob juftlikka necha so'zdan boshlab
 # tushadi: «ok», «hozir», «bir daqiqa» — javob emas (database.egasi_javobi_juftmi).
 BIZNES_JUFT_MIN_SOZ = 3
+# Kunlik «Bilimga qo'shaymi?» xabaridagi eng ko'p fakt — ko'p bo'lsa egasi o'qimaydi.
+BIZNES_FAKT_TAKLIF_MAX = 5
 # Uslub tavsifi birinchi marta shuncha namunadan keyin, so'ng har
 # shuncha yangi namunada qayta yoziladi (mini model, bitta chaqiruv).
 BIZNES_USLUB_ORGAN = (10, 30)

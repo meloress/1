@@ -70,7 +70,9 @@ or written). `railway run` also injects production `DATABASE_URL` and `BOT_TOKEN
 it only for the `eval_*.py` scripts — they touch neither — never for `test_*.py`.
 
 **Live-eval baselines** — compare against these after any prompt edit:
-`eval_chat.py` 48/50 with `--takror 2` (2026-09-29), `eval_biznes.py` **120/120** (112 + 8 obuna holati, 2026-10-16),
+`eval_chat.py` 48/50 with `--takror 2` (2026-09-29), `eval_biznes.py` **125/126** with
+`--takror 2` (63 cases incl. 3 `juft_*` owner-pair cases; the miss is `tashqi_shaxsiy`, 4/5
+on retry, 2026-10-28), `eval_bilim.py` **0 wrong, 15/15** with `--takror 3` (2026-10-28),
 `eval_tabiiy.py` judge **9.5 / 9.5** (without / with owner style) and 0/64 "bot tells"
 (2026-10-15). The handoff sentence a customer sees is **code-owned**
 (`biznes.uzatish_matni()` + `UZATISH_GAPLARI`), not model text — see `BIZNES.md`

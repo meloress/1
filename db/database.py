@@ -527,6 +527,11 @@ async def create_users_table():
         # `[tanlov:]` — egasiga tugma bilan beriladigan tayyor javoblar.
         await conn.execute(
             "ALTER TABLE biznes_loyiha ADD COLUMN IF NOT EXISTS variantlar JSONB")
+        # Bilim taklifi (2026-10-28): kunlik tahlil egasining javobidan
+        # topgan doimiy fakt — {"savol", "javob"}; `{}` — ko'rildi, fakt yo'q;
+        # NULL — hali ko'rilmagan. Bilimga faqat egasi «✅ Qo'shish» bossa tushadi.
+        await conn.execute(
+            "ALTER TABLE biznes_loyiha ADD COLUMN IF NOT EXISTS fakt_taklif JSONB")
         # Dublikat update himoyasi (AUDIT 7.1): deploy paytida eski jarayon
         # update'ni olib, offsetni tasdiqlamay o'lsa, yangisi uni qayta oladi —
         # avtomat ikki marta javob berardi. RAM qayta ishga tushishdan
@@ -1964,9 +1969,52 @@ async def biznes_loyiha_ol(lid: int, owner_id: int) -> Optional[Dict[str, Any]]:
         await create_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT mijoz_matni, yakuniy, holat, variantlar FROM biznes_loyiha '
+            'SELECT mijoz_matni, yakuniy, holat, variantlar, fakt_taklif FROM biznes_loyiha '
             'WHERE id = $1 AND owner_id = $2', lid, owner_id)
-    return dict(row) if row else None
+    if not row:
+        return None
+    d = dict(row)
+    # asyncpg JSONB'ni kodeksiz satr qilib qaytaradi.
+    if isinstance(d.get("fakt_taklif"), str):
+        d["fakt_taklif"] = json.loads(d["fakt_taklif"])
+    return d
+
+
+@with_db_retry()
+async def biznes_fakt_juftlari(owner_id: int, limit: int = 30) -> List[Dict[str, Any]]:
+    """Bilim taklifi uchun hali ko'rilmagan juftliklar: mijoz savoli → egasi
+    O'ZI yozgan javob (`tahrirlandi` / `egasi_yozdi`).
+
+    `yuborildi` EMAS — u qoralama, ya'ni botning o'zi bilimdan yozgani:
+    undan «yangi fakt» chiqarish aylanma bo'lardi. Tanlov (`variantlar`) ham
+    emas — unga «💾 Eslab qol» tugmasi bor. 2 kunlik oyna: kunlik tahlil bir
+    kun o'tkazib yuborilsa ham juftlik yo'qolmasin; ko'rilgani `{}` bo'ladi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, mijoz_matni, yakuniy FROM biznes_loyiha WHERE owner_id = $1 "
+            "AND holat IN ('tahrirlandi', 'egasi_yozdi') AND variantlar IS NULL "
+            "AND yakuniy IS NOT NULL AND fakt_taklif IS NULL "
+            "AND yaratilgan > NOW() - make_interval(days => 2) "
+            "ORDER BY id LIMIT $2", owner_id, limit)
+    return [dict(r) for r in rows]
+
+
+@with_db_retry()
+async def biznes_fakt_belgila(owner_id: int, natija: Dict[int, Optional[Dict[str, str]]]) -> None:
+    """Ko'rilgan juftliklar: fakt bo'lsa {"savol", "javob"}, bo'lmasa `{}` —
+    ertaga qayta tahlilga tushmasin (bitta taklif ikki marta kelmasin)."""
+    if not natija:
+        return
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.executemany(
+            "UPDATE biznes_loyiha SET fakt_taklif = $3::jsonb WHERE id = $1 AND owner_id = $2",
+            [(lid, owner_id, json.dumps(f or {}, ensure_ascii=False)) for lid, f in natija.items()])
 
 
 @with_db_retry()

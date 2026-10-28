@@ -487,9 +487,24 @@ Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin
      juftlikdagi maxsus narxdan ustun (10/10, ikkala holatda ham).
    SQL lokal Postgres'da tekshirildi; `test_biznes_uslub.py` 23-24,
    `test_biznes_yordamchi.py` 19.
-2. **Bilim o'zi yig'ilsin.** Ertalabki hisobotdagi bitta mini chaqiruv egasi
-   javoblaridagi faktlarni (narx, manzil, muddat) ajratib Bilimga qo'shsin;
-   egasiga "qo'shildi: …" + o'chirish tugmasi.
+2. ✅ **Bilim o'zi yig'ilsin (2026-10-28) — TAKLIF, egasi tanlaydi.** Kunlik
+   tahlil (`_hisobot` → `_bilim_takliflari`) egasi O'ZI yozgan javoblardan
+   (`biznes_fakt_juftlari`: `tahrirlandi`/`egasi_yozdi`, 2 kunlik oyna) bitta mini
+   chaqiruv (`ai.biznes_fakt_ajrat`) bilan doimiy faktlarni ajratadi va egasiga
+   «🧠 Bilimga qo'shaymi?» xabarini har fakt yonida «✅ N-ni qo'shish» (`bz:fq:<lid>`)
+   bilan yuboradi. Qoidalar:
+   - ⛔️ Bilimga O'ZI yozilmaydi (egasi tanladi, 2026-10-28): bilimdagi fakt
+     avtomatda hamma mijozga ketadi. Rejadagi «o'zi qo'shsin + o'chirish» rad etildi;
+   - xabar faqat fakt topilgan kuni — kunlik hisobot o'chirilgan (2026-10-03);
+   - `yuborildi` (botning o'z qoralamasi) va tanlov manba EMAS — aylanma bo'lardi;
+   - ko'rilgan juftlik `fakt_taklif = {}` — ertaga qayta tahlilga tushmaydi;
+   - ⛔️ model natijasi ishonchsiz — `fakt_takliflari()` kodda rad etadi: egasining
+     o'sha javobida umumiy so'z/raqam yo'q (model bilimdagi «Futbolka 80 000» ni
+     «sizga 45 ming» juftligiga bog'lagan edi), vaqtli/shaxsiy so'z (`_VAQTLI_RE`:
+     «shu hafta», «ertaga», «aksiya», «sizga»), bilimda bor («80 ming» = «80 000»).
+     Faqat prompt bilan `tests/eval_bilim.py`: noto'g'ri **7**/3 marta; kod
+     tekshiruvlari bilan **0**, doimiy faktlar **15/15**.
+   SQL lokal Postgres'da; `test_biznes_hisobot.py` 26-31.
 3. **Ulanganda o'zi sozlansin.** Ulanish → avtomatik Yordamchi + bitta
    tushuntirish xabari; rejim/bilim/qoidalar ixtiyoriy.
 4. **`/biznes` soddalashsin.** Asosiy ekranda holat (necha xabardan

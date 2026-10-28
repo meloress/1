@@ -503,6 +503,60 @@ async def biznes_kun_xulosasi(chatlar: List[str],
         return {}
 
 
+_BIZNES_FAKT_PROMPT = (
+    "Biznes egasining BILIMI (bot mijozlarga shunga tayanib javob beradi) va "
+    "egasi mijozlarga O'ZI bergan javoblar berilgan: har biri «#N». Bot "
+    "keyingi safar HAR QANDAY mijozga shu javobni bera oladigan DOIMIY "
+    "biznes faktlarini ajrat: narx-navo, mahsulot/xizmat bor-yo'qligi, "
+    "manzil, ish vaqti, yetkazib berish, to'lov usuli, kafolat shartlari.\n"
+    "OLMA: bitta mijozga xos narsa (shaxsiy chegirma, «sizga 45 ming», uning "
+    "buyurtmasi, ismi, manzili); vaqtga bog'liq (bugun, ertaga, hozir, shu "
+    "hafta, aksiya); egasining shaxsiy hayoti; va'da; salomlashish; bilimda "
+    "ALLAQACHON bor narsa. Shubha bo'lsa — olma: noto'g'ri fakt bot nomidan "
+    "hamma mijozga aytiladi.\n"
+    "⛔️ BILIM — manba EMAS: undagi narsani qaytarma (u faqat «allaqachon "
+    "bor» tekshiruvi uchun). Har fakt — faqat bitta «#N» dagi «Egasi:» "
+    "qatoridan.\n"
+    "Faqat JSON qaytar: {\"faktlar\": [{\"n\": <fakt olingan #N raqami>, "
+    "\"savol\": \"umumiy qisqa savol, masalan «yetkazib berish bormi?»\", "
+    "\"javob\": \"o'sha #N egasining javobidagi fakt, qisqa, ism va "
+    "murojaatsiz\"}]}. Fakt yo'q bo'lsa — {\"faktlar\": []}. O'zbek tilida, "
+    "egasining yozuvida YO'Q narsani to'qima."
+)
+
+
+async def biznes_fakt_ajrat(bilim: str, juftlar: List[tuple],
+                            egasi: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Bilim taklifi (BIZNES.md «Keyingi ishlar» 2) — BITTA mini chaqiruv.
+
+    Natija ISHONCHSIZ: `n` va maydonlarni chaqiruvchi tekshiradi. Bilimga
+    o'zi YOZMAYDI — faqat egasi «✅ Qo'shish» bosganda (egasi tanlagan:
+    xato fakt avtomatda hamma mijozga ketardi). Xato — bo'sh ro'yxat.
+    """
+    if not juftlar:
+        return []
+    qism = ["BILIM:\n" + ((bilim or "").strip() or "(bo'sh)"), "\nJAVOBLAR:"]
+    qism += [f"#{i}\nMijoz: {s[:300]}\nEgasi: {j[:400]}" for i, (s, j) in enumerate(juftlar, 1)]
+    try:
+        resp = await asyncio.wait_for(
+            openai_client.responses.create(
+                model=HISTORY_SUMMARY_MODEL,
+                instructions=_BIZNES_FAKT_PROMPT,
+                input=[{"role": "user", "content": "\n".join(qism)[:24000]}],
+                store=False,
+            ),
+            timeout=60,
+        )
+        _log_token_usage(resp, HISTORY_SUMMARY_MODEL, "biznes-fakt", egasi)
+        matn = (resp.output_text or "").strip()
+        natija = json.loads(matn[matn.find("{"):matn.rfind("}") + 1])
+        faktlar = natija.get("faktlar") if isinstance(natija, dict) else None
+        return faktlar if isinstance(faktlar, list) else []
+    except Exception as e:
+        logger.warning(f"[BIZNES] bilim taklifi yozilmadi: {str(e) or type(e).__name__}")
+        return []
+
+
 async def safe_history_summary_message(chat_id: int,
                                        thread_id: int = 0) -> Optional[Dict[str, str]]:
     """Oynadan chiqqan suhbatning siqilgan shakli — `developer` xabari.

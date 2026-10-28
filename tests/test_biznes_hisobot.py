@@ -123,6 +123,45 @@ database.pro_tarifmi = rost
 database.biznes_hisobot_band = band
 database.biznes_kun_hisobi = kun_hisobi
 database.biznes_mijoz_yangila = mijoz_yangila
+
+# Bilim taklifi (2026-10-28) — ⚠️ usiz _hisobot .env dagi JONLI bazaga borardi.
+holat.update(juftlar=[], faktlar=[], bilim="Futbolka 80 000 so'm.", loyiha={})
+
+
+async def fakt_juftlari(owner, limit=30):
+    q.append(("juftlar", owner))
+    return list(holat["juftlar"])
+
+
+async def fakt_belgila(owner, natija):
+    q.append(("belgila", owner, dict(natija)))
+
+
+async def fakt_ajrat(bilim, juftlar, egasi=None):
+    holat["manba"].append(ai.BIZNES_MANBA.get())
+    q.append(("fakt_model", len(juftlar)))
+    return holat["faktlar"]
+
+
+async def bilim_ol(owner):
+    return holat["bilim"]
+
+
+async def bilim_yoz(owner, matn):
+    q.append(("bilim_yoz", owner, matn))
+    holat["bilim"] = matn
+
+
+async def loyiha_ol(lid, owner):
+    return holat["loyiha"].get((lid, owner))
+
+
+database.biznes_fakt_juftlari = fakt_juftlari
+database.biznes_fakt_belgila = fakt_belgila
+database.biznes_bilim_ol = bilim_ol
+database.biznes_bilim_yoz = bilim_yoz
+database.biznes_loyiha_ol = loyiha_ol
+b.biznes_fakt_ajrat = fakt_ajrat
 database._biznes_kesh.clear()
 database._biznes_kesh["c1"] = {
     "owner_id": EGASI, "owner_chat": DM, "yoqilgan": True, "rejim": "yordamchi",
@@ -302,5 +341,73 @@ check(25, "main.py: kartoteka kuzatuvchisi ishga tushadi, profil FSM AI'dan oldi
       "biznes_hisobot_watcher()" in main
       and main.index("process_profil") < main.index("register(handle_text")
       and 'Command("mijozlar")' in main)
+
+# ── 26-30. Bilim o'zi to'plansin — TAKLIF, egasi tanlaydi (BIZNES.md) ──
+JUFT = [{"id": 11, "mijoz_matni": "yetkazib berasizmi?", "yakuniy": "Ha, Toshkent bo'ylab 20 ming"},
+        {"id": 12, "mijoz_matni": "menga chegirma bormi", "yakuniy": "Sizga 45 mingga beraman"},
+        {"id": 13, "mijoz_matni": "shanba ishlaysizmi", "yakuniy": "Shanba 10 dan 18 gacha"}]
+ft = b.fakt_takliflari
+check(26, "model natijasi ishonchsiz: n chegarada, bool emas, bo'sh/karta yo'q, bitta juftga bitta",
+      ft([{"n": 0, "savol": "a", "javob": "b"}, {"n": 4, "savol": "a", "javob": "b"},
+          {"n": True, "savol": "a", "javob": "b"}, {"n": 1, "savol": "", "javob": "b"},
+          {"n": 2, "savol": "karta?", "javob": "8600 1234 5678 9012"},
+          # Jonli xato (eval_bilim): bilimdagi narx boshqa juftlikka bog'landi —
+          # egasining 2-javobida «80 000» ham, «futbolka» ham yo'q: rad.
+          {"n": 2, "savol": "futbolka necha pul?", "javob": "Futbolka 80 000 so'm"},
+          {"n": 3, "savol": "shanba ishlaysizmi?", "javob": "10:00-18:00"},
+          {"n": 3, "savol": "takror", "javob": "takror"}, "buzuq"], JUFT)
+      == {13: {"savol": "shanba ishlaysizmi?", "javob": "10:00-18:00"}}
+      and len(ft([{"n": 1, "savol": f"s{i}", "javob": "j"} for i in range(9)]
+                 + [{"n": i, "savol": "s", "javob": "j"} for i in range(1, 4)], JUFT * 3)) <= 3)
+
+# Jonli xatolar (eval_bilim, 2026-10-28) — prompt taqiqlasa ham model oldi:
+VJ = [{"id": 21, "yakuniy": "Shu hafta hamma narsaga 10% chegirma"},
+      {"id": 22, "yakuniy": "Ertaga kechgacha olib boramiz"},
+      {"id": 23, "yakuniy": "80 ming"},
+      {"id": 24, "yakuniy": "Chilonzor 9-kvartal, Korzinka yonida"}]
+check(31, "vaqtli («shu hafta», «ertaga») va bilimda bor («80 ming» = «80 000») — rad; yangi — o'tadi",
+      ft([{"n": 1, "savol": "chegirma bormi?", "javob": "hamma narsaga 10% chegirma"},
+          {"n": 2, "savol": "qachon keladi?", "javob": "kechgacha olib boramiz"},
+          {"n": 3, "savol": "futbolka necha pul?", "javob": "80 ming"},
+          {"n": 4, "savol": "manzil?", "javob": "Chilonzor 9-kvartal"}],
+         VJ, "Futbolka 80 000 so'm.")
+      == {24: {"savol": "manzil?", "javob": "Chilonzor 9-kvartal"}})
+
+# Kunlik tahlil: juftlik bor, model 2 fakt topdi → BITTA xabar, har biriga tugma.
+holat.update(juftlar=JUFT, hisob=BOSH, band=True,
+             faktlar=[{"n": 1, "savol": "yetkazib berish bormi?", "javob": "Toshkent bo'ylab, 20 000 so'm"},
+                      {"n": 3, "savol": "shanba ishlaysizmi?", "javob": "10:00-18:00"}])
+holat["manba"].clear()
+q.clear()
+asyncio.run(b._hisobot(EGASI, DM))
+yub = [x for x in q if x[0] == "send"]
+belg = [x for x in q if x[0] == "belgila"]
+tugmalar = [r[0].callback_data for r in yub[0][3].inline_keyboard] if yub else []
+check(27, "fakt topilsa — bitta xabar, har faktga «✅ Qo'shish»; bilimga O'ZI yozilmaydi",
+      len(yub) == 1 and "«yetkazib berish bormi?»" in yub[0][2] and "45" not in yub[0][2]
+      and tugmalar == ["bz:fq:11", "bz:fq:13"]
+      and not [x for x in q if x[0] == "bilim_yoz"]
+      and holat["manba"] == [True])
+check(28, "ko'rilgan HAMMA juftlik belgilanadi (faktsizi None) — ertaga qayta kelmaydi",
+      len(belg) == 1 and set(belg[0][2]) == {11, 12, 13} and belg[0][2][12] is None
+      and belg[0][2][13] == {"savol": "shanba ishlaysizmi?", "javob": "10:00-18:00"})
+
+holat.update(juftlar=[])
+q.clear()
+asyncio.run(b._hisobot(EGASI, DM))
+check(29, "juftlik yo'q — model chaqirilmaydi, xabar yo'q (kunlik shovqin emas)",
+      not [x for x in q if x[0] in ("fakt_model", "send")])
+
+# «✅ Qo'shish» — FAQAT shunda bilimga tushadi; begona yoki ko'rilmagan — yo'q.
+holat["loyiha"] = {(13, EGASI): {"fakt_taklif": {"savol": "shanba ishlaysizmi?", "javob": "10:00-18:00"}},
+                   (12, EGASI): {"fakt_taklif": {}}}
+q.clear()
+ok = asyncio.run(b._fakt_taklif_saqla(13, EGASI))
+yozildi = [x for x in q if x[0] == "bilim_yoz"]
+check(30, "«✅ Qo'shish» — bilim oxiriga «savol» → javob; faktsiz/begona — yozilmaydi",
+      ok.startswith("✅") and yozildi and "- «shanba ishlaysizmi?» → 10:00-18:00" in yozildi[0][2]
+      and b.FAKT_SARLAVHA in yozildi[0][2]
+      and not asyncio.run(b._fakt_taklif_saqla(12, EGASI)).startswith("✅")
+      and not asyncio.run(b._fakt_taklif_saqla(13, EGASI + 1)).startswith("✅"))
 
 print("\nHammasi o'tdi.")

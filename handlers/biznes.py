@@ -35,7 +35,7 @@ from aiogram.types import (BufferedInputFile, BusinessConnection, CallbackQuery,
                            InputStoryContentPhoto, Message)
 
 from core.config import (BIZNES_AVTOMAT_OCHIQ, BIZNES_BILIM_MAX, BIZNES_NAMUNA_MAX,
-                         BIZNES_HISOBOT_SOAT,
+                         BIZNES_FAKT_TAKLIF_MAX, BIZNES_HISOBOT_SOAT,
                          BIZNES_MERGE_WAIT, BIZNES_TOZALASH_KUN,
                          BIZNES_MODEL_TIMEOUT, BIZNES_PAUZA_SOAT, BIZNES_REJIMLAR,
                          BIZNES_KUTISH_SONIYA, BIZNES_KUTISH_VARIANT,
@@ -47,7 +47,7 @@ from core import olchov
 from core.csv_fayl import csv_matn
 from core.memory import get_text_merge_lock, text_merge_buffers
 from db import database
-from services.ai import (BIZNES_MANBA, BIZNES_SXEMA, biznes_kun_xulosasi,
+from services.ai import (BIZNES_MANBA, BIZNES_SXEMA, biznes_fakt_ajrat, biznes_kun_xulosasi,
                          biznes_qaror_ajrat, egasiga_ajrat, tanlov_ajrat,
                          get_gpt_reply, safe_update_history)
 from db.history import biznes_keshini_tozala, get_chat_history
@@ -2194,6 +2194,19 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         except Exception:
             pass
         await query.answer(REJIM_NOMI[qism[2]][0])
+    elif amal == "fq" and len(qism) > 2 and qism[2].isdigit():
+        javob = await _fakt_taklif_saqla(int(qism[2]), uid)
+        if javob.startswith("✅"):
+            # Bosilgan tugma ketadi, qolganlari turadi — har fakt alohida tanlanadi.
+            qolgan = [q for q in (query.message.reply_markup.inline_keyboard
+                                  if query.message.reply_markup else [])
+                      if q and q[0].callback_data != query.data]
+            try:
+                await query.message.edit_reply_markup(
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=qolgan) if qolgan else None)
+            except Exception:
+                pass
+        await query.answer(javob[:200], show_alert=not javob.startswith("✅"))
     elif amal == "fk" and len(qism) > 2 and qism[2].isdigit():
         javob = await _fakt_saqla(int(qism[2]), uid)
         if javob.startswith("✅"):
@@ -2482,6 +2495,12 @@ async def _hisobot(egasi: int, dm: int) -> bool:
     # yubormasin va mini modelni ikki marta chaqirmasin.
     if not await database.biznes_hisobot_band(egasi, _hozir_kun()):
         return False
+    # Bilim taklifi — kartotekadan OLDIN: u bo'sh kunda (mijozsiz) chiqib
+    # ketadi, egasining javoblari esa 2 kunlik oynada turibdi.
+    try:
+        await _bilim_takliflari(egasi, dm)
+    except Exception:
+        logger.exception(f"[BIZNES] bilim taklifi yiqildi egasi={egasi}")
     kecha = _hozir_kun() - timedelta(days=1)
     h = await database.biznes_kun_hisobi(egasi, kecha)
     if not h["mijozlar"]:
@@ -2509,6 +2528,117 @@ async def _hisobot(egasi: int, dm: int) -> bool:
             logger.warning(f"[BIZNES] kartoteka yangilanmadi: {e}")
     logger.info(f"[BIZNES] kartoteka egasi={egasi} mijoz={h['mijozlar']}")
     return True
+
+
+# ── Bilim o'zi to'plansin (BIZNES.md «Keyingi ishlar» 2, 2026-10-28) ──
+# Egasi bilimga narx/manzil/vaqtni qo'lda yozmaydi — bot esa shu sababli
+# javob berolmaydi. Kunlik tahlil egasining O'ZI yozgan javoblaridan doimiy
+# faktlarni ajratadi va TAKLIF qiladi. ⛔️ O'zi qo'shmaydi (egasi tanladi):
+# bilimdagi fakt avtomatda hamma mijozga ketadi, mini model esa «sizga 45
+# ming» ni narx deb olishi mumkin. Xabar faqat fakt topilgan kuni — kunlik
+# hisobot o'chirilgan (egasi, 2026-10-03), har kungi xabar shovqin bo'lardi.
+_SOZ_RE = re.compile(r"[^\W_]{3,}|\d+")
+
+
+def _sozlar(matn: str) -> set:
+    # «80 000», «80000» va «80 ming» bir xil sanalsin.
+    m = re.sub(r"(?<=\d)\s+(?=\d)", "", (matn or "").lower())
+    m = re.sub(r"(\d+)\s*(ming|минг|тыс\w*)\b", r"\g<1>000", m)
+    return set(_SOZ_RE.findall(m))
+
+
+# Vaqtga yoki BITTA mijozga bog'liq — doimiy fakt emas (eval_bilim: model
+# «shu hafta 10% chegirma», «ertaga olib boramiz» ni prompt taqiqlasa ham oldi).
+# ponytail: so'z ro'yxati — «sizga yetkazamiz» kabi umumiy gapni ham rad etadi;
+# bu yo'nalish xavfsiz (noto'g'ri fakt hamma mijozga ketardi).
+_VAQTLI_RE = re.compile(
+    r"(?i)\b(bugun|ertaga|indinga|kecha|hozir\w*|shu\s+(hafta|oy|kun)\w*|bu\s+(hafta|oy)\w*|"
+    r"aksiya\w*|sizga|siz\s+uchun|сегодня|завтра|сейчас|акци\w*|для\s+вас)\b")
+
+
+def fakt_takliflari(xom: list, juftlar: list, bilim: str = "") -> dict:
+    """Model natijasi → {loyiha_id: {"savol", "javob"}}. Sof — testda.
+
+    Model ishonchsiz: `n` ko'rsatilgan ro'yxat chegarasida (`bool` ham int),
+    savol/javob — bo'sh bo'lmagan satr, karta raqami — yo'q, bitta juftlikka
+    bitta fakt, ko'pi bilan `BIZNES_FAKT_TAKLIF_MAX`.
+
+    ⛔️ Fakt o'sha `n`-juftlikdagi EGASI javobiga tayanishi shart (kamida bitta
+    umumiy so'z yoki raqam). Jonli o'lchov (eval_bilim, 2026-10-28): model
+    bilimdagi «Futbolka 80 000» ni qaytardi va uni «sizga 45 ming» juftligiga
+    bog'ladi — prompt qoidasi kafolat emas, bu tekshiruv kafolat."""
+    natija: dict = {}
+    for f in xom if isinstance(xom, list) else []:
+        n = f.get("n") if isinstance(f, dict) else None
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(juftlar):
+            continue
+        savol, javob = f.get("savol"), f.get("javob")
+        if not (isinstance(savol, str) and isinstance(javob, str)
+                and savol.strip() and javob.strip()):
+            continue
+        lid = juftlar[n - 1]["id"]
+        if lid in natija or not database.clean_biznes_namuna(f"{savol} {javob}"):
+            continue
+        asl = juftlar[n - 1].get("yakuniy", "")
+        jsoz = _sozlar(javob)
+        if not jsoz & _sozlar(asl):
+            continue                        # egasining o'sha javobida yo'q — to'qima
+        if _VAQTLI_RE.search(javob) or _VAQTLI_RE.search(asl):
+            continue                        # bugungi / shu mijozga — doimiy emas
+        if jsoz <= _sozlar(bilim):
+            continue                        # bilimda allaqachon bor
+        natija[lid] = {"savol": " ".join(savol.split())[:150],
+                       "javob": " ".join(javob.split())[:300]}
+        if len(natija) >= BIZNES_FAKT_TAKLIF_MAX:
+            break
+    return natija
+
+
+def fakt_taklif_matni(takliflar: dict) -> str:
+    """Sof — testda."""
+    q = ["🧠 <b>Bilimga qo'shaymi?</b>\n",
+         "Mijozlarga o'zingiz bergan javoblardan shularni topdim. Qo'shsangiz, "
+         "shunday savolga keyingi safar o'zim javob beraman:\n"]
+    q += [f"{i}. «{escape(f['savol'])}» → {escape(f['javob'])}"
+          for i, f in enumerate(takliflar.values(), 1)]
+    q.append("\n<i>Bosmasangiz hech narsa o'zgarmaydi — bilimga faqat siz "
+             "tanlagani tushadi.</i>")
+    return "\n".join(q)
+
+
+async def _bilim_takliflari(egasi: int, dm: int) -> int:
+    """Qaytadi: nechta fakt taklif qilindi."""
+    juftlar = await database.biznes_fakt_juftlari(egasi)
+    if not juftlar:
+        return 0
+    bilim = await database.biznes_bilim_ol(egasi)
+    with _biznes_hisobida():
+        xom = await biznes_fakt_ajrat(bilim, [(j["mijoz_matni"], j["yakuniy"]) for j in juftlar],
+                                      egasi)
+    takliflar = fakt_takliflari(xom, juftlar, bilim)
+    # Hammasi «ko'rildi» — faktsizlari ham: ertaga qayta tahlilga tushmasin.
+    await database.biznes_fakt_belgila(egasi, {j["id"]: takliflar.get(j["id"]) for j in juftlar})
+    if not takliflar:
+        return 0
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [pro_module.btn(f"✅ {i}-ni qo'shish", f"bz:fq:{lid}", style=BTN_SUCCESS)]
+        for i, lid in enumerate(takliflar, 1)])
+    await _dm_yubor(dm, fakt_taklif_matni(takliflar), reply_markup=kb)
+    logger.info(f"[BIZNES] bilim taklifi egasi={egasi} juft={len(juftlar)} fakt={len(takliflar)}")
+    return len(takliflar)
+
+
+async def _fakt_taklif_saqla(lid: int, egasi: int) -> str:
+    r = await database.biznes_loyiha_ol(lid, egasi)
+    f = (r or {}).get("fakt_taklif") or {}
+    if not (isinstance(f, dict) and f.get("savol") and f.get("javob")):
+        return "Bu taklif endi yo'q."
+    yangi, xato = bilimga_fakt(await database.biznes_bilim_ol(egasi), f["savol"], f["javob"])
+    if xato:
+        return f"Saqlanmadi: biznes ma'lumotlari {xato}. /biznes → «📝 Biznes ma'lumotlari»"
+    await database.biznes_bilim_yoz(egasi, yangi)
+    logger.info(f"[BIZNES] bilim taklifi qabul qilindi egasi={egasi} loyiha={lid}")
+    return "✅ Bilimga qo'shildi"
 
 
 async def biznes_hisobot_watcher():
