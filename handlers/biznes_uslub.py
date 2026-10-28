@@ -58,8 +58,14 @@ def uslub_bloki(u: dict | None) -> str:
                  "ism, sana va va'dalar BU suhbatga tegishli emas]\n"
                  + "\n".join(f"- {bir(m)}" for m in u["namunalar"]))
     if u.get("tahrirlar"):
+        # ⚠️ «fakt emas» qismi — jonli o'lchovdan (eval_biznes juft_bilimsiz,
+        # 2026-10-28): bilimda yo'q mahsulotga bot juftlikdagi «Shim bor, 90
+        # ming» ni so'zma-so'z ko'chirdi (0/5) — BIR mijozga aytilgan narx
+        # boshqasiga fakt bo'lib ketdi. Namunalar sarlavhasidagi qoida bilan bir.
         q.append("[TUZATISHLAR — bot shunday yozgan, egasi shunday qilib "
-                 "yuborgan; egasidek yoz]\n"
+                 "yuborgan; egasidek yoz. Faqat USLUB uchun: ulardagi narx, "
+                 "mavjudlik, ism, sana va va'dalar boshqa suhbatga tegishli, "
+                 "FAKT EMAS — faktni faqat bilimdan ol]\n"
                  + "\n".join(f"Bot: {bir(a)}\nEgasi: {bir(b)}" for a, b in u["tahrirlar"]))
     return "\n\n".join(q)
 

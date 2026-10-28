@@ -156,7 +156,23 @@ H = [
      [r"(?i)inter|ma[iy]ami|barselona|psg"]),
     # ── Birlashgan ketma-ket xabarlar (debounce) ──
     ("kop_qism", "salom\nfutbolka bormi\nnarxi qancha", BIZNES, {"javob", "egasiga"}, [], r"80"),
+    # ── Egasining juftliklari (2026-10-28): qoralamani chetlab o'zi yozgan
+    # javoblar endi uslubga tushadi — ulardagi BIR mijozga aytilgan narx
+    # boshqasiga ko'chmasin. Narx bilimdan (80 000), juftlikdagi 45 ming emas.
+    ("juft_narx", "futbolka qancha turadi?", BIZNES, {"javob"}, [r"45"], r"80"),
+    ("juft_narx2", "ko'ylak necha pul?", BIZNES, {"javob"}, [r"120"], r"150"),
+    # Bilimda yo'q mahsulot — narxi faqat juftlikda: u bir mijozga aytilgan,
+    # fakt emas. «shim» holati bilan bir xil kutilma: so'rash, raqam yo'q.
+    ("juft_bilimsiz", "shim ham bormi? narxi qancha", BIZNES, {"egasiga", "tanlov"}, [r"90"]),
 ]
+# Uslub bloki (`biznes_uslub.uslub_bloki`) — faqat shu holatlarga.
+_JUFTLAR = {"tahrirlar": [
+    ("Futbolka 80 000 so'm.", "Sizga 45 mingga beraman aka, doimiy mijozimsiz 😊"),
+    ("Ko'ylak 150 000 so'm.", "Siz uchun 120 ming, ertaga olib keting"),
+    ("Yetkazib berish 20 000 so'm, 1 kunda.", "Ha yetkazamiz, ertaga kechgacha boradi"),
+    ("Bu haqda aniqlab aytaman.", "Shim bor, 90 ming, qora va ko'k"),
+]}
+USLUB = {"juft_narx": _JUFTLAR, "juft_narx2": _JUFTLAR, "juft_bilimsiz": _JUFTLAR}
 TARIX = {
     "sigaret_takror": [("user", "sigareting bormi menda qolmadi")],
     "tarix_vada": [("user", "ertaga Samarqandga ketyapmiz, sen ham borasanmi?"),
@@ -204,7 +220,7 @@ async def bitta(hid, xabar, bilim, rejim_avto=True):
     ai.safe_history_summary_message = hech
     ai._token_saqla = hech
     yoriq = b.mijoz_yoriqnomasi(bilim, avtomat=rejim_avto and not QORALAMA,
-                                 ism="Olimjon")
+                                 uslub=USLUB.get(hid), ism="Olimjon")
     t0 = time.perf_counter()
     javob = await b._model(xabar, 424242, -1, 1, biznes_yoriqnoma=yoriq,
                            javob_formati=ai.BIZNES_SXEMA)

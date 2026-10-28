@@ -143,7 +143,7 @@ async def yakun(lid, owner, holat_, yakuniy=None):
     q.append(("yakun", lid, holat_))
 
 
-async def eskirt(owner, chat):
+async def eskirt(owner, chat, egasi_matni=None):
     q.append(("eskirt", chat))
 
 

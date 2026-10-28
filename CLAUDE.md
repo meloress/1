@@ -63,8 +63,11 @@ its shape from the real `SELECT`/return, not from what the code under test hopes
 
 ⚠️ **The local `.env` `BOT_TOKEN` is a different bot** — «Tramplin»
 (`@tramplin_offical_bot`), not production `@vexonai` (`@uzchatgptaibot` before 2026-10-25). `getMe` from here says nothing
-about the live bot. The local `OPENAI_API_KEY` **does** have credit (2026-10-15), so the
-`eval_*.py` scripts run locally.
+about the live bot. ⚠️ The local `OPENAI_API_KEY` is **invalid** since 2026-10-28 (401). The
+owner approved running the evals with production's key: `railway run python
+tests/eval_biznes.py …` injects the service's env for that one command (nothing is printed
+or written). `railway run` also injects production `DATABASE_URL` and `BOT_TOKEN`, so use
+it only for the `eval_*.py` scripts — they touch neither — never for `test_*.py`.
 
 **Live-eval baselines** — compare against these after any prompt edit:
 `eval_chat.py` 48/50 with `--takror 2` (2026-09-29), `eval_biznes.py` **120/120** (112 + 8 obuna holati, 2026-10-16),

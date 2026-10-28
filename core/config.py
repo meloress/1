@@ -921,6 +921,9 @@ BIZNES_LOYIHA_TTL_SOAT = 24
 BIZNES_NAMUNA_MAX = 200
 BIZNES_NAMUNA_KORSAT = 25
 BIZNES_TAHRIR_KORSAT = 5
+# Egasi qoralamani chetlab o'zi yozgan javob juftlikka necha so'zdan boshlab
+# tushadi: «ok», «hozir», «bir daqiqa» — javob emas (database.egasi_javobi_juftmi).
+BIZNES_JUFT_MIN_SOZ = 3
 # Uslub tavsifi birinchi marta shuncha namunadan keyin, so'ng har
 # shuncha yangi namunada qayta yoziladi (mini model, bitta chaqiruv).
 BIZNES_USLUB_ORGAN = (10, 30)

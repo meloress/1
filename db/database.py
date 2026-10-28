@@ -19,7 +19,7 @@ from core.config import (
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     INACTIVE_STEPS, ACTIVITY_TYPES,
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
-    BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT,
+    BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT, BIZNES_JUFT_MIN_SOZ,
     BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
 )
 
@@ -491,8 +491,10 @@ async def create_users_table():
         # "Yordamchi" rejimi loyihalari. RAM'da emas: `callback_data` 64
         # bayt, loyiha matni sig'maydi, va deploy tugmani o'lik qilmasin.
         # holat: kutmoqda → yuborilmoqda → yuborildi | tahrirlandi;
-        #        yoki bekor | eskirgan. `tahrirlandi` va `yuborildi`
-        #        nisbati — 3-bosqichga o'tish mezoni (REJA.md).
+        #        yoki bekor | eskirgan | egasi_yozdi (egasi qoralamani
+        #        chetlab o'zi javob berdi — `yakuniy` = uning matni, uslub
+        #        juftligi). `tahrirlandi` va `yuborildi` nisbati — 3-bosqichga
+        #        o'tish mezoni (REJA.md); `egasi_yozdi` unga kirmaydi.
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS biznes_loyiha (
                 id          BIGSERIAL PRIMARY KEY,
@@ -1548,7 +1550,7 @@ async def biznes_uslub_ol(owner_id: int, namuna: int = BIZNES_NAMUNA_KORSAT) -> 
             'ORDER BY id DESC LIMIT $2', owner_id, namuna)
         tah = await conn.fetch(
             "SELECT loyiha, yakuniy FROM biznes_loyiha WHERE owner_id = $1 "
-            "AND holat = 'tahrirlandi' AND yakuniy IS NOT NULL "
+            "AND holat IN ('tahrirlandi', 'egasi_yozdi') AND yakuniy IS NOT NULL "
             "ORDER BY id DESC LIMIT $2", owner_id, BIZNES_TAHRIR_KORSAT)
     natija = {
         "uslub": p['uslub'] if p else None,
@@ -1786,17 +1788,54 @@ async def biznes_faol_chatlar(owner_id: int, soat: int = 24,
     return rows[:limit]
 
 
+def egasi_javobi_juftmi(matn: Optional[str]) -> Optional[str]:
+    """Egasining chatdagi javobi qoralama bilan JUFTLIK bo'la oladimi — sof.
+
+    Juftlik uslub promptiga «bot shunday yozdi — egasi shunday javob berdi»
+    bo'lib ketadi. «hozir», «bir daqiqa», «ok» — javob emas, kechiktirish:
+    ular juftlikka tushsa bot javob o'rniga «bir daqiqa» deyishni o'rganardi.
+    ponytail: so'z soni bo'yicha chegara — «bir daqiqa kuting» o'tib ketadi;
+    shovqin ko'paysa mini model bilan «bu javobmi?» tekshiruvi qo'shiladi."""
+    toza = clean_biznes_namuna(matn or "")
+    if not toza or len(toza.split()) < BIZNES_JUFT_MIN_SOZ:
+        return None
+    return toza
+
+
 @with_db_retry()
-async def biznes_loyiha_eskirt(owner_id: int, chat_id: int) -> None:
-    """Egasi mijozga o'zi yozdi — o'sha chatdagi loyiha endi o'rinsiz."""
+async def biznes_loyiha_eskirt(owner_id: int, chat_id: int,
+                               egasi_matni: Optional[str] = None) -> None:
+    """Egasi mijozga o'zi yozdi — o'sha chatdagi loyiha endi o'rinsiz.
+
+    `egasi_matni` berilsa va javobga o'xshasa (`egasi_javobi_juftmi`), eng
+    oxirgi ODDIY qoralama `egasi_yozdi` bo'ladi, `yakuniy` — egasining matni:
+    «bot shunday yozdi — egasi aslida shunday yozdi» juftligi, uslubning eng
+    kuchli signali va egasiga nol ish (BIZNES.md «Keyingi ishlar» 1). Ilgari
+    u shunchaki `eskirgan` bo'lib yo'qolardi.
+
+    ⚠️ `tahrirlandi` EMAS: ertalabki hisobot «nechtasi tahrirsiz ketdi»ni
+    `yuborildi`/`tahrirlandi` dan sanaydi, bu qoralama esa umuman ketmagan.
+    Tanlov (`variantlar`) — tegilmaydi: unga `_egasi_tanlovga_javob` bor."""
+    juft = egasi_javobi_juftmi(egasi_matni)
     global pool
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE biznes_loyiha SET holat = 'eskirgan' "
-            "WHERE owner_id = $1 AND chat_id = $2 AND holat = 'kutmoqda'",
-            owner_id, chat_id)
+        async with conn.transaction():
+            juftlandi = juft and await conn.fetchval(
+                "UPDATE biznes_loyiha SET holat = 'egasi_yozdi', yakuniy = $3 "
+                "WHERE owner_id = $1 AND id = (SELECT id FROM biznes_loyiha "
+                "  WHERE owner_id = $1 AND chat_id = $2 AND holat = 'kutmoqda' "
+                "    AND variantlar IS NULL "
+                "    AND yaratilgan > NOW() - make_interval(hours => $4::int) "
+                "  ORDER BY id DESC LIMIT 1) RETURNING id",
+                owner_id, chat_id, juft, BIZNES_LOYIHA_TTL_SOAT)
+            await conn.execute(
+                "UPDATE biznes_loyiha SET holat = 'eskirgan' "
+                "WHERE owner_id = $1 AND chat_id = $2 AND holat = 'kutmoqda'",
+                owner_id, chat_id)
+    if juftlandi:
+        biznes_keshni_bekor(owner_id)      # uslubning «tuzatishlar» qismi o'zgardi
 
 
 @with_db_retry()

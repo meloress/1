@@ -649,7 +649,10 @@ async def biznes_xabar(message: Message):
                     tanlov = await database.biznes_kutayotgan_tanlov(egasi, message.chat.id)
                 except Exception as e:
                     logger.debug(f"[BIZNES] kutayotgan tanlov o'qilmadi: {e}")
-            await database.biznes_loyiha_eskirt(egasi, message.chat.id)
+            # Egasining YOZGANI (ovoz matni emas — uslub faqat yozuvdan, pastdagi
+            # namuna bilan bir qoida): qoralama bilan juftlik bo'lib saqlanadi.
+            await database.biznes_loyiha_eskirt(
+                egasi, message.chat.id, egasi_matni=message.text or message.caption)
             await _kartochka_hal(egasi, message.chat.id, tugmasini_ol=True)
             if tanlov:
                 await _egasi_tanlovga_javob(egasi, ul["owner_chat"], tanlov["id"], matn)

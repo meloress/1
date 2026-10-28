@@ -385,4 +385,20 @@ check(22, "biznes_uslub.py handlers.biznes'ni import qilmaydi (aylana import)",
       and "import handlers.biznes\n" not in uslub_kod
       and "from handlers.biznes import" not in uslub_kod)
 
-print("\nHammasi o'tdi: 22/22")
+# ── 23-24. Egasi qoralamani chetlab o'zi yozdi — juftlik (BIZNES.md) ─
+# Ilgari bu qoralama `eskirgan` bo'lib yo'qolardi; endi «bot shunday yozdi
+# — egasi aslida shunday yozdi» juftligi, `tahrirlar` qismiga tushadi.
+jf = database.egasi_javobi_juftmi
+check(23, "kechiktirish juftlik emas («ok», «hozir», «bir daqiqa»), javob — juftlik, karta — yo'q",
+      jf("ok") is None and jf("hozir") is None and jf("bir daqiqa") is None
+      and jf(None) is None
+      and jf("Ha bor, 50 ming, bugun olib keling") == "Ha bor, 50 ming, bugun olib keling"
+      and jf("kartaga tashlang 8600 1234 5678 9012") is None)
+
+db_kod = kod(os.path.join(ROOT, "db", "database.py"))
+uslub_sql = db_kod.split("async def biznes_uslub_ol", 1)[1].split("\nasync def ", 1)[0]
+hisobot_sql = db_kod.split("AS tahrirsiz", 1)[1][:200]
+check(24, "uslub `egasi_yozdi` juftliklarini o'qiydi, hisobot «tahrirsiz» ularni sanamaydi",
+      "'egasi_yozdi'" in uslub_sql and "egasi_yozdi" not in hisobot_sql)
+
+print("\nHammasi o'tdi: 24/24")

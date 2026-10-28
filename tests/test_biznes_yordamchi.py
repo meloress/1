@@ -136,6 +136,7 @@ check(8, "chegaradan uzun — KESILMAYDI, rad etiladi",
 
 # ── Soxta dunyo (yordamchi oqimi) ────────────────────────────────
 q = []
+eskirt_matni = []   # egasining chatdagi matni — qoralama bilan juftlik (BIZNES.md)
 loyihalar = {}
 
 
@@ -173,8 +174,9 @@ async def soxta_yarat(owner, conn_id, chat_id, matn, loyiha, variantlar=None):
     return lid
 
 
-async def soxta_eskirt(owner, chat_id):
+async def soxta_eskirt(owner, chat_id, egasi_matni=None):
     q.append(("eskirt", chat_id))
+    eskirt_matni.append(egasi_matni)
 
 
 async def soxta_gpt(chat_id, prompt, **kw):
@@ -335,8 +337,9 @@ check(18, "begona egasi loyihani yubora olmaydi",
 q.clear()
 asyncio.run(b.biznes_xabar(xabar("Ha, bor, keling", kimdan=EGASI)))
 turlar = [x[0] for x in q]
-check(19, "egasi o'zi yozsa: loyiha eskiradi, yangi loyiha yozilmaydi",
+check(19, "egasi o'zi yozsa: loyiha eskiradi (matni juftlik uchun bazaga), yangi loyiha yozilmaydi",
       ("eskirt", MIJOZ) in q and "gpt" not in turlar
+      and eskirt_matni[-1] == "Ha, bor, keling"
       and ("tarix", "Ha, bor, keling", "assistant") in q)
 
 # ── 20-21. Boshqa rejimlar ───────────────────────────────────────

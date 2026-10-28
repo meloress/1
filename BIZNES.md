@@ -469,10 +469,24 @@ uslub, kutish, pauza, ish vaqti Direct'da ham ishlaydi. Kod: `handlers/instagram
 
 Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin.
 
-1. **Tahrirlash tugmasisiz o'rganish.** Egasi qoralamani e'tiborsiz qoldirib
-   mijozga o'zi yozsa, hozir qoralama shunchaki `eskirgan` bo'ladi
-   (`biznes_loyiha_eskirt`). O'rniga juftlik (qoralama → egasi aslida
-   yozgani) tuzatish sifatida saqlansin — eng kuchli signal, egasiga nol ish.
+1. ✅ **Tahrirlash tugmasisiz o'rganish (2026-10-28).** Egasi qoralamani
+   e'tiborsiz qoldirib mijozga o'zi yozsa, eng oxirgi oddiy qoralama
+   `egasi_yozdi` bo'ladi, `yakuniy` — egasining YOZGAN matni
+   (`biznes_loyiha_eskirt(egasi_matni=)`); uslubning «tuzatishlar» qismi uni
+   `tahrirlandi` bilan birga o'qiydi. Qoidalar:
+   - `tahrirlandi` EMAS — ertalabki hisobot «nechtasi tahrirsiz ketdi»ni
+     `yuborildi`/`tahrirlandi` dan sanaydi, bu qoralama esa ketmagan;
+   - `BIZNES_JUFT_MIN_SOZ` (3) so'zdan qisqa javob juftlik emas: «ok», «hozir»,
+     «bir daqiqa» — kechiktirish, bot uni o'rganmasin; karta raqami — yo'q;
+   - tanlov (`variantlar`) tegilmaydi — unga `_egasi_tanlovga_javob` bor;
+   - ⛔️ tuzatishlar sarlavhasida «faqat USLUB, FAKT EMAS». Jonli o'lchov:
+     bilimda yo'q mahsulotga bot juftlikdagi «Shim bor, 90 ming» ni so'zma-so'z
+     ko'chirdi (`eval_biznes` `juft_bilimsiz` **0/5**); sarlavhadan keyin 5/5 —
+     «aniqlab yozaman». Bu xavf tugma bilan tahrirlangan juftliklarda ham bor
+     edi, faqat juftliklar endi ancha ko'p. `juft_narx*` — bilimdagi narx
+     juftlikdagi maxsus narxdan ustun (10/10, ikkala holatda ham).
+   SQL lokal Postgres'da tekshirildi; `test_biznes_uslub.py` 23-24,
+   `test_biznes_yordamchi.py` 19.
 2. **Bilim o'zi yig'ilsin.** Ertalabki hisobotdagi bitta mini chaqiruv egasi
    javoblaridagi faktlarni (narx, manzil, muddat) ajratib Bilimga qo'shsin;
    egasiga "qo'shildi: …" + o'chirish tugmasi.

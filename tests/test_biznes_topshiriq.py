@@ -118,7 +118,7 @@ database.biznes_yuborilgan_tahrir = _y_tahrir
 eskirgan = []
 
 
-async def _eskirt(owner_id, chat_id):
+async def _eskirt(owner_id, chat_id, egasi_matni=None):
     eskirgan.append((owner_id, chat_id))
 
 
