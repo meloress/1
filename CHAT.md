@@ -310,6 +310,14 @@ stopped the whole due batch after every row was already marked sent (`_bitta_day
 ### Two kinds of memory
 
 - **Conversation history** (`db/history.py`, `chat_messages` table + RAM cache) — context. Keyed on `(chat_id, thread_id)`, see the Topics section. Stored to `CONTEXT_WINDOW_PRO` for everyone; the tariff only changes how many are *read* (free 30, Pro 80 — they were 50/150 and were cut for token cost), so switching plans needs no migration. `/new` clears this.
+
+  ⚠️ **The RAM cache is an LRU of `_KESH_MAX` (500) conversations**, `_summary_cache` too
+  (2026-10-28). It used to be a plain dict that nothing ever trimmed: every chat since the
+  last deploy — Business customer chats included — sat in RAM with up to 80 full replies,
+  and the bot became the largest RAM consumer in the Railway project. An evicted
+  conversation is not lost; the next message reloads it with one query. Write to the cache
+  through `_keshga()` and `move_to_end()` on a hit — a plain `_cache[key] = …` skips the
+  limit. `test_history_summary.py` check 20 (verified by removing the limit).
 - **Compressed tail** (`chat_summaries`, one row per chat) — what fell out of the 80-message window. It used to be plain `DELETE`: a long conversation lost its beginning permanently and the bot never said so, which reads as "the bot forgot me". Now the rows are summarised before they go.
 
   ⛔️ **Order is the safety property.** `_compress_old()` fetches the summary, saves it, and deletes the raw rows **only after** that succeeded. `summarize_history_chunk()` returns an empty string on any failure — never raises — and an empty string means *keep the rows and retry on the next message*. Written the other way round, the fix would reproduce the very bug it repairs. `HISTORY_HARD_LIMIT` (200) is the backstop: if summarising stays broken the table would grow forever, so past that point the old unsummarised trim returns.

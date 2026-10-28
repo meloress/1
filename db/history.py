@@ -19,6 +19,7 @@ STANDART qiymat, shuning uchun eski chaqiruvlar o'zgarishsiz ishlaydi.
 """
 import asyncio
 import logging
+from collections import OrderedDict
 from typing import List, Dict, Optional, Tuple
 
 from db import database
@@ -50,14 +51,31 @@ _STORE_LIMIT = max(CONTEXT_WINDOW, CONTEXT_WINDOW_PRO)
 # chatdagi ikki mavzu bir-birining tarixini ustiga yozardi.
 Key = Tuple[int, int]
 
-_cache: Dict[Key, List[Dict]] = {}
+# ⚠️ Kesh CHEKLANGAN (LRU). Avval oddiy dict edi va hech qachon
+# kesilmasdi: deploy'dan beri yozgan HAR chat (Business mijozlari ham)
+# 80 tagacha to'liq javob matni bilan RAM'da qolardi — Railway'da bot
+# loyihadagi eng ko'p RAM yeydigan servis bo'lib qoldi (2026-10-28).
+# Chiqarib yuborilgan suhbat yo'qolmaydi: keyingi xabarda bazadan bitta
+# so'rov bilan qayta yuklanadi (`_load_from_db`).
+# ponytail: kalit soni bo'yicha chegara, hajm bo'yicha emas — uzun
+# suhbatlar ko'paysa baytga qarab kesish kerak bo'ladi.
+_KESH_MAX = 500
+_cache: "OrderedDict[Key, List[Dict]]" = OrderedDict()
 
 # Xulosa yozish bitta suhbat uchun bir vaqtda BITTA marta ishlasin. Ikkita
 # xabar ketma-ket kelsa, ikkala vazifa ham o'sha 20 ta qatorni o'qib,
 # ikkitasi ham xulosaga qo'shardi — natijada takror ma'lumot va ikki
 # barobar chaqiruv. (core/memory.py dagi debounce bilan bir xil naqsh.)
 _summary_locks: Dict[Key, asyncio.Lock] = {}
-_summary_cache: Dict[Key, str] = {}
+_summary_cache: "OrderedDict[Key, str]" = OrderedDict()
+
+
+def _keshga(d: OrderedDict, key: Key, qiymat) -> None:
+    """Yozib, eng yangi qilib qo'yadi; chegaradan oshsa eng eskisi chiqadi."""
+    d[key] = qiymat
+    d.move_to_end(key)
+    while len(d) > _KESH_MAX:
+        d.popitem(last=False)
 
 # "Bu suhbat uzayib ketdi" ogohlantirishi — bir marta beriladi. Fon
 # vazifasi (`_compress_old`) uni shu yerga qo'yadi, handler esa javobni
@@ -156,7 +174,9 @@ async def update_chat_history(chat_id: int, content: str, role: str = "user",
     """
     key = (chat_id, thread_id)
     if key not in _cache:
-        _cache[key] = await _load_from_db(chat_id, thread_id=thread_id)
+        _keshga(_cache, key, await _load_from_db(chat_id, thread_id=thread_id))
+    else:
+        _cache.move_to_end(key)
 
     _cache[key].append({"role": role, "content": content})
 
@@ -279,7 +299,7 @@ async def _compress_old(chat_id: int, thread_id: int = 0) -> None:
                     "DELETE FROM chat_messages "
                     "WHERE chat_id = $1 AND thread_id = $2 AND id <= $3",
                     chat_id, thread_id, oxirgi_id)
-        _summary_cache[key] = yangi
+        _keshga(_summary_cache, key, yangi)
 
         # Suhbat uzayib ketdi — chegarani AYNAN SHU siqishda kesib
         # o'tgan bo'lsa bir marta belgilab qo'yamiz. `covered` faqat
@@ -311,14 +331,15 @@ async def get_chat_summary(chat_id: int, thread_id: int = 0) -> str:
     """Oynadan chiqqan qismning siqilgan shakli (bo'lmasa — bo'sh satr)."""
     key = (chat_id, thread_id)
     if key in _summary_cache:
+        _summary_cache.move_to_end(key)
         return _summary_cache[key]
     pool = await _pool()
     async with pool.acquire() as conn:
         matn = await conn.fetchval(
             "SELECT summary FROM chat_summaries "
             "WHERE chat_id = $1 AND thread_id = $2", chat_id, thread_id)
-    _summary_cache[key] = matn or ""
-    return _summary_cache[key]
+    _keshga(_summary_cache, key, matn or "")
+    return matn or ""
 
 
 # --------------------------------------------------
@@ -329,13 +350,14 @@ async def get_chat_history(chat_id: int, limit: int = CONTEXT_WINDOW,
     """Keshdan yoki bazadan tarixni qaytaradi. system prompt qo'shilmaydi."""
     key = (chat_id, thread_id)
     if key in _cache:
+        _cache.move_to_end(key)
         return _cache[key][-limit:]
 
     # Keshga HAR DOIM to'liq saqlash oynasi yuklanadi: aks holda free
     # foydalanuvchi Pro'ga o'tganda kesh 50 tada qotib qolar va u
     # to'lagan uzun xotira faqat bot qayta ishga tushgach ochilardi.
     history = await _load_from_db(chat_id, _STORE_LIMIT, thread_id)
-    _cache[key] = history
+    _keshga(_cache, key, history)
     return history[-limit:]
 
 

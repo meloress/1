@@ -209,8 +209,9 @@ Global o'qishlar faqat admin panel (`biznes_panel_stats`) va ishga tushishdagi k
 | 7.5 | Uzoq LLM + chat qulfi | Qulf model tugaguncha ushlanadi, keyingi mijoz xabarlari 180 s+ gacha kutadi | P | qoralama uchun umumiy timeout (masalan 60 s) | O'rta |
 | 7.6 | 🐞 **Poyga: egasi qoralama yozilayotganda javob berdi** | `eskirt` hali mavjud bo'lmagan qoralamaga ishlaydi, keyin yangi qoralama `kutmoqda` bo'lib keladi — egasi **eskirgan javobni yuborishi mumkin**. Bundan tashqari mijoz xabari tarixga modeldan KEYIN yozilgani uchun tarixda savol egasining javobidan keyin tushadi | **O** (to'g'rilik) | `loyiha_yarat`dan oldin: "egasi shu chatga model boshlangandan keyin yozdimi?" → qoralamani darhol `eskirgan` qilish | Past |
 
-Xotira (RAM) o'sishi: `_loyiha_qulf`, `_mavzu_qulf`, `text_merge_locks`, `_aytilgan`, `db/history._cache` —
+Xotira (RAM) o'sishi: `_loyiha_qulf`, `_mavzu_qulf`, `text_merge_locks`, `_aytilgan` —
 hech biri kesilmaydi. Hozirgi hajmda sezilmaydi (**P**). Egalar va mijozlar ko'paysa — LRU.
+`db/history._cache` (eng kattasi — to'liq javob matnlari) 2026-10-28 da LRU bo'ldi (500 suhbat).
 
 ---
 

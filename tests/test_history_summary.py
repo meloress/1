@@ -355,4 +355,31 @@ async def _sinov_ogohlantirish():
 asyncio.run(_sinov_ogohlantirish())
 
 
-print("\nhistory_summary: barcha tekshiruvlar o'tdi (19/19).")
+# ── 20. Kesh cheklangan (LRU) — RAM cheksiz o'smaydi ─────────────
+# Avval oddiy dict edi: deploy'dan beri yozgan har chat RAM'da qolardi.
+async def _sinov_lru():
+    db = yangi_db(3)
+    ulash(db)
+    h._cache.clear()
+    eski_max = h._KESH_MAX
+    h._KESH_MAX = 3
+    try:
+        for c in (1, 2, 3):
+            await h.get_chat_history(c)
+        await h.get_chat_history(1)          # 1 — yaqinda ishlatildi
+        await h.update_chat_history(4, "salom")
+        qolgan = set(k[0] for k in h._cache)
+        check(20, "kesh chegaradan oshmaydi va eng eski ishlatilmagani chiqadi",
+              len(h._cache) == 3 and qolgan == {1, 3, 4})
+        # Chiqarilgan suhbat yo'qolmaydi — bazadan qayta o'qiladi.
+        assert await h.get_chat_history(2) == await h._load_from_db(2), \
+            "chiqarilgan suhbat bazadan qaytmadi"
+    finally:
+        h._KESH_MAX = eski_max
+        h._cache.clear()
+
+
+asyncio.run(_sinov_lru())
+
+
+print("\nhistory_summary: barcha tekshiruvlar o'tdi (20/20).")
