@@ -39,7 +39,7 @@ keyingisiga o'tishdan oldin Railway logi + `user_history` token hisobi bilan
 ### 0.2. Jonli sinovsiz ishonilmaydigan narsalar
 
 Bular hujjatdan emas, faqat **ikkinchi botda** jonli sinovdan keyin qat'iy
-bo'ladi (mavzular va inline rejimi bilan bo'lgan tajriba — CLAUDE.md):
+bo'ladi (mavzular va inline rejimi bilan bo'lgan tajriba — CHAT.md):
 
 1. `sendRichMessage` / `sendRichMessageDraft` business chatda ishlaydimi.
    Ishlamasa — javob oddiy `sendMessage` (Markdown) bilan ketadi, jadval va
@@ -106,12 +106,12 @@ egasiga bir marta tushuntirish (qaysi huquqni yoqish kerak).
 ### 0.6. Kvota va token
 
 - Hammasi **akkaunt egasi** hisobidan. Mijoz botning foydalanuvchisi emas.
-- Faqat **Pro** (`is_pro` bilan yashirish — CLAUDE.md "Pro gating is done by
+- Faqat **Pro** (`is_pro` bilan yashirish — CHAT.md "Pro gating is done by
   omission"). Bepul egaga ulanganda bir marta tushuntirish + `/pro`.
 - Egasining buyruqlari (1-bosqich) → oddiy ball (`check_and_consume_quota`).
 - Mijozga avtomatik javob (3-bosqich) → yangi kunlik sanoq
   `biznes`: `DAILY_COUNTERS`'ga bitta qator + ikki ustun + `PLAN_LIMITS`'ga
-  kalit + `LIMIT_NOMI`'ga nom. Boshqa hech narsa (CLAUDE.md).
+  kalit + `LIMIT_NOMI`'ga nom. Boshqa hech narsa (CHAT.md «Quotas»).
 - Yangi faollik turlari → `ACTIVITY_TYPES` (`test_activity_tracking.py`).
 - Har yangi tool nomi → `INTERNAL_TOOL_NAMES` (`test_no_tool_leak.py`).
 - Har yangi schema/manifest o'zgarishi → `tiktoken` bilan qayta o'lchash.
@@ -395,7 +395,7 @@ Kunlik grant ulushi — agar biznes trafigi grantning katta qismini yesa,
 
 1. `PYTHONIOENCODING=utf-8` bilan barcha `tests/test_*.py`.
 2. `test_prompt_rules.py` — prompt o'zgargan bo'lsa, oldin va keyin.
-3. `tiktoken` bilan yangi schema/manifest/bilim o'lchovi → CLAUDE.md jadvali.
+3. `tiktoken` bilan yangi schema/manifest/bilim o'lchovi → CHAT.md «Token budget» jadvali.
 4. `python -m compileall -q .`
 5. CLAUDE.md'ga yangi bo'lim: qoidalar va ularning **sababi** (qaysi xato
    bilan to'langan).

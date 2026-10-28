@@ -27,7 +27,7 @@ formasiga **ko'chirib qo'yiladi**. O'zbekcha qismlar siz uchun.
 
 ## 1. App description (umumiy)
 
-> UzBot is a Telegram bot (@uzchatgptaibot) used by small businesses in Uzbekistan. A
+> UzBot is a Telegram bot (@vexonai) used by small businesses in Uzbekistan. A
 > business owner connects their Instagram Professional account through Instagram Login
 > inside the bot. After that, an AI assistant answers customers' Instagram Direct messages
 > on the owner's behalf, using the business information (prices, address, opening hours)
@@ -83,7 +83,7 @@ formasiga **ko'chirib qo'yiladi**. O'zbekcha qismlar siz uchun.
 Meta har ruxsat uchun ishlatilishini **videoda** ko'rishni xohlaydi. 3-4 daqiqalik bitta
 video hammasiga yetadi; har ruxsat formasiga o'sha videoni yuklang.
 
-1. (0:00) Telegram'da @uzchatgptaibot → /biznes → «Instagram ulash». Yo'riqnoma ekrani
+1. (0:00) Telegram'da @vexonai → /biznes → «Instagram ulash». Yo'riqnoma ekrani
    ko'rinadi. Subtitr: *"The business owner opens the bot's Business settings."*
 2. «Instagram'ga kirish» → Instagram login sahifasi → login → ruxsatlar ro'yxati ko'rinadi →
    **Allow**. Subtitr: *"The owner logs in with Instagram and grants the permissions."*
@@ -108,7 +108,7 @@ video hammasiga yetadi; har ruxsat formasiga o'sha videoni yuklang.
 
 ## 7. Test instructions (formadagi «How can we test»)
 
-> 1. Open Telegram and start https://t.me/uzchatgptaibot.
+> 1. Open Telegram and start https://t.me/vexonai.
 > 2. Send /biznes, tap "Instagram ulash", then "Instagram'ga kirish", and log in with the
 >    Instagram test account below (it is added as an Instagram Tester of the app).
 > 3. From any other Instagram account, send a Direct message "Narxi qancha?" (How much is

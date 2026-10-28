@@ -1,9 +1,9 @@
 # WEB_PANEL.md
 
 The web admin panel (`web/`), moved out of `CLAUDE.md` when that file passed 180 KB.
-The plan behind it is `git show 3ba4744:REJA.md`. The panel's tests are listed under
-"Commands" in `CLAUDE.md`; the asyncpg type rules stayed there because they apply
-to every query, not only the panel's.
+The plan behind it is `git show 3ba4744:REJA.md`. The panel's tests are listed in
+`TESTLAR.md`; the asyncpg type rules are in `ADMIN.md` because they apply to every
+query, not only the panel's.
 
 ### The web admin panel runs inside the bot process
 

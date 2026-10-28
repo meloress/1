@@ -4460,7 +4460,7 @@ async def log_error(kind: str, message: str, user_id: Optional[int] = None) -> N
 #
 # ⚠️ Qiymatlar HAR DOIM parametr ($1, $2…), hech qachon satrga qo'shib
 # yozilmaydi. Bu admin kiritgan matn bo'lsa ham shunday: admin kiritishi
-# ham ishonchsiz chegara (CLAUDE.md, «Model output is an untrusted
+# ham ishonchsiz chegara (CHAT.md, «Model output is an untrusted
 # boundary» bo'limidagi qoidaning aynan o'zi).
 def _jurnal_filtri(ustunlar: tuple, q: Optional[str], kun: Optional[int],
                    boshlangich: list) -> tuple:

@@ -378,7 +378,7 @@ XABAR_MAX = 3500                      # Telegram chegarasi 4096, zaxira bilan
 # nom yo'q — u yerdagi uchinchi element limit KALITI.
 # ⚠️ Yangi sanoq qo'shilsa bu yerga nom qo'shilmasa ham panel ishlaydi:
 # kalitning o'zi ko'rinadi (`.get(kalit, kalit)`), ya'ni sanoq
-# YO'QOLMAYDI — faqat inglizcha atalib turadi. CLAUDE.md dagi «yangi
+# YO'QOLMAYDI — faqat inglizcha atalib turadi. CHAT.md «Quotas» dagi «yangi
 # sanoq = bitta qator + ikki ustun» qoidasi shu tufayli buzilmaydi.
 #
 # ⚠️ 6-bosqichda bu ro'yxat SHU YERDAN ketdi: Sozlamalar ekrani ham aynan
@@ -535,7 +535,7 @@ async def user(request: web.Request):
     # Limitlar `daily_limit()` dan — u limitning YAGONA o'qish nuqtasi,
     # ya'ni admin panelidan o'zgartirilgan qiymat shu zahoti ko'rinadi.
     # `PLAN_LIMITS` ni to'g'ridan o'qisak, o'zgartirilgan limit
-    # e'tiborga olinmasdi (CLAUDE.md, «Quotas» bo'limi).
+    # e'tiborga olinmasdi (CHAT.md, «Quotas» bo'limi).
     sanoqlar = []
     for kalit, (used_col, _date_col, limit_kaliti) in DAILY_COUNTERS.items():
         sanoqlar.append({
@@ -1883,7 +1883,7 @@ async def meta(request: web.Request):
     (`PLAN = {pro: "Pro", free: "Bepul"}`) va o'sha nusxada `premium`
     umuman yo'q edi — ya'ni cheksiz tarifdagi odam jadvalda «Pro» bo'lib
     ko'rinardi. Bu loyihada bir xil xato beshinchi marta takrorlangan
-    joy (`CLAUDE.md`, «Four label maps»), shuning uchun panel endi
+    joy (`ADMIN.md`, «Five label maps»), shuning uchun panel endi
     ro'yxatni O'YLAB TOPMAYDI — shu yerdan oladi.
 
     Javob o'zgarmas: sessiya boshida bir marta so'raladi.

@@ -11,7 +11,7 @@
  *
  * ⚠️ MATN BU YERDA YOZILMAYDI. Panelning o'z matnlari `soz.js` da,
  * botniki bilan umumiy ro'yxatlar (tarif, limit, qamrov nomlari)
- * serverdan `/api/meta` orqali keladi. Sabab `CLAUDE.md` da: shu
+ * serverdan `/api/meta` orqali keladi. Sabab `ADMIN.md` «Five label maps» da: shu
  * loyihada qo'lda ko'chirilgan ro'yxat BESH marta eskirgan.
  */
 (function () {

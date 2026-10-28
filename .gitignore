@@ -28,3 +28,10 @@ tests/.eval_tabiiy_oxirgi.json
 # Reklama uchun video manbalari (Gemini/Flow) — katta, repoga tegishli emas
 *.mp4
 *.MP4
+
+# eval_chat.py natijasi (jonli model, har ishga tushirishda yangilanadi)
+tests/.eval_chat_oxirgi.json
+
+# Brend manbalari (4K logo, maskot eskizi) — katta, repoga kerak emas.
+# Botdagi nusxalari: assets/vexon_logo.jpg, assets/vexon_v.png, web/static/logo.jpg
+brend/

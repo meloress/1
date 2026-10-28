@@ -198,7 +198,7 @@ async def main():
     # so'rovga biriktirilgan asboblarni ko'radi, /research, /kunlik,
     # guruh rejimi va mavzular esa asbob emas.
     #
-    # Yechim ro'yxatni ikkinchi marta yozish EMAS (CLAUDE.md, «Five
+    # Yechim ro'yxatni ikkinchi marta yozish EMAS (ADMIN.md, «Five
     # label maps»: ikki nusxaning biri ALBATTA eskiradi) — model ham,
     # ekran ham AYNAN shu SECTIONS dan o'qiydi.
     import services.ai as ai_module

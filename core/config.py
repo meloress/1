@@ -842,7 +842,7 @@ ACTIVITY_TYPES: Dict[str, tuple] = {
 # ── TELEGRAM BUSINESS (REJA.md) ─────────────────────────────────────
 # Bilim har mijoz so'rovida `developer` xabar bo'lib QAYTA yuboriladi:
 # 4000 belgi o'zbekcha matn ≈ 1 726 token (`tiktoken`, o200k_base) —
-# token o'lchovi CLAUDE.md'da. Oshirsangiz, `tiktoken` bilan qayta o'lchang.
+# token o'lchovi CHAT.md «Token budget» da. Oshirsangiz, `tiktoken` bilan qayta o'lchang.
 BIZNES_BILIM_MAX = 4000
 # buyruq    — faqat egasining nuqtali buyruqlari (1-bosqich)
 # yordamchi — mijozga javob LOYIHASI egasiga, yuborishni egasi hal qiladi

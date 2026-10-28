@@ -57,7 +57,7 @@ buzilgani ham tanlov — variantsiz):
 biznes yozilmagan bo'lsa narx/mahsulot haqida gapirmaydi. Suhbatdosh "mijoz" deb emas,
 "suhbatdosh" (do'st, oila ham) deb ataladi.
 
-**«🤖 avtojavob» belgisi.** Telegram'ning "ChatGPT AI" yozuvi faqat EGASIGA ko'rinadi. Bot o'zi
+**«🤖 avtojavob» belgisi.** Telegram bot nomini (hozir «Vexon Ai») faqat EGASIGA ko'rsatadi. Bot o'zi
 (egasi ko'rmasdan) yuborgan AVTOMAT javob oxiriga kursiv belgi qo'shiladi (`avto_matn`,
 `biznes_ulanish.avto_belgi`, standart yoqilgan, `/biznes` → «🤖 belgisi»). Yordamchida yo'q —
 egasi bosgan matn uning so'zi. ⚠️ Tarixga BELGISIZ matn yoziladi, aks holda model belgini o'z

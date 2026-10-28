@@ -1,11 +1,17 @@
-# Telegram AI bot (@uzchatgptaibot)
+# Vexon AI — Telegram AI bot (@vexonai)
+
+2026-10-25 gacha `@uzchatgptaibot` edi; u endi faqat yangi botga yo'naltiradi
+(`handlers/eski_bot.py`, `ESKI_BOT_TOKEN`).
 
 aiogram 3.31 + OpenAI Responses API. Railway'da bitta jarayon —
 `worker: python main.py` (`Procfile`): polling va web admin panel birga.
 `git push meloress main` — deploy.
 
-Qoidalar va arxitektura — **`CLAUDE.md`**; Telegram Business — **`BIZNES.md`**;
-Bot API 10.3 va undan keyingilar — **`BOT_API_103.md`**.
+Qoidalar va arxitektura — **`CLAUDE.md`** (qisqa qoidalar va qaysi hujjatni o'qish
+kerakligi). Batafsil: chat oqimi — **`CHAT.md`**, admin va baza — **`ADMIN.md`**,
+web panel — **`WEB_PANEL.md`**, Telegram Business — **`BIZNES.md`**, deploy va
+Railway — **`DEPLOY.md`**, testlar — **`TESTLAR.md`**, Bot API 10.3 va undan
+keyingilar — **`BOT_API_103.md`**.
 
 ## Papkalar tuzilishi
 
@@ -61,7 +67,7 @@ PYTHONIOENCODING=utf-8 python tests/test_memory.py        # bitta test
 node --check web/static/panel.js                          # panel JS sintaksisi
 ```
 
-Hammasini ishga tushirish va qaysilari nimani qo'riqlashi — `CLAUDE.md`.
+Hammasini ishga tushirish — `CLAUDE.md`; qaysilari nimani qo'riqlashi — `TESTLAR.md`.
 
 ## Muhit o'zgaruvchilari
 

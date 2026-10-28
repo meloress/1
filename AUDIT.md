@@ -153,7 +153,7 @@ input[n]     : user xabar
 | 5.2 | `prompt_cache_key` = `…-pro`: business so'rovlari oddiy Pro DM trafigi bilan bitta kalitda, prefikslari esa boshqa | O | `…-biznes-<egasi>` | kesh urilishi barqarorroq | Past |
 | 5.3 | Tarix oynasi: `is_pro=True` → **80 xabar** (`CONTEXT_WINDOW_PRO`) | **Y** (token) | business uchun alohida kichikroq oyna (masalan 30) | uzun chatlarda −50%+ kirish tokeni | **O'rta — natija o'zgaradi** (kontekst qisqaradi). Qaror sizniki |
 
-⚠️ **Muhim eslatma (CLAUDE.md, OpenAI javobi, 2026-09-09):** kesh **bepul kunlik grantni
+⚠️ **Muhim eslatma (CHAT.md «Token budget», OpenAI javobi, 2026-09-09):** kesh **bepul kunlik grantni
 kamaytirmaydi** — keshlangan token ham to'liq hisoblanadi. 5.1–5.2 faqat grantdan oshgan qismning
 pulini va kechikishni kamaytiradi. Grantni faqat **kamroq token** (5.3, 4.x) tejaydi.
 

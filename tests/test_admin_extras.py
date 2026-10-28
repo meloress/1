@@ -98,7 +98,7 @@ import re  # noqa: E402
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ADMIN_DIR = ROOT / "handlers" / "admin"
 # ⚠️ Bular ATAYLAB ochiq — oddiy foydalanuvchi ham ishlatadi
-# (CLAUDE.md: admin tekshiruvi filtrda emas, har bir handler ichida).
+# (ADMIN.md: admin tekshiruvi filtrda emas, har bir handler ichida).
 OCHIQ = {"report_callback", "process_report_message",
          "require_admin_or_deny_query"}
 

@@ -397,7 +397,7 @@ def _section_text(key: str, is_pro: bool) -> str:
 # qanday chatbotda bor narsalar ro'yxatiga aylanardi.
 #
 # Ikkinchi nusxa yozish esa bu loyihada besh marta zarar keltirgan
-# (CLAUDE.md, "Five label maps"): ro'yxat ikki joyda bo'lsa, biri
+# (ADMIN.md, "Five label maps"): ro'yxat ikki joyda bo'lsa, biri
 # ALBATTA eskiradi. Shuning uchun ekran ham, model ham AYNAN shu
 # `SECTIONS` dan o'qiydi.
 _TEG_RE = re.compile(r"<[^>]+>")
