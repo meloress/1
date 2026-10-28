@@ -1142,6 +1142,12 @@ async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
     """Ulanishni yozadi VA keshni yangilaydi. `rejim` saqlanadi — qayta
     ulanish egasi tanlagan rejimni tashlab yubormasin.
 
+    Egasining ENG BIRINCHI ulanishi `yordamchi` bilan ochiladi (BIZNES.md
+    «Keyingi ishlar» 3): `buyruq`da ulangan egasi mijozlarga jim botni ko'rib
+    «ishlamayapti» derdi, `yordamchi` esa mijozga o'zi hech narsa yubormaydi.
+    Egasining boshqa yozuvi bor bo'lsa (qayta ulanish, bot almashuvi,
+    Instagram) — `buyruq`, sozlama o'sha yozuvdan keladi yoki egasi tanlagan.
+
     ⚠️ Kesh DB'dan OLDIN: baza yiqilsa ham uzilgan ulanish keshda
     "yoqilgan" bo'lib qolmasin."""
     eski = _biznes_kesh.get(conn_id) or {}
@@ -1156,8 +1162,10 @@ async def biznes_ulanish_yoz(conn_id: str, owner_id: int, owner_chat: int,
     async with pool.acquire() as conn:
         rejim = await conn.fetchrow(
             '''
-            INSERT INTO biznes_ulanish (conn_id, owner_id, owner_chat, yoqilgan, huquqlar)
-            VALUES ($1, $2, $3, $4, $5::jsonb)
+            INSERT INTO biznes_ulanish (conn_id, owner_id, owner_chat, yoqilgan, huquqlar, rejim)
+            VALUES ($1, $2, $3, $4, $5::jsonb,
+                    CASE WHEN EXISTS (SELECT 1 FROM biznes_ulanish WHERE owner_id = $2)
+                         THEN 'buyruq' ELSE 'yordamchi' END)
             ON CONFLICT (conn_id) DO UPDATE SET
                 owner_id = EXCLUDED.owner_id, owner_chat = EXCLUDED.owner_chat,
                 yoqilgan = EXCLUDED.yoqilgan, huquqlar = EXCLUDED.huquqlar,

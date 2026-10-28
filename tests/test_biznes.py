@@ -29,6 +29,7 @@ import handlers.biznes as b              # noqa: E402
 import handlers.capabilities as cap      # noqa: E402
 from db import database                  # noqa: E402
 from services import ai                  # noqa: E402
+from tests._manba import kod             # noqa: E402
 
 EGASI, MIJOZ, DM = 7001, 9002, 7001
 
@@ -294,4 +295,22 @@ check(22, "/help Biznes bo'limi har bir buyruqni sanaydi (bitta manba)",
       all(f".{nom}" in bolim for nom in b.BUYRUQ_HUQUQI)
       and ".xulosa" in cap.model_uchun(True))
 
-print("\nHammasi o'tdi: 22/22")
+
+# ── 23-24. Ulanganda o'zi sozlansin (BIZNES.md «Keyingi ishlar» 3) ─
+TOLIQ = {"can_reply": True, "can_read_messages": True, "can_delete_sent_messages": True}
+yordamchi = b.ulanish_matni(True, TOLIQ, True, rejim="yordamchi")
+avtomat = b.ulanish_matni(True, TOLIQ, True, rejim="avtomat")
+buyruqda = b.ulanish_matni(True, TOLIQ, True)
+check(23, "ulanish xabari hozirgi ishlash usulini aytadi; «o'zim yozmayman» faqat "
+          "buyruqda (avtomatda yolg'on bo'lardi)",
+      b.REJIM_NOMI["yordamchi"][0] in yordamchi and "sozlash shart emas" in yordamchi
+      and b.REJIM_NOMI["avtomat"][0] in avtomat and "sozlash shart emas" not in avtomat
+      and all("hech qachon yozmayman" not in m for m in (yordamchi, avtomat))
+      and "hech qachon yozmayman" in buyruqda and "Ishlash usulini tanlash" in buyruqda)
+sql = kod("db/database.py").split("async def biznes_ulanish_yoz", 1)[1].split("\nasync def ", 1)[0]
+check(24, "egasining BIRINCHI ulanishi `yordamchi`, boshqa yozuvi bo'lsa `buyruq`; "
+          "qayta ulanish (ON CONFLICT) rejimga tegmaydi",
+      "WHERE owner_id = $2)" in sql and "THEN 'buyruq' ELSE 'yordamchi'" in sql
+      and "rejim =" not in sql.split("ON CONFLICT", 1)[1].split("RETURNING", 1)[0])
+
+print("\nHammasi o'tdi: 24/24")

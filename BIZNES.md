@@ -505,11 +505,32 @@ Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin
      Faqat prompt bilan `tests/eval_bilim.py`: noto'g'ri **7**/3 marta; kod
      tekshiruvlari bilan **0**, doimiy faktlar **15/15**.
    SQL lokal Postgres'da; `test_biznes_hisobot.py` 26-31.
-3. **Ulanganda o'zi sozlansin.** Ulanish → avtomatik Yordamchi + bitta
-   tushuntirish xabari; rejim/bilim/qoidalar ixtiyoriy.
-4. **`/biznes` soddalashsin.** Asosiy ekranda holat (necha xabardan
-   o'rganildi, bugun nechta taklif, nechtasi tahrirsiz), qolgani
-   «Sozlamalar» ichida; «Hozir o'rganish» kerak bo'lmay qoladi.
+3. ✅ **Ulanganda o'zi sozlansin (2026-10-28).** Egasining ENG BIRINCHI
+   ulanishi `yordamchi` bilan ochiladi — `biznes_ulanish_yoz` INSERT'ida
+   `CASE WHEN EXISTS (... owner_id = $2)`; ulanish xabari (`ulanish_matni(rejim=)`)
+   hozirgi ishlash usulini va «hech narsa sozlash shart emas, ma'lumot
+   yozsangiz aniqroq» ni aytadi. Qoidalar:
+   - avtomat EMAS — mijozga o'zi hech narsa yubormaydigan yagona javob rejimi;
+   - faqat INSERT'da: `ON CONFLICT` rejimga tegmaydi, ya'ni egasi `buyruq`ni
+     tanlab, keyin huquqni o'zgartirsa ham rejim qaytmaydi; egasining boshqa
+     yozuvi bor (qayta ulanish yangi id bilan, bot almashuvi, Instagram) — `buyruq`
+     va sozlama eski yozuvdan (`biznes_telegram_almashdi`) yoki egasi tanlagan;
+   - Pro'ga qaramaydi: bepul egada qoralama baribir `_pro()` da to'xtaydi;
+   - «Suhbatdoshga o'zim hech qachon yozmayman» faqat `buyruq`da — qayta ulangan
+     avtomat egasiga u yolg'on edi.
+   SQL lokal Postgres'da; `test_biznes.py` 23-24.
+4. ✅ **`/biznes` soddalashdi (2026-10-28).** Bosh ekran (`ekran_matni`) — faqat
+   holat: ishlash usuli, bugungi javob/uzatish, 30 kunlik tahrirsiz foiz, uslub
+   nechta xabardan o'rganilgani, bilim hajmi va ogohlantirishlar; tugmalar ikkita
+   — «📝 Biznes ma'lumotlari», «🧰 Sozlamalar» (+ Instagram). «⚙️ Ishlash usulini
+   tanlash» va «🎨 Yozish uslubim» Sozlamalar tepasida; avtomat tafsilotlari
+   (soatlar, belgi, kutish, pauza) `sozlama_matni(ul)` da — u endi bosh ekran
+   matnini ichiga olmaydi (ilgari Sozlamalar = butun bosh ekran + izoh edi).
+   Rejim va uslub ekranlarining «Orqaga»si — Sozlamalarga. «🔄 Xabarlarimdan
+   o'rgansin» olib tashlandi: `organish_kerakmi` o'zi qayta o'rganadi, tuzatishlar
+   har so'rovda o'qiladi; `bz:uo` ishlovchisi eski xabarlardagi tugma uchun qoldi.
+   «Bugun nechta taklif» alohida sanalmadi — «javob» (`biznes_yuborildi` +
+   avtojavob) shuni ko'rsatadi. `test_biznes_ekran.py` 1-4.
 
 Jonli tasdiqlanmagan (REJA.md 0.2): egasining o'z xabarlari `business_message`
 bo'lib keladimi (namuna yig'ish shunga bog'liq — Railway logida

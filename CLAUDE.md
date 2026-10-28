@@ -14,9 +14,11 @@ python tests/test_memory.py         # bitta testni ishga tushirish
 python services/sandbox.py          # sandbox izolyatsiyasini tekshirish
 python services/sandbox_helpers/deck.py   # PPTX maketlarini tekshirish
 python tests/test_tts_lang.py --live  # jonli TTS sintezi bilan
-python tests/eval_chat.py [--takror N] [id...]              # asosiy chat sifati — JONLI model
-python tests/eval_biznes.py [--takror N] [--qoralama] [id...]  # Business — JONLI model
-python tests/eval_tabiiy.py [--takror N] [id...]            # Business: «bot sezilyaptimi» — JONLI + hakam
+# JONLI model — lokal OpenAI kaliti yaroqsiz (2026-10-28), shuning uchun `railway run`:
+railway run python tests/eval_chat.py [--takror N] [id...]       # asosiy chat sifati
+railway run python tests/eval_biznes.py [--takror N] [--qoralama] [id...]  # Business qarorlari
+railway run python tests/eval_tabiiy.py [--takror N] [id...]     # Business: «bot sezilyaptimi» + hakam
+railway run python tests/eval_bilim.py [--takror N]              # «Bilimga qo'shaymi?» fakt ajratish
 ```
 
 ```bash
@@ -262,7 +264,13 @@ touching its code — the one-liner tells you *that* something breaks silently, 
 ⛔️ **Read `BIZNES.md` before touching anything Business.** It holds every rule for
 `handlers/biznes.py`, `handlers/biznes_uslub.py` and `handlers/biznes_media.py` (phases 1-5: the loop guard, the atomic
 draft claim, "nothing technical reaches the customer", the customer path's own prompt, the
-owner-style learning) and the planned next work. The four rules that break silently:
+owner-style learning) and the planned next work. The rules that break silently:
+
+- ⛔️ An owner pair (draft → what the owner actually wrote, `tahrirlandi` / `egasi_yozdi`)
+  is **style, not fact**: without the «FAKT EMAS» header the bot copied «Shim bor, 90
+  ming» to another customer (`eval_biznes` `juft_bilimsiz` 0/5). And nothing is written
+  to the owner's knowledge by itself — «Bilimga qo'shaymi?» only proposes, and
+  `fakt_takliflari()` rejects in code what the model gets wrong (`eval_bilim` 7 → 0).
 
 - `biznes_kimdan()` is the single loop guard and checks `sender_business_bot` **first**.
 - History is keyed `(customer_chat_id, -owner_id)`; the DM queue wake-up skips negative keys.

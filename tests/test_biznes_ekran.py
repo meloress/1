@@ -34,9 +34,10 @@ UL = {"owner_id": 1, "owner_chat": 1, "yoqilgan": True, "rejim": "avtomat",
 
 kb = b._ekran_kb(UL)
 bosh = tugmalar(kb)
-# Egasi: "qo'pol tuyulyapti" (2026-09-29) — ikki qator, rangsiz, rejimlar ichkarida.
-check(1, "bosh ekran: usul + biznes ma'lumotlari + uslub + sozlamalar, 3 qator, rangsiz",
-      bosh == ["bz:rm", "bz:k", "bz:us", "bz:s"] and len(kb.inline_keyboard) == 3
+# Egasi: "qo'pol tuyulyapti" (2026-09-29); BIZNES.md «Keyingi ishlar» 4 (2026-10-28) —
+# bosh ekranda faqat holat va ikki tugma, usul va uslub Sozlamalar ichida.
+check(1, "bosh ekran: biznes ma'lumotlari + sozlamalar, rangsiz",
+      bosh == ["bz:k", "bz:s"]
       and all(t.style is None for q in kb.inline_keyboard for t in q))
 
 
@@ -51,20 +52,26 @@ uzun = (sigadimi(kb) + sigadimi(b._sozlama_kb(UL)) + sigadimi(b._rejim_kb(UL))
         + sigadimi(b.biznes_uslub._kb()) + sigadimi(b._tanlov_kb(1, ["a"])))
 check("1a", "bosh, sozlama, rejim, uslub va tanlov tugmalari telefonga sig'adi", not uzun)
 rj = tugmalar(b._rejim_kb(UL))
-check("1b", "rejim menyusi: to'rt rejim + orqaga, tanlangani ✓",
-      rj == [f"bz:r:{r}" for r in b.BIZNES_REJIMLAR] + ["bz:e"]
+check("1b", "rejim menyusi: to'rt rejim + Sozlamalarga qaytish, tanlangani ✓",
+      rj == [f"bz:r:{r}" for r in b.BIZNES_REJIMLAR] + ["bz:s"]
       and b._rejim_kb(UL).inline_keyboard[3][0].text.startswith("✓")
       and all(b.REJIM_NOMI[r][0] in b.rejim_matni(UL) for r in b.BIZNES_REJIMLAR))
 soz = tugmalar(b._sozlama_kb(UL))
-check(2, "Sozlamalar: ish vaqti, chatlar, belgi, profil, orqaga",
-      {"bz:w", "bz:c", "bz:bl", "bz:pf:bio", "bz:pf:story", "bz:e"} <= set(soz))
+check(2, "Sozlamalar: usul va uslub yuqorida, ish vaqti, chatlar, belgi, profil, orqaga",
+      soz[:2] == ["bz:rm", "bz:us"]
+      and {"bz:w", "bz:c", "bz:bl", "bz:pf:bio", "bz:pf:story", "bz:e"} <= set(soz))
 check(3, "Sozlamalar yordamchida: avtomatga oid tugmalar yo'q",
       "bz:w" not in tugmalar(b._sozlama_kb(dict(UL, rejim="yordamchi"))))
 
 m = b.ekran_matni(UL, "bilim", {"javob": 5, "uzatish": 2, "tahrirsiz": 7, "yuborilgan": 10}, 34)
-check(4, "statistika: bugungi javob/uzatish, 30 kunlik foiz, namuna soni",
+soz_m = b.sozlama_matni(UL)
+check(4, "bosh ekran — holat: bugungi javob/uzatish, 30 kunlik foiz, nechta xabardan "
+         "o'rgangani; avtomat tafsilotlari Sozlamalarda, bosh ekranda emas",
       "<b>5</b> ta javob" in m and "<b>2</b> ta savolni sizga" in m and "<b>70%</b>" in m
-      and "<b>34</b> ta namuna" in m)
+      and "<b>34</b> ta xabaringizdan" in m
+      and "Javob beradigan soatlar" not in m and "jim turaman" not in m
+      and "Javob beradigan soatlar" in soz_m and "soat</b> jim turaman" in soz_m
+      and "Ishlash usuli" in soz_m and "ulanmagan" in b.sozlama_matni(None))
 m0 = b.ekran_matni(UL, "", {"javob": 0, "uzatish": 0, "tahrirsiz": 0, "yuborilgan": 0})
 check(5, "yuborilgan qoralama yo'q — foiz qatori yo'q (0 ga bo'linmaydi)", "%" not in m0)
 check(6, "statistikasiz ham ekran (eski chaqiruvchilar)", "Ishlash usuli" in b.ekran_matni(UL, ""))

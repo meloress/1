@@ -306,7 +306,7 @@ check(18, ".javob natijasidan marker olib tashlanadi",
 # ── 19. /biznes ekrani: avtomatda belgi tugmasi ──────────────────
 kb = str(b._sozlama_kb(UL))
 check(19, "avtomat Sozlamalarida «🤖 belgisi» tugmasi, ekranda holati",
-      "bz:bl" in kb and b.AVTO_BELGI in b.ekran_matni(UL, ""))
+      "bz:bl" in kb and b.AVTO_BELGI in b.sozlama_matni(UL))
 
 check(20, "tanlovda model o'zi yozgan fakt («Chekni ko'rdim») suhbatdoshga ketmaydi",
       b.uzatish_matni("tanlov", "Chekni ko'rdim, tushganini tekshirib olaman", "to'ladim",

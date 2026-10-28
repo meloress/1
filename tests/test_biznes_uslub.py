@@ -373,8 +373,8 @@ check(20, "qoidalar: karta rad, uzun rad, oddiy o'tadi",
       and database.clean_uslub_egasi("doim siz de") == ("doim siz de", None))
 
 main = kod(os.path.join(ROOT, "main.py"))
-kb = str(b._ekran_kb({"yoqilgan": True, "rejim": "yordamchi", "huquqlar": {}}))
-check(21, "FSM ro'yxatda (AI'dan oldin) va /biznes'da «Uslubim» tugmasi",
+kb = str(b._sozlama_kb({"yoqilgan": True, "rejim": "yordamchi", "huquqlar": {}}))
+check(21, "FSM ro'yxatda (AI'dan oldin) va /biznes → Sozlamalar'da «Uslubim» tugmasi",
       "UslubStates.qoidalar" in main
       and main.index("UslubStates.qoidalar") < main.index("BiznesStates.profil")
       and "bz:us" in kb)

@@ -224,11 +224,14 @@ def uslub_ekrani(u: dict) -> str:
 
 
 def _kb() -> InlineKeyboardMarkup:
+    # «🔄 Xabarlarimdan o'rgansin» (`bz:uo`) olib tashlandi (2026-10-28):
+    # `organish_kerakmi` o'zi qayta o'rganadi, tuzatishlar esa har so'rovda
+    # to'g'ridan-to'g'ri o'qiladi. `uo` ishlovchisi qoldi — eski xabarlardagi
+    # tugma bosilsa javobsiz qolmasin.
     return InlineKeyboardMarkup(inline_keyboard=[
         [pro_module.btn("✍️ Qanday yozishini aytish", "bz:uy", style=BTN_PRIMARY)],
-        [pro_module.btn("🔄 Xabarlarimdan o'rgansin", "bz:uo")],
         [pro_module.btn("❌ O'rganganini o'chirish", "bz:ud")],
-        [pro_module.btn("👈 Orqaga", "bz:e")]])
+        [pro_module.btn("👈 Sozlamalar", "bz:s")]])
 
 
 async def _ekran(uid: int):
