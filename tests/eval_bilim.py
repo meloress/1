@@ -38,6 +38,13 @@ H = [
     ("hozir do'kondamisiz", "hozir yo'qman, 1 soatdan keyin kelaman", False),
     ("Aka salom", "Vaalaykum assalom, eshitaman", False),
     ("aksiya bormi?", "Shu hafta hamma narsaga 10% chegirma", False),
+    # Avtomat uzatishi (`uzatish_javob`): savol — kartochkadagi bir necha xabar,
+    # javob — egasining o'zi; ichida shaxsiy uzr / bitta buyurtma holati ham bo'ladi.
+    ("salom\nSamarqandga yetkazasizmi?\nqancha bo'ladi",
+     "Ha, Samarqandga 2 kunda yetkazamiz, 35 ming", True),
+    ("ulgurji olsam arzonroq bo'ladimi", "10 tadan ko'p olsangiz har biri 70 mingdan", True),
+    ("qayerdasan\nnimaga javob bermayapsan", "Uzr, mashinada edim, hozir hammasini yozaman", False),
+    ("kecha buyurtma bergandim, qayerda", "Kuryer yo'lda, 30 daqiqada yetib boradi", False),
 ]
 
 
@@ -46,7 +53,8 @@ async def bir_marta():
         return None
     ai._token_saqla = hech
     xom = await ai.biznes_fakt_ajrat(BILIM, [(s, j) for s, j, _ in H])
-    juftlar = [{"id": i, "yakuniy": j} for i, (_, j, _) in enumerate(H, 1)]
+    # `mijoz_matni` ham — `fakt_takliflari` savolni ham tekshiradi (haqiqiy juftlik shakli).
+    juftlar = [{"id": i, "mijoz_matni": s, "yakuniy": j} for i, (s, j, _) in enumerate(H, 1)]
     # Cheklovsiz (`BIZNES_FAKT_TAKLIF_MAX` emas) — sifatni o'lchaymiz, sig'imni emas.
     b.BIZNES_FAKT_TAKLIF_MAX = len(H)
     olingan = b.fakt_takliflari(xom, juftlar, BILIM)

@@ -504,7 +504,21 @@ Maqsad: egasi hech narsa sozlamasin — odatdagidek ishlasin, bot o'zi o'rgansin
      «shu hafta», «ertaga», «aksiya», «sizga»), bilimda bor («80 ming» = «80 000»).
      Faqat prompt bilan `tests/eval_bilim.py`: noto'g'ri **7**/3 marta; kod
      tekshiruvlari bilan **0**, doimiy faktlar **15/15**.
-   SQL lokal Postgres'da; `test_biznes_hisobot.py` 26-31.
+   - **Avtomat uzatishi ham manba (2026-10-30).** Jonli: yagona faol ega avtomatda
+     edi — qoralama yo'q, demak juftlik ham yo'q, 2 kunda **0** taklif. Endi
+     `_avtojavob` uzatganda `biznes_uzatish_yoz` → `holat = 'uzatildi'` (kartochkadagi
+     hamma mijoz xabari + mijozga ketgan gap); egasi o'sha chatda mijozga o'zi
+     yozsa (`biznes_loyiha_eskirt`, `BIZNES_JUFT_MIN_SOZ`, TTL) → `uzatish_javob`.
+     Bot bilmagan narsa aynan shu — eng qimmat manba. Qoidalar: `kutmoqda` EMAS
+     («Yuborish», [BIZNES HOLATI], kartochka unga tegmasin); uslubga EMAS
+     (`loyiha` = «aniqlab yozaman», juftlik uslubni buzardi); tanlov — avvalgidek
+     «💾 Eslab qol». ⛔️ Uzatishdan keyingi javob ko'pincha BITTA buyurtma holati
+     («Kuryer yo'lda, 30 daqiqada») — model uni 2/3 marta fakt deb oldi;
+     `_VAQTLI_RE` endi mijoz SAVOLINI ham tekshiradi («kecha», «buyurtmam») va
+     «yo'lda» ni biladi → `eval_bilim` (15 juftlik, 4 tasi uzatish shaklida)
+     **0** noto'g'ri, **20/21**. ⚠️ Avtomat testlari `biznes_uzatish_yoz` ni
+     soxtalashtiradi — usiz `.env` dagi jonli bazaga yozardi.
+   SQL lokal Postgres'da; `test_biznes_hisobot.py` 26-31a, `test_biznes_avtomat.py` 8a, 32a.
 3. ✅ **Ulanganda o'zi sozlansin (2026-10-28).** Egasining ENG BIRINCHI
    ulanishi `yordamchi` bilan ochiladi — `biznes_ulanish_yoz` INSERT'ida
    `CASE WHEN EXISTS (... owner_id = $2)`; ulanish xabari (`ulanish_matni(rejim=)`)

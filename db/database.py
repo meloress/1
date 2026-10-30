@@ -495,6 +495,8 @@ async def create_users_table():
         #        chetlab o'zi javob berdi — `yakuniy` = uning matni, uslub
         #        juftligi). `tahrirlandi` va `yuborildi` nisbati — 3-bosqichga
         #        o'tish mezoni (REJA.md); `egasi_yozdi` unga kirmaydi.
+        #        Avtomat uzatishi (qoralama EMAS): uzatildi → uzatish_javob
+        #        (egasi mijozga o'zi javob berdi) — faqat bilim taklifi manbai.
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS biznes_loyiha (
                 id          BIGSERIAL PRIMARY KEY,
@@ -1835,6 +1837,17 @@ async def biznes_loyiha_eskirt(owner_id: int, chat_id: int,
         await create_db_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            if juft:
+                # Avtomat bu savolni egasiga o'tkazgan edi — egasining javobi
+                # aynan bot bilmagan narsa (`biznes_uzatish_yoz`). Uslubga
+                # EMAS: `loyiha` bu yerda «aniqlab yozaman», juftlik bo'lmaydi.
+                await conn.execute(
+                    "UPDATE biznes_loyiha SET holat = 'uzatish_javob', yakuniy = $3 "
+                    "WHERE owner_id = $1 AND id = (SELECT id FROM biznes_loyiha "
+                    "  WHERE owner_id = $1 AND chat_id = $2 AND holat = 'uzatildi' "
+                    "    AND yaratilgan > NOW() - make_interval(hours => $4::int) "
+                    "  ORDER BY id DESC LIMIT 1)",
+                    owner_id, chat_id, juft, BIZNES_LOYIHA_TTL_SOAT)
             juftlandi = juft and await conn.fetchval(
                 "UPDATE biznes_loyiha SET holat = 'egasi_yozdi', yakuniy = $3 "
                 "WHERE owner_id = $1 AND id = (SELECT id FROM biznes_loyiha "
@@ -1849,6 +1862,29 @@ async def biznes_loyiha_eskirt(owner_id: int, chat_id: int,
                 owner_id, chat_id)
     if juftlandi:
         biznes_keshni_bekor(owner_id)      # uslubning «tuzatishlar» qismi o'zgardi
+
+
+@with_db_retry()
+async def biznes_uzatish_yoz(owner_id: int, conn_id: str, chat_id: int,
+                             mijoz_matni: str, bot_matni: str) -> None:
+    """Avtomat savolni egasiga o'tkazdi — egasi o'zi javob bersa, o'sha
+    javob bilim taklifiga tushadi (`biznes_loyiha_eskirt`). Bu qoralama EMAS:
+    `kutmoqda` bo'lsa «Yuborish», [BIZNES HOLATI] va kartochkaga aralashardi.
+    Shu chatdagi oldingi javobsiz uzatish — eskirgan: yangisi uning savolini
+    ham o'z ichiga oladi (`mijoz_matni` = kartochkadagi hamma xabar)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE biznes_loyiha SET holat = 'eskirgan' "
+                "WHERE owner_id = $1 AND chat_id = $2 AND holat = 'uzatildi'",
+                owner_id, chat_id)
+            await conn.execute(
+                "INSERT INTO biznes_loyiha (owner_id, conn_id, chat_id, mijoz_matni, "
+                "loyiha, holat) VALUES ($1, $2, $3, $4, $5, 'uzatildi')",
+                owner_id, conn_id, chat_id, mijoz_matni, bot_matni)
 
 
 @with_db_retry()
@@ -1991,7 +2027,8 @@ async def biznes_loyiha_ol(lid: int, owner_id: int) -> Optional[Dict[str, Any]]:
 @with_db_retry()
 async def biznes_fakt_juftlari(owner_id: int, limit: int = 30) -> List[Dict[str, Any]]:
     """Bilim taklifi uchun hali ko'rilmagan juftliklar: mijoz savoli → egasi
-    O'ZI yozgan javob (`tahrirlandi` / `egasi_yozdi`).
+    O'ZI yozgan javob (`tahrirlandi` / `egasi_yozdi` / `uzatish_javob` —
+    avtomat bilmay egasiga o'tkazgan savolga egasining javobi).
 
     `yuborildi` EMAS — u qoralama, ya'ni botning o'zi bilimdan yozgani:
     undan «yangi fakt» chiqarish aylanma bo'lardi. Tanlov (`variantlar`) ham
@@ -2003,8 +2040,8 @@ async def biznes_fakt_juftlari(owner_id: int, limit: int = 30) -> List[Dict[str,
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id, mijoz_matni, yakuniy FROM biznes_loyiha WHERE owner_id = $1 "
-            "AND holat IN ('tahrirlandi', 'egasi_yozdi') AND variantlar IS NULL "
-            "AND yakuniy IS NOT NULL AND fakt_taklif IS NULL "
+            "AND holat IN ('tahrirlandi', 'egasi_yozdi', 'uzatish_javob') "
+            "AND variantlar IS NULL AND yakuniy IS NOT NULL AND fakt_taklif IS NULL "
             "AND yaratilgan > NOW() - make_interval(days => 2) "
             "ORDER BY id LIMIT $2", owner_id, limit)
     return [dict(r) for r in rows]

@@ -1588,6 +1588,13 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
         xabar = await _uzatish_xabari(dm, message, matn, uzat, oldingi=oldingi, jim=jim)
         await _kartochka_almashtir(egasi, chat_id, xabar, [*oldingi, matn])
         track_user_activity(egasi, None, "biznes_uzatish")
+        # Egasi endi o'zi javob beradi — o'sha javob «Bilimga qo'shaymi?»
+        # manbai (BIZNES.md «Keyingi ishlar» 2). Bezak: xatosi uzatishni to'xtatmaydi.
+        try:
+            await database.biznes_uzatish_yoz(egasi, conn_id, chat_id,
+                                              "\n".join([*oldingi, matn]), toza)
+        except Exception as e:
+            logger.warning(f"[BIZNES] uzatish yozilmadi chat={chat_id}: {e}")
     else:
         track_user_activity(egasi, None, "biznes_avtojavob")
     logger.info(f"[BIZNES] avtojavob egasi={egasi} chat={chat_id} "
@@ -2567,11 +2574,15 @@ def _sozlar(matn: str) -> set:
 
 # Vaqtga yoki BITTA mijozga bog'liq — doimiy fakt emas (eval_bilim: model
 # «shu hafta 10% chegirma», «ertaga olib boramiz» ni prompt taqiqlasa ham oldi).
+# Mijozning SAVOLI ham tekshiriladi: «kecha buyurtma bergandim, qayerda» →
+# «Kuryer yo'lda, 30 daqiqada» — bitta buyurtma holati, model uni fakt deb oldi
+# (eval_bilim, avtomat uzatishi qo'shilganda 2/3 marta).
 # ponytail: so'z ro'yxati — «sizga yetkazamiz» kabi umumiy gapni ham rad etadi;
 # bu yo'nalish xavfsiz (noto'g'ri fakt hamma mijozga ketardi).
 _VAQTLI_RE = re.compile(
     r"(?i)\b(bugun|ertaga|indinga|kecha|hozir\w*|shu\s+(hafta|oy|kun)\w*|bu\s+(hafta|oy)\w*|"
-    r"aksiya\w*|sizga|siz\s+uchun|сегодня|завтра|сейчас|акци\w*|для\s+вас)\b")
+    r"aksiya\w*|sizga|siz\s+uchun|buyurtma(m|im|ngiz|mni|ngizni)\b|yo.?lda\w*|"
+    r"сегодня|завтра|сейчас|акци\w*|для\s+вас|мой\s+заказ|ваш\s+заказ)\b")
 
 
 def fakt_takliflari(xom: list, juftlar: list, bilim: str = "") -> dict:
@@ -2601,8 +2612,8 @@ def fakt_takliflari(xom: list, juftlar: list, bilim: str = "") -> dict:
         jsoz = _sozlar(javob)
         if not jsoz & _sozlar(asl):
             continue                        # egasining o'sha javobida yo'q — to'qima
-        if _VAQTLI_RE.search(javob) or _VAQTLI_RE.search(asl):
-            continue                        # bugungi / shu mijozga — doimiy emas
+        if any(_VAQTLI_RE.search(m) for m in (javob, asl, juftlar[n - 1].get("mijoz_matni", ""))):
+            continue                        # bugungi / shu mijozga / uning buyurtmasi — doimiy emas
         if jsoz <= _sozlar(bilim):
             continue                        # bilimda allaqachon bor
         natija[lid] = {"savol": " ".join(savol.split())[:150],

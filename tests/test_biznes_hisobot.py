@@ -373,6 +373,20 @@ check(31, "vaqtli («shu hafta», «ertaga») va bilimda bor («80 ming» = «80
          VJ, "Futbolka 80 000 so'm.")
       == {24: {"savol": "manzil?", "javob": "Chilonzor 9-kvartal"}})
 
+# Avtomat uzatishi (`uzatish_javob`, 2026-10-30): javobda vaqt so'zi yo'q, bitta
+# buyurtma holati MIJOZ savolidan ko'rinadi — model 2/3 marta fakt deb oldi.
+BJ = [{"id": 31, "mijoz_matni": "kecha buyurtma bergandim, qayerda",
+       "yakuniy": "Kuryer yo'lda, 30 daqiqada yetib boradi"},
+      {"id": 32, "mijoz_matni": "buyurtmam qachon yetadi", "yakuniy": "Uch soatda yetkazib beriladi"},
+      {"id": 33, "mijoz_matni": "salom\nSamarqandga yetkazasizmi?",
+       "yakuniy": "Ha, Samarqandga 2 kunda yetkazamiz, 35 ming"}]
+check("31a", "bitta buyurtma holati (savolda «kecha», «buyurtmam»; javobda «yo'lda») — rad; "
+             "ko'p qatorli uzatish savolidagi doimiy fakt — o'tadi",
+      ft([{"n": 1, "savol": "buyurtma qachon yetadi?", "javob": "Kuryer 30 daqiqada yetib boradi"},
+          {"n": 2, "savol": "yetkazish qancha vaqt?", "javob": "Uch soatda yetkazib beriladi"},
+          {"n": 3, "savol": "Samarqandga yetkazasizmi?", "javob": "Samarqandga 2 kunda, 35 ming"}], BJ)
+      == {33: {"savol": "Samarqandga yetkazasizmi?", "javob": "Samarqandga 2 kunda, 35 ming"}})
+
 # Kunlik tahlil: juftlik bor, model 2 fakt topdi → BITTA xabar, har biriga tugma.
 holat.update(juftlar=JUFT, hisob=BOSH, band=True,
              faktlar=[{"n": 1, "savol": "yetkazib berish bormi?", "javob": "Toshkent bo'ylab, 20 000 so'm"},

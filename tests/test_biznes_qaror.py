@@ -138,6 +138,7 @@ for nom, f in dict(pro_tarifmi=rost, get_maintenance_notice_for=hech,
                    biznes_bilim_ol=bilim, biznes_uslub_ol=bosh, biznes_namuna_qosh=bosh,
                    biznes_chat_holati=chat_holati, biznes_pauza=hech,
                    biznes_loyiha_eskirt=hech, biznes_kutayotgan_tanlov=hech, biznes_loyiha_yarat=yarat,
+                   biznes_uzatish_yoz=hech,   # ⚠️ usiz .env dagi JONLI bazaga yozardi
                    biznes_mavzu_ol=hech).items():
     setattr(database, nom, f)
 

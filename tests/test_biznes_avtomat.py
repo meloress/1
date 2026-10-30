@@ -266,6 +266,13 @@ database.biznes_chat_holati = chat_holati
 database.biznes_pauza = soxta_pauza
 database.biznes_loyiha_eskirt = hech   # avtomatda ham eskiradi (tanlov)
 database.biznes_kutayotgan_tanlov = hech
+uzatishlar = []
+
+
+async def uzatish_yoz(egasi, conn_id, chat_id, mijoz_matni, bot_matni):
+    uzatishlar.append((egasi, chat_id, mijoz_matni, bot_matni))
+# ⚠️ Usiz uzatish testlari .env dagi JONLI bazaga yozardi.
+database.biznes_uzatish_yoz = uzatish_yoz
 # Uslub (5-bosqich) — test_biznes_uslub.py da; bu yerda bo'sh.
 database.biznes_uslub_ol = lambda *a, **k: bilim_uslub()
 database.biznes_namuna_qosh = lambda *a, **k: namuna_qosh()
@@ -343,6 +350,9 @@ check(8, "uzatish: mijozga faqat uzatish gapi (model yozgan «aniqlab aytaman» 
       and any("Sabab: chegirma so" in m for m in egasiga())
       and not any(x[0] == "pauza" for x in q)
       and ("faollik", "biznes_uzatish") in q)
+check("8a", "uzatish bilim taklifi manbai bo'lib yoziladi: mijoz savoli va unga ketgan gap; "
+            "oddiy javob (7) yozilmaydi",
+      uzatishlar == [(EGASI, MIJOZ, "10% chegirma bering", mijozga()[0])])
 pauza.clear()
 
 holat["model"] = "[egasiga: sotib olmoqchi]"
@@ -527,8 +537,11 @@ def davom(*xabarlar):
     asyncio.run(run())
 
 
+uzatishlar.clear()
 davom(xabar("nimaga"))
 karta = egasiga()
+check("32a", "takror uzatish (mijozga jim): yozuvda kartochkadagi IKKALA savol",
+      [u[2] for u in uzatishlar] == ["qayerdasan\nnimaga"])
 check(32, "egasi hal qilmagan uzatish: mijozga gap TAKRORLANMAYDI, egasida bitta kartochka "
           "(eskisi o'chadi, yangisida ikkala xabar)",
       len(birinchi[0]) == 1 and mijozga() == []
