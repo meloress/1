@@ -53,7 +53,7 @@ class SoxtaBot:
     """`core.loader.bot` o'rniga. Telegram rad etishini ham o'ynaydi."""
     xato = None            # None | Telegram javobining matni
 
-    async def send_message(self, chat_id, text, parse_mode=None):
+    async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         if SoxtaBot.xato:
             from aiogram.exceptions import TelegramBadRequest
             raise TelegramBadRequest(method=None, message=SoxtaBot.xato)

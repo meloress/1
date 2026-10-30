@@ -35,7 +35,7 @@ from core.config import (
     MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO, MESSAGE_COST_VOICE, MESSAGE_COST_DOCUMENT,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     CUSTOM_EMOJI, emoji_id, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
-    BTN_LINK, KARTA_NARX,
+    BTN_LINK, KARTA_NARX, ADMIN_USERNAME,
 )
 from db import database
 from services import menu as menu_module
@@ -94,6 +94,22 @@ def btn(text: str, callback_data: str, *, style: str | None = None,
     if icon and emoji_id(icon):
         kwargs["icon_custom_emoji_id"] = emoji_id(icon)
     return InlineKeyboardButton(**kwargs)
+
+
+ADMIN_IZOH = "\n\n<i>💬 Savol yoki muammo bo'lsa — pastdagi tugma orqali adminga yozing.</i>"
+
+
+def admin_tugmasi() -> list[InlineKeyboardButton]:
+    """Klaviatura QATORI: bosganda adminning shaxsiy chati ochiladi."""
+    return [btn("💬 Admin bilan bog'lanish", "", url=f"https://t.me/{ADMIN_USERNAME}")]
+
+
+def admin_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[admin_tugmasi()])
+
+
+BAN_MATNI = ("🚫 <b>Siz botdan foydalanish huquqidan mahrum qilingansiz.</b>\n\n"
+             "<i>Xato deb o'ylasangiz — pastdagi tugma orqali adminga yozing.</i>")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -570,7 +586,7 @@ async def handle_pre_checkout(query: PreCheckoutQuery):
         if any(banned):
             await query.answer(
                 ok=False,
-                error_message="Hisob bloklangan. Admin bilan bog'laning.",
+                error_message=f"Hisob bloklangan. Admin bilan bog'laning: @{ADMIN_USERNAME}",
             )
             return
     except Exception as exc:
@@ -708,6 +724,7 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
         ), kb=InlineKeyboardMarkup(inline_keyboard=[
             [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)],
             [btn("🎁 Do'stga ham sovg'a qilish", "pro:gift")],
+            admin_tugmasi(),
         ]), effect=MESSAGE_EFFECTS.get("🎉"))
         return
 
@@ -766,11 +783,13 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
 
 
 async def _safe_send(message: Message, text: str) -> None:
+    """Faqat to'lov MUAMMOSI xabarlari — shuning uchun doim admin tugmasi bilan."""
+    text += ADMIN_IZOH
     try:
-        await message.answer(text, parse_mode="HTML")
+        await message.answer(text, parse_mode="HTML", reply_markup=admin_kb())
     except Exception:
         try:
-            await message.answer(re.sub(r"</?[a-z]+>", "", text))
+            await message.answer(re.sub(r"</?[a-z]+>", "", text), reply_markup=admin_kb())
         except Exception as e:
             logger.error(f"[Pro] xabar yuborilmadi: {e}")
 
@@ -851,6 +870,7 @@ def _karta_sorov_kb(lid: int, summa: int, raqam: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📋 Karta raqami", copy_text=CopyTextButton(text=raqam)),
          InlineKeyboardButton(text="📋 Summa", copy_text=CopyTextButton(text=str(summa)))],
         [btn("📎 Chekni yuborish", f"pro:chek:{lid}", style=BTN_SUCCESS)],
+        admin_tugmasi(),
         [btn("✖️ Bekor qilish", f"pro:kb:{lid}", style=BTN_DANGER)],
     ])
 
@@ -906,7 +926,8 @@ async def process_karta_chek(message: Message, state: FSMContext) -> None:
         await message.answer("Bu to'lov so'rovi endi faol emas. /pro dan qayta boshlang.")
         return
     await message.answer("✅ <b>Chek qabul qilindi.</b>\n\nTekshirib, 24 soat ichida "
-                         "Pro'ni yoqamiz — natija shu yerga keladi.", parse_mode="HTML")
+                         "Pro'ni yoqamiz — natija shu yerga keladi." + ADMIN_IZOH,
+                         parse_mode="HTML", reply_markup=admin_kb())
     logger.info(f"[Karta] chek #{lid} user={message.from_user.id} summa={r['summa']}")
     u = message.from_user
     matn = karta_admin_matni(r, u.full_name, u.username)
@@ -1038,9 +1059,11 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
                     f"tasdiqlandi.{gacha} Rahmat!"), None
     else:
         matn = (f"❌ <b>To'lov tasdiqlanmadi</b>\n\nSabab: {sabab}.\n\n"
-                "Pul o'tkazgan bo'lsangiz, to'g'ri chekni yuboring — qayta tekshiramiz.")
+                "Pul o'tkazgan bo'lsangiz, to'g'ri chekni yuboring — qayta tekshiramiz."
+                + ADMIN_IZOH)
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [btn("📎 Chekni qayta yuborish", f"pro:chek:{son}", style=BTN_PRIMARY)]])
+            [btn("📎 Chekni qayta yuborish", f"pro:chek:{son}", style=BTN_PRIMARY)],
+            admin_tugmasi()])
     try:
         await bot.send_message(r["user_id"], matn, parse_mode="HTML", reply_markup=kb)
         await query.answer("✅ Tasdiqlandi" if sabab is None else "Rad etildi")
@@ -1731,8 +1754,7 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
         #    to'lov bo'lardi. Undan ko'ra sotmagan yaxshi.
         try:
             if await database.is_banned(user_id):
-                await query.message.answer(
-                    "🚫 Siz botdan foydalanish huquqidan mahrum qilingansiz.")
+                await query.message.answer(BAN_MATNI, reply_markup=admin_kb())
                 return
         except Exception as exc:
             logger.warning(f"[Pro] buy: ban tekshiruvi o'tmadi: {exc}")
@@ -1751,8 +1773,8 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
         except Exception as exc:
             logger.error(f"[Pro] invoice yuborilmadi: {exc}")
             await query.message.answer(
-                "⚠️ To'lov oynasini ochib bo'lmadi. Birozdan keyin urinib ko'ring."
-            )
+                "⚠️ <b>To'lov oynasini ochib bo'lmadi.</b>\n\nBirozdan keyin qayta urinib "
+                "ko'ring." + ADMIN_IZOH, parse_mode="HTML", reply_markup=admin_kb())
         return
 
     if action == "stars":

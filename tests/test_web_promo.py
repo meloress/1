@@ -50,7 +50,7 @@ OTGAN = datetime.datetime.now(UTC) - datetime.timedelta(days=1)
 class SoxtaBot:
     yetmasinmi = set()
 
-    async def send_message(self, chat_id, text, parse_mode=None):
+    async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         if chat_id in SoxtaBot.yetmasinmi:
             raise RuntimeError("bot bloklangan")
         XABARLAR.append((chat_id, text))

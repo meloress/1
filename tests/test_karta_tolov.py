@@ -69,6 +69,13 @@ def tugmalar(kb):
     return [t.callback_data for q in kb.inline_keyboard for t in q]
 
 
+ADMIN_URL = f"https://t.me/{c.ADMIN_USERNAME}"
+
+
+def adminli(kb):
+    return kb is not None and any(t.url == ADMIN_URL for q in kb.inline_keyboard for t in q)
+
+
 KARTA = {"v": None}
 
 
@@ -281,11 +288,12 @@ check(10, "ikkinchi bosish (yoki ikkinchi qurilma) — «allaqachon hal qilingan
 q.clear()
 asyncio.run(p.handle_pro_callback(So("pro:kr:7:summa"), Holat()))
 send = [x for x in q if x[0] == "send"]
-check(11, "rad: sabab egasiga, «qayta yuborish» tugmasi, audit «karta_rad», Pro/menyu YO'Q",
+check(11, "rad: sabab egasiga, «qayta yuborish» + «Admin bilan bog'lanish», audit «karta_rad», "
+          "Pro/menyu YO'Q",
       ("rad", 7, p._RAD_SABAB["summa"]) in q and not any(x[0] == "menyu" for x in q)
       and any(x[0] == "audit" and x[1] == "karta_rad" for x in q)
       and send and p._RAD_SABAB["summa"] in send[0][2]
-      and tugmalar(send[0][3]) == ["pro:chek:7"])
+      and tugmalar(send[0][3]) == ["pro:chek:7", None] and adminli(send[0][3]))
 
 q.clear()
 asyncio.run(p.handle_pro_callback(So("pro:kr:7:pul_ber"), Holat()))
@@ -369,7 +377,7 @@ async def panel():
     yozildi, audit_q, tg = [], [], []
 
     class TgBot:
-        async def send_message(self, chat_id, text, parse_mode=None):
+        async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
             tg.append((chat_id, text))
     core.loader.bot = TgBot()
     db = api.database_module
@@ -423,4 +431,19 @@ check(18, "superadmin: noto'g'ri raqam — 400, yozilmaydi; to'g'risi — tozala
 check(19, "bo'sh raqam va ism — karta to'lovi o'chadi (bazada NULL, /pro da tugma yo'qoladi)",
       n["ochir"] == (200, (None, None), None))
 
-print("\nHammasi o'tdi: 19/19")
+# ── 20. «Admin bilan bog'lanish» — to'lov muammosi joylarida ─────
+yuborildi = []
+
+
+class Javob:
+    async def answer(self, matn, parse_mode=None, reply_markup=None):
+        yuborildi.append((matn, reply_markup))
+
+
+asyncio.run(p._safe_send(Javob(), "✅ To'lovingiz qabul qilindi."))
+check(20, "admin tugmasi t.me/<ADMIN_USERNAME>: to'lov muammosi xabari, karta so'rovi, blok matni",
+      adminli(yuborildi[0][1]) and "adminga yozing" in yuborildi[0][0]
+      and adminli(p._karta_sorov_kb(7, 25_047, "8600123412341234"))
+      and adminli(p.admin_kb()) and "adminga yozing" in p.BAN_MATNI)
+
+print("\nHammasi o'tdi: 20/20")

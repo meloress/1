@@ -421,7 +421,7 @@ async def _yoz(request: web.Request, amal: str, kimga: Optional[int],
         logger.exception(f"[web] audit yozilmadi: {amal} -> {kimga}")
 
 
-async def _xabar(user_id: int, matn: str) -> bool:
+async def _xabar(user_id: int, matn: str, kb=None) -> bool:
     """Foydalanuvchiga botdan xabar. Yetmasa — `False`, xato emas.
 
     Odam botni bloklagan yoki o'chirib yuborgan bo'lishi mumkin; bu
@@ -430,7 +430,7 @@ async def _xabar(user_id: int, matn: str) -> bool:
     """
     from core.loader import bot          # sikl importni oldini olish uchun shu yerda
     try:
-        await bot.send_message(user_id, matn, parse_mode="HTML")
+        await bot.send_message(user_id, matn, parse_mode="HTML", reply_markup=kb)
         return True
     except Exception as exc:
         logger.info(f"[web] {user_id} ga xabar yetmadi: {exc}")
@@ -778,6 +778,7 @@ async def refund(request: web.Request):
     """
     from aiogram.exceptions import TelegramBadRequest
     from core.loader import bot
+    from handlers import pro as pro_module      # sikl importni oldini olish
 
     try:
         payment_id = int(request.match_info["payment_id"])
@@ -830,8 +831,8 @@ async def refund(request: web.Request):
     await _xabar(tolov["payer_id"], (
         "↩️ <b>To'lovingiz qaytarildi</b>\n\n"
         f"💰 {tolov['stars']} ⭐ hisobingizga qaytarildi.\n"
-        f"🧾 Chek: <code>{tolov['charge_id']}</code>"
-    ))
+        f"🧾 Chek: <code>{tolov['charge_id']}</code>" + pro_module.ADMIN_IZOH
+    ), kb=pro_module.admin_kb())
     return web.json_response({"ok": True})
 
 

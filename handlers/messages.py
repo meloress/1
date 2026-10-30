@@ -1885,11 +1885,11 @@ async def _send_limit_reached_message(message: Message, quota: dict, feature: st
     if quota.get("banned"):
         try:
             # Guruhda bloklanganini butun guruhga e'lon qilish shart emas.
-            await message.answer("🚫 Siz botdan foydalanish huquqidan mahrum qilingansiz.",
+            await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb(),
                                  **ephemeral_params(message))
         except Exception:
             try:
-                await message.answer("🚫 Siz botdan foydalanish huquqidan mahrum qilingansiz.")
+                await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb())
             except Exception:
                 pass
         return
@@ -2002,7 +2002,7 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
 
     try:
         if await is_banned(message.from_user.id):
-            await message.answer("🚫 Siz botdan foydalanish huquqidan mahrum qilingansiz.")
+            await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb())
             return
     except Exception:
         pass
@@ -2598,7 +2598,7 @@ async def handle_research(message: Message, state: FSMContext,
             await _answer_with_pro_button(
                 message, _research_limit_text(quota), offer=(quota.limit == 0))
         else:
-            await message.answer("🚫 Siz botdan foydalanish huquqidan mahrum qilingansiz.")
+            await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb())
         return
 
     track_user_activity(user_id, message.from_user.username, "research")

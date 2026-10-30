@@ -1338,6 +1338,10 @@ PRO_PLANS_BY_DAYS: dict[int, tuple[int, str, str]] = {
 # tests/test_karta_tolov.py buni hisoblab tekshiradi.
 KARTA_NARX: dict[int, int] = {30: 25_000, 90: 75_000, 180: 125_000, 365: 250_000}
 assert set(KARTA_NARX) == set(PRO_PLANS_BY_DAYS)
+
+# To'lov muammosi, rad, blok, qaytarish xabarlari ostidagi «Admin bilan
+# bog'lanish» tugmasi shu odamning shaxsiy chatini ochadi (pro.admin_tugmasi).
+ADMIN_USERNAME = "jumayevou"
 # Karta raqami va egasi kodda ham, env'da ham EMAS — `bot_settings` da,
 # panel → Sozlamalar → Karta (faqat superadmin). `database.karta_ol()`;
 # bo'sh bo'lsa karta tugmasi umuman chiqmaydi.

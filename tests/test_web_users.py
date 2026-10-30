@@ -63,7 +63,7 @@ class SoxtaBot:
     """`core.loader.bot` o'rniga. Telegram rad etishini ham o'ynay oladi."""
     rad_etsinmi = False
 
-    async def send_message(self, chat_id, text, parse_mode=None):
+    async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         XABARLAR.append((chat_id, text))
 
     async def refund_star_payment(self, user_id, telegram_payment_charge_id):
