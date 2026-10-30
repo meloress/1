@@ -436,21 +436,38 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
             f"{_perks_block()}\n"
             f"📊 <b>Kunlik hisobda</b>  <i>(ochish uchun bosing)</i>\n"
             f"{_daily_table()}\n"
-            + (f"⭐️ To'lov <b>Telegram Stars</b> bilan — bir bosishda, yoki 💳 "
-               f"<b>karta orqali</b> so'mda (pastdagi tugma).\n\n" if karta_bor else
+            + (f"⭐️ <b>Telegram Stars</b> yoki 💳 <b>karta orqali</b> so'mda to'lash mumkin.\n\n"
+               f"👇 <b>To'lov usulini tanlang:</b>" if karta_bor else
                f"⭐️ To'lov <b>Telegram Stars</b> orqali — "
-               f"bank kartasi kerak emas, bir bosishda.\n\n")
-            + f"👇 <b>Muddatni tanlang:</b>"
+               f"bank kartasi kerak emas, bir bosishda.\n\n"
+               f"👇 <b>Muddatni tanlang:</b>")
         )
         # ⚠️ Promokod/referal tugmalari ATAYLAB yo'q — pro_keyboard_for()
         # izohiga qarang.
         extra = [[btn("🎁 Do'stga sovg'a qilish", "pro:gift")]]
 
-    # Karta — Stars tugmalari OSTIDA, ularning o'rniga emas (config izohi).
-    karta = [[btn("💳 Karta orqali (so'mda)", "pro:kartalar")]] if karta_bor else []
-    rows = (_buy_buttons() + karta + extra
-            + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]])
+    # Karta bor — avval usul (Stars | Karta), muddat ichkarida; yo'q bo'lsa
+    # bitta tanlovli menyu ma'nosiz, Stars muddatlari darrov chiqadi.
+    tolov = ([[btn("⭐️ Stars orqali", "pro:stars", style=BTN_PRIMARY)],
+              [btn("💳 Karta orqali (so'mda)", "pro:kartalar", style=BTN_PRIMARY)]]
+             if karta_bor else _buy_buttons())
+    rows = tolov + extra + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]]
     return header, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+_ORQAGA = [btn("⬅️ Orqaga", "pro:usul")]
+
+
+async def _tugmalarni_almashtir(query: CallbackQuery, kb: InlineKeyboardMarkup,
+                                matn: str) -> None:
+    """Pro ekranining matni qoladi, faqat tugmalar almashadi. Tahrirlab
+    bo'lmasa (xabar o'chgan va h.k.) — yangi xabar."""
+    try:
+        await query.message.edit_reply_markup(reply_markup=kb)
+    except Exception as e:
+        if "not modified" in str(e):      # ikki marta bosildi — tugmalar joyida
+            return
+        await query.message.answer(matn, parse_mode="HTML", reply_markup=kb)
 
 
 _RING_SCALE = 30    # bir oy — chiziqchaning to'liq uzunligi
@@ -812,7 +829,7 @@ def _karta_tariflar_kb() -> InlineKeyboardMarkup:
         [btn(f"{title} · {som(KARTA_NARX[days])} so'm" + (f"  {badge}" if badge else ""),
              f"pro:karta:{days}", style=BTN_PRIMARY)]
         for days, _, title, badge in PRO_PLANS
-    ] + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]])
+    ] + [_ORQAGA])
 
 
 def karta_sorov_matni(days: int, summa: int, raqam: str, egasi: str) -> str:
@@ -919,8 +936,7 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         if not await _karta():
             await query.message.answer("Karta orqali to'lov hozircha yo'q — Stars bilan to'lang: /pro")
             return
-        await query.message.answer(karta_tariflar_matni(), parse_mode="HTML",
-                                   reply_markup=_karta_tariflar_kb())
+        await _tugmalarni_almashtir(query, _karta_tariflar_kb(), karta_tariflar_matni())
         return
     try:
         son = int(parts[2])
@@ -1737,6 +1753,18 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
             await query.message.answer(
                 "⚠️ To'lov oynasini ochib bo'lmadi. Birozdan keyin urinib ko'ring."
             )
+        return
+
+    if action == "stars":
+        await query.answer()
+        await _tugmalarni_almashtir(query, InlineKeyboardMarkup(
+            inline_keyboard=_buy_buttons() + [_ORQAGA]), "⭐️ <b>Muddatni tanlang:</b>")
+        return
+
+    if action == "usul":
+        await query.answer()
+        _, kb = await _render_pro_screen(user_id)
+        await _tugmalarni_almashtir(query, kb, "💎 <b>Pro</b> — to'lov usulini tanlang:")
         return
 
     if action in ("kartalar", "karta", "chek", "kb", "kt", "kr"):

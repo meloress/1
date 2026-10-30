@@ -129,7 +129,10 @@ with `Permission denied (publickey)` even though the key is right there in `~/.s
 key is loaded explicitly instead:
 `GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" git push meloress main`.
 It failed exactly once mid-session after several successful pushes, so do not read a
-failure as "the key is wrong" — try the explicit form first.
+failure as "the key is wrong" — try the explicit form first. If port 22 **times out**
+(2026-10-30), go through GitHub's SSH-over-443 with the existing host key:
+`-o Hostname=ssh.github.com -p 443 -o HostKeyAlias=github.com` added to the same
+`GIT_SSH_COMMAND` — no new `known_hosts` entry needed.
 
 ⚠️ **`git fetch meloress` before every push.** Another session once pushed the same files
 to `meloress/main` in parallel; a push without looking first either fails or, after a

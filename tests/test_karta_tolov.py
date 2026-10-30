@@ -83,12 +83,38 @@ KARTA["v"] = "xato"
 _, yiqildi = asyncio.run(p._render_pro_screen(1))
 KARTA["v"] = ("8600123412341234", "ALI VALIYEV")
 matn, bilan = asyncio.run(p._render_pro_screen(1))
-check(4, "karta sozlanmagan (yoki baza xatosi — /pro yiqilmaydi) — tugma yo'q; sozlangan — "
-         "bor, Stars tugmalari ham joyida",
+check(4, "karta sozlanmagan (yoki baza xatosi — /pro yiqilmaydi) — Stars muddatlari darrov; "
+         "sozlangan — avval usul: «Stars orqali» | «Karta orqali»",
       "pro:kartalar" not in tugmalar(bez) and "pro:kartalar" not in tugmalar(yiqildi)
-      and "pro:kartalar" in tugmalar(bilan)
-      and all(f"pro:buy:{d}" in tugmalar(bilan) for d in c.PRO_PLANS_BY_DAYS)
+      and all(f"pro:buy:{d}" in tugmalar(bez) for d in c.PRO_PLANS_BY_DAYS)
+      and tugmalar(bilan)[:2] == ["pro:stars", "pro:kartalar"]
+      and not any(t.startswith("pro:buy:") for t in tugmalar(bilan))
       and "karta orqali" in matn)
+
+
+class Bos:
+    """Usul tugmasi bosildi — Pro matni qoladi, faqat tugmalar almashadi."""
+    def __init__(self, data):
+        self.data, self.from_user, self.kb = data, NS(id=1), None
+        self.message = NS(edit_reply_markup=self._erm)
+
+    async def _erm(self, reply_markup=None):
+        self.kb = reply_markup
+
+    async def answer(self, *a, **k):
+        pass
+
+
+stars, kartalar = Bos("pro:stars"), Bos("pro:kartalar")
+asyncio.run(p.handle_pro_callback(stars, None))
+asyncio.run(p._karta_callback(kartalar, None, ["pro", "kartalar"]))
+orqaga = Bos("pro:usul")
+asyncio.run(p.handle_pro_callback(orqaga, None))
+check("4a", "Stars → muddatlar + Orqaga; Karta → so'mli muddatlar + Orqaga; Orqaga → yana usul",
+      all(f"pro:buy:{d}" in tugmalar(stars.kb) for d in c.PRO_PLANS_BY_DAYS)
+      and all(f"pro:karta:{d}" in tugmalar(kartalar.kb) for d in c.PRO_PLANS_BY_DAYS)
+      and tugmalar(stars.kb)[-1] == tugmalar(kartalar.kb)[-1] == "pro:usul"
+      and tugmalar(orqaga.kb)[:2] == ["pro:stars", "pro:kartalar"])
 
 # ── 5-7. Chek qabul qilish ────────────────────────────────────────
 q = []
