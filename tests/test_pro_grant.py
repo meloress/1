@@ -112,6 +112,22 @@ async def main():
     executed = await _set_premium(plan='pro', extend=True)
     assert "GREATEST" in executed[0][0], "extend=True qo'shish SQL'ini ishlatishi kerak"
 
+    # ── 6) `$3` — int, HAR chaqiruvchida ────────────────────────────
+    # 3ba4744 SQL'ni `make_interval(days => $3::int)` qildi, to'rt chaqiruvchi
+    # `str(days)` da qoldi: asyncpg DataError — Stars xaridi, promokod, referal
+    # Pro bermay yiqilardi. Soxta ulanish turini bilmaydi, shuning uchun manbadan.
+    import ast
+    from tests._manba import kod
+    daraxt = ast.parse(kod(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "db", "database.py")))
+    chaqiruvlar = [n for n in ast.walk(daraxt) if isinstance(n, ast.Call) and n.args
+                   and isinstance(n.args[0], ast.Name) and n.args[0].id == "_EXTEND_PLAN_SQL"]
+    assert len(chaqiruvlar) >= 5, f"chaqiruvlar topilmadi: {len(chaqiruvlar)}"
+    yomon = [n.lineno for n in chaqiruvlar if not (
+        len(n.args) == 4 and isinstance(n.args[3], ast.Call)
+        and getattr(n.args[3].func, "id", None) == "int")]
+    assert not yomon, f"_EXTEND_PLAN_SQL ga kun int(...) bo'lib uzatilmagan, qatorlar: {yomon}"
+
     print("pro_grant: barcha tekshiruvlar o'tdi.")
 
 

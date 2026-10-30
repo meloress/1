@@ -584,6 +584,7 @@
           <button aria-current="true" data-pane="limits">Limitlar</button>
           <button data-pane="maint">Texnik ta'til</button>
           <button data-pane="watch">Kuzatish</button>
+          <button data-pane="karta">Karta</button>
           <button data-pane="admins">Adminlar</button>
         </div>
 
@@ -675,6 +676,36 @@
               <button class="btn primary" id="w-qosh">Qo'shish</button>
             </div>
             <p class="natija" id="w-natija">&nbsp;</p>
+          </div>
+        </div>
+
+        <div class="pane" data-pane="karta">
+          <div class="card">
+            <header><h2>Karta orqali to'lov</h2></header>
+            <p class="hint" style="margin-bottom:var(--s-3)">Foydalanuvchi /pro → «💳 Karta orqali» bosganda shu karta ko'rinadi. Chek faqat bosh adminga keladi va u tasdiqlagandagina Pro yoqiladi. Bo'sh qoldirilsa karta tugmasi yashirinadi — faqat Stars qoladi.</p>
+            <div class="rows">
+              <div class="row" style="padding-top:0">
+                <div class="t"><b>Karta raqami</b><span>pul shu kartaga tushadi</span></div>
+                <span class="code" id="k-raqam">—</span>
+              </div>
+              <div class="row">
+                <div class="t"><b>Karta egasi</b><span>foydalanuvchi kimga o'tkazayotganini ko'radi</span></div>
+                <span class="code" id="k-egasi">—</span>
+              </div>
+            </div>
+            <!-- ⛔️ Forma faqat superadminga ochiladi; haqiqiy himoya —
+                 `web/api.py::karta_set` dagi is_superadmin() tekshiruvi. -->
+            <div class="forma" id="k-forma" hidden>
+              <input class="kiritish" id="k-raqam-input" inputmode="numeric" autocomplete="off" placeholder="8600 1234 5678 9012">
+              <input class="kiritish" id="k-egasi-input" autocomplete="off" placeholder="Karta egasi: ALI VALIYEV">
+              <button class="btn primary" id="k-saqla">Saqlash</button>
+              <button class="btn danger" id="k-ochir">O'chirish</button>
+            </div>
+            <p class="natija" id="k-natija">&nbsp;</p>
+            <div class="note" style="margin-top:var(--s-3)">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+              <p id="k-izoh">—</p>
+            </div>
           </div>
         </div>
 

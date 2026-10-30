@@ -21,9 +21,10 @@ from html import escape as html_escape
 
 from aiogram.types import (
     Message, CallbackQuery, PreCheckoutQuery, LabeledPrice,
-    InlineKeyboardMarkup, InlineKeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton,
     InlineQuery, InlineQueryResultArticle, InputTextMessageContent,
 )
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramForbiddenError
@@ -34,7 +35,7 @@ from core.config import (
     MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO, MESSAGE_COST_VOICE, MESSAGE_COST_DOCUMENT,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     CUSTOM_EMOJI, emoji_id, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
-    BTN_LINK,
+    BTN_LINK, KARTA_NARX,
 )
 from db import database
 from services import menu as menu_module
@@ -401,6 +402,7 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     if plan_type != 'free' and premium_until is not None \
             and premium_until < datetime.now(timezone.utc):
         plan_type = 'free'
+    karta_bor = bool(await _karta())
 
     # Muddatsiz tarif — sotib olishning ma'nosi yo'q va uni toza qo'llash
     # ham mumkin emas, shuning uchun narx tugmalari umuman ko'rsatilmaydi.
@@ -434,15 +436,20 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
             f"{_perks_block()}\n"
             f"📊 <b>Kunlik hisobda</b>  <i>(ochish uchun bosing)</i>\n"
             f"{_daily_table()}\n"
-            f"⭐️ To'lov <b>Telegram Stars</b> orqali — "
-            f"bank kartasi kerak emas, bir bosishda.\n\n"
-            f"👇 <b>Muddatni tanlang:</b>"
+            + (f"⭐️ To'lov <b>Telegram Stars</b> bilan — bir bosishda, yoki 💳 "
+               f"<b>karta orqali</b> so'mda (pastdagi tugma).\n\n" if karta_bor else
+               f"⭐️ To'lov <b>Telegram Stars</b> orqali — "
+               f"bank kartasi kerak emas, bir bosishda.\n\n")
+            + f"👇 <b>Muddatni tanlang:</b>"
         )
         # ⚠️ Promokod/referal tugmalari ATAYLAB yo'q — pro_keyboard_for()
         # izohiga qarang.
         extra = [[btn("🎁 Do'stga sovg'a qilish", "pro:gift")]]
 
-    rows = _buy_buttons() + extra + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]]
+    # Karta — Stars tugmalari OSTIDA, ularning o'rniga emas (config izohi).
+    karta = [[btn("💳 Karta orqali (so'mda)", "pro:kartalar")]] if karta_bor else []
+    rows = (_buy_buttons() + karta + extra
+            + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]])
     return header, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -749,6 +756,282 @@ async def _safe_send(message: Message, text: str) -> None:
             await message.answer(re.sub(r"</?[a-z]+>", "", text))
         except Exception as e:
             logger.error(f"[Pro] xabar yuborilmadi: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  4b. KARTA ORQALI TO'LOV (so'mda, 2026-10-30)
+# ═══════════════════════════════════════════════════════════════════
+# Telegram pulni ko'rmaydi — kafolat superadminning O'Z ko'zi: chek
+# rasmi hech qachon o'zi Pro bermaydi (tahrirlangan skrinshot — eng ko'p
+# firibgarlik). Superadmin bank ilovasida noyob summani (25 047) topib,
+# chek ostidagi tugmani bosadi. Faqat o'ziga; sovg'a va promo — Stars'da.
+
+class KartaStates(StatesGroup):
+    chek = State()
+
+
+# Chek kutish holati shuncha yashaydi: undan keyin kelgan rasm — chek emas,
+# oddiy savol (AI'ga o'tadi). Holat RAM'da — deploy uni o'chiradi, shuning
+# uchun so'rov xabarida «📎 Chekni yuborish» tugmasi turadi.
+KARTA_CHEK_OYNA = 3 * 3600
+
+_RAD_SABAB = {
+    "kelmadi": "to'lov kartaga kelib tushmadi",
+    "summa": "o'tkazilgan summa so'ralgan summaga mos emas",
+    "chek": "yuborilgan fayl to'lov cheki emas yoki o'qib bo'lmaydi",
+}
+
+
+def som(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
+
+
+async def _karta() -> tuple | None:
+    """(raqam, egasi) — panelda superadmin qo'ygan karta. Bezak: baza xatosi
+    /pro ekranini yiqitmasin — karta tugmasi shunchaki ko'rinmaydi."""
+    try:
+        return await database.karta_ol()
+    except Exception as e:
+        logger.warning(f"[Karta] sozlama o'qilmadi: {e}")
+        return None
+
+
+def karta_korinishi(raqam: str) -> str:
+    return " ".join(raqam[i:i + 4] for i in range(0, len(raqam), 4))
+
+
+def karta_tariflar_matni() -> str:
+    return ("💳 <b>Karta orqali to'lov</b>\n\n"
+            "Muddatni tanlang — keyingi qadamda karta raqami va aniq summa chiqadi. "
+            "To'lagach chekni shu yerga yuborasiz, <b>24 soat ichida</b> Pro yoqiladi.")
+
+
+def _karta_tariflar_kb() -> InlineKeyboardMarkup:
+    # Yorliq — Stars jadvalidagi (narx nisbati bir xil, test_karta_tolov.py).
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn(f"{title} · {som(KARTA_NARX[days])} so'm" + (f"  {badge}" if badge else ""),
+             f"pro:karta:{days}", style=BTN_PRIMARY)]
+        for days, _, title, badge in PRO_PLANS
+    ] + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]])
+
+
+def karta_sorov_matni(days: int, summa: int, raqam: str, egasi: str) -> str:
+    """Sof — testda."""
+    _, title, _ = PRO_PLANS_BY_DAYS[days]
+    return (
+        f"💳 <b>Karta orqali to'lov — Pro {title}</b>\n\n"
+        f"1️⃣ Shu kartaga o'tkazing:\n<code>{karta_korinishi(raqam)}</code>\n"
+        + (f"👤 {html_escape(egasi)}\n" if egasi else "")
+        + f"\n2️⃣ <b>Aynan shu summani</b> yuboring:\n<b><code>{som(summa)}</code> so'm</b>\n"
+        f"<i>Oxiridagi {summa - KARTA_NARX[days]} so'm — to'lovingizni tanib olishimiz uchun.</i>\n\n"
+        "3️⃣ To'lagach, <b>chek rasmini</b> (skrinshot) yoki PDF'ini shu chatga yuboring.\n\n"
+        "⏳ Chekni tekshirib, <b>24 soat ichida</b> Pro'ni yoqamiz — natija shu yerga keladi."
+    )
+
+
+def _karta_sorov_kb(lid: int, summa: int, raqam: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Karta raqami", copy_text=CopyTextButton(text=raqam)),
+         InlineKeyboardButton(text="📋 Summa", copy_text=CopyTextButton(text=str(summa)))],
+        [btn("📎 Chekni yuborish", f"pro:chek:{lid}", style=BTN_SUCCESS)],
+        [btn("✖️ Bekor qilish", f"pro:kb:{lid}", style=BTN_DANGER)],
+    ])
+
+
+def _karta_admin_kb(lid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn("✅ Tasdiqlash — pul keldi", f"pro:kt:{lid}", style=BTN_SUCCESS)],
+        [btn("❌ Pul kelmadi", f"pro:kr:{lid}:kelmadi"),
+         btn("❌ Summa boshqa", f"pro:kr:{lid}:summa")],
+        [btn("❌ Chek emas", f"pro:kr:{lid}:chek")],
+    ])
+
+
+def karta_admin_matni(r: dict, ism: str, username: str | None) -> str:
+    """Superadminga chek osti matni. Sof — testda."""
+    _, title, _ = PRO_PLANS_BY_DAYS[r["days"]]
+    return (
+        f"💳 <b>Karta to'lovi #{r['id']}</b>\n\n"
+        f"👤 {html_escape(ism)}" + (f" (@{html_escape(username)})" if username else "")
+        + f" · <code>{r['user_id']}</code>\n"
+        f"💎 Pro {title}\n"
+        f"💰 Kutilgan summa: <b>{som(r['summa'])} so'm</b>\n"
+        f"💳 Karta: ···· {r['karta'][-4:]}\n"
+        + (f"\n⚠️ <b>Bu chek oldin #{r['takror']} so'rovda ham yuborilgan!</b>\n"
+           if r.get("takror") else "")
+        + "\nBank ilovangizda <b>aynan shu summa</b> kelganini tekshiring."
+    )
+
+
+async def _chek_kut(state: FSMContext, lid: int) -> None:
+    await state.set_state(KartaStates.chek)
+    await state.update_data(karta_id=lid, karta_t=time.time())
+
+
+async def process_karta_chek(message: Message, state: FSMContext) -> None:
+    """FSM: chek rasmi yoki fayli. main.py'da AI handlerlaridan OLDIN, faqat
+    F.photo | F.document — matn yozsa savol odatdagidek AI'ga ketadi."""
+    data = await state.get_data()
+    lid = data.get("karta_id")
+    if not lid or time.time() - data.get("karta_t", 0) > KARTA_CHEK_OYNA:
+        # Eskirgan holat: bu rasm chek emas, oddiy savol — keyingi handlerga.
+        await state.clear()
+        raise SkipHandler()
+    if message.photo:
+        f, turi = message.photo[-1], "photo"
+    else:
+        f, turi = message.document, "document"
+    # Albomning ikkinchi rasmi chek emas — birinchisi bilan holat tugaydi.
+    await state.clear()
+    r = await database.karta_chek_yoz(lid, message.from_user.id, f.file_id, turi,
+                                      f.file_unique_id)
+    if not r:
+        await message.answer("Bu to'lov so'rovi endi faol emas. /pro dan qayta boshlang.")
+        return
+    await message.answer("✅ <b>Chek qabul qilindi.</b>\n\nTekshirib, 24 soat ichida "
+                         "Pro'ni yoqamiz — natija shu yerga keladi.", parse_mode="HTML")
+    logger.info(f"[Karta] chek #{lid} user={message.from_user.id} summa={r['summa']}")
+    u = message.from_user
+    matn = karta_admin_matni(r, u.full_name, u.username)
+    try:
+        admin_id = await database.get_superadmin_id()
+        if not admin_id:
+            raise RuntimeError("superadmin yo'q")
+        yubor = bot.send_photo if turi == "photo" else bot.send_document
+        try:
+            await yubor(admin_id, r["chek_file"], caption=matn, parse_mode="HTML",
+                        reply_markup=_karta_admin_kb(lid))
+        except Exception as e:
+            # Fayl ketmasa ham qaror tugmalari yetib borsin — pul yo'qolmasin.
+            logger.warning(f"[Karta] chek fayli adminga ketmadi #{lid}: {e}")
+            await bot.send_message(admin_id, matn + "\n\n<i>(chek fayli yuborilmadi)</i>",
+                                   parse_mode="HTML", reply_markup=_karta_admin_kb(lid))
+    except Exception:
+        logger.exception(f"[Karta] ADMINGA YETMAGAN CHEK #{lid} user={u.id} summa={r['summa']}")
+
+
+async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) -> None:
+    """pro:kartalar | karta:<kun> | chek:<id> | kb:<id> — foydalanuvchi;
+    pro:kt:<id> | kr:<id>:<sabab> — faqat superadmin."""
+    action, uid = parts[1], query.from_user.id
+    if action == "kartalar":
+        await query.answer()
+        if not await _karta():
+            await query.message.answer("Karta orqali to'lov hozircha yo'q — Stars bilan to'lang: /pro")
+            return
+        await query.message.answer(karta_tariflar_matni(), parse_mode="HTML",
+                                   reply_markup=_karta_tariflar_kb())
+        return
+    try:
+        son = int(parts[2])
+    except (IndexError, ValueError):
+        await query.answer("Tugma eskirgan. /pro dan qayta boshlang.", show_alert=True)
+        return
+
+    if action == "karta":
+        # ⚠️ callback_data — mijoz ma'lumoti: kun katalogdan, narx serverdan.
+        karta = await _karta()
+        if son not in KARTA_NARX or not karta:
+            await query.answer("Bu tarif endi mavjud emas. /pro dan qayta boshlang.", show_alert=True)
+            return
+        raqam, egasi = karta
+        try:
+            if await database.is_banned(uid):
+                await query.answer("🚫 Hisob bloklangan.", show_alert=True)
+                return
+        except Exception as exc:
+            logger.warning(f"[Karta] ban tekshiruvi o'tmadi: {exc}")
+        await query.answer()
+        # Har so'rov qaysi kartani ko'rganini eslaydi: karta panelda almashsa,
+        # eskisiga to'langan chekda superadmin o'sha kartaning oxirini ko'radi.
+        s = await database.karta_sorov_yarat(uid, son, KARTA_NARX[son], raqam)
+        await query.message.answer(karta_sorov_matni(son, s["summa"], raqam, egasi),
+                                   parse_mode="HTML",
+                                   reply_markup=_karta_sorov_kb(s["id"], s["summa"], raqam))
+        await _chek_kut(state, s["id"])
+        logger.info(f"[Karta] so'rov #{s['id']} user={uid} kun={son} summa={s['summa']}")
+        return
+
+    if action == "chek":
+        r = await database.karta_sorov_ol(son, uid)
+        if not r or r["holat"] not in ("kutmoqda", "tekshirilmoqda", "rad"):
+            await query.answer("Bu to'lov so'rovi endi faol emas — /pro", show_alert=True)
+            return
+        await _chek_kut(state, son)
+        await query.answer()
+        await query.message.answer("📎 Chek rasmini (skrinshot) yoki PDF faylini shu yerga yuboring.")
+        return
+
+    if action == "kb":
+        bekor = await database.karta_bekor(son, uid)
+        if await state.get_state() == KartaStates.chek.state:
+            await state.clear()
+        await query.answer("Bekor qilindi" if bekor else "Chek allaqachon yuborilgan")
+        if bekor:
+            try:
+                await query.message.edit_text("✖️ To'lov so'rovi bekor qilindi.", reply_markup=None)
+            except Exception:
+                pass
+        return
+
+    # ── Superadmin qarori ──
+    if not await database.is_superadmin(uid):
+        await query.answer("Faqat bosh admin tasdiqlaydi.", show_alert=True)
+        return
+    if action == "kt":
+        r = await database.karta_tasdiqla(son, uid)
+        sabab = None
+    else:
+        sabab = _RAD_SABAB.get(parts[3] if len(parts) > 3 else "")
+        if not sabab:
+            await query.answer("Tugma eskirgan.", show_alert=True)
+            return
+        r = await database.karta_rad(son, uid, sabab)
+    if r is None:
+        await query.answer("Bu to'lov allaqachon hal qilingan.", show_alert=True)
+        return
+    izoh = f"#{son} · {som(r['summa'])} so'm · {r['days']} kun"
+    if sabab is None:
+        await database.log_admin_action(uid, "karta_tasdiq", r["user_id"], izoh)
+    else:
+        await database.log_admin_action(uid, "karta_rad", r["user_id"], f"{izoh} · {sabab}")
+    logger.info(f"[Karta] {'tasdiq' if sabab is None else 'rad'} {izoh} user={r['user_id']}")
+    belgi = "✅ TASDIQLANDI" if sabab is None else f"❌ RAD ETILDI — {sabab}"
+    try:
+        await query.message.edit_caption(caption=f"{query.message.html_text}\n\n<b>{belgi}</b>",
+                                         parse_mode="HTML", reply_markup=None)
+    except Exception:
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    if sabab is None:
+        try:
+            await menu_module.sync_commands(r["user_id"], True)
+        except Exception as e:
+            logger.warning(f"[Karta] menyu yangilanmadi: {e}")
+        gacha = ""
+        try:
+            p = await database.get_full_user_profile(r["user_id"])
+            if p and p.get("premium_until"):
+                gacha = f" Pro <b>{p['premium_until']:%d.%m.%Y}</b> gacha faol."
+        except Exception:
+            pass
+        matn, kb = (f"🎉 <b>Pro faollashdi!</b>\n\nTo'lovingiz ({som(r['summa'])} so'm) "
+                    f"tasdiqlandi.{gacha} Rahmat!"), None
+    else:
+        matn = (f"❌ <b>To'lov tasdiqlanmadi</b>\n\nSabab: {sabab}.\n\n"
+                "Pul o'tkazgan bo'lsangiz, to'g'ri chekni yuboring — qayta tekshiramiz.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [btn("📎 Chekni qayta yuborish", f"pro:chek:{son}", style=BTN_PRIMARY)]])
+    try:
+        await bot.send_message(r["user_id"], matn, parse_mode="HTML", reply_markup=kb)
+        await query.answer("✅ Tasdiqlandi" if sabab is None else "Rad etildi")
+    except Exception as e:
+        logger.warning(f"[Karta] foydalanuvchiga xabar ketmadi #{son}: {e}")
+        await query.answer("Bajarildi, lekin foydalanuvchiga xabar yetmadi (botni bloklagan bo'lishi mumkin).",
+                           show_alert=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1454,6 +1737,10 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
             await query.message.answer(
                 "⚠️ To'lov oynasini ochib bo'lmadi. Birozdan keyin urinib ko'ring."
             )
+        return
+
+    if action in ("kartalar", "karta", "chek", "kb", "kt", "kr"):
+        await _karta_callback(query, state, parts)
         return
 
     if action == "gift":

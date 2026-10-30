@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from aiohttp import web
 
 from core import config as config_module
-from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS,
+from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS, KARTA_NARX,
                          GPT_MODEL_DISPLAY_NAME, LIMIT_IZOHI, LIMIT_NOMI,
                          PLAN_LIMITS, PRO_PLANS, SEGMENT_NOMI, TARIF_NOMI,
                          TOKEN_KUNLIK_GRANT,
@@ -1829,6 +1829,50 @@ async def referral_set(request: web.Request):
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  KARTA ORQALI TO'LOV — sozlama (2026-10-30)
+# ═══════════════════════════════════════════════════════════════════
+
+@admin_only
+async def karta(request: web.Request):
+    """Oddiy admin KO'RADI (u /pro da hammaga ochiq), yozish — superadmin."""
+    k = await database_module.karta_ol()
+    nomlar = {d: t for d, _, t, _ in PRO_PLANS}
+    return web.json_response({
+        "raqam": k[0] if k else None,
+        "egasi": k[1] if k else None,
+        "ozgartira_oladi": await database_module.is_superadmin(request["user_id"]),
+        "narx": [{"nom": nomlar[d], "som": s} for d, s in KARTA_NARX.items()],
+    })
+
+
+@admin_only
+@bir_marta
+async def karta_set(request: web.Request):
+    """Karta raqami va egasi; ikkalasi bo'sh — karta to'lovi o'chadi.
+
+    ⛔️ FAQAT superadmin: pul SHU kartaga tushadi — oddiy admin (yoki uning
+    o'g'irlangan sessiyasi) o'z kartasini qo'yib, hamma to'lovni o'ziga
+    burardi. Va har o'zgarish superadminga Telegram'da aytiladi: panel
+    sessiyasi o'g'irlangan bo'lsa ham u buni darhol biladi."""
+    if not await database_module.is_superadmin(request["user_id"]):
+        return web.json_response({"error": "Kartani faqat bosh admin o'zgartiradi."},
+                                 status=403)
+    tana = await _tana(request)
+    raqam, egasi, xato = database_module.clean_karta(tana.get("raqam"), tana.get("egasi"))
+    if xato:
+        return web.json_response({"error": xato}, status=400)
+    await database_module.karta_yoz(raqam, egasi)
+    oxiri = f"···· {raqam[-4:]}" if raqam else "o'chirildi"
+    await _yoz(request, "karta_sozlama", None, oxiri)
+    from html import escape
+    await _xabar(request["user_id"],
+                 f"💳 <b>Karta to'lovi sozlamasi o'zgardi</b> (panel): {oxiri}"
+                 + (f", {escape(egasi)}" if egasi else "")
+                 + ".\n\nSiz qilmagan bo'lsangiz — darhol panelda qaytaring.")
+    return web.json_response({"ok": True, "raqam": raqam, "egasi": egasi})
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  TARQATMA — FAQAT KO'RISH (REJA 6.7)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -1931,5 +1975,7 @@ def register(app: web.Application) -> None:
     app.router.add_post("/api/giveaway", giveaway_set)
     app.router.add_get("/api/referral", referral)
     app.router.add_post("/api/referral", referral_set)
+    app.router.add_get("/api/karta", karta)
+    app.router.add_post("/api/karta", karta_set)
     app.router.add_get("/api/broadcasts", broadcasts)
     app.router.add_delete("/api/broadcasts/{broadcast_id}", broadcast_cancel)

@@ -18,6 +18,16 @@ Both the account and the remote moved on 2026-09-08; the GraphQL path below is h
 
 - Without a GitHub connection, `git push` does *not* deploy and a plain deploy call rebuilds the snapshot taken when the service was created, i.e. old code. Deploys then have to name the commit explicitly:
   `serviceInstanceDeployV2(serviceId, environmentId, commitSha)` against `https://backboard.railway.com/graphql/v2` with a team token (`Authorization: Bearer`, and a real `User-Agent` — Cloudflare answers `403 error code: 1010` to the default urllib one). Railway fetches the commit from the repo, so **the service must point at the repo that actually has that commit, and it must be public**. The `up` endpoint (local tarball upload) fails on this account.
+### Karta payment: the card lives in the panel, not in Railway (2026-10-30)
+
+There is **no** Railway variable for it. The card number and holder name are in
+`bot_settings` (`karta_raqam`, `karta_egasi`), set from panel → Sozlamalar → **Karta** by
+the superadmin, live on the next `/pro` without a deploy. Empty hides the «💳 Karta orqali»
+button entirely, so the feature ships dark. Every request stores which card it was shown,
+so a receipt for the previous card still shows that card's last four digits. Receipts go
+to the **superadmin only** (`get_superadmin_id()`), and only `is_superadmin()` can press
+approve/reject. Never ask the owner for the card number in chat — they type it in the panel.
+
 ### Reading production logs
 
 The user is logged into the Railway CLI on this machine (`~/.railway/config.json`), so

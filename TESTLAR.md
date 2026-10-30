@@ -24,6 +24,20 @@ Some are structural guards rather than feature tests, and they earn their keep o
   customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the
   «✖️ Bekor qilish» button, and pressing any *other* button clears a waiting FSM state).
 
+- `test_karta_tolov.py` — the karta (so'm) Pro payment: a receipt never grants Pro by
+  itself, only the superadmin's button does (a forged `pro:kt` from anyone else is refused
+  before the database); a second press is "allaqachon hal qilingan"; the receipt handler
+  sits before the AI handlers, photo/document only; a stale waiting state passes the photo
+  on to the AI (`SkipHandler`, check 15 proves aiogram really propagates it); card prices
+  keep the Stars ratio so the discount badges stay true; Stars buttons stay next to the
+  card button; a database error reading the card does not break `/pro`. Checks 16-19 are
+  the panel setting: an ordinary admin sees the card but gets 403 on write, a bad number
+  is 400, the audit row holds only the last four digits, the superadmin is told in
+  Telegram, both fields empty turns it off. Its SQL (unique amount, one pending request
+  per user, retry after reject, Pro added once, the `bot_settings` columns) was run
+  against pgserver, not just fakes.
+- `test_pro_grant.py` check 6 — every `_EXTEND_PLAN_SQL` call passes days as `int(...)`.
+  Five weeks of failed Stars/promo/referral grants hid behind fakes (`ADMIN.md`).
 - `test_admin_registry.py` — every admin handler still registered, in order, **and none of
   the 31 screens that moved to the web panel registered again**. A returning screen fails
   with the reason ("this was not deleted, it MOVED"), because the failure to avoid is two

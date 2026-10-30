@@ -131,6 +131,8 @@ window.SOZ = {
     adminQosh: "Bu odamga to'liq admin huquqi berilsinmi?",
     adminOl: "Admin huquqi olib tashlansinmi?",
     kuzatuvOl: "Kuzatuvdan olib tashlansinmi?",
+    karta:   "Karta almashtirilsinmi? Endi foydalanuvchilarga shu karta ko'rsatiladi va to'lovlar unga tushadi.",
+    kartaOchir: "Karta to'lovi o'chirilsinmi? /pro da faqat Stars qoladi; chek yuborganlar baribir sizga keladi.",
     tatil:   "Texnik ta'til yoqilsinmi? Adminlardan boshqa hamma javob o'rniga ogohlantirish oladi.",
     avtomat: "Business Avtomat HAMMA uchun o'chirilsinmi? Bot mijozlarga o'zi javob yozishni to'xtatadi.",
     sovga:   "Bepul Pro berilsinmi? Har biriga botdan xabar boradi.",
@@ -200,6 +202,8 @@ window.SOZ = {
     kuzatuvQosh: "Kuzatuvga qo'shildi.",
     kuzatuvOl: "Kuzatuvdan olindi.",
     guruh:     "Kuzatuv guruhi yangilandi.",
+    karta:     "Karta saqlandi — /pro da darhol shu karta chiqadi.",
+    kartaOchiq: "Karta to'lovi o'chirildi — /pro da faqat Stars qoldi.",
     tatilYoq:  "Texnik ta'til o'chirildi.",
     tatilBor:  "Texnik ta'til YOQILDI.",
     avtoOchiq: "Business Avtomat ochildi.",
@@ -217,5 +221,13 @@ window.SOZ = {
     kop:        ["Juda ko'p urinish", "Bir daqiqadan so'ng qayta urinib ko'ring."],
     rad:        ["Kirish rad etildi", "Panelni Telegram ichidagi «Panel» tugmasi orqali oching."],
     yopildi:    ["Sessiya yopildi", "Panelni qayta ochish uchun Telegramdagi «Panel» tugmasini bosing."]
+  },
+
+  /* ── Karta to'lovi (Sozlamalar → Karta) ────────────────────── */
+  karta: {
+    yoq:        "qo'yilmagan — karta to'lovi o'chiq",
+    faqatSuper: "Kartani faqat bosh admin o'zgartiradi.",
+    narx:       "Narxlar (so'mda, Stars bilan bir xil nisbatda):",
+    ikkalasi:   "Karta raqami va egasining ismini yozing."
   }
 };

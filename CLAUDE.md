@@ -250,7 +250,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   is functional; the admin check lives **inside** each handler (report is open to users);
   no `F.text ==` entry points. Anything written to `user_activity` must be in `ACTIVITY_TYPES`.
 - **asyncpg types / `make_interval`** — `make_interval(days => $N::int)`, never
-  `($N || ' days')`; `SUM()` over BIGINT needs `::bigint`; TIMESTAMPTZ comes back in UTC.
+  `($N || ' days')`, and the argument is `int(...)` — `str(days)` left over from the old
+  spelling silently broke Stars/promo/referral Pro grants for five weeks (fakes don't
+  know types: run money SQL on pgserver once); `SUM()` over BIGINT needs `::bigint`;
+  TIMESTAMPTZ comes back in UTC.
 - **Migrations** — startup migrations must be cheap; `CREATE INDEX CONCURRENTLY` runs in
   `indekslarni_qur()` as a background task, with **no** parameters.
 - **Five label maps** — `ACTIVITY_TYPES`, `AUDIT_ACTIONS`, `LIMIT_NOMI`, `SEGMENT_NOMI`,

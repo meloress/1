@@ -990,6 +990,11 @@ AUDIT_ACTIONS: Dict[str, tuple[str, str]] = {
     # Vaqtinchalik — /eski_xabar (eski botdan «ko'chdik» e'loni). Buyruq
     # o'chirilganda bu yerdan AUDIT_ESKI ga ko'chadi (jurnalda yozuvi qoladi).
     "eski_tarqatma":     ("Eski botdan e'lon",          "tarqatma"),
+    # Karta orqali to'lov — superadmin botdagi chek ostidagi tugma bilan.
+    "karta_tasdiq":      ("Karta to'lovi tasdiqlandi",  "pro"),
+    "karta_rad":         ("Karta to'lovi rad etildi",   "pul"),
+    # Panel → Sozlamalar → Karta (faqat superadmin); tafsilot — oxirgi 4 raqam.
+    "karta_sozlama":     ("Karta raqami o'zgartirildi", "pul"),
 }
 
 # Kod ENDI YOZMAYDIGAN, lekin jonli bazada YOZUVI BOR amallar.
@@ -1323,6 +1328,19 @@ PRO_PLANS: list[tuple[int, int, str, str]] = [
 PRO_PLANS_BY_DAYS: dict[int, tuple[int, str, str]] = {
     days: (stars, title, badge) for days, stars, title, badge in PRO_PLANS
 }
+
+# ── KARTA ORQALI TO'LOV (so'mda, 2026-10-30) ─────────────────────────
+# Stars bilan YONMA-YON, o'rniga emas: Telegram raqamli xizmatni Stars'siz
+# sotgan botlarni to'xtatgan; «boshqa yo'l bo'lsa, Stars ham bo'lsin» —
+# shuning uchun Stars tugmalari hech qachon olib tashlanmaydi.
+# Narx nisbati Stars jadvali bilan BIR XIL (100/299/499/999), ya'ni
+# PRO_PLANS dagi chegirma yorliqlari bu yerda ham to'g'ri —
+# tests/test_karta_tolov.py buni hisoblab tekshiradi.
+KARTA_NARX: dict[int, int] = {30: 25_000, 90: 75_000, 180: 125_000, 365: 250_000}
+assert set(KARTA_NARX) == set(PRO_PLANS_BY_DAYS)
+# Karta raqami va egasi kodda ham, env'da ham EMAS — `bot_settings` da,
+# panel → Sozlamalar → Karta (faqat superadmin). `database.karta_ol()`;
+# bo'sh bo'lsa karta tugmasi umuman chiqmaydi.
 
 # Invoice payload'i versiyalangan: narx yoki format o'zgarsa, eski
 # invoice'lar pre_checkout bosqichida tushunarli sabab bilan rad etiladi.

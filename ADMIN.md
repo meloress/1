@@ -134,6 +134,18 @@ Every day-interval in the codebase is `make_interval(days => $N::int)`. The old
 raised `DataError` — that single line killed the audit screen, the error screen and
 `alert_watcher()`, which then retried every 15 minutes forever. Wrapping the arguments
 in `str()` fixed the symptom and left the trap in place for the next writer.
+
+⛔️ **And the trap fired.** When `_EXTEND_PLAN_SQL` moved to `make_interval` (3ba4744,
+2026-09-25), its four callers kept the old `str(days)` — `make_interval(days => $3::int)`
+makes asyncpg infer `$3` as **int**, so a `str` raises `DataError`. For five weeks a
+**Stars purchase** (`grant_paid_pro`), **promo code** (`redeem_promo`) and **referral
+reward** (`claim_referral_reward`) all failed without granting Pro — the buyer got "texnik
+nosozlik", the superadmin an alert. Every fake-connection test stayed green because a fake
+does not know parameter types. Found on 2026-10-30 by running the karta-payment SQL
+against a local Postgres. Now every caller passes `int(...)`, and `test_pro_grant.py`
+check 6 walks `db/database.py` with `ast` and fails on any `_EXTEND_PLAN_SQL` call whose
+day argument is not `int(...)`. **A money path that only a fake has ever executed is
+untested** — run it once against pgserver.
 `test_web_journal.py` check 17 walks the tree (comments stripped) and fails if the old
 spelling returns. `_YOZ_MUDDAT_SQL` still contains `NOW() +` and still has no `GREATEST`,
 so `test_pro_grant.py` check 4 — the frozen overwrite behaviour — is untouched by this.

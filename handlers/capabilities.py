@@ -539,8 +539,9 @@ _BATAFSIL: dict = {
         "qidirib natijani yuboraman, Pro. «Eslatmalarimni ko'rsat», «falon "
         "eslatmani bekor qil» ham ishlaydi. Eslatma qaysi mavzuda "
         "o'rnatilgan bo'lsa, o'shanga keladi.\n"
-        "Pro olish: /pro (Telegram Stars bilan), sovg'a: /gift, promokod: "
-        "/promo, muddat: /profile."
+        "Pro olish: /pro — Telegram Stars bilan yoki «💳 Karta orqali» so'mda "
+        "(kartaga o'tkazib, chekni yuborasiz; admin 24 soat ichida tasdiqlaydi, "
+        "faqat o'zingizga), sovg'a: /gift, promokod: /promo, muddat: /profile."
     ),
 }
 assert set(_BATAFSIL) <= set(SECTIONS)

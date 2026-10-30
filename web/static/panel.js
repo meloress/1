@@ -1793,6 +1793,21 @@
       : boshHolat(S.bosh.kuzatuv);
   }
 
+  /* ══ KARTA TO'LOVI ══════════════════════════════════════════════ */
+  async function kartaSozlama() {
+    var d = await ol("/api/karta");
+    $("k-raqam").textContent = d.raqam ? d.raqam.replace(/(\d{4})(?=\d)/g, "$1 ") : S.karta.yoq;
+    $("k-egasi").textContent = d.egasi || "—";
+    // Forma — faqat superadmin; qolganlar ko'radi, yozolmaydi (server ham 403).
+    $("k-forma").hidden = !d.ozgartira_oladi;
+    $("k-ochir").hidden = !d.raqam;
+    $("k-izoh").innerHTML =
+      (d.ozgartira_oladi ? "" : "<b>" + xavfsiz(S.karta.faqatSuper) + "</b> ") +
+      xavfsiz(S.karta.narx) + " " + d.narx.map(function (n) {
+        return xavfsiz(n.nom) + " — <b>" + son(n.som) + " so'm</b>";
+      }).join(", ") + ".";
+  }
+
   /* ══ ADMINLAR ═══════════════════════════════════════════════════ */
   async function adminlar() {
     var d = await ol("/api/admins");
@@ -1813,7 +1828,7 @@
 
   async function sozlamalar() {
     skelet("l-rows", 4);
-    await Promise.all([limitlar(), tatil(), kuzatuv(), adminlar()]);
+    await Promise.all([limitlar(), tatil(), kuzatuv(), kartaSozlama(), adminlar()]);
     yangilandiBelgisi();
   }
 
@@ -2009,6 +2024,28 @@
       natijaChiz("w-natija", S.natija.kuzatuvOl);
       await kuzatuv();
     });
+
+    async function kartaSaqla(tugma, raqam, egasi) {
+      var j = await so_rov("/api/karta", { raqam: raqam, egasi: egasi }, null, tugma);
+      if (!j.ok) return natijaChiz("k-natija", j.xato, true);
+      $("k-raqam-input").value = "";
+      $("k-egasi-input").value = "";
+      klaviaturaYop();
+      natijaChiz("k-natija", j.d.raqam ? S.natija.karta : S.natija.kartaOchiq);
+      toast(S.saqlandi);
+      await kartaSozlama();
+    }
+    $("k-saqla").addEventListener("click", async function () {
+      var raqam = $("k-raqam-input").value.trim(), egasi = $("k-egasi-input").value.trim();
+      if (!raqam || !egasi) return natijaChiz("k-natija", S.karta.ikkalasi, true);
+      if (!await tasdiq(S.savol.karta)) return;
+      await kartaSaqla(this, raqam, egasi);
+    });
+    $("k-ochir").addEventListener("click", async function () {
+      if (!await tasdiq(S.savol.kartaOchir)) return;
+      await kartaSaqla(this, "", "");
+    });
+    enterBosilsa(["k-raqam-input", "k-egasi-input"], "k-saqla");
 
     $("ad-qosh").addEventListener("click", async function () {
       var kim = $("ad-kim").value.trim();

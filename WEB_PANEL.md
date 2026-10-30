@@ -369,6 +369,21 @@ state.
 `del_cookie()` in aiohttp 3.9.5 takes only `domain`/`path`, so logout sets the cookie to
 `""` with `max_age=0` and the **same** `Secure`/`SameSite`/`HttpOnly` attributes instead.
 
+### The payment card is a superadmin-only setting (2026-10-30)
+
+Sozlamalar → **Karta** sets where karta payments go (`/api/karta`). ⛔️ **Only the
+superadmin writes it** — `karta_set` checks `is_superadmin()` itself and answers 403, the
+hidden form is decoration. Every other setting here is safe for any admin; this one is
+not: an ordinary admin, or anyone holding a stolen admin cookie, could put their own card
+in and quietly redirect every payment. For the same reason every change is **announced
+to the superadmin in Telegram** (through `_xabar`, hence `@bir_marta`) — a stolen session
+cannot change it silently — and the audit row keeps only the last four digits. Ordinary
+admins can still *see* the card: it is shown to every user on `/pro` anyway.
+`database.clean_karta()` is the validator (16-19 digits, spaces and dashes allowed, a
+holder name required); both fields empty turns karta payment off. No RAM cache: the card
+is read on `/pro` only, so a write is live on the next screen. `test_karta_tolov.py`
+checks 16-19.
+
 ### Setting a plan is not adding to one, and the screen has to say so
 
 Five grant sites exist. Four go through `_EXTEND_PLAN_SQL` and **add** (Stars payment,

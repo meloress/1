@@ -167,6 +167,10 @@ async def main():
                         pro_module.GiftStates.waiting_for_recipient)
     dp.message.register(pro_module.process_promo_code,
                         pro_module.PromoStates.waiting_for_code)
+    # Karta to'lovi cheki — faqat rasm/fayl: aks holda chek GPT'ga «rasm
+    # tahlili» bo'lib ketardi. Matn bu holatda ham odatdagidek AI'ga.
+    dp.message.register(pro_module.process_karta_chek, pro_module.KartaStates.chek,
+                        F.photo | F.document)
     dp.message.register(digest_module.process_digest_topics,
                         digest_module.DigestStates.waiting_for_topics)
     # Xuddi shu, lekin FSM deployda yo'qolgan bo'lsa: mavzu so'roviga reply.

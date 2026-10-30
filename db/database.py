@@ -1,6 +1,7 @@
 import os
 import asyncio
 import json
+import random
 import time
 import logging
 import re
@@ -286,6 +287,13 @@ async def create_users_table():
             ALTER TABLE bot_settings
                 ADD COLUMN IF NOT EXISTS biznes_avtomat BOOLEAN
         ''')
+        # Karta orqali to'lov (2026-10-30) — panel → Sozlamalar → Karta,
+        # faqat superadmin yozadi. NULL = karta tugmasi umuman chiqmaydi.
+        await conn.execute('''
+            ALTER TABLE bot_settings
+                ADD COLUMN IF NOT EXISTS karta_raqam TEXT,
+                ADD COLUMN IF NOT EXISTS karta_egasi TEXT
+        ''')
         # Xatolar jurnali. Ilgari xato FAQAT Railway logida qolardi —
         # ya'ni admin bot buzilganini foydalanuvchi aytgandan keyin
         # bilardi. Jadval ataylab kichik: eng eskilari `log_error()`
@@ -372,6 +380,31 @@ async def create_users_table():
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 refunded_at TIMESTAMPTZ,
                 refunded_by BIGINT
+            );
+        ''')
+
+        # ── KARTA ORQALI TO'LOV (2026-10-30) ─────────────────────────
+        # holat: kutmoqda → tekshirilmoqda → tasdiqlandi | rad (→ qayta chek
+        # → tekshirilmoqda); yoki bekor. `summa` — noyob (25 000 + 1..999):
+        # superadmin bank ilovasida qaysi o'tkazma kimniki ekanini shu bilan
+        # topadi. `star_payments` ga EMAS: u Telegram chekiga (charge_id,
+        # refund) bog'langan, bu yerda pulni Telegram ko'rmaydi.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS karta_tolov (
+                id          SERIAL PRIMARY KEY,
+                user_id     BIGINT NOT NULL,
+                days        INT NOT NULL,
+                summa       INT NOT NULL,
+                karta       TEXT NOT NULL,
+                holat       TEXT NOT NULL DEFAULT 'kutmoqda',
+                chek_file   TEXT,
+                chek_turi   TEXT,
+                chek_unique TEXT,
+                sabab       TEXT,
+                hal_qildi   BIGINT,
+                yaratilgan  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                chek_vaqti  TIMESTAMPTZ,
+                hal_vaqti   TIMESTAMPTZ
             );
         ''')
 
@@ -3339,6 +3372,12 @@ _YOZ_MUDDAT_SQL = ("UPDATE users SET plan_type = $2, premium_until = "
 _YOZ_CHEKSIZ_SQL = ("UPDATE users SET plan_type = $2, premium_until = NULL "
                     "WHERE user_id = $1")
 
+# ⛔️ `$3` — BUTUN SON (`int(days)`), satr EMAS. 3ba4744 (2026-09-25) da
+# `($3 || ' days')::interval` → `make_interval(days => $3::int)` bo'ldi, lekin
+# to'rt chaqiruvchi `str(days)` uzatishda qoldi: asyncpg uni rad etadi
+# (DataError) — Stars xaridi, promokod va referal mukofoti Pro bermay
+# yiqilardi (2026-10-30 da lokal Postgres'da topildi). `test_pro_grant.py`
+# soxta ulanishda turini tekshiradi.
 _EXTEND_PLAN_SQL = """
     UPDATE users SET
       premium_until = CASE
@@ -3775,8 +3814,161 @@ async def grant_paid_pro(*, charge_id: str, payer_id: int, beneficiary_id: int,
             )
             if row is None:
                 return False
-            await conn.execute(_EXTEND_PLAN_SQL, beneficiary_id, 'pro', str(days))
+            await conn.execute(_EXTEND_PLAN_SQL, beneficiary_id, 'pro', int(days))
             return True
+
+
+_KARTA_FAOL = ('kutmoqda', 'tekshirilmoqda', 'rad')
+_KARTA_EGASI_RE = re.compile(r"[^\W\d_][\w .'ʻʼ‘’-]{1,49}")
+
+
+def clean_karta(raqam, egasi) -> tuple:
+    """(raqam, egasi, xato) — panel kiritgan karta. Sof — testda.
+    Ikkalasi bo'sh — (None, None, ""): karta to'lovi o'chadi. Raqam —
+    faqat raqamlar (bo'shliq/tire tashlanadi), 16-19 ta: Uzcard, Humo,
+    Visa, Mastercard. Ism — foydalanuvchi kimga o'tkazayotganini ko'rsin."""
+    r = "".join(ch for ch in str(raqam or "") if ch.isdigit())
+    e = " ".join(str(egasi or "").split())
+    if not r and not e:
+        return None, None, ""
+    if not 16 <= len(r) <= 19 or len(r) != len("".join(str(raqam).split()).replace("-", "")):
+        return None, None, "Karta raqami 16 ta raqam bo'lsin (bo'shliq bilan yozsa ham bo'ladi)."
+    if not _KARTA_EGASI_RE.fullmatch(e):
+        return None, None, "Karta egasining ismini yozing (masalan: ALI VALIYEV)."
+    return r, e, ""
+
+
+@with_db_retry()
+async def karta_ol() -> Optional[tuple]:
+    """(raqam, egasi) yoki None — karta to'lovi o'chiq. Kesh YO'Q: faqat /pro
+    va karta tugmasida o'qiladi (issiq yo'l emas), panel yozgani darhol amalda."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            'SELECT karta_raqam, karta_egasi FROM bot_settings WHERE id = 1')
+    return (r['karta_raqam'], r['karta_egasi'] or "") if r and r['karta_raqam'] else None
+
+
+@with_db_retry()
+async def karta_yoz(raqam: Optional[str], egasi: Optional[str]) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE bot_settings SET karta_raqam = $1, karta_egasi = $2 WHERE id = 1',
+            raqam, egasi)
+
+
+@with_db_retry()
+async def karta_sorov_yarat(user_id: int, days: int, narx: int, karta: str) -> Dict[str, Any]:
+    """Yangi karta to'lovi so'rovi — {"id", "summa"}. Shu odamning cheksiz
+    eski so'rovi bekor bo'ladi (bitta odamda bitta kutayotgan so'rov);
+    chek yuborilgani (`tekshirilmoqda`) tegilmaydi — pul allaqachon ketgan.
+
+    `summa` = narx + 1..999, oxirgi 7 kundagi faol so'rovlarda takrorlanmaydi.
+    ponytail: ikki odam AYNI soniyada bir xil qo'shimchani olishi mumkin
+    (1/999) — superadmin baribir ism va chek bilan solishtiradi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE karta_tolov SET holat = 'bekor' WHERE user_id = $1 AND holat = 'kutmoqda'",
+                user_id)
+            band = {r['summa'] for r in await conn.fetch(
+                "SELECT summa FROM karta_tolov WHERE holat = ANY($1::text[]) "
+                "AND yaratilgan > NOW() - make_interval(days => 7)", list(_KARTA_FAOL))}
+            bosh = [narx + q for q in range(1, 1000) if narx + q not in band]
+            summa = random.choice(bosh) if bosh else narx + random.randint(1, 999)
+            lid = await conn.fetchval(
+                "INSERT INTO karta_tolov (user_id, days, summa, karta) "
+                "VALUES ($1, $2, $3, $4) RETURNING id", user_id, days, summa, karta)
+    return {"id": lid, "summa": summa}
+
+
+@with_db_retry()
+async def karta_sorov_ol(lid: int, user_id: int) -> Optional[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            "SELECT * FROM karta_tolov WHERE id = $1 AND user_id = $2", lid, user_id)
+    return dict(r) if r else None
+
+
+@with_db_retry()
+async def karta_chek_yoz(lid: int, user_id: int, file_id: str, turi: str,
+                         unique: str) -> Optional[Dict[str, Any]]:
+    """Chek keldi → `tekshirilmoqda`. Rad etilgandan keyin qayta chek ham
+    shu yerdan. None — so'rov yo'q, boshqa odamniki yoki hal bo'lgan.
+    `takror` — shu fayl boshqa so'rovda ham bo'lganmi (o'sha so'rov id'si):
+    bir chekni ikki marta ishlatish. Faqat OGOHLANTIRISH — qaror superadminda."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            "UPDATE karta_tolov SET holat = 'tekshirilmoqda', chek_file = $3, chek_turi = $4, "
+            "chek_unique = $5, chek_vaqti = NOW(), sabab = NULL "
+            "WHERE id = $1 AND user_id = $2 AND holat = ANY($6::text[]) RETURNING *",
+            lid, user_id, file_id, turi, unique, list(_KARTA_FAOL))
+        if not r:
+            return None
+        takror = await conn.fetchval(
+            "SELECT id FROM karta_tolov WHERE chek_unique = $1 AND id <> $2 "
+            "ORDER BY id LIMIT 1", unique, lid)
+    return {**dict(r), "takror": takror}
+
+
+@with_db_retry()
+async def karta_tasdiqla(lid: int, admin_id: int) -> Optional[Dict[str, Any]]:
+    """Superadmin pul kelganini ko'rdi → Pro. Holat va tarif BITTA
+    tranzaksiyada (`grant_paid_pro` qoidasi). Ikki marta bosish (yoki ikki
+    qurilma) — ikkinchisi None: holat endi `tasdiqlandi`, Pro qayta berilmaydi.
+    `rad` dan ham: rad etilgan, keyin pul topildi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            r = await conn.fetchrow(
+                "UPDATE karta_tolov SET holat = 'tasdiqlandi', hal_qildi = $2, hal_vaqti = NOW() "
+                "WHERE id = $1 AND holat IN ('tekshirilmoqda', 'rad') "
+                "RETURNING user_id, days, summa", lid, admin_id)
+            if not r:
+                return None
+            await conn.execute(_EXTEND_PLAN_SQL, r['user_id'], 'pro', int(r['days']))
+    return dict(r)
+
+
+@with_db_retry()
+async def karta_rad(lid: int, admin_id: int, sabab: str) -> Optional[Dict[str, Any]]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            "UPDATE karta_tolov SET holat = 'rad', sabab = $3, hal_qildi = $2, hal_vaqti = NOW() "
+            "WHERE id = $1 AND holat = 'tekshirilmoqda' RETURNING user_id, days, summa",
+            lid, admin_id, sabab)
+    return dict(r) if r else None
+
+
+@with_db_retry()
+async def karta_bekor(lid: int, user_id: int) -> bool:
+    """Foydalanuvchi «Bekor qilish» — faqat chek yubormagan so'rov."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            "UPDATE karta_tolov SET holat = 'bekor' WHERE id = $1 AND user_id = $2 "
+            "AND holat = 'kutmoqda' RETURNING 1", lid, user_id))
 
 
 @with_db_retry()
@@ -4041,7 +4233,7 @@ async def claim_referral_reward(referrer_id: int, required: int,
                     # Hali yetarli emas — belgilanganlarni qaytarib olamiz.
                     raise _NotEnoughReferrals()
 
-                await conn.execute(_EXTEND_PLAN_SQL, referrer_id, 'pro', str(reward_days))
+                await conn.execute(_EXTEND_PLAN_SQL, referrer_id, 'pro', int(reward_days))
                 # Shu to'lqin yopildi. Keyingi mukofot faqat admin yangi
                 # taklif yuborganda (bump_referral_round) ochiladi.
                 await conn.execute(
@@ -4338,7 +4530,7 @@ async def redeem_promo(user_id: int, code: str) -> Dict[str, Any]:
             await conn.execute(
                 'UPDATE promo_codes SET used_count = used_count + 1 WHERE code = UPPER($1)', code)
             await conn.execute(
-                _EXTEND_PLAN_SQL, user_id, row['plan'] or 'pro', str(row['days']))
+                _EXTEND_PLAN_SQL, user_id, row['plan'] or 'pro', int(row['days']))
             return {'ok': True, 'reason': 'ok', 'days': row['days']}
 
 
