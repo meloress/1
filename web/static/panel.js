@@ -547,7 +547,8 @@
     bar.style.width = Math.min(100, t.foiz) + "%";
     bar.className = t.oshgan ? "over" : (t.foiz >= 80 ? "warn" : "");
 
-    var qism = [t.foiz + "% · " + million(t.grant) + " dan"];
+    // Grant kuni UTC — Toshkentda 05:00 da yangilanadi (platforma bilan bir xil).
+    var qism = [t.foiz + "% · " + million(t.grant) + " dan", "05:00 da yangilanadi"];
     if (t.keshdan !== null && t.keshdan !== undefined) {
       qism.push("keshdan " + t.keshdan + "%");
     }

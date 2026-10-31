@@ -107,7 +107,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   proves the refund does **not** touch the database when Telegram refuses,
   `test_web_stats.py` check 8 proves there is no raw SQL in `web/api.py` or `daily.py`
   (it used to compare the panel against the Telegram statistics screen, until that screen
-  was deleted — same rule, one surviving consumer), `test_web_journal.py` checks 1-2 compare the
+  was deleted — same rule, one surviving consumer), `test_web_stats.py` check 9f pins the
+  token card to the **grant day (UTC, 05:00 Tashkent)**, the business token share too,
+  `test_web_journal.py` checks 1-2 compare the
   audit action names the code actually writes against `AUDIT_ACTIONS` in both directions,
   **`test_web_settings.py` check 2 is the one that proves the panel is worth having at
   all** — it changes a limit through the HTTP endpoint and then asserts

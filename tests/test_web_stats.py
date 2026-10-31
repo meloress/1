@@ -93,8 +93,7 @@ def soxta_bazani_qoy(modul, **ustidan):
     # Ikkala holat ham panelda boshqacha ko'rinishi kerak.
     async def token_stats(kunlar=30):
         import datetime as _dt
-        from web.api import TIMEZONE as _TZ
-        bugun = _dt.datetime.now(_TZ).date()
+        bugun = _dt.datetime.now(_dt.timezone.utc).date()    # grant kuni — UTC
         return {"kunlik": [
             {"kun": bugun, "kirish": 1_600_000, "chiqish": 240_000,
              "keshdan": 976_000, "raund": 1180},
@@ -352,6 +351,27 @@ async def main():
                if "SUM(" in q and "::bigint" not in q]
         assert not xom, f"token_stats da ::bigint siz SUM(): {xom}"
         print("[9e] token_stats: hamma SUM() ::bigint ga o'tkazilgan OK")
+
+        # ── 9f) ⭐ Token kuni — GRANT kuni (UTC, Toshkentda 05:00). OpenAI
+        # grantni 00:00 UTC da yangilaydi; Toshkent yarim tuni bo'yicha
+        # kesim ikki grant kunini aralashtirib, foizni oshirib ko'rsatardi
+        # (egasi platformadagi raqam bilan solishtirib topdi, 2026-10-31).
+        import datetime as _dt
+        utc_bugun = _dt.datetime.now(_dt.timezone.utc).date()
+        t2 = api._token_kpi({"kunlik": [
+            {"kun": utc_bugun, "kirish": 100, "chiqish": 0, "keshdan": 0, "raund": 1},
+            {"kun": utc_bugun - _dt.timedelta(days=1), "kirish": 200, "chiqish": 0,
+             "keshdan": 0, "raund": 1},
+        ]})
+        biz = db_matn[db_matn.index("async def biznes_panel_stats"):]
+        biz = biz[:biz.index("\n@with_db_retry")]
+        assert t2["bugun"] == 100 and t2["kecha"] == 200, t2
+        assert "created_at::date AS kun" in tana and "Asia/Tashkent" not in tana, \
+            "token_stats kuni UTC emas"
+        assert "created_at::date = (NOW() AT TIME ZONE 'UTC')::date" in biz, \
+            "biznes token ulushi grant kunida emas"
+        assert "05:00 da yangilanadi" in js_matn
+        print("[9f] token kuni — grant kuni (UTC, 05:00), biznes ulushi ham OK")
 
         # ── 14) ⭐ KUZATUV GURUHI BANNERI ──────────────────────────
         # Kuzatuv guruhi — panelning YAGONA chiqish kanali: ogohlantirish

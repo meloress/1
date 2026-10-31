@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from aiohttp import web
@@ -160,7 +160,8 @@ def _token_kpi(d: Dict[str, Any]) -> Dict[str, Any]:
     ko'rsatadi. Tushib ketsa, prefiks har xabarda o'zgarib turibdi.
     """
     qatorlar = d.get("kunlik") or []
-    bugun = datetime.now(TIMEZONE).date()
+    # Grant kuni — UTC, Toshkentda 05:00 da almashadi (`token_stats` izohi).
+    bugun = datetime.now(timezone.utc).date()
     xarita = {r["kun"]: r for r in qatorlar}
     b = xarita.get(bugun) or {}
     k = xarita.get(bugun - timedelta(days=1)) or {}

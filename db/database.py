@@ -2425,7 +2425,9 @@ async def biznes_javobsizlar(dan_daqiqa: int, gacha_daqiqa: int,
 @with_db_retry()
 async def biznes_panel_stats() -> Dict[str, Any]:
     """Panel kartasi (REJA.md 4.5): faol ulanishlar, bugungi biznes
-    so'rovlari, bugungi token ichida biznes ulushi. Kun — Toshkent.
+    so'rovlari, bugungi token ichida biznes ulushi. So'rovlar kuni — Toshkent,
+    token kuni — UTC (grant kuni, `token_stats` izohi: ulush o'sha karta
+    raqami bilan bir kesimda solishtiriladi).
 
     ⚠️ `user_history.created_at` mintaqasiz UTC (`token_stats` izohi),
     `user_activity.activity_time` esa TIMESTAMPTZ — ikkisi ikki xil
@@ -2449,8 +2451,7 @@ async def biznes_panel_stats() -> Dict[str, Any]:
                       COALESCE(SUM(kirish + chiqish) FILTER
                                (WHERE manba = 'biznes'), 0)::bigint AS biznes
                FROM user_history
-               WHERE ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Tashkent')::date =
-                     (NOW() AT TIME ZONE 'Asia/Tashkent')::date''')
+               WHERE created_at::date = (NOW() AT TIME ZONE 'UTC')::date''')
     return {"ulanishlar": ulanish or 0, "sorovlar": sorov or 0,
             "token": token['biznes'] or 0, "token_jami": token['jami'] or 0}
 
@@ -4973,9 +4974,13 @@ async def token_tozala() -> int:
 async def token_stats(kunlar: int = 30) -> Dict[str, Any]:
     """Panel uchun: bugun, kecha va kunlik qator.
 
-    ⚠️ KUN TOSHKENT BO'YICHA. `created_at` ustuni TIMESTAMP (mintaqasiz)
-    va NOW() dan to'ladi, ya'ni UTC. Kesim UTC bo'yicha olinsa, «bugun»
-    soat 05:00 da almashardi va admin ertalab kechagi raqamni ko'rardi.
+    ⚠️ KUN — GRANT KUNI, ya'ni UTC (Toshkentda 05:00 dan 05:00 gacha).
+    OpenAI kunlik bepul grantni 00:00 UTC da yangilaydi; ilgari kesim
+    Toshkent yarim tunidan edi va «bugun» ikki xil grant kunini aralashtirib
+    sanardi — 00:00-05:00 dagi sarf kechagi grantniki, panel esa uni
+    bugungisiga qo'shib foizni oshirib ko'rsatardi (egasi platformadagi
+    raqam bilan solishtirib topdi, 2026-10-31). `created_at` — mintaqasiz
+    TIMESTAMP, NOW() dan to'ladi, ya'ni UTC: `::date` o'zi UTC kuni.
 
     ⛔️ Har bir SUM() `::bigint` ga o'tkaziladi. Postgres'da SUM(BIGINT)
     NUMERIC qaytaradi, asyncpg uni `Decimal` qiladi, va `Decimal` JSON
@@ -4989,8 +4994,7 @@ async def token_stats(kunlar: int = 30) -> Dict[str, Any]:
     kunlar = max(1, min(int(kunlar), 365))
     async with pool.acquire() as conn:
         qator = await conn.fetch(
-            f'''SELECT ((created_at AT TIME ZONE 'UTC')
-                          AT TIME ZONE 'Asia/Tashkent')::date AS kun,
+            f'''SELECT created_at::date AS kun,
                        COALESCE(SUM(kirish), 0)::bigint  AS kirish,
                        COALESCE(SUM(chiqish), 0)::bigint AS chiqish,
                        COALESCE(SUM(keshdan), 0)::bigint AS keshdan,

@@ -45,7 +45,7 @@ but not the quota.
 
 The input:output ratio is about 100:1, so `max_tokens` and stop sequences save nothing — output is already tiny. And a searched request runs **~1.7 rounds**, each re-sending the whole prefix, so every token removed from the prefix is saved that many times over.
 
-`_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round and **also writes the round to `user_history`**, which is what the panel's token card reads — see `WEB_PANEL.md`. The cached share is visible in both even though it does not reduce the quota.
+`_log_token_usage()` in `services/ai.py` prints `[TOKEN] … kirish=… (keshdan … = NN%)` for every round and **also writes the round to `user_history`**, which is what the panel's token card reads — see `WEB_PANEL.md`. ⚠️ The card's day is the **grant day, UTC** (05:00 in Tashkent): OpenAI resets the grant at 00:00 UTC, and a Tashkent-midnight cut mixed two grant days and overstated the percentage — the owner caught it against the platform's own number (2026-10-31, `test_web_stats.py` 9f). The cached share is visible in both even though it does not reduce the quota.
 
 Measure before optimising. The bot's own Postgres answers most questions — how many requests a day, how long replies are, how often a tool actually fires. Two guesses were wrong that way: model routing looked like a big win until `pick_reasoning_effort` turned out to classify only 3-4% of real messages as trivial (and length is a terrible proxy: "Manga Toshkent … kontrakt narxlarini ber" is 66 characters and needs a full web search), and trimming fetched page text looked worth 10% until a live search measured 1 877 tokens, not 4 000.
 
