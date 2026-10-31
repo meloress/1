@@ -294,6 +294,12 @@ async def create_users_table():
                 ADD COLUMN IF NOT EXISTS karta_raqam TEXT,
                 ADD COLUMN IF NOT EXISTS karta_egasi TEXT
         ''')
+        # Stars solishtiruvi qayergacha ko'rilgan (pro.stars_solishtir).
+        # NULL = hali hech qachon — birinchi yurish STARS_SOLISHTIR_BOSHI dan.
+        await conn.execute('''
+            ALTER TABLE bot_settings
+                ADD COLUMN IF NOT EXISTS stars_tekshirildi TIMESTAMPTZ
+        ''')
         # Xatolar jurnali. Ilgari xato FAQAT Railway logida qolardi —
         # ya'ni admin bot buzilganini foydalanuvchi aytgandan keyin
         # bilardi. Jadval ataylab kichik: eng eskilari `log_error()`
@@ -3957,6 +3963,55 @@ async def karta_rad(lid: int, admin_id: int, sabab: str) -> Optional[Dict[str, A
             "WHERE id = $1 AND holat = 'tekshirilmoqda' RETURNING user_id, days, summa",
             lid, admin_id, sabab)
     return dict(r) if r else None
+
+
+@with_db_retry()
+async def karta_chek_kutilmoqda(user_id: int, oyna_soniya: int) -> Optional[int]:
+    """Chek kutayotgan so'rov id'si — FSM'siz. Holat RAM'da (MemoryStorage)
+    va har deploy'da yo'qoladi: shunda to'lagan odamning cheki AI'ga «rasm
+    tahlili» bo'lib ketardi. Yangi so'rov yaratilganidan, rad etilgani esa
+    rad etilganidan beri `oyna_soniya` ichida."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT id FROM karta_tolov WHERE user_id = $1 AND ("
+            "(holat = 'kutmoqda' AND yaratilgan > NOW() - make_interval(secs => $2::int)) OR "
+            "(holat = 'rad' AND hal_vaqti > NOW() - make_interval(secs => $2::int))) "
+            "ORDER BY id DESC LIMIT 1", user_id, int(oyna_soniya))
+
+
+@with_db_retry()
+async def stars_tekshirildi_ol() -> Optional[datetime]:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval('SELECT stars_tekshirildi FROM bot_settings WHERE id = 1')
+
+
+@with_db_retry()
+async def stars_tekshirildi_yoz(t: datetime) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('UPDATE bot_settings SET stars_tekshirildi = $1 WHERE id = 1', t)
+
+
+@with_db_retry()
+async def star_payments_bor(charge_ids: List[str]) -> set:
+    """Shu charge_id'lardan qaysilari `star_payments` da bor (ya'ni Pro berilgan)."""
+    if not charge_ids:
+        return set()
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return {r['charge_id'] for r in await conn.fetch(
+            'SELECT charge_id FROM star_payments WHERE charge_id = ANY($1::text[])',
+            list(charge_ids))}
 
 
 @with_db_retry()

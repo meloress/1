@@ -14,9 +14,10 @@ yoziladi — sabab main.py'dagi izohda.
 """
 import asyncio
 import html
+import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import escape as html_escape
 
 from aiogram.types import (
@@ -35,7 +36,7 @@ from core.config import (
     MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO, MESSAGE_COST_VOICE, MESSAGE_COST_DOCUMENT,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     CUSTOM_EMOJI, emoji_id, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
-    BTN_LINK, KARTA_NARX, ADMIN_USERNAME,
+    BTN_LINK, KARTA_NARX, ADMIN_USERNAME, TIMEZONE,
 )
 from db import database
 from services import menu as menu_module
@@ -622,6 +623,81 @@ async def _alert_admin(payer_id: int, charge_id: str, payload: str,
     logger.error(f"[Pro] ADMINGA YETMAGAN OGOHLANTIRISH: {text}")
 
 
+# ── Kunlik solishtiruv: Telegram'dagi Stars tushumi ↔ `star_payments` ──
+# `grant_paid_pro` to'lov va tarifni bitta tranzaksiyada yozadi, lekin u
+# YIQILSA (2026-09-25 … 10-30: `str(days)` → DataError) pul Telegram'da,
+# bazada esa hech narsa yo'q — va buni besh hafta hech kim sezmadi.
+# Bu tekshiruv bazaga emas, TELEGRAM'ning o'z ro'yxatiga qaraydi.
+STARS_SOLISHTIR_BOSHI = datetime(2026, 9, 20, tzinfo=timezone.utc)   # birinchi yurish
+STARS_SOLISHTIR_ORALIQ = 24 * 3600
+_STARS_KUTISH = timedelta(minutes=15)    # endi kelgan to'lov — grant hali yo'lda bo'lishi mumkin
+_STARS_SAHIFA_MAX = 50                   # 50 × 100 tranzaksiya — cheksiz sikl bo'lmasin
+
+
+async def _stars_tushumlar(b, dan: datetime, gacha: datetime) -> list:
+    """Bot'ning (dan, gacha] oralig'idagi foydalanuvchi to'lovlari.
+    Telegram ro'yxatni ESKIDAN yangiga beradi — oxirigacha varaqlanadi."""
+    natija, offset = [], 0
+    for _ in range(_STARS_SAHIFA_MAX):
+        sahifa = (await b.get_star_transactions(offset=offset, limit=100)).transactions
+        for t in sahifa:
+            s = t.source
+            if (getattr(s, "type", None) == "user"
+                    and getattr(s, "transaction_type", None) == "invoice_payment"
+                    and dan < t.date <= gacha):
+                natija.append(t)
+        if len(sahifa) < 100:
+            break
+        offset += 100
+    return natija
+
+
+async def stars_solishtir() -> int:
+    """Pul olingan, lekin `star_payments` da yo'q to'lovlar → superadminga.
+    Qaytaradi: topilgan muammoli to'lovlar soni. Oyna `(oxirgi, hozir − 15 daq]`
+    va bazada saqlanadi — deploy takroriy xabar ham, bo'shliq ham bermaydi."""
+    from handlers import eski_bot
+    dan = await database.stars_tekshirildi_ol() or STARS_SOLISHTIR_BOSHI
+    gacha = datetime.now(timezone.utc) - _STARS_KUTISH
+    botlar = [(bot, BOT_USERNAME or "vexonai")]
+    if os.getenv("ESKI_BOT_TOKEN", "").strip():
+        if eski_bot._bot is None:
+            # Eski bot hali ulanmagan — uning to'lovlarini o'tkazib yubormaslik
+            # uchun oyna SURILMAYDI, keyingi safar qayta urinamiz.
+            logger.warning("[Stars] eski bot tayyor emas — solishtiruv keyinga")
+            return 0
+        botlar.append((eski_bot._bot, eski_bot._eski_nom))
+    tushum = []
+    for b, nom in botlar:
+        tushum += [(t, nom) for t in await _stars_tushumlar(b, dan, gacha)]
+    bor = await database.star_payments_bor([t.id for t, _ in tushum])
+    yoq = [(t, nom) for t, nom in tushum if t.id not in bor]
+    for t, nom in yoq:
+        await _alert_admin(t.source.user.id, t.id, t.source.invoice_payload or "", t.amount,
+                           f"Pro BERILMAGAN (kunlik solishtiruv) · @{nom} · "
+                           f"{t.date.astimezone(TIMEZONE):%d.%m.%Y %H:%M}. Pul Telegram'da bor, "
+                           f"bazada yo'q — qo'lda bergan bo'lsangiz, e'tibor bermang")
+    await database.stars_tekshirildi_yoz(gacha)
+    logger.info(f"[Stars] solishtiruv {dan:%d.%m %H:%M} → {gacha:%d.%m %H:%M}: "
+                f"{len(tushum)} to'lov, {len(yoq)} tasi bazada yo'q")
+    return len(yoq)
+
+
+async def stars_solishtir_watcher() -> None:
+    """main.py fonda. Har soat «24 soat o'tdimi?» — vaqt bazada, ya'ni
+    kuniga bir necha deploy jadvalni buzmaydi."""
+    await asyncio.sleep(600)      # deploydan keyin baza va eski bot ulansin
+    while True:
+        try:
+            oxirgi = await database.stars_tekshirildi_ol()
+            if oxirgi is None or (datetime.now(timezone.utc) - oxirgi).total_seconds() \
+                    >= STARS_SOLISHTIR_ORALIQ:
+                await stars_solishtir()
+        except Exception:
+            logger.exception("[Stars] solishtiruv yiqildi")
+        await asyncio.sleep(3600)
+
+
 async def handle_successful_payment(message: Message):
     """To'lov muvaffaqiyatli o'tdi — tarifni beramiz.
 
@@ -903,6 +979,22 @@ def karta_admin_matni(r: dict, ism: str, username: str | None) -> str:
 async def _chek_kut(state: FSMContext, lid: int) -> None:
     await state.set_state(KartaStates.chek)
     await state.update_data(karta_id=lid, karta_t=time.time())
+
+
+async def process_karta_chek_bazadan(message: Message, state: FSMContext) -> None:
+    """FSM holati YO'Q (deploy uni o'chirgan), lekin bazada chek kutayotgan
+    so'rov bor — rasm chek. Yo'q bo'lsa (yoki baza javob bermasa) —
+    odatdagidek AI'ga: oddiy rasm savoli bu tekshiruv uchun buzilmasin."""
+    try:
+        lid = await database.karta_chek_kutilmoqda(message.from_user.id, KARTA_CHEK_OYNA)
+    except Exception as e:
+        logger.warning(f"[Karta] kutilayotgan chek tekshirilmadi: {e}")
+        lid = None
+    if not lid:
+        raise SkipHandler()
+    logger.info(f"[Karta] chek #{lid} FSM'siz tanildi (deploy holatni o'chirgan)")
+    await _chek_kut(state, lid)
+    await process_karta_chek(message, state)
 
 
 async def process_karta_chek(message: Message, state: FSMContext) -> None:

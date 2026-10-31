@@ -446,4 +446,43 @@ check(20, "admin tugmasi t.me/<ADMIN_USERNAME>: to'lov muammosi xabari, karta so
       and adminli(p._karta_sorov_kb(7, 25_047, "8600123412341234"))
       and adminli(p.admin_kb()) and "adminga yozing" in p.BAN_MATNI)
 
-print("\nHammasi o'tdi: 20/20")
+# ── 21. Deploy FSM'ni o'chirdi — chek bazadagi so'rovdan tanilsin ──
+p.bot = Bot()
+kutilmoqda = {"v": 7}
+
+
+async def kutilmoqda_ol(uid, oyna):
+    q.append(("kutilmoqda", uid, oyna))
+    if kutilmoqda["v"] == "xato":
+        raise RuntimeError("baza yo'q")
+    return kutilmoqda["v"]
+database.karta_chek_kutilmoqda = kutilmoqda_ol
+
+
+def bazadan(holat):
+    try:
+        asyncio.run(p.process_karta_chek_bazadan(Xabar(), holat))
+        return False
+    except SkipHandler:
+        return True
+
+
+q.clear()
+bosh = Holat(h=None)
+otkazdi = bazadan(bosh)
+tanildi = (("chek_yoz", 7, 55, "katta", "photo", "u1") in q
+           and any(x[0] == "admin_rasm" for x in q) and bosh.h is None and not otkazdi)
+q.clear()
+kutilmoqda["v"] = None
+yoq = bazadan(Holat(h=None)) and not any(x[0] == "chek_yoz" for x in q)
+kutilmoqda["v"] = "xato"
+xato = bazadan(Holat(h=None))
+j = main.index("pro_module.process_karta_chek_bazadan")
+check(21, "FSM yo'q, bazada kutayotgan so'rov — chek superadminga; so'rov yo'q yoki baza xatosi — "
+          "rasm AI'ga (SkipHandler); handler FSM'li chekdan keyin, AI'dan oldin, faqat shaxsiy chat",
+      tanildi and yoq and xato
+      and i < j < main.index("register(handle_photo") and j < main.index("register(handle_document")
+      and j < main.index("handle_maintenance_notice, F.text")
+      and 'F.chat.type == "private"' in main[j:j + 200])
+
+print("\nHammasi o'tdi: 21/21")

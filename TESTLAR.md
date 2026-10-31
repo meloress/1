@@ -35,7 +35,18 @@ Some are structural guards rather than feature tests, and they earn their keep o
   is 400, the audit row holds only the last four digits, the superadmin is told in
   Telegram, both fields empty turns it off. Its SQL (unique amount, one pending request
   per user, retry after reject, Pro added once, the `bot_settings` columns) was run
-  against pgserver, not just fakes.
+  against pgserver, not just fakes. Check 21: the FSM lives in RAM and a deploy wipes it,
+  so a receipt photo with no state is matched to a pending request **in the database**
+  (`karta_chek_kutilmoqda`, also pgserver-checked) — otherwise a paid receipt went to the
+  AI as "photo analysis" and never reached the superadmin.
+- `test_qidiruv.py` — web search asks ddgs for `QIDIRUV_BACKEND`, not `auto` (dead engines
+  on Railway's IP, `CHAT.md`); the 2-4 queries of one search run in parallel but their
+  results keep query order; an all-empty answer is retried once with `auto`.
+- `test_stars_solishtir.py` — the daily Stars reconciliation reads **Telegram's own**
+  transaction list (both bots), not our table: a payment missing from `star_payments` is
+  sent to the superadmin. The window is stored in `bot_settings.stars_tekshirildi`, so
+  deploys neither repeat alerts nor leave gaps; it does not advance while the old bot is
+  still connecting (check 6), or its payments would be skipped forever.
 - `test_pro_grant.py` check 6 — every `_EXTEND_PLAN_SQL` call passes days as `int(...)`.
   Five weeks of failed Stars/promo/referral grants hid behind fakes (`ADMIN.md`).
 - `test_admin_registry.py` — every admin handler still registered, in order, **and none of

@@ -72,7 +72,7 @@ or written). `railway run` also injects production `DATABASE_URL` and `BOT_TOKEN
 it only for the `eval_*.py` scripts — they touch neither — never for `test_*.py`.
 
 **Live-eval baselines** — compare against these after any prompt edit:
-`eval_chat.py` 48/50 with `--takror 2` (2026-09-29), `eval_biznes.py` **125/126** with
+`eval_chat.py` **56/56** with `--takror 2` (28 cases, 2026-10-31, after the search-engine fix), `eval_biznes.py` **125/126** with
 `--takror 2` (63 cases incl. 3 `juft_*` owner-pair cases; the miss is `tashqi_shaxsiy`, 4/5
 on retry, 2026-10-28), `eval_bilim.py` **0 wrong, 20/21** with `--takror 3` (15 pairs incl. 4 avtomat-handoff ones, 2026-10-30),
 `eval_tabiiy.py` judge **9.5 / 9.5** (without / with owner style) and 0/64 "bot tells"
@@ -200,6 +200,8 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   A 429 arrives mid-stream. Pro gating is by omission from the schema.
 - **Pasted link** — a model-written URL is untrusted: `_is_public_url()` rejects by the
   **resolved IP** (internal Railway services are reachable).
+- **Web search** — ddgs gets `QIDIRUV_BACKEND` (Bing/Yandex/Yahoo), never bare `auto`:
+  Brave, Mojeek and DuckDuckGo are blocked from Railway's IP; queries run in parallel.
 - **Photos** — chat pictures are URLs behind `[rasm:N]` tokens the model never sees as URLs;
   document pictures are bytes. The picker model must be **tile-based** (`gpt-4.1`; a
   patch-based one costs 23x). `[rasm:N]` is rewritten before it reaches history.
@@ -256,7 +258,12 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   `($N || ' days')`, and the argument is `int(...)` — `str(days)` left over from the old
   spelling silently broke Stars/promo/referral Pro grants for five weeks (fakes don't
   know types: run money SQL on pgserver once); `SUM()` over BIGINT needs `::bigint`;
-  TIMESTAMPTZ comes back in UTC.
+  TIMESTAMPTZ comes back in UTC. Since 2026-10-31 `pro.stars_solishtir()` compares
+  Telegram's own Stars list (both bots) with `star_payments` once a day — a missed grant
+  reaches the superadmin instead of hiding for weeks.
+- **FSM is RAM (`MemoryStorage`)** — every deploy wipes it. A state that guards money needs
+  a database fallback: the karta receipt is matched by `karta_chek_kutilmoqda()` when the
+  state is gone, or a paid receipt goes to the AI as a photo question.
 - **Migrations** — startup migrations must be cheap; `CREATE INDEX CONCURRENTLY` runs in
   `indekslarni_qur()` as a background task, with **no** parameters.
 - **Five label maps** — `ACTIVITY_TYPES`, `AUDIT_ACTIONS`, `LIMIT_NOMI`, `SEGMENT_NOMI`,

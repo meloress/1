@@ -2471,6 +2471,15 @@ async def download_images(queries, cache: Optional[dict] = None) -> tuple:
     return files, manifest
 
 
+# ⚠️ «auto» EMAS. Production loglari (2026-10-31, primp javoblari): Bing,
+# Yandex, Yahoo — 100% 200; DuckDuckGo 22% (202 = bot tekshiruvi), Brave 0%
+# (429), Mojeek 0% (403 + 5 s timeout). «auto» esa har safar ikkitasini
+# TASODIFAN tanlaydi — yarmi o'lik tizimga tushib, bo'sh qaytar yoki 5 s
+# kutardi. Lokal o'lchovda (10 so'rov) bir xil manbalar, 3.8 s → 1.1 s.
+# Bitta tizim ham bloklansa — logdagi «Error in engine X» dan ko'rinadi.
+QIDIRUV_BACKEND = "bing,yandex,yahoo"
+
+
 async def multi_source_deep_search(
     primary_query: str,
     extra_queries: Optional[List[str]] = None,
@@ -2492,18 +2501,24 @@ async def multi_source_deep_search(
 
     seen_urls: set = set()
     all_snippets: List[str] = []
-    top_urls: List[tuple] = []      
+    top_urls: List[tuple] = []
 
-    for q in queries:
-        def _s(query=q):
+    def _s(query):
+        # Uchalasi ham bo'sh/yiqilsa — bir marta «auto» (qolgan tizimlar):
+        # bittasi bloklansa ham qidiruv butunlay o'lmasin.
+        for backend in (QIDIRUV_BACKEND, "auto"):
             try:
                 with DDGS() as ddgs:
-                    return list(ddgs.text(query, max_results=6))
+                    natija = list(ddgs.text(query, max_results=6, backend=backend))
+                if natija:
+                    return natija
             except Exception as e:
-                logger.error(f"DDGS error [{query}]: {e}")
-                return []
+                logger.error(f"DDGS error [{backend}] [{query}]: {e}")
+        return []
 
-        results = await asyncio.to_thread(_s)
+    # So'rovlar PARALLEL — ilgari ketma-ket edi va har biri 5 s gacha kutardi.
+    natijalar = await asyncio.gather(*(asyncio.to_thread(_s, q) for q in queries))
+    for q, results in zip(queries, natijalar):
         if not results:
             all_snippets.append(f"⚠️ «{q}» bo'yicha natija topilmadi.")
             continue

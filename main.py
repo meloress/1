@@ -171,6 +171,9 @@ async def main():
     # tahlili» bo'lib ketardi. Matn bu holatda ham odatdagidek AI'ga.
     dp.message.register(pro_module.process_karta_chek, pro_module.KartaStates.chek,
                         F.photo | F.document)
+    # Xuddi shu, lekin FSM deployda yo'qolgan bo'lsa: bazada kutayotgan so'rov.
+    dp.message.register(pro_module.process_karta_chek_bazadan,
+                        F.photo | F.document, F.chat.type == "private")
     dp.message.register(digest_module.process_digest_topics,
                         digest_module.DigestStates.waiting_for_topics)
     # Xuddi shu, lekin FSM deployda yo'qolgan bo'lsa: mavzu so'roviga reply.
@@ -286,6 +289,8 @@ async def main():
     # hisobot esa ertalab keladi — bu ikkalasining orasidagi
     # oynani yopadi (xatolar to'lqini va «bot jim»).
     asyncio.create_task(admin_daily.alert_watcher())
+    # Pul olingan, Pro berilmagan to'lovlar — Telegram'ning o'z ro'yxatidan.
+    asyncio.create_task(pro_module.stars_solishtir_watcher())
     # Telegram Business (REJA.md 4.1): kunlik kartoteka va tozalash. «Javob
     # kutmoqda» ogohlantirishi 2026-10-06 da egasining so'rovi bilan o'chirildi.
     asyncio.create_task(biznes_module.biznes_hisobot_watcher())

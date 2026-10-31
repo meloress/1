@@ -135,6 +135,19 @@ pointed inside. It sits inside `fetch_page_content()`, so search-result URLs pas
 the same gate — one check point, both callers. `tests/test_url_read.py` runs offline by
 using numeric IPs, so DNS never decides the result.
 
+### Web search picks its engines; `auto` is not safe on Railway (2026-10-31)
+
+`multi_source_deep_search()` asks ddgs for `QIDIRUV_BACKEND = "bing,yandex,yahoo"`, not
+`auto`. Measured from production `primp` response logs: Bing, Yandex and Yahoo answered
+200 every time; DuckDuckGo 22% (202 is its bot check), Brave 0% (429), Mojeek 0% (403
+and 5-second timeouts). `auto` picks two engines **at random** per query (after always
+starting with Wikipedia + Grokipedia), so about half the slots landed on a dead engine
+— an empty result or a 5 s wait — and the 2-4 queries of one search ran **one after
+another**. Now they run in parallel, and a query that the three engines all miss is
+retried once with `auto`, so one engine getting blocked does not kill search. Local
+measurement, 10 queries: same sources, 3.8 s → 1.1 s average. If search degrades,
+count `Error in engine X` in the log before touching anything else. `tests/test_qidiruv.py`.
+
 ### Photos: two separate pipelines that must not be confused
 
 A photo in a **chat reply** and a photo **inside a document** share nothing but the search call, and mixing them up is the failure mode users actually hit.
