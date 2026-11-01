@@ -864,9 +864,11 @@ from core.config import LOGO_EMOJI  # noqa: E402
 # "kichik" dan keyingilari (2026-10-16) — /start, /help, Pro ekranlaridagi
 # premium emojilar o'rniga. ⛔️ Faqat OXIRIGA qo'shing: mavjud to'plamga
 # yetishmagani qo'shiladi va tur tartib bo'yicha bog'lanadi.
+# "v" (2026-11-01) — faqat katta «V»: adminlar (Premium) nik yonidagi emoji
+# statusi sifatida qo'yadi; bot o'zi ishlatmaydi.
 _LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
                 "image", "reminder", "memory", "kichik",
-                "wave", "broom", "chat", "build", "pro", "limits", "capabilities")
+                "wave", "broom", "chat", "build", "pro", "limits", "capabilities", "v")
 # Har stikerning emojisi — to'plamni ochgan odam shu bilan qidiradi, VA
 # animatsiya versiyasi: to'plamdagi emoji shu yerdagidan farq qilsa, stiker
 # ishga tushganda yangi webm bilan JOYIDA almashtiriladi (replaceStickerInSet).
@@ -878,7 +880,8 @@ _LOGO_TURLAR = ("text", "search", "document", "photo", "voice",
 _LOGO_BELGI = {"text": "🤔", "search": "🔍", "document": "📄", "photo": "📷",
                "voice": "🎤", "image": "🎨", "reminder": "⏰", "memory": "🧠",
                "kichik": "🔹", "wave": "✋", "broom": "✨", "chat": "💭",
-               "build": "🔧", "pro": "👑", "limits": "📈", "capabilities": "🧭"}
+               "build": "🔧", "pro": "👑", "limits": "📈", "capabilities": "🧭",
+               "v": "🔷"}
 # Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
 _LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
 # ⚠️ Nomdagi raqam — to'plam nomi. Uni OSHIRMANG: egalari bu to'plamni o'z

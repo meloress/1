@@ -371,10 +371,24 @@ def capabilities(t):  # nishon halqalari tashqariga tarqaladi
     return k
 
 
+def v_katta(t):  # faqat «V», kadr bo'ylab — admin/egalarning emoji statusi
+    # Status nik yonida mayda ko'rinadi: V iloji boricha katta, atrofida bo'sh joy
+    # deyarli yo'q. Yaltiroq faqat halqaning boshida o'tadi, qolgan vaqt — tinch.
+    k = yangi()
+    v(k, 50, 50, 99)
+    x = -30 + 160 * silliq(t / 0.45)
+    yal = Image.new("L", (N, N), 0)
+    ImageDraw.Draw(yal).polygon([(s(x), 0), (s(x + 14), 0), (s(x - 22), N), (s(x - 36), N)], fill=140)
+    alfa = np.asarray(k.getchannel("A"), np.float32) / 255
+    yal = Image.fromarray((np.asarray(yal, np.float32) * alfa).astype(np.uint8))
+    oq(k, yal, 1.0)
+    return k
+
+
 TURLAR = {"emoji": emoji, "search": search, "document": document, "photo": photo,
           "voice": voice, "image": image, "reminder": reminder, "memory": memory,
           "kichik": kichik, "wave": wave, "broom": broom, "chat": chat, "build": build,
-          "pro": pro, "limits": limits, "capabilities": capabilities}
+          "pro": pro, "limits": limits, "capabilities": capabilities, "v": v_katta}
 
 
 def yasash(nom: str) -> int:
