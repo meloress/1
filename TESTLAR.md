@@ -42,6 +42,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_qidiruv.py` — web search asks ddgs for `QIDIRUV_BACKEND`, not `auto` (dead engines
   on Railway's IP, `CHAT.md`); the 2-4 queries of one search run in parallel but their
   results keep query order; an all-empty answer is retried once with `auto`.
+- `test_reasoning_effort.py` — `none` (no thinking) only when the **whole** message is a
+  greeting/thanks; "hisobla 17*23", "noto'g'ri javob berding", "ha" used to get `none` by
+  prefix. A short message after earlier turns is one level above the previous questions
+  (cap `medium`, Pro lifts it) — no word list decides "yes" vs "you're wrong".
 - `test_stars_solishtir.py` — the daily Stars reconciliation reads **Telegram's own**
   transaction list (both bots), not our table: a payment missing from `star_payments` is
   sent to the superadmin. The window is stored in `bot_settings.stars_tekshirildi`, so

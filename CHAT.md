@@ -53,6 +53,17 @@ The cached prefix is **instructions + the tool schemas**, and OpenAI documents *
 
 `PROMPT_CACHE_RETENTION = "24h"` exists in `core/config.py` and is deliberately off: it fits a day-precision prefix perfectly, but cache **writes** cost more and OpenAI does not document how the complimentary daily grant counts them.
 
+**Reasoning effort reads the conversation, not just the message (2026-11-03).** Until then
+`none` was picked by *prefix* ("ha", "no", "hi", "ok"), so "hisobla 17*23", "noto'g'ri javob
+berding" and the "ha" answering the bot's own «ishlanish yo'li bilan ko'rsataymi?» all ran with
+no thinking — exactly the turns where the owner saw the bot "go crazy". Now `none` needs the
+**whole** message to be greeting words, and `get_openai_reply` passes the earlier user turns of
+`recent`: any message gets at least the level of the last 3 questions, a short one (≤120 chars)
+one level more, capped at `medium` (Pro's `upgrade_effort_for_pro` lifts it to `high`). "Yes, do
+it" and "that's wrong" are deliberately **not** told apart — a word list for that would be the
+same brittle prefix trick in every language; both need more thought than their own text shows.
+The quota cost (`message_cost`) still reads the text alone, so a "ha" costs a cheap message.
+
 ### The stop button needs two things aiogram won't do for you
 
 `sendRichMessageDraft(can_stop=True)` makes Telegram send a `stopped_message_generation` update. aiogram 3.31.0 knows that type, so `main.py` registers a plain `@dp.stopped_message_generation()` observer that maps `event.draft_id` → `handlers.messages.request_stop()`. Registration order does not matter — the observer does not touch the `dp.message` chain.

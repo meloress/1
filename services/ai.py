@@ -89,10 +89,11 @@ except ImportError:
         return "You are a helpful assistant."
 
     def build_request_params(user_text: str = "", force_deep: bool = False,
-                             model: Optional[str] = None, is_pro: bool = False) -> Dict:
+                             model: Optional[str] = None, is_pro: bool = False,
+                             oldingi=None) -> Dict:
         return {"model": model or GPT_MODEL, "max_output_tokens": 1500, "reasoning": {"effort": "low"}}
 
-    def pick_reasoning_effort(text: str, force_deep: bool = False) -> str:
+    def pick_reasoning_effort(text: str, force_deep: bool = False, oldingi=None) -> str:
         return "low"
 
 from core import olchov
@@ -4648,7 +4649,12 @@ async def get_openai_reply(
 
     # Reasoning effort xabar murakkabligiga qarab tanlanadi (core/config.py:
     # pick_reasoning_effort) — soddasiga tez/arzon, murakkabiga chuqurroq.
-    base_params = build_request_params(user_text=message_text, model=model, is_pro=is_pro)
+    # Oldingi savollar ham beriladi: «ha» / «noto'g'ri» o'z matnidan emas,
+    # suhbatdan baholanadi (aks holda «ko'rsataymi?» → «ha» o'ylamasdan ketardi).
+    oldingi = [m["content"] for m in recent
+               if m.get("role") == "user" and isinstance(m.get("content"), str)]
+    base_params = build_request_params(user_text=message_text, model=model,
+                                       is_pro=is_pro, oldingi=oldingi)
     initial_model = base_params.pop("model")
     if biznes and "prompt_cache_key" in base_params:
         # Business prefiksi (`BIZNES_INSTRUCTIONS`) Pro DM prefiksidan boshqa —

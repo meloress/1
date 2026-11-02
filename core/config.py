@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -57,7 +58,7 @@ GPT_KNOWLEDGE_CUTOFF: str = "June 2024"
 MODEL_FALLBACKS: List[str] = ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-4.1-mini"]
 USE_RESPONSES_API: bool = True
 REASONING_EFFORT_DEFAULT: str = "low"
-REASONING_EFFORT_SIMPLE: str = "none"      # salom, "rahmat", bir og'iz savol
+REASONING_EFFORT_SIMPLE: str = "none"      # faqat salom / "rahmat" (butun xabar)
 REASONING_EFFORT_COMPLEX: str = "medium"   # matematika, fizika, kod, tahlil
 REASONING_EFFORT_MAX: str = "high"         # foydalanuvchi /think buyrug'ini bersa
 # ── PROMPT CACHING ──────────────────────────────────────────────────
@@ -586,11 +587,25 @@ with no picture at all.
 # Har bir savolga bir xil "o'ylash" darajasini berish — pul va vaqtni behuda sarflash.
 # "Salom" uchun reasoning umuman kerak emas; integral uchun kerak.
 
-_SIMPLE_PATTERNS = (
-    "salom", "assalom", "hayrli", "rahmat", "raxmat", "xayr", "ok", "okay",
-    "привет", "спасибо", "пока", "здравствуй",
-    "hi", "hey", "hello", "thanks", "thank you", "bye", "yes", "no", "ha", "yo'q",
-)
+# ⚠️ «O'ylamaslik» faqat xabar BUTUNLAY shu so'zlardan iborat bo'lsa. Ilgari
+# so'z BOSHI solishtirilardi va "hisobla 17*23", "noto'g'ri javob berding",
+# "hafta kunlari" ("hi"/"no"/"ha" bilan boshlanadi) o'ylamasdan javob olardi.
+# "ha", "yo'q", "ok" ATAYLAB yo'q: ular botning taklifiga javob («ishlanish
+# yo'li bilan ko'rsataymi?» → «ha») — eng og'ir ish aynan shunda.
+_SALOM_SOZLAR = frozenset((
+    "salom", "assalom", "assalomu", "alaykum", "aleykum", "va", "hayrli", "xayrli",
+    "kun", "tong", "kech", "rahmat", "raxmat", "katta", "kattakon", "xayr",
+    "привет", "спасибо", "большое", "пока", "здравствуй", "здравствуйте",
+    "hi", "hey", "hello", "thanks", "thank", "you", "bye",
+))
+_SOZ_RE = re.compile(r"[^\W\d_]+")
+
+# Davom xabari: shundan qisqa bo'lsa, oldingi savolning davomi deb o'qiladi.
+_DAVOM_UZUNLIGI = 120
+# Oldingi savol darajasi shuncha oxirgi foydalanuvchi xabaridan olinadi —
+# «hisobla…» → «ha» → «noto'g'ri» zanjirida daraja yo'qolmasin.
+_DAVOM_ORTGA = 3
+_DARAJALAR = ("none", "low", "medium", "high")
 
 _COMPLEX_KEYWORDS = (
     # matematika / fanlar
@@ -620,22 +635,16 @@ def upgrade_effort_for_pro(effort: str) -> str:
     return effort
 
 
-def pick_reasoning_effort(text: str, force_deep: bool = False) -> str:
-    """Xabar matniga qarab mos reasoning darajasini qaytaradi.
-
-    force_deep=True — foydalanuvchi /think kabi buyruq bergan holat uchun.
-    """
-    if force_deep:
-        return REASONING_EFFORT_MAX
-
-    if not text:
+def _matn_darajasi(text: str) -> str:
+    """Faqat matnning o'zidan (suhbatsiz) daraja."""
+    stripped = (text or "").strip()
+    if not stripped:
         return REASONING_EFFORT_DEFAULT
-
-    stripped = text.strip()
     lowered = stripped.lower()
 
-    # Juda qisqa va oddiy salomlashuv → umuman o'ylamaydi, bir zumda javob beradi.
-    if len(stripped) <= 25 and any(lowered.startswith(p) for p in _SIMPLE_PATTERNS):
+    # Faqat salomlashuv/rahmat → umuman o'ylamaydi, bir zumda javob beradi.
+    sozlar = _SOZ_RE.findall(lowered)
+    if len(stripped) <= 40 and sozlar and all(s in _SALOM_SOZLAR for s in sozlar):
         return REASONING_EFFORT_SIMPLE
 
     if any(kw in lowered for kw in _COMPLEX_KEYWORDS):
@@ -648,6 +657,40 @@ def pick_reasoning_effort(text: str, force_deep: bool = False) -> str:
     return REASONING_EFFORT_DEFAULT
 
 
+def pick_reasoning_effort(text: str, force_deep: bool = False,
+                          oldingi: Optional[List[str]] = None) -> str:
+    """Xabar matniga (va suhbatga) qarab mos reasoning darajasini qaytaradi.
+
+    force_deep=True — foydalanuvchi /think kabi buyruq bergan holat uchun.
+    oldingi — shu suhbatdagi oldingi foydalanuvchi xabarlari (eskidan
+    yangiga). Berilsa, xabar suhbat DAVOMI sifatida baholanadi:
+
+    - har qanday xabar kamida oldingi savol darajasida o'ylaydi;
+    - QISQA xabar («ha», «noto'g'ri», «ikkinchisini», «davom et») bir
+      pog'ona yuqori: u oldingi javobga tayanadi — yo taklifni bajartiradi
+      (yechimni ko'rsat), yo xatoni ko'rsatadi; ikkalasi ham o'z matnidan
+      og'irroq. Ma'nosini so'z ro'yxati bilan ajratish mo'rt (har tilda,
+      har xil yozuvda), shuning uchun ATAYLAB ajratilmaydi.
+
+    ⚠️ Pog'ona tavani COMPLEX: bepulda davom xabari "high" ga chiqmaydi,
+    Pro'da esa `upgrade_effort_for_pro` uni o'zi ko'taradi.
+    """
+    if force_deep:
+        return REASONING_EFFORT_MAX
+
+    ozi = _matn_darajasi(text)
+    if ozi == REASONING_EFFORT_SIMPLE or not oldingi:
+        return ozi
+
+    d = _DARAJALAR.index
+    avval = max((_matn_darajasi(t) for t in oldingi[-_DAVOM_ORTGA:]), key=d)
+    natija = max(ozi, avval, key=d)
+    if len((text or "").strip()) <= _DAVOM_UZUNLIGI:
+        pogona = _DARAJALAR[min(d(avval) + 1, d(REASONING_EFFORT_COMPLEX))]
+        natija = max(natija, pogona, key=d)
+    return natija
+
+
 # ═══════════════════════════════════════════════════════════════
 #  5) API SO'ROVI PARAMETRLARINI YIG'ISH
 # ═══════════════════════════════════════════════════════════════
@@ -656,6 +699,7 @@ def build_request_params(
     force_deep: bool = False,
     model: Optional[str] = None,
     is_pro: bool = False,
+    oldingi: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Tayyor kwargs qaytaradi — to'g'ridan-to'g'ri client'ga uzatish mumkin.
 
@@ -668,7 +712,7 @@ def build_request_params(
         resp = client.chat.completions.create(messages=messages, **params)
         text = resp.choices[0].message.content
     """
-    effort = pick_reasoning_effort(user_text, force_deep=force_deep)
+    effort = pick_reasoning_effort(user_text, force_deep=force_deep, oldingi=oldingi)
     if is_pro:
         effort = upgrade_effort_for_pro(effort)
     # ⚠️ HOZIR IKKALASI HAM `gpt-5.6-luna` — ya'ni tarif model tanlashga
