@@ -197,3 +197,42 @@ Every admin action name written to `admin_audit` must appear in **`core/config.p
 An action the code no longer writes must be **removed** from `AUDIT_ACTIONS` — `referral_campaign` was, when its flow moved to the panel — and moved to **`AUDIT_ESKI`**, the second dict, which exists only for action names that are in the live database and not in the code. Two dicts, two questions: "what does the code write" and "what is lying in the table". `audit_nomi()` falls through `AUDIT_ACTIONS` → `AUDIT_ESKI` → the raw string, and the raw string is still shown rather than hidden (`test_web_journal.py` check 4): a hidden row reads as no row at all. ⚠️ `AUDIT_ESKI` was written from the names this repo is known to have used; it could **not** be checked against the live table (production reads are blocked in this environment), so an action nobody remembers will still appear raw — which is the safe direction. It used to be a hand-written `ACTION_LABELS` in `handlers/admin/journal.py` and it had rotted badly: 9 of 16 action names did not match what the code writes (`ban` vs `ban_user`, `refund` vs `refund_stars`, `set_free` vs `set_plan`, `promo_create` vs `create_promo`), so most of the audit screen showed raw technical strings, while 6 labels hung on keys nothing ever writes. `tests/test_web_journal.py` walks the source for `log_admin_action(...)` and web's `_yoz(...)` calls and asserts both directions: every written action has a label, and every label is actually written.
 
 `send_error_with_retry()` (`handlers/helpers.py`) is the only path a user-visible failure takes, so that is where `db.log_error()` writes to the `error_log` table — the "⚠️ Xatolar" screen reads it. Adding a second logging site elsewhere splits the picture; pass a `kind` instead (`"timeout"`, `"matn"`, …). The table trims itself on write (`ERROR_LOG_KEEP`).
+
+### Monthly Pro is a Stars subscription, not a second payment path (2026-11-03)
+
+`/pro` → Stars offers «♻️ Har oy avtomatik» on top of the one-off plans. Telegram only
+does subscriptions through `createInvoiceLink(subscription_period=2592000)` — 30 days,
+nothing else, max 10 000 ⭐ — so it is a URL button, not `send_invoice`. Every renewal
+arrives as an ordinary `successful_payment` (`is_recurring`, `is_first_recurring`,
+`subscription_expiration_date`), so it goes through the **same** `handle_successful_payment`
+→ `grant_paid_pro` → `star_payments` row → `stars_solishtir()` as any Stars purchase; the
+only new state is `pro_obuna` (one row per user: first charge id, last charge id, holat,
+next charge date).
+
+- The payload is `prosub:v1:<user>:<stars>` — the **price is inside it**, so a renewal keeps
+  the price the user subscribed at; raising `OBUNA_NARX` later does not make every renewal
+  fail the amount check. `tolov_shartlari()` is the one reader for both payload kinds, used
+  by pre_checkout and successful_payment alike. A subscription is never a gift: pre_checkout
+  rejects a payer who is not the user in the payload (it would make them someone else's
+  silent monthly payer).
+- ⚠️ The docs do not say whether a renewal gets a `pre_checkout_query`. The handler is
+  correct either way: a banned user's renewal is rejected there if it comes, and the
+  subscription is cancelled at ban time anyway.
+- **Pro never lapses between charges:** `grant_paid_pro(obuna=…)` lifts `premium_until` to
+  at least the next charge + `OBUNA_ZAXIRA_SOAT` (24 h). That one `GREATEST` is why the
+  quota check, `expire_premiums()` and `/pro` needed no subscription logic at all. Each
+  payment still adds exactly 30 days; the grace day does not accumulate.
+- An active subscriber gets no «tarifingiz tugayapti» reminder (`take_expiry_reminders`
+  excludes `pro_obuna.holat = 'faol'`) and no «uzaytiring» on `/pro` — both pushed people to
+  buy a second time while the subscription was renewing by itself.
+- Two concurrent subscriptions (two links, both paid) would both renew monthly. The second
+  one's first payment still grants its 30 days; its subscription is cancelled at once.
+- `editUserStarSubscription(is_canceled=True)` is **one-way** for the bot: `False` only lets
+  the *user* re-enable it in Telegram, so there is no "re-enable" button — `/pro` simply
+  offers a new subscription. `obuna_toxtat()` runs on the user's «o'chirish», on a refund of
+  a subscription charge and on ban, and never raises into its caller.
+- `Update.subscription` (Bot API 10.2: `canceled` / `active` / `failed`) only updates
+  `holat` and tells the user; the money side is entirely the payments above.
+
+`tests/test_pro_obuna.py`; the SQL was run on pgserver (renewal +30 d, grace, duplicate
+update ignored, reminder exclusion).

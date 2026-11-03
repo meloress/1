@@ -120,6 +120,11 @@ def soxta_baza(tolov=None):
     async def unban_user(uid):
         AUDIT.append({"amal": "_db_unban", "kimga": uid, "tafsilot": None})
 
+    async def pro_obuna_ol(uid):
+        # Blokda obuna o'chiriladi (`pro.obuna_toxtat`) — soxtasiz jonli
+        # bazani o'qirdi. Haqiqiysi kabi: obuna yo'q → None.
+        return None
+
     async def get_payment_by_id(pid):
         t = dict(tolov or TOLOV)
         return t if pid == t["id"] else None

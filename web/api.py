@@ -724,6 +724,10 @@ async def ban(request: web.Request):
     if bloklansinmi:
         await database_module.ban_user(uid)
         await _yoz(request, "ban_user", uid)
+        # Bloklangan odamdan har oy pul olib xizmat bermaslik — qaytarish
+        # manbai. Obunasi bo'lmasa hech narsa qilmaydi.
+        from handlers import pro as pro_module      # sikl importni oldini olish
+        await pro_module.obuna_toxtat(uid)
         # Bloklanganini bot o'zi keyingi xabarda aytadi — ikki marta
         # aytish shart emas.
         return web.json_response({"ok": True, "bloklangan": True})
@@ -829,6 +833,9 @@ async def refund(request: web.Request):
         return web.json_response({"ok": True, "takror": True})
 
     await _yoz(request, "refund_stars", tolov.get("beneficiary_id"), tolov["charge_id"])
+    if pro_module.parse_obuna_payload(tolov.get("payload") or ""):
+        # Oylik obuna puli qaytarildi — keyingi oy yana yechilmasin.
+        await pro_module.obuna_toxtat(tolov["payer_id"])
     await _xabar(tolov["payer_id"], (
         "↩️ <b>To'lovingiz qaytarildi</b>\n\n"
         f"💰 {tolov['stars']} ⭐ hisobingizga qaytarildi.\n"

@@ -1394,6 +1394,17 @@ ADMIN_USERNAME = "jumayevou"
 # invoice'lar pre_checkout bosqichida tushunarli sabab bilan rad etiladi.
 PRO_PAYLOAD_VERSION = "v1"
 
+# ── OYLIK OBUNA (Stars, 2026-11-03) ─────────────────────────────────
+# Telegram: `subscription_period` faqat 2 592 000 (30 kun), narx ≤ 10 000 ⭐.
+# Har yangilanish — oddiy `successful_payment` (`is_recurring`), ya'ni bitta
+# Stars to'lovi kabi yoziladi va +30 kun beradi.
+OBUNA_DAVR = 2592000
+OBUNA_KUN = 30
+OBUNA_NARX = PRO_PLANS_BY_DAYS[30][0]      # oylik tarif bilan bir xil
+# Pro muddati Telegram'ning keyingi yechish vaqtidan shuncha KEYIN tugaydi:
+# yangilanish to'lovi bir necha daqiqa kechiksa Pro uzilib-ulanmasin.
+OBUNA_ZAXIRA_SOAT = 24
+
 # ── KO'RINISH: TUGMA RANGLARI, PREMIUM EMOJI, EFFEKTLAR ────────────
 # Bu qiymatlar Telegram API'da EMPIRIK tekshirilgan (noto'g'ri qiymat
 # "can't parse InlineKeyboardButton: invalid button style specified"

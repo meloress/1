@@ -22,6 +22,7 @@ from core.config import (
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
     BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT, BIZNES_JUFT_MIN_SOZ,
     BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
+    OBUNA_ZAXIRA_SOAT,
 )
 
 load_dotenv()
@@ -386,6 +387,24 @@ async def create_users_table():
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 refunded_at TIMESTAMPTZ,
                 refunded_by BIGINT
+            );
+        ''')
+
+        # ── OYLIK OBUNA (Stars, 2026-11-03) ──────────────────────────
+        # Har to'lovi `star_payments` da (Pro shu yerdan beriladi); bu jadval
+        # faqat obunaning HOLATI: /pro ekrani, «tugayapti» eslatmasi va
+        # bekor qilish uchun. `charge_id` — BIRINCHI to'lov:
+        # editUserStarSubscription shu bilan chaqiriladi. holat: faol |
+        # bekor (foydalanuvchi o'zi) | bot_bekor | xato (to'lov o'tmadi).
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS pro_obuna (
+                user_id BIGINT PRIMARY KEY,
+                charge_id TEXT NOT NULL,
+                oxirgi_charge TEXT NOT NULL,
+                holat VARCHAR(12) NOT NULL DEFAULT 'faol',
+                keyingi TIMESTAMPTZ,
+                narx INT NOT NULL,
+                yangilangan TIMESTAMPTZ DEFAULT NOW()
             );
         ''')
 
@@ -3786,7 +3805,8 @@ async def check_and_consume_quota(user_id: int, cost: int) -> Dict[str, Any]:
 
 @with_db_retry()
 async def grant_paid_pro(*, charge_id: str, payer_id: int, beneficiary_id: int,
-                         stars: int, days: int, payload: str) -> bool:
+                         stars: int, days: int, payload: str,
+                         obuna: Optional[dict] = None) -> bool:
     """To'lovni yozadi VA Pro tarifni beradi — BITTA tranzaksiyada.
 
     Qaytaradi:
@@ -3802,6 +3822,12 @@ async def grant_paid_pro(*, charge_id: str, payer_id: int, beneficiary_id: int,
     Takrorlanmaslik kodda emas, `star_payments.charge_id` UNIQUE cheklovida:
     ON CONFLICT DO NOTHING ... RETURNING bo'sh qaytsa, demak bu to'lov
     allaqachon ishlangan.
+
+    `obuna` — oylik obuna to'lovi: `{"gacha": keyingi yechish (datetime |
+    None), "yangi": birinchi to'lovmi, "ikkinchi": allaqachon faol obunasi
+    bor-u, bu YANGI obuna (holatiga tegilmaydi)}`. Pro muddati `gacha` +
+    zaxiradan oldin tugamaydi — shu bitta qator muddat tekshiradigan hamma
+    joyni (kvota, watcher, /pro) obunaga moslaydi.
     """
     global pool
     if pool is None:
@@ -3822,7 +3848,56 @@ async def grant_paid_pro(*, charge_id: str, payer_id: int, beneficiary_id: int,
             if row is None:
                 return False
             await conn.execute(_EXTEND_PLAN_SQL, beneficiary_id, 'pro', int(days))
+            if obuna is not None:
+                if obuna.get("gacha") is not None:
+                    await conn.execute(
+                        '''UPDATE users SET premium_until = GREATEST(premium_until, $2)
+                           WHERE user_id = $1 AND premium_until IS NOT NULL''',
+                        beneficiary_id,
+                        obuna["gacha"] + timedelta(hours=OBUNA_ZAXIRA_SOAT))
+                if not obuna.get("ikkinchi"):
+                    await conn.execute(_OBUNA_YOZ_SQL, beneficiary_id, charge_id,
+                                       obuna.get("gacha"), int(stars),
+                                       bool(obuna.get("yangi")))
             return True
+
+
+# Birinchi to'lov — obunaning `charge_id` si almashadi (yangi obuna);
+# yangilanishda u QOLADI, faqat `oxirgi_charge` va keyingi sana suriladi.
+_OBUNA_YOZ_SQL = '''
+    INSERT INTO pro_obuna (user_id, charge_id, oxirgi_charge, holat, keyingi, narx)
+    VALUES ($1, $2, $2, 'faol', $3, $4)
+    ON CONFLICT (user_id) DO UPDATE SET
+        charge_id = CASE WHEN $5::boolean THEN EXCLUDED.charge_id
+                         ELSE pro_obuna.charge_id END,
+        oxirgi_charge = EXCLUDED.oxirgi_charge,
+        holat = 'faol', keyingi = EXCLUDED.keyingi, narx = EXCLUDED.narx,
+        yangilangan = NOW()
+'''
+
+
+@with_db_retry()
+async def pro_obuna_ol(user_id: int) -> Optional[Dict[str, Any]]:
+    """Obuna holati yoki None (hech qachon obuna bo'lmagan)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            'SELECT charge_id, oxirgi_charge, holat, keyingi, narx '
+            'FROM pro_obuna WHERE user_id = $1', user_id)
+    return dict(r) if r else None
+
+
+@with_db_retry()
+async def pro_obuna_holat(user_id: int, holat: str) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE pro_obuna SET holat = $2, yangilangan = NOW() WHERE user_id = $1',
+            user_id, holat)
 
 
 _KARTA_FAOL = ('kutmoqda', 'tekshirilmoqda', 'rad')
@@ -4645,6 +4720,10 @@ async def take_expiry_reminders(within_days: int = 3) -> List[Dict[str, Any]]:
                  AND premium_until BETWEEN NOW()
                                        AND NOW() + make_interval(days => $1::int)
                  AND premium_reminded_for IS DISTINCT FROM premium_until
+                 -- Faol obuna o'zi uzayadi: «tugayapti, uzaytiring» deyish
+                 -- ikkinchi xaridga undardi (pul ikki marta yechiladi).
+                 AND NOT EXISTS (SELECT 1 FROM pro_obuna o
+                                  WHERE o.user_id = users.user_id AND o.holat = 'faol')
                RETURNING user_id, premium_until, plan_type''',
             int(within_days),
         )

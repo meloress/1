@@ -37,6 +37,7 @@ from core.config import (
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     CUSTOM_EMOJI, emoji_id, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
     BTN_LINK, KARTA_NARX, ADMIN_USERNAME, TIMEZONE,
+    OBUNA_DAVR, OBUNA_KUN, OBUNA_NARX,
 )
 from db import database
 from services import menu as menu_module
@@ -301,15 +302,52 @@ def parse_payload(payload: str) -> tuple[int, int] | None:
     return days, beneficiary
 
 
+# Oylik obuna: "prosub:<versiya>:<foydalanuvchi>:<narx>". Narx payload
+# ICHIDA: har oylik yangilanish o'sha (obuna bo'lgan paytdagi) narxda
+# keladi — keyin OBUNA_NARX o'zgarsa ham eski obunachining to'lovi
+# «narx mos emas» deb rad etilmasin. Payloadni faqat bot yasaydi
+# (createInvoiceLink), ya'ni narxni foydalanuvchi tanlay olmaydi.
+def build_obuna_payload(user_id: int, stars: int) -> str:
+    return f"prosub:{PRO_PAYLOAD_VERSION}:{user_id}:{stars}"
+
+
+def parse_obuna_payload(payload: str) -> tuple[int, int] | None:
+    """(foydalanuvchi_id, narx) yoki None. parse_payload kabi SOF."""
+    try:
+        tag, version, uid_raw, stars_raw = payload.split(":")
+        uid, stars = int(uid_raw), int(stars_raw)
+    except (ValueError, AttributeError):
+        return None
+    if tag != "prosub" or version != PRO_PAYLOAD_VERSION:
+        return None
+    # 10 000 — Telegram'ning obuna narxi chegarasi.
+    if uid <= 0 or not 1 <= stars <= 10000:
+        return None
+    return uid, stars
+
+
+def vaqt_html(dt: datetime, fmt: str = "d") -> str:
+    """Bot API 9.5 `date_time`: Telegram sanani har kimga O'Z vaqt
+    mintaqasi va tilida ko'rsatadi; ichidagi matn — eski mijozlar uchun."""
+    return (f'<tg-time unix="{int(dt.timestamp())}" format="{fmt}">'
+            f'{dt.astimezone(TIMEZONE):%d.%m.%Y}</tg-time>')
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  2. KLAVIATURALAR VA MATNLAR
 # ═══════════════════════════════════════════════════════════════════
 
-def _buy_buttons(beneficiary_id: int | None = None) -> list[list[InlineKeyboardButton]]:
+def _buy_buttons(beneficiary_id: int | None = None,
+                 obuna: bool = False) -> list[list[InlineKeyboardButton]]:
     """Narx tugmalari — 2 ustunli panjara, eng foydalisi yashil rangda.
 
     beneficiary_id — sovg'a uchun (o'ziga bo'lsa None).
+    obuna — tepada «har oy avtomatik» qatori. Sovg'ada HECH QACHON: obuna
+    to'lovchining o'z balansidan har oy yechiladi.
     """
+    if obuna and beneficiary_id is None:
+        return [[btn(f"♻️ Har oy avtomatik · {OBUNA_NARX} ⭐", "pro:obuna",
+                     style=BTN_SUCCESS)]] + _buy_buttons()
     suffix = f":{beneficiary_id}" if beneficiary_id else ""
     # Kun boshiga eng arzon tarif "tavsiya etilgan" sifatida ajratiladi —
     # bu ro'yxatdan HISOBLANADI, qo'lda belgilanmaydi, shuning uchun narx
@@ -411,7 +449,21 @@ def _days_left(premium_until) -> int:
     return max(0, (premium_until - datetime.now(timezone.utc)).days)
 
 
+async def _obuna(user_id: int) -> dict | None:
+    """Obuna holati; baza javob bermasa None — ekran obunasiz chiziladi."""
+    try:
+        return await database.pro_obuna_ol(user_id)
+    except Exception as exc:
+        logger.warning(f"[Pro] obuna holati o'qilmadi (user={user_id}): {exc}")
+        return None
+
+
+def _obuna_faol(ob: dict | None) -> bool:
+    return bool(ob) and ob.get("holat") == "faol"
+
+
 async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    ob = await _obuna(user_id)
     profile = await database.get_full_user_profile(user_id)
     plan_type = (profile or {}).get('plan_type') or 'free'
     premium_until = (profile or {}).get('premium_until')
@@ -432,6 +484,25 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         )
         return text, InlineKeyboardMarkup(inline_keyboard=[
             [btn("🎁 Do'stga sovg'a qilish", "pro:gift", style=BTN_PRIMARY)],
+            [btn("✖️ Yopish", "pro:close", style=BTN_DANGER)],
+        ])
+
+    if plan_type != 'free' and _obuna_faol(ob):
+        # Obuna o'zi uzayadi: «uzaytiring» va narx tugmalari ikkinchi
+        # to'lovga undardi — o'rniga keyingi yechish sanasi va o'chirish.
+        keyingi = (f"Keyingi to'lov: <b>{vaqt_html(ob['keyingi'])}</b> · {ob['narx']} ⭐\n"
+                   if ob.get("keyingi") else "")
+        text = (
+            f"💎 <b>PRO TARIFINGIZ FAOL</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{_progress_ring(_days_left(premium_until), obuna=True)}\n\n"
+            f"<blockquote>♻️ <b>Oylik obuna yoqilgan</b> — Pro har oy o'zi uzayadi.\n"
+            f"{keyingi}"
+            f"O'chirsangiz, to'langan muddat oxirigacha ishlaydi.</blockquote>"
+        )
+        return text, InlineKeyboardMarkup(inline_keyboard=[
+            [btn("🎁 Do'stga sovg'a qilish", "pro:gift")],
+            [btn("🔕 Avtomatik to'lovni o'chirish", "pro:obuna_bekor")],
             [btn("✖️ Yopish", "pro:close", style=BTN_DANGER)],
         ])
 
@@ -467,7 +538,7 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     # bitta tanlovli menyu ma'nosiz, Stars muddatlari darrov chiqadi.
     tolov = ([[btn("⭐️ Stars orqali", "pro:stars", style=BTN_PRIMARY)],
               [btn("💳 Karta orqali (so'mda)", "pro:kartalar", style=BTN_PRIMARY)]]
-             if karta_bor else _buy_buttons())
+             if karta_bor else _buy_buttons(obuna=True))
     rows = tolov + extra + [[btn("✖️ Yopish", "pro:close", style=BTN_DANGER)]]
     return header, InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -490,7 +561,7 @@ async def _tugmalarni_almashtir(query: CallbackQuery, kb: InlineKeyboardMarkup,
 _RING_SCALE = 30    # bir oy — chiziqchaning to'liq uzunligi
 
 
-def _progress_ring(days_left: int) -> str:
+def _progress_ring(days_left: int, obuna: bool = False) -> str:
     """Qolgan muddatni vizual chiziqcha bilan ko'rsatadi.
 
     Mos yozuvlar nuqtasi — BIR OY, eng uzun tarif emas. Aks holda yillik
@@ -500,7 +571,9 @@ def _progress_ring(days_left: int) -> str:
     """
     filled = max(1, min(10, round(min(days_left, _RING_SCALE) / _RING_SCALE * 10)))
     bar = "█" * filled + "░" * (10 - filled)
-    if days_left <= 3:
+    if obuna:
+        warn = ""            # o'zi uzayadi — «tugayapti» yolg'on bo'lardi
+    elif days_left <= 3:
         warn = "\n\n⚠️ <b>Muddat tugayapti — hozir uzaytiring!</b>"
     elif days_left <= 7:
         warn = "\n\n🔔 Bir haftadan kam qoldi."
@@ -545,6 +618,19 @@ async def _send_invoice(chat_id: int, days: int, beneficiary_id: int,
 #  4. TO'LOV OQIMI
 # ═══════════════════════════════════════════════════════════════════
 
+def tolov_shartlari(payload: str) -> tuple[int, int, int, bool] | None:
+    """(kun, oluvchi, kutilgan narx, obunami) — bir martalik xarid ham, oylik
+    obuna ham. pre_checkout va successful_payment BIR XIL shartni o'qisin."""
+    ob = parse_obuna_payload(payload)
+    if ob:
+        return OBUNA_KUN, ob[0], ob[1], True
+    parsed = parse_payload(payload)
+    if parsed is None:
+        return None
+    days, beneficiary = parsed
+    return days, beneficiary, PRO_PLANS_BY_DAYS[days][0], False
+
+
 async def handle_pre_checkout(query: PreCheckoutQuery):
     """Telegram'ning oxirgi so'rovi: "shu to'lovni qabul qilamizmi?"
 
@@ -552,16 +638,20 @@ async def handle_pre_checkout(query: PreCheckoutQuery):
     bo'ladi. Shuning uchun majburiy ish faqat sof payload tekshiruvi;
     bazaga murojaat qat'iy timeout ichida va FAIL-OPEN.
     """
-    parsed = parse_payload(query.invoice_payload or "")
-    if parsed is None:
+    shart = tolov_shartlari(query.invoice_payload or "")
+    if shart is None:
         await query.answer(
             ok=False,
             error_message="To'lov ma'lumoti eskirgan. /pro dan qayta boshlang.",
         )
         return
 
-    days, beneficiary = parsed
-    stars, _, _ = PRO_PLANS_BY_DAYS[days]
+    days, beneficiary, stars, obuna = shart
+    if obuna and query.from_user.id != beneficiary:
+        # Obuna to'lovchining O'Z balansidan har oy yechiladi — boshqaning
+        # obuna havolasini ochgan odam unga yashirin oylik to'lovchi bo'lmasin.
+        await query.answer(ok=False, error_message="Bu obuna havolasi sizniki emas. /pro dan oching.")
+        return
     if query.total_amount != stars:
         # Telefonda osilib qolgan eski invoice, narx esa o'zgargan.
         await query.answer(
@@ -710,8 +800,10 @@ async def handle_successful_payment(message: Message):
     charge_id = sp.telegram_payment_charge_id
     payload = sp.invoice_payload or ""
 
-    parsed = parse_payload(payload)
-    if parsed is None:
+    shart = tolov_shartlari(payload)
+    if shart is not None and shart[3] and shart[1] != payer:
+        shart = None         # obuna faqat o'ziga (pre_checkout ham shuni tekshiradi)
+    if shart is None:
         # Pul olindi, lekin nima sotganimizni bilmaymiz. JIM QOLMAYMIZ.
         await _alert_admin(payer, charge_id, payload, sp.total_amount, "payload noto'g'ri")
         await _safe_send(message, (
@@ -722,13 +814,12 @@ async def handle_successful_payment(message: Message):
         ))
         return
 
-    days, beneficiary = parsed
+    days, beneficiary, expected_stars, is_obuna = shart
 
     # ⚠️ CHUQUR HIMOYA: pre_checkout allaqachon tekshirgan, lekin grant —
     # bu pul evaziga xizmat berish nuqtasi, shuning uchun bu yerda ham
     # mustaqil tekshiramiz. Agar biror kun payloadni yasash yoki
     # pre_checkout mantiqi buzilsa, bu yerda to'xtaydi.
-    expected_stars, _, _ = PRO_PLANS_BY_DAYS[days]
     if sp.currency != "XTR" or sp.total_amount != expected_stars:
         logger.error(
             f"[Pro] TO'LOV MOS EMAS: currency={sp.currency!r} "
@@ -744,10 +835,24 @@ async def handle_successful_payment(message: Message):
         ))
         return
 
+    obuna = None
+    if is_obuna:
+        gacha = (datetime.fromtimestamp(sp.subscription_expiration_date, timezone.utc)
+                 if sp.subscription_expiration_date else None)
+        yangi = bool(sp.is_first_recurring)
+        eski = await _obuna(payer)
+        # Ikkinchi parallel obuna (ikki havola ochib ikkalasini to'lagan):
+        # Telegram ikkalasini ham har oy yechardi. Bu to'lov o'z 30 kunini
+        # beradi, obunaning O'ZI esa pastda o'chiriladi.
+        ikkinchi = (yangi and _obuna_faol(eski) and eski["charge_id"] != charge_id
+                    and (eski.get("keyingi") is None
+                         or eski["keyingi"] > datetime.now(timezone.utc)))
+        obuna = {"gacha": gacha, "yangi": yangi, "ikkinchi": ikkinchi}
+
     try:
         fresh = await database.grant_paid_pro(
             charge_id=charge_id, payer_id=payer, beneficiary_id=beneficiary,
-            stars=sp.total_amount, days=days, payload=payload,
+            stars=sp.total_amount, days=days, payload=payload, obuna=obuna,
         )
     except Exception as e:
         logger.exception(f"[Pro] grant_paid_pro muvaffaqiyatsiz (charge={charge_id}): {e}")
@@ -772,7 +877,118 @@ async def handle_successful_payment(message: Message):
     # OLUVCHIga qo'yiladi.
     await menu_module.sync_commands(beneficiary, True)
 
+    if obuna is not None:
+        if obuna["ikkinchi"]:
+            await _obuna_charge_toxtat(payer, [charge_id])
+        await _notify_obuna(message, charge_id, obuna)
+        return
     await _notify_purchase(message, payer, beneficiary, days, charge_id)
+
+
+async def _obuna_charge_toxtat(user_id: int, charge_ids: list) -> bool:
+    """Telegram'da avtomatik yechishni o'chiradi (birinchi ishlagan chek bilan).
+    ⚠️ Qaytarib yoqib bo'lmaydi: `is_canceled=False` faqat foydalanuvchiga
+    «qayta yoqish» huquqini qaytaradi, o'zi yoqmaydi."""
+    for cid in dict.fromkeys(c for c in charge_ids if c):
+        try:
+            await bot.edit_user_star_subscription(
+                user_id=user_id, telegram_payment_charge_id=cid, is_canceled=True)
+            return True
+        except Exception as exc:
+            logger.warning(f"[Obuna] o'chirilmadi user={user_id} charge={cid}: {exc}")
+    return False
+
+
+async def obuna_toxtat(user_id: int) -> bool:
+    """Faol obunani o'chiradi: foydalanuvchi so'rasa, pul qaytarilsa yoki blok
+    bo'lsa (har oy pul olib xizmat bermaslik — qaytarish manbai). Obuna
+    bo'lmasa False. Hech qachon ko'tarilmaydi — chaqiruvchining asosiy ishi
+    (refund, blok) bu sabab yiqilmasin."""
+    try:
+        ob = await database.pro_obuna_ol(user_id)
+        if not ob or ob["holat"] in ("bekor", "bot_bekor"):
+            return False
+        ok = await _obuna_charge_toxtat(user_id, [ob["charge_id"], ob["oxirgi_charge"]])
+        if ok:
+            await database.pro_obuna_holat(user_id, "bot_bekor")
+        else:
+            await _alert_admin(user_id, ob["charge_id"], "", ob["narx"],
+                               "oylik obuna o'chirilmadi — Telegram rad etdi")
+        return ok
+    except Exception:
+        logger.exception(f"[Obuna] obuna_toxtat yiqildi user={user_id}")
+        return False
+
+
+async def _notify_obuna(message: Message, charge_id: str, obuna: dict) -> None:
+    """Birinchi to'lov — bayram xabari; har oylik yangilanish — bitta qisqa
+    satr (har oy 🎉 bezovta qiladi)."""
+    keyingi = (f"Keyingi to'lov: <b>{vaqt_html(obuna['gacha'])}</b> · {OBUNA_NARX} ⭐"
+               if obuna.get("gacha") else "")
+    if obuna["ikkinchi"]:
+        await _safe_send(message, (
+            f"✅ To'lov qabul qilindi — Pro'ga <b>+{OBUNA_KUN} kun</b> qo'shildi.\n\n"
+            f"Sizda oylik obuna <b>allaqachon bor edi</b>, shuning uchun bu ikkinchisining "
+            f"avtomatik to'lovini o'chirdim — har oy ikki marta yechilmaydi.\n"
+            f"🧾 Chek: <code>{charge_id}</code>"))
+        return
+    if not obuna["yangi"]:
+        await send_rich(message, (
+            f"♻️ <b>Pro obunangiz yangilandi</b> — +{OBUNA_KUN} kun.\n"
+            + (f"{keyingi}\n" if keyingi else "")
+            + f"<i>O'chirish: /pro</i>"))
+        return
+    await send_rich(message, (
+        f"🎉 <b>OYLIK OBUNA FAOLLASHTIRILDI!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<blockquote>"
+        f"♻️ Pro har oy <b>o'zi uzayadi</b> — {OBUNA_NARX} ⭐ Stars balansingizdan.\n"
+        + (f"{keyingi}\n" if keyingi else "")
+        + f"⚡️ Kunlik ball: <b>{daily_limit('pro', 'points')}</b>\n"
+        f"🧠 Chuqur fikrlash va uzun xotira: <b>yoqildi</b>"
+        f"</blockquote>\n\n"
+        f"🔕 O'chirish istalgan payt: /pro → «Avtomatik to'lovni o'chirish». "
+        f"To'langan muddat oxirigacha ishlaydi.\n\n"
+        f"🧾 <b>Chek:</b> <code>{charge_id}</code>"
+    ), kb=InlineKeyboardMarkup(inline_keyboard=[
+        [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)],
+        admin_tugmasi(),
+    ]), effect=MESSAGE_EFFECTS.get("🎉"))
+
+
+_OBUNA_HOLAT = {"canceled": "bekor", "active": "faol", "failed": "xato"}
+
+
+async def handle_obuna_ozgardi(event) -> None:
+    """`Update.subscription` (Bot API 10.2): foydalanuvchi obunani Telegram
+    sozlamalarida o'chirdi / qayta yoqdi, yoki yechish o'tmadi."""
+    ob = parse_obuna_payload(event.invoice_payload or "")
+    holat = _OBUNA_HOLAT.get(event.state)
+    if ob is None or holat is None:
+        logger.warning(f"[Obuna] noma'lum o'zgarish: {event.state} {event.invoice_payload!r}")
+        return
+    uid = event.user.id
+    try:
+        await database.pro_obuna_holat(uid, holat)
+    except Exception:
+        logger.exception(f"[Obuna] holat yozilmadi user={uid} {holat}")
+    gacha = ""
+    try:
+        until = (await database.get_full_user_profile(uid) or {}).get("premium_until")
+        if until:
+            gacha = f" Pro <b>{vaqt_html(until)}</b> gacha ishlaydi."
+    except Exception:
+        pass
+    matn = {
+        "bekor": f"🔕 <b>Oylik obuna o'chirildi.</b>{gacha}\nQayta yoqish: /pro",
+        "faol": "🔔 <b>Oylik obuna qayta yoqildi</b> — Pro har oy o'zi uzayadi.",
+        "xato": (f"⚠️ <b>Obuna to'lovi o'tmadi</b> — Stars balansida yetarli yulduz "
+                 f"bo'lmagan bo'lishi mumkin.{gacha}\nDavom ettirish: /pro"),
+    }[holat]
+    try:
+        await bot.send_message(uid, matn, parse_mode="HTML")
+    except Exception as exc:
+        logger.info(f"[Obuna] xabar yetmadi user={uid}: {exc}")
 
 
 async def _notify_purchase(message: Message, payer: int, beneficiary: int,
@@ -1799,6 +2015,48 @@ async def process_promo_code(message: Message, state: FSMContext):
 #  8. CALLBACK ROUTER
 # ═══════════════════════════════════════════════════════════════════
 
+async def _obuna_taklif(query: CallbackQuery, user_id: int) -> None:
+    """Obuna havolasi. ⚠️ `send_invoice` obuna qila olmaydi — faqat
+    createInvoiceLink (`subscription_period`), ya'ni URL tugma."""
+    try:
+        if await database.is_banned(user_id):
+            await query.message.answer(BAN_MATNI, reply_markup=admin_kb())
+            return
+    except Exception as exc:
+        logger.warning(f"[Obuna] ban tekshiruvi o'tmadi: {exc}")
+    if _obuna_faol(await _obuna(user_id)):
+        await query.message.answer("♻️ Oylik obunangiz allaqachon yoqilgan — /pro")
+        return
+    try:
+        havola = await bot.create_invoice_link(
+            title="Pro — oylik obuna",
+            description=(f"Har 30 kunda {OBUNA_NARX} ⭐ · {daily_limit('pro', 'points')} "
+                         f"ball/kun · chuqur fikrlash · 2× xotira"),
+            payload=build_obuna_payload(user_id, OBUNA_NARX),
+            provider_token="", currency="XTR",
+            prices=[LabeledPrice(label="Pro · 1 oy", amount=OBUNA_NARX)],
+            subscription_period=OBUNA_DAVR,
+        )
+    except Exception as exc:
+        logger.error(f"[Obuna] havola yasalmadi: {exc}")
+        await query.message.answer(
+            "⚠️ <b>Obuna oynasini ochib bo'lmadi.</b>\n\nBirozdan keyin qayta urinib "
+            "ko'ring." + ADMIN_IZOH, parse_mode="HTML", reply_markup=admin_kb())
+        return
+    await send_rich(query.message, (
+        f"♻️ <b>PRO — OYLIK OBUNA</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<blockquote>"
+        f"⭐️ Har 30 kunda <b>{OBUNA_NARX} ⭐</b> Stars balansingizdan o'zi yechiladi.\n"
+        f"⏳ Pro uzilmaydi — muddatni eslab, qayta sotib olish shart emas.\n"
+        f"🔕 Istalgan payt o'chirasiz: /pro yoki Telegram → Sozlamalar → Stars."
+        f"</blockquote>"
+    ), kb=InlineKeyboardMarkup(inline_keyboard=[
+        [btn(f"⭐️ Obuna bo'lish — {OBUNA_NARX} ⭐/oy", "", url=havola, style=BTN_SUCCESS)],
+        [btn("✖️ Yopish", "pro:close", style=BTN_DANGER)],
+    ]))
+
+
 async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
     data = query.data or ""
     parts = data.split(":")
@@ -1872,7 +2130,38 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
     if action == "stars":
         await query.answer()
         await _tugmalarni_almashtir(query, InlineKeyboardMarkup(
-            inline_keyboard=_buy_buttons() + [_ORQAGA]), "⭐️ <b>Muddatni tanlang:</b>")
+            inline_keyboard=_buy_buttons(obuna=not _obuna_faol(await _obuna(user_id)))
+            + [_ORQAGA]), "⭐️ <b>Muddatni tanlang:</b>")
+        return
+
+    if action == "obuna":
+        await query.answer()
+        await _obuna_taklif(query, user_id)
+        return
+
+    if action == "obuna_bekor":
+        await query.answer()
+        if len(parts) < 3 or parts[2] != "ha":
+            # Tasdiq — bitta tasodifiy bosish oylik to'lovni o'chirib yubormasin.
+            await _tugmalarni_almashtir(query, InlineKeyboardMarkup(inline_keyboard=[
+                [btn("🔕 Ha, o'chirilsin", "pro:obuna_bekor:ha", style=BTN_DANGER)],
+                [btn("⬅️ Yo'q, qolsin", "pro:usul")],
+            ]), "🔕 Avtomatik to'lov o'chirilsinmi?")
+            return
+        if await obuna_toxtat(user_id):
+            until = ((await database.get_full_user_profile(user_id)) or {}).get("premium_until")
+            gacha = f" Pro <b>{vaqt_html(until)}</b> gacha ishlaydi." if until else ""
+            await send_rich(query.message, (
+                f"🔕 <b>Avtomatik to'lov o'chirildi.</b>{gacha}\n\n"
+                f"Fikringiz o'zgarsa — /pro dan qayta obuna bo'lasiz."))
+        else:
+            await _safe_send(query.message, (
+                "⚠️ <b>Obunani o'chirib bo'lmadi.</b>\n\nTelegram → Sozlamalar → "
+                "Telegram Stars → obunalar bo'limidan o'chirsa ham bo'ladi."))
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
         return
 
     if action == "usul":

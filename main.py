@@ -154,6 +154,10 @@ async def main():
     # ta'til yoqilgan paytda kelsa ham qabul qilinishi shart.
     dp.message.register(pro_module.handle_successful_payment, F.successful_payment)
     dp.pre_checkout_query.register(pro_module.handle_pre_checkout)
+    # Oylik obuna o'chirildi / qayta yoqildi / yechish o'tmadi (Bot API 10.2).
+    # Alohida update turi — tartib ahamiyatsiz; ro'yxatdan o'tgani
+    # `resolve_used_update_types()` ga "subscription" ni qo'shadi.
+    dp.subscription.register(pro_module.handle_obuna_ozgardi)
 
     # ⚠️ Admin handlerlari TO'LOVDAN KEYIN. Ular ham `dp.message` da va
     # ichida kontent filtrisiz FSM holati bor (report: ODDIY foydalanuvchi

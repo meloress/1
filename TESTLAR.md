@@ -42,6 +42,12 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_qidiruv.py` — web search asks ddgs for `QIDIRUV_BACKEND`, not `auto` (dead engines
   on Railway's IP, `CHAT.md`); the 2-4 queries of one search run in parallel but their
   results keep query order; an all-empty answer is retried once with `auto`.
+- `test_pro_obuna.py` — the monthly Stars subscription: someone else's `prosub:` link cannot
+  be paid (pre_checkout) nor granted (successful_payment); a renewal is a short message, not
+  🎉; a second concurrent subscription is cancelled; `grant_paid_pro(obuna=…)` lifts Pro to
+  the next charge + `OBUNA_ZAXIRA_SOAT` and upserts `pro_obuna` (not for the second one); no
+  «tugayapti» reminder for an active subscriber; the reminder tool asks for `DD.MM.YYYY
+  HH:MM` so the answer's time becomes `<tg-time format="wDt">`.
 - `test_reasoning_effort.py` — `none` (no thinking) only when the **whole** message is a
   greeting/thanks; "hisobla 17*23", "noto'g'ri javob berding", "ha" used to get `none` by
   prefix. A short message after earlier turns is one level above the previous questions

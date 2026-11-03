@@ -261,6 +261,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   TIMESTAMPTZ comes back in UTC. Since 2026-10-31 `pro.stars_solishtir()` compares
   Telegram's own Stars list (both bots) with `star_payments` once a day — a missed grant
   reaches the superadmin instead of hiding for weeks.
+- **Monthly Stars subscription** (2026-11-03) — every renewal is an ordinary
+  `successful_payment` through `grant_paid_pro`; the price lives in the `prosub:` payload,
+  and Pro is lifted to the next charge + 24 h so nothing else needed subscription logic.
+  The bot can cancel a subscription but never re-enable it.
 - **FSM is RAM (`MemoryStorage`)** — every deploy wipes it. A state that guards money needs
   a database fallback: the karta receipt is matched by `karta_chek_kutilmoqda()` when the
   state is gone, or a paid receipt goes to the AI as a photo question.

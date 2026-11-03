@@ -746,7 +746,9 @@ def _replace_dates(text: str) -> str:
 
     def fmt_datetime(dt: datetime, original: str, has_time: bool) -> str:
         unix = int(dt.timestamp())
-        fmt = "wDT" if has_time else "d"
+        # `T` EMAS, `t`: «T» soniyani ham ko'rsatadi («18:00:00») — manbada
+        # soniya yo'q, ya'ni u yolg'on aniqlik.
+        fmt = "wDt" if has_time else "d"
         return f'<tg-time unix="{unix}" format="{fmt}">{html_escape(original)}</tg-time>'
 
     def repl_iso(match):
@@ -4162,6 +4164,9 @@ async def _biznes_mavzusimi(user_id: int, thread_id: int) -> bool:
     return await biznes_mavzumi(user_id, thread_id)
 
 
+_ESLATMA_VAQT_RE = re.compile(r"qo'yildi: (\d{4}-\d{2}-\d{2} \d{2}:\d{2})")
+
+
 async def _run_reminder_task(user_id: Optional[int], args: dict, *,
                              is_pro: bool = True, thread_id: int = 0) -> str:
     """manage_reminder chaqiruvi — modelga qisqa MATN natija qaytaradi.
@@ -4188,10 +4193,21 @@ async def _run_reminder_task(user_id: Optional[int], args: dict, *,
                         "faqat Pro'da (/pro). Bepulda bir martalik eslatma "
                         "qo'yish mumkin — foydalanuvchiga shuni ayting va "
                         "xohlasa bir martalik qilib qo'ying.")
-            return await create_scheduled_task(
+            natija = await create_scheduled_task(
                 user_id, args.get("text", ""), args.get("when", ""),
                 args.get("repeat", "once"), vazifa=args.get("task") is True,
                 thread_id=thread_id)
+            # Javobdagi to'liq sana `_replace_dates()` da <tg-time> bo'ladi:
+            # Telegram uni har kimga O'Z vaqt mintaqasida, hafta kuni bilan
+            # ko'rsatadi (Bot API 9.5). Model esa odatda «ertaga 18:00 da»
+            # deydi — sanasiz, ya'ni aylanmaydi; aniq shakl shu yerda beriladi.
+            m = _ESLATMA_VAQT_RE.match(natija)
+            if m:
+                vaqt = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M")
+                natija += (f". Javobda vaqtni AYNAN «{vaqt:%d.%m.%Y %H:%M}» shaklida "
+                           "yozing («ertaga, …» deb boshlasa ham bo'ladi) — Telegram "
+                           "uni foydalanuvchiga o'z vaqtida ko'rsatadi")
+            return natija
 
         rows = await list_scheduled_tasks(user_id)
         if action == "list":
