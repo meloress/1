@@ -144,11 +144,21 @@ async def hech(*a, **k):
 
 
 class Holat:
+    # Haqiqiy FSMContext kabi: `_band()` vaqt va kalitni ma'lumotga yozadi.
+    def __init__(self):
+        self.d = {}
+
     async def set_state(self, s):
         pass
 
+    async def update_data(self, **k):
+        self.d.update(k)
+
+    async def get_data(self):
+        return dict(self.d)
+
     async def clear(self):
-        pass
+        self.d = {}
 
 
 hm.bot = Bot()

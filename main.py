@@ -300,6 +300,9 @@ async def main():
     # Avtomatik texnik ta'til: o'zi yoqqanini tuzalgach o'zi o'chiradi.
     from services import avto_tatil
     asyncio.create_task(avto_tatil.kuzatuvchi())
+    # Deploydan keyin: uzilgan javoblar egasiga «Qayta so'rash» + o'zini tekshirish.
+    from handlers import tiklanish
+    asyncio.create_task(tiklanish.ishga_tushganda())
     # Telegram Business (REJA.md 4.1): kunlik kartoteka va tozalash. «Javob
     # kutmoqda» ogohlantirishi 2026-10-06 da egasining so'rovi bilan o'chirildi.
     asyncio.create_task(biznes_module.biznes_hisobot_watcher())

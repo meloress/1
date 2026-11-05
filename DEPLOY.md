@@ -70,6 +70,11 @@ serviceId})` → `node.meta.commitHash` / `commitMessage` / `createdAt` (UTC; Ta
 UTC+5). Use it before concluding anything from a screenshot — a table complaint was
 nearly misdiagnosed because it was unclear whether the fix had deployed yet.
 
+About two minutes after a deploy starts, the bot itself sends the superadmin a message
+(`handlers/tiklanish.py`, 2026-11-05): a silent «✅ Deploy ishga tushdi · `<hash>`», or a
+«❌» that names the part that failed (database / OpenAI / Telegram / sandbox / panel). The
+same message also says how many cut-off replies got a «Qayta so'rash».
+
 ⚠️ **Poll that query with `first: 1` and wait for `SUCCESS <the hash you pushed>`.**
 `railway status` right after a push can still report the *previous* deployment's
 `SUCCESS`, which reads as "deployed" when the build has not started.

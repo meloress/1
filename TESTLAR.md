@@ -42,6 +42,22 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_qidiruv.py` — web search asks ddgs for `QIDIRUV_BACKEND`, not `auto` (dead engines
   on Railway's IP, `CHAT.md`); the 2-4 queries of one search run in parallel but their
   results keep query order; an all-empty answer is retried once with `auto`.
+- `test_tiklanish.py` — self-healing.
+  - A stuck `GeneratingState` (older than `BAND_MAX`) is cleared, and the message reaches
+    the **next** router. This runs through a real aiogram `Dispatcher` with `MemoryStorage`,
+    because `SkipHandler` propagation is aiogram's behaviour and no fake would prove it.
+  - A stuck request that finishes late does not clear its replacement's state.
+  - A reply killed by a deploy:
+    - one message per chat;
+    - points refunded for every row;
+    - the «Qayta so'rash» button goes through the existing `failed_requests` / `retry:<chat>`
+      path, topic kept;
+    - nothing at all happens off Railway.
+  - The deploy self-check sends a silent ✅ to the superadmin, or a loud ❌ to the superadmin
+    and the watch group.
+  - Source guards: `GeneratingState` is set only in `_band()`, and the queue is woken only
+    behind `_bosh()`.
+  - The SQL was run on pgserver.
 - `test_avto_tatil.py` — maintenance that turns itself on. Its sharpest checks guard
   against the bot stopping itself:
   - a per-minute 429, 5xx, timeouts and dropped connections never count;

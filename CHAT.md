@@ -231,6 +231,40 @@ While a reply is generating, `busy_handler` (`GeneratingState.generating`) **app
 
 `_next_or_stop()` enforces `STREAM_IDLE_TIMEOUT` (180s) — an **idle** limit, not a total one. A file task or a deep research legitimately goes minutes without emitting a chunk, and a total budget would kill exactly the work that needs it. On timeout a partial answer is still delivered (with a note); with nothing at all it raises, and the caller's existing `except` gives the user a clean error plus the retry button and refunds the points.
 
+**Self-healing (2026-11-05)**
+
+Every path sets the state through `_band()` and clears it through `_bosh()`.
+`tests/test_tiklanish.py` 12-13 fail on a bare `set_state` / `state.clear()` pair.
+
+- **A stuck state clears itself.**
+  - `_band()` writes `band_vaqt` and a per-request `band_kalit` into the FSM data.
+  - When `busy_handler` sees a state older than `BAND_MAX` (15 min), it clears the state and
+    raises `SkipHandler`. The message then falls through to `general_router`, the next
+    router. Before this, a reply that hung without raising locked the user into "Iltimos
+    kuting" until the next deploy.
+  - `BAND_MAX` is deliberately far above any real reply: there is no total budget, only
+    the idle one.
+  - `_bosh()` clears only its **own** state. A stuck request that finishes late must not
+    switch off the guard of the request that replaced it, or that request would get a
+    parallel twin.
+- **A reply killed by a deploy is not lost.** `_band()` also writes the request to
+  `jarayondagi_javob`, and `_bosh()` deletes the row. A new process waits `KECHIKISH` (120 s)
+  before acting, because old and new containers overlap for a few seconds. It then takes
+  every row left by other processes (one `DELETE … RETURNING`) and acts on the rows newer
+  than 30 min:
+  - it refunds the points (`narx`, 0 for unlimited plans);
+  - it tells each chat once that the reply was cut off;
+  - for text, it puts the question into `failed_requests`, so the ordinary «↻ Qayta so'rash»
+    button works unchanged.
+  - The research counter is not refunded (`ponytail:` in the code).
+  - ⛔️ This runs **only on Railway** (`RAILWAY_GIT_COMMIT_SHA`): a local run reads the
+    production database and would message production users from the wrong bot.
+- **After every deploy, the bot checks itself** (`ozini_tekshir()` in `handlers/tiklanish.py`).
+  - It checks the database, OpenAI (`avto_tatil.sinov()`), Telegram, the sandbox and the
+    panel, retrying each once.
+  - It sends one message to the superadmin: a silent ✅, or a ❌ that also goes to the
+    watch group and names what broke.
+
 ### Live streaming: what a rejected draft means
 
 `push_update()` writes the accumulating answer to a `sendRichMessageDraft`, throttled to `PUSH_INTERVAL` (1.0s) **and** `PUSH_MIN_CHARS` (100) — with the first chunk forced through, because the wait is felt at the start. Editing per chunk earns a 429 and freezes the stream.

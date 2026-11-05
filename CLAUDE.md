@@ -211,6 +211,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   part is re-split before the plain fallback. Fences become `<pre><code>` (Telegram Web
   cannot show them), but not on the plain fallback; >30 lines leave as a file.
 - **Queue** — every path that sets `GeneratingState` wakes the queue in its `finally`.
+  The state is set only through `_band()` and cleared only through `_bosh()`. A state stuck
+  for longer than 15 min clears itself. A reply killed by a deploy gets a «Qayta so'rash»
+  button and its points back. After each deploy the bot checks itself and sends one message
+  (`handlers/tiklanish.py`). Both run on Railway only.
 - **Streaming** — one failed draft ping is not proof the draft is dead (`rich_draft_ok`).
 - **Tool names / model list** — `INTERNAL_TOOL_NAMES` lists every tool, doors included;
   `GPT_MODEL`/fallbacks stay on OpenAI's free list (`test_free_models.py`).

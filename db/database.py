@@ -297,6 +297,22 @@ async def create_users_table():
                 ADD COLUMN IF NOT EXISTS maintenance_avto TEXT,
                 ADD COLUMN IF NOT EXISTS maintenance_vaqt TIMESTAMPTZ
         ''')
+        # Hozir yozilayotgan javoblar (2026-11-05, `handlers/tiklanish.py`).
+        # Javob boshida yoziladi, oxirida o'chiriladi — deploy jarayonni
+        # o'ldirsa qatori QOLADI va yangi jarayon egasiga «uzilib qoldi»
+        # deydi. `jarayon` — qaysi jarayonniki (har ishga tushishda yangi).
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS jarayondagi_javob (
+                kalit     TEXT PRIMARY KEY,
+                jarayon   TEXT NOT NULL,
+                chat_id   BIGINT NOT NULL,
+                thread_id BIGINT NOT NULL DEFAULT 0,
+                user_id   BIGINT NOT NULL,
+                prompt    TEXT,
+                narx      INTEGER NOT NULL DEFAULT 0,
+                boshlandi TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        ''')
         # Karta orqali to'lov (2026-10-30) — panel → Sozlamalar → Karta,
         # faqat superadmin yozadi. NULL = karta tugmasi umuman chiqmaydi.
         await conn.execute('''
@@ -1192,6 +1208,48 @@ async def maintenance_avto_yoq(sabab: str) -> bool:
                    maintenance_vaqt = NOW()
                WHERE id = 1 AND NOT COALESCE(maintenance_active, FALSE)
                RETURNING 1''', sabab))
+
+
+@with_db_retry()
+async def jarayon_boshlandi(kalit: str, jarayon: str, chat_id: int, thread_id: int,
+                            user_id: int, prompt: Optional[str], narx: int) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''INSERT INTO jarayondagi_javob
+                   (kalit, jarayon, chat_id, thread_id, user_id, prompt, narx)
+               VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (kalit) DO NOTHING''',
+            kalit, jarayon, int(chat_id), int(thread_id or 0), int(user_id),
+            prompt, int(narx or 0))
+
+
+@with_db_retry()
+async def jarayon_tugadi(kalit: str) -> None:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('DELETE FROM jarayondagi_javob WHERE kalit = $1', kalit)
+
+
+@with_db_retry()
+async def uzilgan_javoblar(jarayon: str, daqiqa: int) -> list:
+    """BOSHQA jarayonlarning qolgan qatorlari — ular o'lgan (deploy/crash).
+    Hammasi o'chiriladi; faqat so'nggi `daqiqa` ichidagisi qaytadi (eskisiga
+    «uzilib qoldi» deyish kech). Bitta `DELETE … RETURNING`: ikki jarayon
+    bir qatorni ikki marta aytmaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''DELETE FROM jarayondagi_javob WHERE jarayon <> $1
+               RETURNING chat_id, thread_id, user_id, prompt, narx, boshlandi,
+                         boshlandi > NOW() - make_interval(mins => $2::int) AS yangi''',
+            jarayon, int(daqiqa))
+        return [dict(r) for r in rows if r['yangi']]
 
 
 @with_db_retry()

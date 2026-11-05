@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import time
+import uuid
 import os
 import re
 import json
@@ -16,6 +17,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
+from aiogram.dispatcher.event.bases import SkipHandler
 
 from core.config import (
     BOT_TOKEN, CONTEXT_WINDOW,
@@ -33,6 +35,7 @@ from db.database import (
     check_and_consume_quota, refund_quota, is_banned, has_started,
 )
 from handlers import pro as pro_module
+from handlers import tiklanish
 from services import menu as menu_module
 from services.file_task_quota import DailyQuota
 from handlers.helpers import (notify_watchers, send_error_with_retry,
@@ -140,8 +143,49 @@ def track_user_activity(user_id: int, username: str | None, event: str) -> None:
 class GeneratingState(StatesGroup):
     generating = State()
 
+
+# «Javob yozilmoqda» holati shundan uzoq tursa — QOTIB QOLGAN deb olinadi.
+# Ilgari javob jarayoni xatosiz osilib qolsa, foydalanuvchi keyingi
+# deploygacha har xabariga «Iltimos kuting» olardi. Butun javobga umumiy
+# vaqt chegarasi yo'q (/research ko'p raundli), shuning uchun keng: eng
+# uzun haqiqiy javobdan ham uzun bo'lishi kerak, aks holda ikkinchi
+# parallel so'rov boshlanadi.
+BAND_MAX = 15 * 60
+
+
+async def _band(state: FSMContext, message: Message, prompt: str | None = None,
+                narx: int = 0) -> str:
+    """`state.set_state(GeneratingState.generating)` ning o'rni.
+
+    Holatga boshlangan vaqt va KALIT yoziladi (qotib qolgani `busy_handler`
+    da tozalanadi), so'rov esa bazaga «jarayonda» deb yoziladi — deploy
+    uni o'ldirsa, yangi jarayon egasiga «javob uzilib qoldi» deydi va
+    ballini qaytaradi (`handlers/tiklanish.py`). `prompt` — «Qayta so'rash»
+    uchun (faqat matn), `narx` — qaytariladigan ball (cheksizda 0)."""
+    kalit = uuid.uuid4().hex
+    await state.set_state(GeneratingState.generating)
+    await state.update_data(band_vaqt=time.time(), band_kalit=kalit)
+    await tiklanish.boshlandi(kalit, message.chat.id, _thread_key(message),
+                              message.from_user.id, prompt, narx)
+    return kalit
+
+
+async def _bosh(state: FSMContext, kalit: str | None) -> bool:
+    """`state.clear()` ning o'rni. Qaytadi: holat SHU so'rovniki edimi —
+    faqat shunda navbat uyg'otiladi. Qotib qolgan eski so'rov kech tugasa,
+    holat allaqachon yangisiniki: uni tozalasa spam-guard javob o'rtasida
+    o'chib, ikkinchi parallel so'rov boshlanardi."""
+    tiklanish.tugadi(kalit)
+    if kalit is not None:
+        egasi = (await state.get_data()).get("band_kalit")
+        if egasi is not None and egasi != kalit:
+            return False
+    await state.clear()
+    return True
+
+
 @router.message(GeneratingState.generating)
-async def busy_handler(message: Message):
+async def busy_handler(message: Message, state: FSMContext | None = None):
     """Javob ketayotganda kelgan xabar — NAVBATGA, tashlanmaydi.
 
     ⚠️ Ilgari bu yerda faqat "Iltimos kuting" javobi bor edi va xabarning
@@ -155,7 +199,17 @@ async def busy_handler(message: Message):
         xato bo'lardi;
       * rasm/hujjat/ovoz — o'z quvuri bor, buferga sig'maydi.
     Ikkalasi ham eski xatti-harakatda qoladi: kutishni so'raymiz.
+
+    Holat `BAND_MAX` dan eski bo'lsa — qotib qolgan: tozalanadi va xabar
+    oddiy handlerga o'tadi (`SkipHandler` → keyingi router).
     """
+    boshlangan = (await state.get_data()).get("band_vaqt") if state else None
+    if boshlangan and time.time() - boshlangan > BAND_MAX:
+        logger.warning(f"[Holat] chat={message.chat.id}: javob holati "
+                       f"{int(time.time() - boshlangan)} s qotib qolgan — tozalandi")
+        await state.clear()
+        raise SkipHandler()
+
     matn = (message.text or "").strip()
     if matn and not matn.startswith("/"):
         chat_id = message.chat.id
@@ -2436,7 +2490,8 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
 
     thread_id = _thread_key(last_message)
     await check_and_clear_session(chat_id, thread_id)
-    await state.set_state(GeneratingState.generating)
+    kalit = await _band(state, last_message, merged_text,
+                        0 if quota.get("unlimited") else text_cost)
 
     try:
         # ⚠️ YOUTUBE XULOSASI OLIB TASHLANDI (ataylab, tiklamang).
@@ -2542,8 +2597,8 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         # tushadi. Aks holda navbatdagi xabar o'zi qo'ygan
         # GeneratingState ichida qolib, busy_handler uni yana navbatga
         # qo'yardi — cheksiz aylanish.
-        await state.clear()
-        _navbatni_uygot(chat_id, state)
+        if await _bosh(state, kalit):
+            _navbatni_uygot(chat_id, state)
 
 
 # --------------------------------------------------
@@ -2608,7 +2663,9 @@ async def handle_research(message: Message, state: FSMContext,
     notify_watchers(user_id, message.from_user.username, "in", text=f"/research {topic}")
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
-    await state.set_state(GeneratingState.generating)
+    # ponytail: tadqiqot sanog'i (DailyQuota) uzilishda qaytarilmaydi —
+    # kuniga bir nechta, Pro; kerak bo'lsa narx o'rniga sanoq nomini yozish.
+    kalit = await _band(state, message)
 
     output_files: list = []
     images: list = []
@@ -2651,8 +2708,8 @@ async def handle_research(message: Message, state: FSMContext,
     finally:
         # Muvaffaqiyat bo'lmagan bo'lsa sanoqni o'zi qaytaradi.
         await quota.refund_if_unused()
-        await state.clear()
-        _navbatni_uygot(message.chat.id, state)
+        if await _bosh(state, kalit):
+            _navbatni_uygot(message.chat.id, state)
 
 
 # --------------------------------------------------
@@ -2697,7 +2754,8 @@ async def handle_photo(message: Message, state: FSMContext):
         await _send_limit_reached_message(message, quota, feature="photo")
         return
 
-    await state.set_state(GeneratingState.generating)
+    kalit = await _band(state, message,
+                        narx=0 if quota.get("unlimited") else MESSAGE_COST_PHOTO)
 
     try:
         await bot.send_chat_action(chat_id, "upload_photo")
@@ -2781,8 +2839,8 @@ async def handle_photo(message: Message, state: FSMContext):
         await message.answer("❌ Rasm tahlilida xatolik yuz berdi.")
         await _refund_quota(user_id, MESSAGE_COST_PHOTO, quota)
     finally:
-        await state.clear()
-        _navbatni_uygot(message.chat.id, state)
+        if await _bosh(state, kalit):
+            _navbatni_uygot(message.chat.id, state)
 
 
 # --------------------------------------------------
@@ -2850,6 +2908,7 @@ async def handle_document(message: Message, state: FSMContext):
         pass
 
     prompt = None
+    kalit = None
     try:
         file = await bot.get_file(document.file_id)
         from io import BytesIO
@@ -2871,7 +2930,8 @@ async def handle_document(message: Message, state: FSMContext):
         if not caption:
             caption = "Shu hujjatning qisqacha mazmunini yozib ber."
 
-        await state.set_state(GeneratingState.generating)
+        kalit = await _band(state, message,
+                            narx=0 if quota.get("unlimited") else MESSAGE_COST_DOCUMENT)
 
         # MUHIM: matnni ajratib bo'lmasa ham TO'XTAMAYMIZ. Binar formatlarda
         # matn o'qilmasligi mumkin, LEKIN run_python_sandbox tool'i faylning
@@ -2954,8 +3014,8 @@ async def handle_document(message: Message, state: FSMContext):
         # Osilib qolgan "ko'rsatma kutilmoqda" bayrog'i keyingi xabarlarni
         # javobsiz yutib yuborardi — har qanday holatda tozalaymiz.
         _pending_files.get((chat_id, thread_id), {}).pop("event", None)
-        await state.clear()
-        _navbatni_uygot(message.chat.id, state)
+        if await _bosh(state, kalit):
+            _navbatni_uygot(message.chat.id, state)
 
 
 # --------------------------------------------------
@@ -3020,7 +3080,8 @@ async def handle_voice(message: Message, state: FSMContext):
         await _send_limit_reached_message(message, quota, feature="voice")
         return
 
-    await state.set_state(GeneratingState.generating)
+    kalit = await _band(state, message,
+                        narx=0 if quota.get("unlimited") else MESSAGE_COST_VOICE)
 
     voice_path = None
     generated_audio = None
@@ -3143,5 +3204,5 @@ async def handle_voice(message: Message, state: FSMContext):
         except Exception as cleanup_err:
             logger.debug(f"generated_audio tozalashda xatolik: {cleanup_err}")
 
-        await state.clear()
-        _navbatni_uygot(message.chat.id, state)
+        if await _bosh(state, kalit):
+            _navbatni_uygot(message.chat.id, state)
