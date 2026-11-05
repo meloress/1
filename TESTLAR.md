@@ -101,6 +101,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   still connecting (check 6), or its payments would be skipped forever.
 - `test_pro_grant.py` check 6 — every `_EXTEND_PLAN_SQL` call passes days as `int(...)`.
   Five weeks of failed Stars/promo/referral grants hid behind fakes (`ADMIN.md`).
+- `test_plan_limits.py` check 5 — the downgrade done inside the quota functions keeps
+  `premium_until`, and `expire_premiums()` has no `plan_type <> 'free'` condition. Before
+  2026-11-06 the inline downgrade cleared the date, so a buyer who kept using the bot
+  never got the «Pro tugadi / Pro'ni qaytarish» message; only people who had stopped
+  writing did.
 - `test_admin_registry.py` — every admin handler still registered, in order, **and none of
   the 31 screens that moved to the web panel registered again**. A returning screen fails
   with the reason ("this was not deleted, it MOVED"), because the failure to avoid is two

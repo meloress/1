@@ -1829,7 +1829,7 @@ async def _check_quota(user_id: int, cost: int) -> dict:
 
 
 def _is_pro(quota: dict) -> bool:
-    """Pro imkoniyatlari (chuqur fikrlash, 2× xotira) uchun bayroq.
+    """Pro imkoniyatlari (chuqur fikrlash, uzun xotira) uchun bayroq.
 
     Tarif check_and_consume_quota() natijasidan olinadi — u allaqachon
     bazadan o'qigan, shuning uchun qo'shimcha so'rov kerak emas. Admin va

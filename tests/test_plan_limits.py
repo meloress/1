@@ -131,6 +131,17 @@ async def main():
         f"muddat tugagach free limiti qo'llanishi kerak, oldi {result['limit']}"
     )
     assert result["allowed"] is False, "1500 ball allaqachon free limitidan oshgan"
+    # ⛔️ Sana QOLADI: «Pro tugadi» xabarini expire_premiums() shu sana bo'yicha
+    # topadi. NULL qilinsa faol xaridor xabarni hech qachon olmasdi (2026-11-06).
+    assert "premium_until" not in downgrades[0], downgrades[0]
+    for q in (await _files(_row("pro", premium_until=past)))[1]:
+        assert not ("plan_type = 'free'" in q[0] and "premium_until" in q[0]), q[0]
+    from _manba import kod
+    ex = kod(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "db", "database.py"))
+    ex = ex[ex.index("async def expire_premiums("):]
+    ex = ex[:ex.index("RETURNING user_id")]
+    assert "plan_type <> 'free'" not in ex, "expire_premiums allaqachon free qilinganni ham topishi kerak"
 
     # ── 6) Admin — limitsiz ─────────────────────────────────────────
     result, executed = await _points(_row("free", used=99999, is_admin=True), cost=180)

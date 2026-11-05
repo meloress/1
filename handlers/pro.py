@@ -37,8 +37,12 @@ from core.config import (
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
     CUSTOM_EMOJI, emoji_id, MESSAGE_EFFECTS, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER,
     BTN_LINK, KARTA_NARX, ADMIN_USERNAME, TIMEZONE,
-    OBUNA_DAVR, OBUNA_KUN, OBUNA_NARX,
+    OBUNA_DAVR, OBUNA_KUN, OBUNA_NARX, CONTEXT_WINDOW_PRO, DOCUMENT_MAX_SIZE_PRO,
 )
+
+# Xotira va'dasi — raqamlar oynaning O'ZIDAN. Ilgari to'lov oynasida
+# «2× xotira», /pro ekranida «3×» turardi, haqiqati esa 80/30 ≈ 2,7×.
+XOTIRA = f"{CONTEXT_WINDOW_PRO} xabarlik xotira"
 from db import database
 from services import menu as menu_module
 
@@ -399,25 +403,23 @@ def _perks_block() -> str:
     Raqamlar PLAN_LIMITS dan HISOBLANADI: limitni o'zgartirsangiz reklama
     matni ham o'zi to'g'rilanadi va yolg'on va'da paydo bo'lmaydi.
     """
-    pro_pts, pro_files = daily_limit('pro', 'points'), daily_limit('pro', 'files')
+    # Bir imkoniyat — bir qator (ilgari 7 ta imkoniyat 14 qator olardi va
+    # /research, vazifalar, /kunlik, Business umuman ko'rinmasdi).
+    # To'liq ro'yxat izohi bilan — /help → Pro (handlers/capabilities.py).
+    pro_pts, free_pts = daily_limit('pro', 'points'), daily_limit('free', 'points') or 1
     return (
         "<blockquote>"
-        f"⚡️ <b>{pro_pts:,} ball</b> har kuni\n"
-        f"    <i>bepulda {daily_limit('free', 'points'):,} — {pro_pts // max(1, daily_limit('free', 'points') or 1)}× ko'p</i>\n"
-        f"{pe('document', '📄')} <b>{pro_files} ta fayl</b> har kuni\n"
-        f"    <i>bepulda {daily_limit('free', 'files')} ta — {pro_files // max(1, daily_limit('free', 'files') or 1)}× ko'p</i>\n"
-        f"{pe('photo', '🖼')} <b>{daily_limit('pro', 'images')} ta rasm</b> har kuni\n"
-        f"    <i>bepulda YO'Q — istagan tasviringizni chizib beraman</i>\n"
-        f"{pe('voice', '🎙')} <b>Tabiiy ovoz</b>\n"
-        f"    <i>aniqroq tushunadi, tirik ovozda javob beradi</i>\n"
-        f"⏰ <b>Takroriy eslatmalar</b>\n"
-        f"    <i>\"har kuni soat 9 da eslat\" — bir martalik bepulda ham bor</i>\n"
-        f"🧠 <b>Chuqur fikrlash</b>\n"
-        f"    <i>murakkab savolga kuchliroq tahlil</i>\n"
-        f"💬 <b>3× uzun xotira</b>\n"
-        f"    <i>suhbatni uch barobar ko'proq eslab qoladi</i>"
+        f"⚡️ <b>{f'{pro_pts:,}'.replace(',', ' ')} ball</b>/kun — bepuldan {pro_pts // free_pts}× ko'p\n"
+        f"{pe('document', '📄')} <b>{daily_limit('pro', 'files')} ta fayl</b>/kun, "
+        f"{DOCUMENT_MAX_SIZE_PRO // (1024 * 1024)} MB gacha hujjat\n"
+        f"{pe('photo', '🖼')} <b>{daily_limit('pro', 'images')} ta rasm</b>/kun — chizish va tahrirlash\n"
+        f"🔎 <b>/research</b> — 10+ manbali PDF hisobot\n"
+        f"⏰ <b>Takroriy eslatma va vazifalar</b> — «har kuni 9 da kursni yubor»\n"
+        f"📰 <b>/kunlik</b> — o'z mavzularingizda daydjest\n"
+        f"💼 <b>Telegram Business</b> — mijozlaringizga javob beraman\n"
+        f"🧠 Chuqur fikrlash · {XOTIRA} · {pe('voice', '🎙')} tabiiy ovoz"
         "</blockquote>"
-    ).replace(",", " ")
+    )
 
 
 def _daily_table() -> str:
@@ -620,7 +622,7 @@ async def _send_invoice(chat_id: int, days: int, beneficiary_id: int,
         description=(
             f"{daily_limit('pro', 'points')} ball/kun · "
             f"{daily_limit('pro', 'files')} fayl/kun · "
-            f"chuqur fikrlash · 2× xotira"
+            f"chuqur fikrlash · {XOTIRA}"
         ),
         payload=build_payload(days, beneficiary_id),
         # Stars uchun provider_token BO'SH SATR bo'lishi shart (None emas),
@@ -2031,7 +2033,7 @@ async def send_promo_gift(user_id: int, code: str, days: int,
         f"<i>(bepulda {daily_limit('free', 'points')})</i>\n"
         f"{pe('document', '📄')} Kunlik fayl: <b>{daily_limit('pro', 'files')} ta</b> "
         f"<i>(bepulda {daily_limit('free', 'files')})</i>\n"
-        f"⏰ Takroriy eslatmalar · 🧠 Chuqur fikrlash · 💬 3× uzun xotira"
+        f"⏰ Takroriy eslatmalar · 🧠 Chuqur fikrlash · 💬 {XOTIRA}"
         f"</blockquote>\n\n"
         f"🎟 <b>Kodingiz:</b> <code>{code}</code>{deadline}\n\n"
         f"👇 Faollashtirish uchun tugmani bosing:"
@@ -2139,7 +2141,7 @@ async def _obuna_taklif(query: CallbackQuery, user_id: int) -> None:
         havola = await bot.create_invoice_link(
             title="Pro — oylik obuna",
             description=(f"Har 30 kunda {OBUNA_NARX} ⭐ · {daily_limit('pro', 'points')} "
-                         f"ball/kun · chuqur fikrlash · 2× xotira"),
+                         f"ball/kun · chuqur fikrlash · {XOTIRA}"),
             payload=build_obuna_payload(user_id, OBUNA_NARX),
             provider_token="", currency="XTR",
             prices=[LabeledPrice(label="Pro · 1 oy", amount=OBUNA_NARX)],

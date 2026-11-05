@@ -3807,11 +3807,10 @@ async def check_and_consume_daily(user_id: int, kind: str) -> Dict[str, Any]:
             if (plan_type != 'free' and premium_until is not None
                     and premium_until <= datetime.now(timezone.utc)):
                 # Muddati o'tgan premium — ball kvotasidagi kabi darhol
-                # free'ga tushiramiz (alohida cron shart emas).
+                # free'ga tushiramiz (alohida cron shart emas). `premium_until`
+                # qoladi — check_and_consume_quota() izohiga qarang.
                 await conn.execute(
-                    "UPDATE users SET plan_type = 'free', premium_until = NULL WHERE user_id = $1",
-                    user_id,
-                )
+                    "UPDATE users SET plan_type = 'free' WHERE user_id = $1", user_id)
                 plan_type = 'free'
 
             limit = daily_limit(plan_type, limit_key)
@@ -3941,10 +3940,11 @@ async def check_and_consume_quota(user_id: int, cost: int) -> Dict[str, Any]:
                 # Muddat o'tgan — kunlik limit hisobi qanday avtomatik
                 # nolanishini eslatadi: shu yerda darhol free'ga tushiramiz,
                 # alohida cron/scheduler shart emas.
+                # ⚠️ `premium_until` ATAYLAB qoladi: «Pro tugadi» xabarini
+                # `expire_premiums()` shu sana bo'yicha topadi. NULL qilinganda
+                # botdan faol foydalanadigan xaridor xabarni hech qachon olmasdi.
                 await conn.execute(
-                    "UPDATE users SET plan_type = 'free', premium_until = NULL WHERE user_id = $1",
-                    user_id,
-                )
+                    "UPDATE users SET plan_type = 'free' WHERE user_id = $1", user_id)
                 plan_type = 'free'
 
             point_limit, _ = plan_limits(plan_type)
@@ -5120,6 +5120,11 @@ async def expire_premiums() -> List[int]:
     check_and_consume_quota() ichidagi inline downgrade ATAYLAB qoldirilgan:
     u foydalanuvchi xabar yozganda darhol ishlaydi, bu esa foydalanuvchi
     umuman yozmasa ham 6 soat ichida ishlaydi. Ikkalasi ham idempotent.
+
+    ⚠️ `plan_type <> 'free'` sharti YO'Q: inline downgrade tarifni free
+    qiladi, lekin `premium_until` ni qoldiradi — xabarni shu yer yuboradi
+    (2026-11-06: ilgari faol xaridor «Pro tugadi» ni hech qachon olmasdi).
+    Boshqa hech qaysi yozuvchi free + sana qoldirmaydi.
     """
     global pool
     if pool is None:
@@ -5128,8 +5133,7 @@ async def expire_premiums() -> List[int]:
         rows = await conn.fetch(
             '''UPDATE users
                SET plan_type = 'free', premium_until = NULL, premium_reminded_for = NULL
-               WHERE plan_type <> 'free'
-                 AND premium_until IS NOT NULL AND premium_until <= NOW()
+               WHERE premium_until IS NOT NULL AND premium_until <= NOW()
                RETURNING user_id'''
         )
         return [r['user_id'] for r in rows]
