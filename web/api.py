@@ -23,7 +23,7 @@ from aiohttp import web
 
 from core import config as config_module
 from core.config import (ACTIVITY_TYPES, AUDIT_ACTIONS, DAILY_COUNTERS, KARTA_NARX,
-                         GPT_MODEL_DISPLAY_NAME, LIMIT_IZOHI, LIMIT_NOMI,
+                         GPT_MODEL_DISPLAY_NAME, LIMIT_IZOHI, LIMIT_NOMI, OQIM_NOMI,
                          PLAN_LIMITS, PRO_PLANS, SEGMENT_NOMI, TARIF_NOMI,
                          TOKEN_KUNLIK_GRANT,
                          TARIF_RANGI, TIMEZONE, audit_nomi, daily_limit,
@@ -1357,7 +1357,15 @@ async def maintenance(request: web.Request):
     from handlers import biznes as biznes_module
     from services import avto_tatil
     avto = t.get("avto")
+    # Javob tezligi — 24 soat (`core/olchov.py`). Yiqilsa karta baribir chiqadi.
+    try:
+        tezlik = [{**r, "nom": OQIM_NOMI.get(r["oqim"], r["oqim"])}
+                  for r in await database_module.javob_vaqti_stats(24)]
+    except Exception:
+        logger.exception("[web] javob tezligi o'qilmadi")
+        tezlik = []
     return web.json_response({
+        "tezlik": tezlik,
         "active": t["active"],
         "matn": t["message"],
         # Bot O'ZI yoqqan bo'lsa — sababi (o'zi o'chiradi); qo'lda — null.

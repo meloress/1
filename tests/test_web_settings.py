@@ -92,6 +92,14 @@ def soxta_baza():
     async def set_biznes_avtomat(ochiq):
         HOLAT["avtomat_db"] = ochiq
 
+    async def javob_vaqti_stats(soat=24):
+        # Haqiqiy funksiyaning shakli (db/database.py::javob_vaqti_stats).
+        assert soat == 24
+        return [{"oqim": "matn", "soni": 230, "ttft50": 2100, "ttft90": 4000,
+                 "jami50": 6400, "jami90": 12100, "llm": 1.4},
+                {"oqim": "yangi_oqim", "soni": 3, "ttft50": None, "ttft90": None,
+                 "jami50": 900, "jami90": 1000, "llm": 1.0}]
+
     async def get_watch_group_id():
         return HOLAT["guruh"]
 
@@ -302,6 +310,13 @@ async def main():
         for namuna in ("44003a8", "4s 12m", "gpt-5.6-luna", "-1002481…", "1 154"):
             assert namuna not in html, f"maketdagi qotirilgan «{namuna}» qolib ketgan"
         print("[7] holat kartochkasi haqiqiy; qotirilgan namuna qolmagan OK")
+
+        # 7b) Javob tezligi: nom `OQIM_NOMI` dan, notanish oqim xom nomi
+        #     bilan qoladi (yo'qolmaydi), raqamlar o'zgartirilmaydi.
+        tz = d["tezlik"]
+        assert tz[0]["nom"] == "Matn" and tz[0]["ttft50"] == 2100 and tz[0]["soni"] == 230, tz
+        assert tz[1]["nom"] == "yangi_oqim" and tz[1]["ttft50"] is None, tz
+        print("[7b] javob tezligi kartochkada: nomi bilan, notanishi yo'qolmaydi OK")
 
         # 8) Kuzatish: uchala amal ham RAM keshini yangilaydi.
         #    `get_watch_target()` har xabarda, bazaga bormasdan ishlaydi —

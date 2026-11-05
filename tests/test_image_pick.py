@@ -197,4 +197,77 @@ check(32, "tanlovchi model bepul ro'yxatda",
 check(33, f"tanlov narxi nazoratda ({config.SEARCH_IMAGE_CANDIDATES} × ~82 token)",
       config.SEARCH_IMAGE_CANDIDATES * 82 < 3000)
 
-print("\nHammasi o'tdi: 33/33")
+
+# ── 8. OpenAI rasmni yuklay olmasa (jonli log: 6 × «Error while downloading
+#      file», har safar tanlovsiz birinchi nomzadlar ketgan) ───────
+xom8 = [{"image": "https://sayt.uz/1.jpg", "title": "Toshkent minorasi", "source": "s",
+         "thumbnail": "https://ts1.mm.bing.net/th?id=1"},
+        {"image": "https://sayt.uz/2.jpg", "title": "Toshkent metro", "source": "s"}]
+n8, _, _ = ai._clean_candidates(xom8, [], set())
+check(34, "Bing kichik nusxasi saqlanadi va ko'rish bosqichiga U beriladi, foydalanuvchiga — asli",
+      n8[0]["thumb"] == "https://ts1.mm.bing.net/th?id=1" and n8[0]["url"] == "https://sayt.uz/1.jpg"
+      and ai._kor_manba(n8[0]) == n8[0]["thumb"] and ai._kor_manba(n8[1]) == n8[1]["url"]
+      and "thumb" not in n8[1])
+
+C8 = [{"url": f"https://a/{i}.jpg", "title": f"rasm {i}", "source": "s"} for i in range(1, 5)]
+yuborilgan = []
+
+
+class Tanlov2:
+    # YANGI ro'yxat bo'yicha: 3 → asl 4-nomzad (2-si yuklanmadi, tashlandi)
+    output_text = '{"chosen":[{"n":3,"desc":"to\'rtinchi"},{"n":1,"desc":"birinchi"}]}'
+    usage = None
+
+
+def _ikki_bosqich(**k):
+    rasmlar = [x["image_url"] for x in k["input"][0]["content"] if x["type"] == "input_image"]
+    yuborilgan.append(rasmlar)
+    if len(yuborilgan) == 1:
+        raise RuntimeError("Error code: 400 - {'error': {'message': 'Error while "
+                           "downloading file.', 'code': 'invalid_value'}}")
+    return _q(Tanlov2())
+
+
+async def _bayt(session, url):
+    return None if url.endswith("/2.jpg") else f"data:image/jpeg;base64,{url[-5:]}"
+
+
+async def _sinov_yuklash():
+    asl = ai._rasm_bayt
+    ai._rasm_bayt = _bayt
+    ai.openai_client.responses.create = _ikki_bosqich
+    try:
+        natija = await ai._pick_images_with_vision(C8, "Toshkent", 3)
+    finally:
+        ai._rasm_bayt = asl
+    check(35, "yuklanmasa — o'zimiz yuklab BAYT bilan qayta; yuklanmagani tashlanadi",
+          len(yuborilgan) == 2 and len(yuborilgan[1]) == 3
+          and all(u.startswith("data:image/jpeg;base64,") for u in yuborilgan[1]))
+    check(36, "raqamlar YANGI ro'yxat bo'yicha: model tanlagani to'g'ri rasmga tushadi",
+          [r["url"] for r in natija] == ["https://a/4.jpg", "https://a/1.jpg"]
+          and natija[0]["desc"] == "to'rtinchi")
+
+    def _boshqa(**k):
+        raise RuntimeError("Error code: 429 - rate limit")
+    yuborilgan.clear()
+    ai.openai_client.responses.create = _boshqa
+    natija = await ai._pick_images_with_vision(C8, "x", 2)
+    check(37, "boshqa xato (429) — o'zimiz yuklamaymiz, eskicha birinchilari",
+          [r["url"] for r in natija] == ["https://a/1.jpg", "https://a/2.jpg"])
+
+
+asyncio.run(_sinov_yuklash())
+
+
+async def _sinov_haqiqiy_bayt():
+    # Ichki manzil HECH QACHON yuklanmaydi (model emas, qidiruv natijasi
+    # bo'lsa ham) — `_is_public_url`.
+    import aiohttp
+    async with aiohttp.ClientSession() as s:
+        ichki = await ai._rasm_bayt(s, "https://127.0.0.1/rasm.jpg")
+    check(38, "ichki manzil (127.0.0.1) yuklanmaydi", ichki is None)
+
+
+asyncio.run(_sinov_haqiqiy_bayt())
+
+print("\nHammasi o'tdi: 38/38")

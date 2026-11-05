@@ -1773,6 +1773,17 @@
     q.push(["Mavzu rejimi", h.mavzu ? "yoqiq" : "o'chiq", ""]);
     q.push(["Baza", h.baza ? "ulangan" : "ulanmagan", h.baza ? "up" : "down"]);
     q.push(["Model", h.model, ""]);
+    // Javob tezligi, 24 soat: median (yarmi shundan tez) va 90% (o'ndan
+    // to'qqiztasi shundan tez). «1-so'z» — foydalanuvchi birinchi so'zni
+    // ko'rgan payt; matnda 1.5 s birlashtirish kutishi kirmaydi.
+    var s = function (ms) { return ms == null ? "—" : (ms / 1000).toFixed(1) + " s"; };
+    var tz = d.tezlik || [];
+    if (!tz.length) q.push(["Javob tezligi", "24 soatda ma'lumot yo'q", ""]);
+    tz.forEach(function (r) {
+      q.push(["Tezlik · " + r.nom,
+              "1-so'z " + s(r.ttft50) + " · to'liq " + s(r.jami50) +
+              " (90%: " + s(r.ttft90) + " / " + s(r.jami90) + ") · " + r.soni + " ta", ""]);
+    });
     $("m-holat").innerHTML = q.map(function (r) {
       return '<div class="kv"><span>' + xavfsiz(r[0]) + '</span><b class="' + r[2] + '">' +
              xavfsiz(r[1]) + "</b></div>";

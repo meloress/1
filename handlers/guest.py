@@ -392,6 +392,14 @@ else:
                     _http_session = aiohttp.ClientSession(connector=connector, timeout=timeout)
         return _http_session
 
+    async def close_http_session() -> None:
+        """Bot to'xtaganda (`main.py` finally) — usiz har deployda logda
+        «Unclosed client session» qolardi."""
+        global _http_session
+        if _http_session is not None and not _http_session.closed:
+            await _http_session.close()
+        _http_session = None
+
     _bot_username_cache: str | None = None
     _bot_username_lock = asyncio.Lock()
 

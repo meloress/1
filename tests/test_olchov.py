@@ -164,4 +164,69 @@ for fayl in ("handlers/biznes.py", "handlers/biznes_uslub.py"):
                 buzuq.append((fayl, argl.strip()[:60]))
 check(9, "olchov.qosh/yoz ga matn saqlaydigan o'zgaruvchi berilmagan", not buzuq)
 
-print("\nHammasi o'tdi: 9/9")
+# ── 10-14. Javob tezligi (2026-11-05): oddiy chat + panel ───────
+import asyncio as _aio                                         # noqa: E402
+import time as _t                                              # noqa: E402
+
+saqlangan = []
+
+
+async def _saqlovchi(nom, jami, maydon):
+    saqlangan.append((nom, jami, dict(maydon)))
+
+
+@olchov.oqim("sinov_tezlik")
+async def _javob(llm=1, kut=0.0, boshla=False):
+    if kut:
+        await _aio.sleep(kut)
+    if boshla:
+        olchov.boshlash()
+    await _aio.sleep(0.05)
+    olchov.ttft()
+    await _aio.sleep(0.05)
+    olchov.ttft()                      # ikkinchisi — yozilmaydi
+    for _ in range(llm):
+        olchov.token(10, 0, 5)
+    return "ok"
+
+
+async def _sinov_tezlik():
+    olchov.saqlovchi(_saqlovchi)
+    try:
+        await _javob()
+        await _javob(llm=0)                         # model chaqirilmagan — saqlanmaydi
+        await _javob(kut=0.3, boshla=True)          # kutish o'lchovga kirmaydi
+        await _aio.sleep(0.05)                      # fon vazifalari tugasin
+
+        async def _yiqiluvchi(*a):
+            raise RuntimeError("baza yo'q")
+        olchov.saqlovchi(_yiqiluvchi)
+        natija = await _javob()                     # saqlovchi yiqilsa — oqim buzilmaydi
+        await _aio.sleep(0.05)
+    finally:
+        olchov.saqlovchi(None)
+    return natija
+
+
+natija = _aio.run(_sinov_tezlik())
+check(10, "ttft — BIRINCHI so'z (ikkinchisi yozilmaydi), jami undan katta",
+      len(saqlangan) == 2 and 40 <= saqlangan[0][2]["ttft_ms"] < 90
+      and saqlangan[0][1] >= saqlangan[0][2]["ttft_ms"] + 40)
+check(11, "model chaqirilmagan oqim (llm=0) bazaga tushmaydi; yiqilgan saqlovchi oqimni buzmaydi",
+      [s[0] for s in saqlangan] == ["sinov_tezlik"] * 2 and natija == "ok")
+check(12, "boshlash(): foydalanuvchini kutish (0.3 s) tezlikka kirmaydi",
+      saqlangan[1][2]["ttft_ms"] < 150 and saqlangan[1][1] < 250)
+
+import handlers.messages as hm                                 # noqa: E402
+ok = all(CallableObject(f).params == {"message", "state"}
+         for f in (hm.handle_photo, hm.handle_document, hm.handle_voice))
+ok = ok and {"message", "state"} <= CallableObject(hm.handle_research).params
+check(13, "o'ralgan chat handlerlari: aiogram imzoni ko'radi (message, state)",
+      ok and CallableObject(hm.handle_photo).awaitable)
+mk = kod(os.path.join(ROOT, "handlers/messages.py"))
+check(14, "5 yo'l o'lchanadi, birinchi so'z oqimda belgilanadi; bazaga faqat Railway'da",
+      all(f'@olchov.oqim("{n}")' in mk for n in ("matn", "tadqiqot", "rasm", "hujjat", "ovoz"))
+      and "olchov.ttft()" in mk
+      and "if tiklanish.RAILWAYDA:" in kod(os.path.join(ROOT, "main.py")))
+
+print("\nHammasi o'tdi: 14/14")

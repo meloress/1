@@ -11,7 +11,7 @@
    birga ishlaydi — yangisi darhol qarasa, eskisi hali TUGATAYOTGAN
    javoblarni «uzildi» deb e'lon qilardi.
 
-2) O'ZINI TEKSHIRISH. Baza, OpenAI, Telegram, sandbox, panel — har deployda
+2) O'ZINI TEKSHIRISH. Baza, OpenAI, Telegram, sandbox, qidiruv, panel — har deployda
    bir marta; superadmin'ga bitta xabar. Hammasi joyida — ovozsiz ✅;
    biror narsa buzuq — ❌ (superadmin + guruh), har biri bir marta qayta
    sinalgandan keyin.
@@ -137,6 +137,14 @@ async def _sandbox():
         raise RuntimeError((r.stderr or r.traceback or "natija yo'q")[-150:])
 
 
+async def _qidiruv():
+    """Qidiruv tizimlari Railway IP'sidan bloklanmaganmi — ular bloklansa
+    javoblar jimgina «topilmadi» bo'lib qolardi (2026-10-31 da shunday edi)."""
+    from services import ai
+    if not await asyncio.to_thread(ai.qidiruv_sync, "Toshkent"):
+        raise RuntimeError(f"{ai.QIDIRUV_BACKEND}: natija yo'q")
+
+
 async def _panel():
     import aiohttp
     port = int(os.getenv("PORT", "8080"))
@@ -148,7 +156,7 @@ async def _panel():
 
 
 TEKSHIRUVLAR = (("Baza", _baza), ("OpenAI", _openai), ("Telegram", _telegram),
-                ("Sandbox", _sandbox), ("Panel", _panel))
+                ("Sandbox", _sandbox), ("Qidiruv", _qidiruv), ("Panel", _panel))
 
 
 async def _sina(fn, qayta: float = 20) -> str | None:

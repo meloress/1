@@ -36,6 +36,7 @@ from db.database import (
 )
 from handlers import pro as pro_module
 from handlers import tiklanish
+from core import olchov
 from services import menu as menu_module
 from services.file_task_quota import DailyQuota
 from handlers.helpers import (notify_watchers, send_error_with_retry,
@@ -1577,6 +1578,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
             if not stop_animation.is_set():
                 stop_animation.set()
+            olchov.ttft()
 
             full_text += chunk
             chunk_buffer += chunk
@@ -2445,6 +2447,11 @@ def _navbatni_uygot(chat_id: int, state: FSMContext) -> None:
             _schedule_merged_processing(keyingi, 0.0, state))
 
 
+# Javob tezligi (`core/olchov.py`): har yo'l bitta oqim — birinchi so'z
+# (`olchov.ttft()`, process_stream_draft) va to'liq vaqt panelga tushadi.
+# ⚠️ Matnda 1.5 s birlashtirish kutishi (TEXT_MERGE_WAIT) KIRMAYDI — u
+# o'zgarmas, bot tezligi emas.
+@olchov.oqim("matn")
 async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
     parts = buf.get("parts") or []
     last_message: Message = buf.get("last_message")
@@ -2634,6 +2641,7 @@ def _research_limit_text(quota) -> str:
     )
 
 
+@olchov.oqim("tadqiqot")
 async def handle_research(message: Message, state: FSMContext,
                           command: CommandObject = None):
     """/research <savol> — ko'p bosqichli qidiruv + xulosa + PDF hisobot.
@@ -2724,6 +2732,7 @@ ALBOM_KUTISH = 1.2
 ALBOM_MAX = 5       # rasm tokeni qimmat — 10 talik albom ham 5 tadan oshmaydi
 
 
+@olchov.oqim("rasm")
 async def handle_photo(message: Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -2846,6 +2855,7 @@ async def handle_photo(message: Message, state: FSMContext):
 # --------------------------------------------------
 # 4. DOCUMENT HANDLER (ALL FILES)
 # --------------------------------------------------
+@olchov.oqim("hujjat")
 async def handle_document(message: Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -2930,6 +2940,7 @@ async def handle_document(message: Message, state: FSMContext):
         if not caption:
             caption = "Shu hujjatning qisqacha mazmunini yozib ber."
 
+        olchov.boshlash()       # ko'rsatma kutilgan vaqt — bot tezligi emas
         kalit = await _band(state, message,
                             narx=0 if quota.get("unlimited") else MESSAGE_COST_DOCUMENT)
 
@@ -3065,6 +3076,7 @@ async def handle_location(message: Message, state: FSMContext):
     await _queue_for_ai(chat_id, message, _LOCATION_NOTE, state)
 
 
+@olchov.oqim("ovoz")
 async def handle_voice(message: Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id

@@ -114,12 +114,16 @@ def main() -> None:
     kesim_sorovi = tana.split("turlar = await conn.fetch(", 1)[1].split("''')", 1)[0]
     assert "LIMIT" not in kesim_sorovi, "tur kesimi hali ham kesilgan"
     assert "= ANY(" not in kesim_sorovi, "tur kesimi hali ham filtrlangan"
+    # Notanish tur — `yangi_tur`. `start` 2026-11-05 dan `ACTIVITY_TYPES` da
+    # (nomi bor), ya'ni u endi «Boshqa» emas — o'z ustuni bo'ladi.
     kesim = [("text_message", 121), ("guest_text_message", 11),
              ("voice_message", 5), ("photo_message", 4),
-             ("file_task", 1), ("start", 8)]
+             ("file_task", 1), ("yangi_tur", 8)]
     ustunlar = api._turlar(kesim)
     assert sum(u["soni"] for u in ustunlar) == 150, ustunlar
     assert ustunlar[-1] == {"nom": "Boshqa", "soni": 8, "boshqa": True}, ustunlar
+    start = api._turlar([("text_message", 2), ("start", 3)])
+    assert {"nom": "Botni ochdi (/start)", "soni": 3} in start, start
     print("[4] tur ustunlari yig'indisi umumiy songa teng OK")
 
     # ── 5) «-10.7%» — bir xil uzunlikdagi ikki oraliq ────────────

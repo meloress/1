@@ -66,8 +66,8 @@ SOXTA_KUNLIK = {
     "top_types": [("text_message", 200), ("guest_text_message", 90), ("voice_message", 52)],
     # ⚠️ 24 soatlik TO'LIQ kesim. `actions` (342) shu ro'yxatning
     # yig'indisi — `daily_report_stats()` uni aynan shundan hisoblaydi.
-    # `start` ro'yxatda ATAYLAB bor: u `ACTIVITY_TYPES` da yo'q va
-    # panelda «Boshqa» qatoriga tushishi kerak.
+    # Notanish tur «Boshqa» ga tushishi 6-bandda alohida (`yangi_tur`):
+    # `start` 2026-11-05 dan `ACTIVITY_TYPES` da.
     "types_24h": [("text_message", 200), ("guest_text_message", 90),
                   ("voice_message", 52)],
 }
@@ -225,7 +225,7 @@ async def main():
             f"ustunlar yig'indisi umumiy songa teng emas: {ov['turlar']}")
 
         # Ro'yxatda yo'q tur YO'QOLMAYDI — «Boshqa» ga qo'shiladi.
-        b = api._turlar([("start", 6), ("text_message", 1)])
+        b = api._turlar([("yangi_tur", 6), ("text_message", 1)])
         assert b == [{"nom": "Matn", "soni": 1},
                      {"nom": "Boshqa", "soni": 6, "boshqa": True}], b
         # Ortib qolgani ham «Boshqa» ga: ro'yxat cheksiz uzaymaydi,

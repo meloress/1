@@ -2018,12 +2018,18 @@ def _clean_candidates(raw: List[dict], tokens: List[str],
         seen_url.add(url)
         if stem:
             seen_stem.add(stem)
-        candidates.append({
+        nomzad = {
             "url": url,
             "title": title,
             # Manba sayt — sarlavhada ko'rsatiladi (o'zganing rasmi).
             "source": (r.get("source") or _host_of(r.get("url") or url)),
-        })
+        }
+        # Bing'ning o'z CDN'idagi kichik nusxasi — FAQAT ko'rish bosqichi
+        # uchun (`_kor_manba`). Foydalanuvchiga baribir `url` ketadi.
+        thumb = (r.get("thumbnail") or "").strip()
+        if thumb.startswith("https://"):
+            nomzad["thumb"] = thumb
+        candidates.append(nomzad)
     return candidates, tashlandi, takror
 
 
@@ -2075,6 +2081,65 @@ def _parse_pick_json(text: str, jami: int) -> List[tuple]:
     return natija
 
 
+def _kor_manba(c: dict) -> str:
+    """Ko'rish bosqichiga beriladigan rasm. ⚠️ Avval Bing kichik nusxasi:
+    asl saytni OpenAI ko'pincha YUKLAY OLMAYDI (hotlink himoyasi, sekin
+    server) va bitta shunday rasm BUTUN so'rovni 400 bilan yiqitardi —
+    jonli logda 6 marta «Error while downloading file», har safar tanlovsiz
+    birinchi nomzadlar ketgan. `detail: low` baribir 512 px gacha
+    kichraytiradi, ya'ni kichik nusxa yetarli."""
+    return c.get("thumb") or c["url"]
+
+
+async def _rasm_bayt(session: aiohttp.ClientSession, url: str) -> Optional[str]:
+    """Rasmni O'ZIMIZ yuklaydi va 512 px JPEG `data:` URL qiladi (zaxira yo'l).
+    Yuklanmasa — None. Faqat ochiq internet manzili (`_is_public_url`)."""
+    try:
+        if not await _is_public_url(url):
+            return None
+        async with session.get(url, allow_redirects=True, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/124.0 Safari/537.36"}) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.content.read(SEARCH_IMAGE_MAX_BYTES + 1)
+        if not data or len(data) > SEARCH_IMAGE_MAX_BYTES:
+            return None
+
+        def _kichrayt():
+            from io import BytesIO
+            from PIL import Image
+            im = Image.open(BytesIO(data))
+            im = im.convert("RGB")
+            im.thumbnail((512, 512))
+            out = BytesIO()
+            im.save(out, "JPEG", quality=80)
+            return base64.b64encode(out.getvalue()).decode()
+
+        return "data:image/jpeg;base64," + await asyncio.to_thread(_kichrayt)
+    except Exception:
+        return None
+
+
+def _tanlov_content(cands: List[dict], manbalar: List[str], request: str,
+                    need: int) -> List[dict]:
+    content: List[dict] = [{
+        "type": "input_text",
+        "text": (f"User's request: {request}\n"
+                 f"Pick at most {need} image(s) from the {len(cands)} below."),
+    }]
+    for i, (c, manba) in enumerate(zip(cands, manbalar), 1):
+        content.append({"type": "input_text",
+                        "text": f"#{i} — {c['title'][:70] or 'nomsiz'}"})
+        # detail=low: o'lchamidan qat'i nazar 85 token. Rasm mos-mosligini
+        # aniqlash uchun shu yetarli, batafsil ko'rish esa 5-10 barobar
+        # qimmatga tushardi.
+        content.append({"type": "input_image", "image_url": manba,
+                        "detail": "low"})
+    return content
+
+
 async def _pick_images_with_vision(cands: List[dict], request: str,
                                    need: int) -> List[dict]:
     """Nomzadlarni MODELGA KO'RSATIB tanlatadi.
@@ -2103,31 +2168,39 @@ async def _pick_images_with_vision(cands: List[dict], request: str,
     if len(cands) <= 1:
         return cands[:need]
 
-    content: List[dict] = [{
-        "type": "input_text",
-        "text": (f"User's request: {request}\n"
-                 f"Pick at most {need} image(s) from the {len(cands)} below."),
-    }]
-    for i, c in enumerate(cands, 1):
-        content.append({"type": "input_text",
-                        "text": f"#{i} — {c['title'][:70] or 'nomsiz'}"})
-        # detail=low: o'lchamidan qat'i nazar 85 token. Rasm mos-mosligini
-        # aniqlash uchun shu yetarli, batafsil ko'rish esa 5-10 barobar
-        # qimmatga tushardi.
-        content.append({"type": "input_image", "image_url": c["url"],
-                        "detail": "low"})
-
-    try:
-        resp = await asyncio.wait_for(
+    async def _sora(nomzadlar, manbalar):
+        return await asyncio.wait_for(
             openai_client.responses.create(
                 model=SEARCH_IMAGE_PICK_MODEL,
                 instructions=_PICK_INSTRUCTION,
-                input=[{"role": "user", "content": content}],
+                input=[{"role": "user", "content": _tanlov_content(
+                    nomzadlar, manbalar, request, need)}],
                 max_output_tokens=400,
                 store=False,
             ),
             timeout=SEARCH_IMAGE_PICK_TIMEOUT,
         )
+
+    try:
+        try:
+            resp = await _sora(cands, [_kor_manba(c) for c in cands])
+        except Exception as e:
+            # OpenAI rasmlardan birini YUKLAY OLMADI — o'zimiz yuklab, bayt
+            # qilib qayta beramiz. Yuklanmagani tashlanadi: u foydalanuvchiga
+            # ham yetib bormasdi. Raqamlar YANGI ro'yxat bo'yicha.
+            if "download" not in str(e).lower():
+                raise
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(
+                    total=SEARCH_IMAGE_HEAD_TIMEOUT)) as session:
+                baytlar = await asyncio.gather(
+                    *(_rasm_bayt(session, _kor_manba(c)) for c in cands))
+            juft = [(c, b) for c, b in zip(cands, baytlar) if b]
+            logger.info(f"[IMAGES] OpenAI rasmni yuklay olmadi — o'zimiz "
+                        f"yukladik: {len(juft)}/{len(cands)}")
+            if len(juft) <= 1:
+                return [c for c, _ in juft][:need]
+            cands = [c for c, _ in juft]
+            resp = await _sora(cands, [b for _, b in juft])
     except Exception as e:
         # ⚠️ `asyncio.TimeoutError` ning str() i BO'SH. Ilgari log
         # "ko'rish bosqichi ishlamadi: " deb tugab qolardi va sababni
@@ -2507,7 +2580,60 @@ async def download_images(queries, cache: Optional[dict] = None) -> tuple:
 # TASODIFAN tanlaydi — yarmi o'lik tizimga tushib, bo'sh qaytar yoki 5 s
 # kutardi. Lokal o'lchovda (10 so'rov) bir xil manbalar, 3.8 s → 1.1 s.
 # Bitta tizim ham bloklansa — logdagi «Error in engine X» dan ko'rinadi.
-QIDIRUV_BACKEND = "bing,yandex,yahoo"
+#
+# ⚠️ `bing` OLIB TASHLANDI (2026-11-05): ddgs 9.14 da u faqat rasm va
+# yangiliklarda bor, MATN qidiruvida yo'q — production logida 134 marta
+# «bing - backends do not exist», ya'ni qidiruv amalda ikki tizimda edi.
+# Har tizim `ddgs.engines.ENGINES["text"]` da bo'lishi SHART
+# (`tests/test_qidiruv.py` tekshiradi — ddgs yangilansa ham ushlaydi).
+QIDIRUV_BACKEND = "yandex,yahoo"
+# FAQAT tizimlar YIQILGANDA (bloklandi, ulanmadi) — «natija yo'q» da EMAS:
+# tor so'rovga nomaqbul ensiklopediya maqolasi modelni chalg'itardi.
+# Wikipedia — API, bloklanmaydi va tez. Ilgari bu yerda «auto» edi: u
+# tasodifan mojeek/duckduckgo'ni tanlab, Railway'dan 5 s timeout olardi
+# (logda 82 + 63 marta).
+QIDIRUV_ZAXIRA = "wikipedia"
+# `site:x.uz` / `OR site:y.com` — tizimlar ko'pincha bo'sh qaytaradi
+# (logdagi «No results» larning ko'pi). Natija bo'lmasa — cheklovsiz qayta.
+_SITE_RE = re.compile(r"(?:\s+OR)?\s*-?\bsite:\S+", re.I)
+
+
+def site_siz(query: str) -> str:
+    """So'rovdan `site:` cheklovlarini olib tashlaydi. Sof."""
+    toza = _SITE_RE.sub(" ", query)
+    toza = re.sub(r"^\s*OR\b|\bOR\s*$", "", toza.strip(), flags=re.I)
+    return " ".join(toza.split())
+
+
+def _qidir(query: str, backend: str) -> tuple:
+    """(natijalar, tizim yiqildimi). ddgs bo'sh natijada ham istisno otadi
+    («No results found») — bu YIQILISH emas, so'rov tor degani."""
+    try:
+        with DDGS() as ddgs:
+            return list(ddgs.text(query, max_results=6, backend=backend)), False
+    except Exception as e:
+        bosh = "no results" in str(e).lower()
+        (logger.info if bosh else logger.error)(f"DDGS [{backend}] [{query}]: {e}")
+        return [], not bosh
+
+
+def qidiruv_sync(query: str) -> list:
+    """Bitta so'rov: asosiy tizimlar → yana bir marta → (yiqilgan bo'lsa) zaxira.
+
+    Ikkinchi urinish SHART: tizimlar ba'zan TASODIFAN bo'sh qaytaradi (lokal
+    o'lchov, 2026-11-05: 12 so'rovdan 1 tasi — «Samarqand ob-havo» bo'sh,
+    qayta so'ralganda 6 ta). `site:` bo'lsa ikkinchisi cheklovsiz bo'ladi.
+    Narxi — faqat bo'sh natijada ~1 s."""
+    natija, yiqildi = _qidir(query, QIDIRUV_BACKEND)
+    if natija:
+        return natija
+    toza = site_siz(query) or query
+    natija, y2 = _qidir(toza, QIDIRUV_BACKEND)
+    if natija:
+        return natija
+    if yiqildi or y2:
+        natija, _ = _qidir(toza, QIDIRUV_ZAXIRA)
+    return natija
 
 
 async def multi_source_deep_search(
@@ -2533,21 +2659,8 @@ async def multi_source_deep_search(
     all_snippets: List[str] = []
     top_urls: List[tuple] = []
 
-    def _s(query):
-        # Uchalasi ham bo'sh/yiqilsa — bir marta «auto» (qolgan tizimlar):
-        # bittasi bloklansa ham qidiruv butunlay o'lmasin.
-        for backend in (QIDIRUV_BACKEND, "auto"):
-            try:
-                with DDGS() as ddgs:
-                    natija = list(ddgs.text(query, max_results=6, backend=backend))
-                if natija:
-                    return natija
-            except Exception as e:
-                logger.error(f"DDGS error [{backend}] [{query}]: {e}")
-        return []
-
     # So'rovlar PARALLEL — ilgari ketma-ket edi va har biri 5 s gacha kutardi.
-    natijalar = await asyncio.gather(*(asyncio.to_thread(_s, q) for q in queries))
+    natijalar = await asyncio.gather(*(asyncio.to_thread(qidiruv_sync, q) for q in queries))
     for q, results in zip(queries, natijalar):
         if not results:
             all_snippets.append(f"⚠️ «{q}» bo'yicha natija topilmadi.")

@@ -417,3 +417,17 @@ The audit row is JSON now (`{"kun":30,"oldin":{"tarif","muddat","qolgan"}}`) so 
 previous expiry can actually be restored; `_premium_tafsiloti()` renders it as
 `30 kun (oldin: 20 kun)` on the journal screen and falls through to the raw string for the
 older rows, which are still plain `"30"` and `"sovga 45 kun"`.
+
+### The «Tizim» card shows reply speed and automatic maintenance (2026-11-05)
+
+`/api/maintenance` returns two new fields:
+
+- `tezlik`: per-flow reply speed over the last 24 h, from `database.javob_vaqti_stats()`.
+  The SQL lives in `db/database.py`, as everywhere in the panel. The rows show the median and
+  90th percentile of first word and full answer, plus the count; names come from
+  `OQIM_NOMI` in `core/config.py`. An unknown flow keeps its raw name instead of
+  disappearing. If the query fails, the card still renders without speed.
+- `avto`: when the bot switched maintenance on by itself, the reason
+  (`services/avto_tatil.py`). The card shows «Avtomatik yoqilgan». A manual switch clears it.
+
+`tests/test_web_settings.py` 7b.

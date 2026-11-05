@@ -39,9 +39,15 @@ Some are structural guards rather than feature tests, and they earn their keep o
   so a receipt photo with no state is matched to a pending request **in the database**
   (`karta_chek_kutilmoqda`, also pgserver-checked) — otherwise a paid receipt went to the
   AI as "photo analysis" and never reached the superadmin.
-- `test_qidiruv.py` — web search asks ddgs for `QIDIRUV_BACKEND`, not `auto` (dead engines
-  on Railway's IP, `CHAT.md`); the 2-4 queries of one search run in parallel but their
-  results keep query order; an all-empty answer is retried once with `auto`.
+- `test_qidiruv.py` — web search.
+  - Every engine in `QIDIRUV_BACKEND` and `QIDIRUV_ZAXIRA` must be in ddgs's **own**
+    `ENGINES["text"]`. Bing was not, and search ran on two engines for weeks.
+  - No `auto`.
+  - The 2-4 queries of one search run in parallel, and results keep query order.
+  - An empty answer is retried once, without `site:`.
+  - The Wikipedia fallback runs only when the engines failed, never on a plain
+    "No results".
+  - `site_siz()` is checked on the real logged queries.
 - `test_tiklanish.py` — self-healing.
   - A stuck `GeneratingState` (older than `BAND_MAX`) is cleared, and the message reaches
     the **next** router. This runs through a real aiogram `Dispatcher` with `MemoryStorage`,
@@ -96,7 +102,15 @@ Some are structural guards rather than feature tests, and they earn their keep o
   the 31 screens that moved to the web panel registered again**. A returning screen fails
   with the reason ("this was not deleted, it MOVED"), because the failure to avoid is two
   places editing one setting, not a missing handler.
-- `test_activity_tracking.py` — every activity type the code writes is in `ACTIVITY_TYPES`. It **imports** that dict now (it used to read a handler by file path, which broke whenever code moved).
+- `test_activity_tracking.py` — every activity type the code writes is in `ACTIVITY_TYPES`. It **imports** that dict now (it used to read a handler by file path, which broke whenever code moved). Since 2026-11-05 `start` is no exception any more: it is in the dict, otherwise the panel dumped it into «Boshqa» and logged a warning every time. Check 4b keeps it out of the daily top-5 through `ACTIVITY_BUYRUQLAR`.
+- `test_olchov.py` 10-14 — reply speed:
+  - `ttft` records only the **first** word;
+  - a flow that never called the model is not stored;
+  - a failing store does not break the flow;
+  - `boshlash()` keeps the user's typing time out;
+  - the wrapped chat handlers keep the signature aiogram reads;
+  - storing happens only on Railway.
+- `test_image_pick.py` 34-38 — the picker gets Bing's thumbnail while the user gets the original. When OpenAI cannot download an image, we fetch the images ourselves, drop the one that will not load, and the indices map back correctly. Another error (429) does not trigger the download. An internal address is never fetched.
 - `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
 - `test_url_read.py` — the untrusted-boundary guard on `internet_search(url=…)`: a
   model-written URL must never reach an internal address, and a page that will not open

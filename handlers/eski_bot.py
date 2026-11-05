@@ -69,6 +69,7 @@ _tozalangan: set[int] = set()        # menyusi tozalangan chatlar
 _egasiga_aytilgan: set[int] = set()  # Business egalari
 _logo_id: str | None = None          # birinchi yuborishdan keyin file_id
 _bot: Bot | None = None              # /eski_xabar shu orqali yuboradi
+_dp: Dispatcher | None = None        # `toxtat()` uchun
 _eski_nom: str = "uzchatgptaibot"    # getMe dan keyin aniq nom
 
 
@@ -285,17 +286,34 @@ async def _profilni_yangila(bot: Bot) -> None:
         logger.warning(f"[Eski bot] ism o'zgarmadi: {e}")
 
 
+async def toxtat() -> None:
+    """Asosiy bot to'xtaganda (`main.py` finally). ⚠️ `handle_signals=False`
+    bo'lgani uchun SIGTERM eski botni TO'XTATMAYDI — uni jarayon yopilishida
+    event loop bekor qilardi va sessiyasi ochiq qolardi (logda «Unclosed
+    client session» har deployda). Istisno tashlamaydi."""
+    if _dp is not None:
+        try:
+            await _dp.stop_polling()
+        except Exception:
+            pass                       # polling allaqachon to'xtagan
+    if _bot is not None:
+        try:
+            await _bot.session.close()
+        except Exception:
+            pass
+
+
 async def ishga_tushir(token: str) -> None:
     """main.py fonda chaqiradi. Hech qachon yiqilmaydi — asosiy bot
     eski botning muammosi tufayli to'xtamasligi shart."""
-    global _bot, _eski_nom
+    global _bot, _eski_nom, _dp
     try:
         bot = Bot(token=token, default=DefaultBotProperties(parse_mode="HTML"))
         me = await bot.get_me()
         _bot, _eski_nom = bot, me.username or _eski_nom
         logger.info(f"[Eski bot] @{me.username} → @{_yangi()} ga yo'naltiradi")
         await _profilni_yangila(bot)
-        dp = _dispatcher()
+        dp = _dp = _dispatcher()
         # handle_signals=False: SIGINT/SIGTERM asosiy dispatcher'niki.
         await dp.start_polling(bot, handle_signals=False,
                                allowed_updates=dp.resolve_used_update_types())

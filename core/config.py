@@ -882,6 +882,23 @@ ACTIVITY_TYPES: Dict[str, tuple] = {
     # 3-bosqich: `biznes` kunlik sanog'idan yechiladi, balldan emas.
     "biznes_avtojavob":       ("🤖", "Biznes avtojavob", 0),
     "biznes_uzatish":         ("🙋", "Egasiga uzatildi", 0),
+    # /start — AI chaqiruvi emas. Ro'yxatda bo'lishi kerak: usiz panel uni
+    # har ochilishda «Boshqa» ga tashlab, logga ogohlantirish yozardi.
+    "start":                  ("👋", "Botni ochdi (/start)", 0),
+}
+
+# Buyruqlar — so'rov emas. Kunlik hisobotning «eng ko'p ishlatilgan
+# amallar» beshligiga tushmaydi (u yerda bir o'rinni bekorga egallardi);
+# panel jami va ustunlarida esa bor — yig'indi jamiga teng qolishi shart.
+ACTIVITY_BUYRUQLAR = frozenset({"start"})
+
+# `core/olchov.py` oqimlari — panel «Tizim» kartasidagi javob tezligi.
+# Ro'yxatda yo'q oqim xom nomi bilan chiqadi (yo'qolmaydi).
+OQIM_NOMI: Dict[str, str] = {
+    "matn": "Matn", "rasm": "Rasm", "ovoz": "Ovoz", "hujjat": "Hujjat",
+    "tadqiqot": "Tadqiqot", "avtojavob": "Biznes avtojavob",
+    "loyiha": "Biznes qoralama", "buyruq": "Biznes buyrug'i",
+    "uslub_organ": "Biznes uslubi", "yuborish": "Biznes yuborish",
 }
 
 # ── TELEGRAM BUSINESS (REJA.md) ─────────────────────────────────────

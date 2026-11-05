@@ -161,6 +161,28 @@ retried once with `auto`, so one engine getting blocked does not kill search. Lo
 measurement, 10 queries: same sources, 3.8 s → 1.1 s average. If search degrades,
 count `Error in engine X` in the log before touching anything else. `tests/test_qidiruv.py`.
 
+**Update 2026-11-05: Bing was never really there.** In ddgs 9.14 `bing` exists for images
+and news but **not for text**. The production log shows 134 × "bing - backends do not
+exist", so search had silently been running on two engines.
+
+Current setup:
+- `QIDIRUV_BACKEND = "yandex,yahoo"`.
+- `tests/test_qidiruv.py` check 1 compares every listed engine with ddgs's own
+  `ENGINES["text"]`, so a library upgrade that drops one fails the test.
+
+`qidiruv_sync()` replaced the `auto` retry. That retry picked mojeek or duckduckgo at random
+and got Railway timeouts from them (82 + 63 in the log). It works in three steps:
+1. **Second try.** An empty answer is retried once, without the `site:` operators if the
+   query had any (`site_siz()`). Most logged "No results" were `site:` queries, and engines
+   also return empty at random (1 of 12 in a local run).
+2. **Wikipedia fallback** (`QIDIRUV_ZAXIRA`), only when the engines **failed** (a connection
+   error) and never on a plain "No results". On a narrow query an unrelated encyclopedia
+   page would mislead the model.
+3. **Logging.** "No results" is logged at INFO, not ERROR.
+
+The deploy self-check (`handlers/tiklanish.py`) also runs one search, so engines blocked
+from Railway's IP show up right after a deploy.
+
 ### Photos: two separate pipelines that must not be confused
 
 A photo in a **chat reply** and a photo **inside a document** share nothing but the search call, and mixing them up is the failure mode users actually hit.
@@ -171,6 +193,13 @@ A photo in a **chat reply** and a photo **inside a document** share nothing but 
 The routing between them is prompt-level and fragile: adding the word "rasm" to the file tool's description was enough to make *every* request ("olma haqida ma'lumot ber") turn into a file task. Both tool descriptions now carry an explicit ⛔️ pointing at the other one, and `IMAGE_CAPABILITY_NOTE` in the system prompt exists because the model would otherwise answer "I can't send pictures" without calling any tool at all.
 
 **The model picks the photos by looking at them.** `search_images()` gathers ~20 candidates, checks they are live, and then hands the thumbnails to `SEARCH_IMAGE_PICK_MODEL` (`gpt-4.1`, `detail: "low"` = 82 tokens each) in **one** call together with the user's actual request; the picker returns the indices it wants plus a short Uzbek description of each. That description is what makes "what colour is the car in the first photo" answerable, and it is deliberately written from the image, not from the request. The picker runs on a **different model from the main answer**; if it fails for any reason the first N candidates are used, i.e. the old behaviour, so a picture is never lost. An empty pick is a valid answer — an unrelated photo is worse than none.
+
+⚠️ **The picker is shown Bing's thumbnail, not the original (2026-11-05).** OpenAI often cannot download the original site's file (hotlink protection, slow servers). One such image failed the **whole** call with 400 "Error while downloading file" (6 times in the log), and each time the unseen first-N went out.
+- `_kor_manba()` passes `thumbnail` (Bing's CDN) when the result has one. `detail: low` scales the image to 512 px anyway.
+- If OpenAI still cannot download, `_rasm_bayt()` fetches the images itself. It uses `_is_public_url()`, resizes to 512 px JPEG and resends them as `data:` URLs.
+  - An image that cannot be downloaded is dropped; it would not have reached the user either.
+  - The picker's numbers then refer to the new list.
+- The user is still sent the original `url`. `tests/test_image_pick.py` 34-38.
 
 ⛔️ **The picker model must be tile-based, and that is a 23x decision.** `detail: "low"`
 is honoured only by tile-based models (gpt-4o, gpt-4.1, gpt-5, gpt-5.1), where it means
@@ -264,6 +293,36 @@ Every path sets the state through `_band()` and clears it through `_bosh()`.
     panel, retrying each once.
   - It sends one message to the superadmin: a silent ✅, or a ❌ that also goes to the
     watch group and names what broke.
+- **Shutdown closes what it opened.** `main.py` wraps polling in `finally: _yopish()`, which:
+  - stops the old bot's poller (`eski_bot.toxtat()`). It runs with `handle_signals=False`,
+    so SIGTERM never reached it;
+  - closes the shared HTTP sessions of the text and guest paths.
+
+  Before this, every deploy left "Unclosed client session" in the log. Each step is capped at
+  5 s, and one hanging step does not block the rest.
+
+**Reply speed is measured, not guessed (2026-11-05)**
+
+Each of the five chat paths is one `@olchov.oqim` (`matn`, `rasm`, `ovoz`, `hujjat`,
+`tadqiqot`), the same instrument Business already used.
+
+What is recorded:
+- **First word.** `process_stream_draft()` calls `olchov.ttft()` on the first real text, the
+  moment the user sees something. Only the first call counts.
+- **Total time and rounds.** Model rounds and tokens come from `_log_token_usage`.
+- **What is left out:**
+  - The document path calls `olchov.boshlash()` after waiting for the user's instruction, so
+    the user's typing is not counted as bot time.
+  - The text path's 1.5 s merge wait is excluded on purpose: it is a constant.
+
+Where it goes:
+- On Railway only, every flow that called the model goes into `javob_vaqti`. It holds numbers
+  only: no text, no user id. Rows older than 14 days are cleaned up on about 1 in 200 writes.
+- The panel's «Tizim» card shows the last 24 h for each flow: median and 90th percentile of
+  first word and total.
+- The criterion is "the user saw an answer" (`ttft_ms` present), not `natija`. A chat error is
+  caught inside `send_error_with_retry`, so the flow still ends as `tugadi`.
+- `tests/test_olchov.py` 10-14; the SQL was run on pgserver.
 
 ### Live streaming: what a rejected draft means
 
@@ -995,5 +1054,18 @@ empty it does nothing at all, so a deployment without a domain behaves exactly a
 Both helpers there exist for the same reason: the model composes documents by hardcoding coordinates and never measures what it placed. `docgen` owns text metrics for PDF; `deck` owns slide geometry for PPTX (safe margins, aspect-preserving image fit, a reserved footer band, a reserved caption line for image credit). Before `deck`, the three failures were always the same — picture over text, credit over picture, page number over picture. The tool description makes `deck` mandatory for PPTX and explicitly scopes the older manual-layout rules to PDF/DOCX/XLSX, because two sets of layout instructions produce worse output than one. `tests/test_deck_layout.py` asserts no two content shapes intersect — it already caught a 0.1" clash between the section number and its heading.
 
 `deck` also owns image *placement*, not just geometry: `Deck(images=[...])` is a pool and every layout's `image` defaults to the `AUTO` sentinel, so photos spread across the whole deck. This exists because the model reads "put a picture on the first slide" literally and leaves every other slide bare. `image=None` is the explicit opt-out — that is why `AUTO` cannot simply be `None`. Side-by-side layouts put text and picture in frames of identical size and top, the picture cover-cropped to fill its frame exactly, so image scale never wanders between slides. `image_slide` is the opposite case — cropping a map or a chart destroys it — so there the picture is fitted whole and the card is then shrunk to hug it with fixed padding; the box it is given is only a bound, never the drawn frame. Caption and credit are positioned off the returned rect, not off that bound.
+
+⚠️ **Every layout accepts the same arguments (2026-11-05).** The model carries an argument it saw on one layout over to another. In the live log, each of these was a `TypeError` that cost a whole round:
+- `table(image=)`, `table(credit=)`, `stats(image=)`, `closing(footer=)`.
+- Our own prompt caused the first one: it says to write `image=None` on table and stats slides, and those two methods did not accept `image`.
+
+Now:
+- `credit` works on every layout. On `table`/`stats` it is the data source, under the note.
+- `closing` takes `footer` the same way `cover` does.
+- `table`/`stats` accept `image` and ignore it. `None` is silent; a file path leaves a note.
+- Any unknown argument goes into `**ortiqcha`. It is listed as `[ESLATMA]` in `report()`, which the model reads, and the slide is still built.
+- `ISSUE_MARKER` is deliberately **not** set for these notes: the file is correct, so a fix-up round is not worth its tokens.
+
+The `deck.py` self-test check 6 replays the exact calls from the log.
 
 The tool description promises the model there is **no internet** inside the sandbox, and that promise is what makes generated code deterministic — a model asked to fetch a photo invents a URL, and invented URLs are dead. So photos for documents arrive the other way round: the model lists what it needs in `image_queries`, `_run_file_task` downloads and converts them **before** the run, and `run_in_sandbox(extra_files=...)` drops them in the work dir as `rasm1.jpg`, `rasm2.jpg` — positional, one per query, a missing one still burns its number so the rest don't shift. They are cached per user request, because the file loop reruns up to 4 times and a second download would hand the model *different* photos than the caption it already wrote. Everything is re-encoded to JPEG via Pillow: most DuckDuckGo image results are WEBP and python-pptx rejects WEBP.

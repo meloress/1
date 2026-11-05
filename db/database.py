@@ -18,7 +18,7 @@ from core.config import (
     MAX_ACTIVE_REMINDERS, REMINDER_MAX_LEN, REMINDER_REPEATS,
     REMINDER_MAX_AHEAD_DAYS,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
-    INACTIVE_STEPS, ACTIVITY_TYPES,
+    INACTIVE_STEPS, ACTIVITY_TYPES, ACTIVITY_BUYRUQLAR,
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
     BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT, BIZNES_JUFT_MIN_SOZ,
     BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
@@ -311,6 +311,21 @@ async def create_users_table():
                 prompt    TEXT,
                 narx      INTEGER NOT NULL DEFAULT 0,
                 boshlandi TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        ''')
+        # Javob tezligi (2026-11-05, `core/olchov.py` → panel «Tizim»). Faqat
+        # sonlar — matn, user_id yo'q. 14 kundan eskisi `javob_vaqti_yoz` da.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS javob_vaqti (
+                id      BIGSERIAL PRIMARY KEY,
+                oqim    TEXT NOT NULL,
+                jami_ms INTEGER NOT NULL,
+                ttft_ms INTEGER,
+                llm     INTEGER NOT NULL DEFAULT 0,
+                kirish  INTEGER NOT NULL DEFAULT 0,
+                chiqish INTEGER NOT NULL DEFAULT 0,
+                natija  TEXT,
+                vaqt    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         ''')
         # Karta orqali to'lov (2026-10-30) — panel → Sozlamalar → Karta,
@@ -1250,6 +1265,58 @@ async def uzilgan_javoblar(jarayon: str, daqiqa: int) -> list:
                          boshlandi > NOW() - make_interval(mins => $2::int) AS yangi''',
             jarayon, int(daqiqa))
         return [dict(r) for r in rows if r['yangi']]
+
+
+JAVOB_VAQTI_KUN = 14
+
+
+async def javob_vaqti_yoz(oqim: str, jami_ms: int, maydon: dict) -> None:
+    """Bitta model chaqirilgan oqim (`olchov.saqlovchi`). Eskisi har 200
+    yozuvda bir tozalanadi — har yozuvda butun jadvalni skanerlash shart emas."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    ttft = maydon.get("ttft_ms")
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''INSERT INTO javob_vaqti (oqim, jami_ms, ttft_ms, llm, kirish, chiqish, natija)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)''',
+            str(oqim)[:32], int(jami_ms), int(ttft) if ttft is not None else None,
+            int(maydon.get("llm") or 0), int(maydon.get("kirish") or 0),
+            int(maydon.get("chiqish") or 0), str(maydon.get("natija") or "")[:32])
+        if random.randrange(200) == 0:
+            await conn.execute(
+                'DELETE FROM javob_vaqti WHERE vaqt < NOW() - make_interval(days => $1::int)',
+                JAVOB_VAQTI_KUN)
+
+
+@with_db_retry()
+async def javob_vaqti_stats(soat: int = 24) -> list:
+    """Oqim bo'yicha: soni, birinchi so'z va to'liq javob — median (p50) va
+    90-persentil, o'rtacha model raundi. Faqat foydalanuvchi JAVOB KO'RGANI
+    (`ttft_ms` bor). ⚠️ `natija` mezon emas: chatdagi xato
+    `send_error_with_retry` ichida ushlanadi va oqim baribir «tugadi» bo'ladi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT oqim, COUNT(*) AS soni,
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY ttft_ms) AS ttft50,
+                      percentile_cont(0.9) WITHIN GROUP (ORDER BY ttft_ms) AS ttft90,
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY jami_ms) AS jami50,
+                      percentile_cont(0.9) WITHIN GROUP (ORDER BY jami_ms) AS jami90,
+                      AVG(llm) AS llm
+               FROM javob_vaqti
+               WHERE vaqt >= NOW() - make_interval(hours => $1::int) AND ttft_ms IS NOT NULL
+               GROUP BY oqim ORDER BY soni DESC''', int(soat))
+    return [{
+        "oqim": r["oqim"], "soni": r["soni"],
+        "ttft50": None if r["ttft50"] is None else round(r["ttft50"]),
+        "ttft90": None if r["ttft90"] is None else round(r["ttft90"]),
+        "jami50": round(r["jami50"]), "jami90": round(r["jami90"]),
+        "llm": round(float(r["llm"]), 1),
+    } for r in rows]
 
 
 @with_db_retry()
@@ -5869,5 +5936,8 @@ async def daily_report_stats() -> Dict[str, Any]:
         # ⚠️ Filtr shu yerda, LIMIT dan oldin. Filtrsiz ro'yxatga `start`
         # ham tushardi — u so'rov emas, buyruq — va «eng ko'p
         # ishlatilgani» ro'yxatining bir o'rnini bekorga egallardi.
-        out['top_types'] = [(t, c) for t, c in kesim if t in ACTIVITY_TYPES][:5]
+        # `start` endi `ACTIVITY_TYPES` da (nomi bor), shuning uchun
+        # buyruqlar ALOHIDA chiqariladi.
+        out['top_types'] = [(t, c) for t, c in kesim
+                            if t in ACTIVITY_TYPES and t not in ACTIVITY_BUYRUQLAR][:5]
         return out

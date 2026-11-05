@@ -20,8 +20,11 @@ from handlers import messages as hm
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Statistikada ko'rinishi SHART bo'lmagan turlar: bular AI chaqiruvi emas.
-IGNORED = {"start"}
+# Statistikada ko'rinishi SHART bo'lmagan turlar. 2026-11-05 dan bo'sh:
+# `start` ham ro'yxatda (usiz panel uni «Boshqa» ga tashlab, logga har
+# safar ogohlantirish yozardi) — kunlik beshlikdan `ACTIVITY_BUYRUQLAR`
+# chiqaradi.
+IGNORED: set = set()
 
 # guest.py dagi f"guest_{content_type}_message" shu turlarga yoyiladi.
 GUEST_CONTENT_TYPES = ("text", "photo", "document", "voice")
@@ -111,6 +114,15 @@ def main():
     assert "type_labels" not in read("web", "api.py"), \
         "web/api.py da turlar ro'yxatining nusxasi paydo bo'lgan"
     print(f"[4] {len(ACTIVITY_TYPES)} ta turning nomi va ball bahosi joyida OK")
+
+    # 4b) Buyruqlar ro'yxatda (panel «Boshqa» ga tashlamaydi), lekin kunlik
+    #     «eng ko'p amallar» beshligidan chiqariladi — filtr SQL faylida.
+    from core.config import ACTIVITY_BUYRUQLAR
+    assert "start" in types and "start" in ACTIVITY_TYPES and "start" in ACTIVITY_BUYRUQLAR
+    assert ACTIVITY_BUYRUQLAR <= set(ACTIVITY_TYPES), ACTIVITY_BUYRUQLAR
+    assert "t not in ACTIVITY_BUYRUQLAR" in read("db", "database.py"), \
+        "kunlik beshlik buyruqlarni chiqarmayapti"
+    print("[4b] /start ro'yxatda, kunlik beshlikdan esa chiqariladi OK")
 
     # 5) Fayl vazifasi faqat fayl CHIQQANDA yoziladi
     logged = []

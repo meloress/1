@@ -239,8 +239,34 @@ class Deck:
         self.n = 0
         self._pool = [p for p in (images or []) if p and os.path.exists(p)]
         self._taken = 0
+        # Maketga mos kelmagan argumentlar — fayl YIQILMAYDI, `report()`
+        # ularni modelga aytadi (`_ortiqcha`).
+        self._ogohlar = []
 
     # ── ichki yordamchilar ──────────────────────────────────────────
+    def _ortiqcha(self, maket, kw):
+        """Maketda yo'q argument — `TypeError` EMAS, ogohlantirish.
+
+        ⚠️ NEGA: model bir maketda ko'rgan argumentni (`credit`, `image`,
+        `footer`) boshqasiga ham beradi. Ilgari har biri `TypeError` edi va
+        butun raund (~8k token, o'nlab soniya) shu bilan ketardi (jonli log,
+        2026-10-30/31: table(image=), table(credit=), stats(image=),
+        closing(footer=)). Endi slayd yasaladi, ortiqchasi `report()` da
+        aytiladi — model keyingi safar to'g'ri yozadi.
+        """
+        if kw:
+            self._ogohlar.append(
+                f"{maket}(): {', '.join(sorted(kw))} — bu maketda yo'q, "
+                "e'tiborsiz qoldirildi")
+
+    def _rasmsiz(self, maket, image):
+        """Jadval/raqamlar maketida rasm joyi yo'q. `image=None` — jim
+        (ko'rsatmaning o'zi shunday yozishni aytadi); fayl berilsa — aytiladi."""
+        if image is not None and image is not AUTO:
+            self._ogohlar.append(
+                f"{maket}(): bu maketda rasm joyi yo'q — image e'tiborsiz; "
+                "rasm uchun image_slide() yoki bullets() ishlating")
+
     def _blank(self):
         return self.prs.slides.add_slide(self.prs.slide_layouts[6])
 
@@ -374,8 +400,10 @@ class Deck:
         return top + Inches(1.0)
 
     # ── MAKETLAR ────────────────────────────────────────────────────
-    def cover(self, title, subtitle=None, image=AUTO, credit=None, footer=None):
+    def cover(self, title, subtitle=None, image=AUTO, credit=None, footer=None,
+              **ortiqcha):
         """Muqova. Rasm berilsa — TO'LIQ EKRANLI fon (eng ta'sirli ko'rinish)."""
+        self._ortiqcha("cover", ortiqcha)
         s = self._blank()
         image = self._pick(image)
         if image:
@@ -401,8 +429,9 @@ class Deck:
         self._footer(s)
         return s
 
-    def section(self, title, number=None, image=AUTO):
+    def section(self, title, number=None, image=AUTO, credit=None, **ortiqcha):
         """Bo'lim ajratuvchi — katta raqam va sarlavha."""
+        self._ortiqcha("section", ortiqcha)
         s = self._blank()
         image = self._pick(image)
         if image:
@@ -422,10 +451,13 @@ class Deck:
         tf = _textbox(s, MARGIN + Inches(0.35), top,
                       SLIDE_W - 2 * MARGIN - Inches(0.35), Inches(1.2))
         _para(tf, title, 40, self.t["fg"], bold=True, first=True)
+        if image and credit:
+            self._credit(s, MARGIN, SLIDE_H - FOOTER_H - Inches(0.28), Inches(5), credit)
         self._footer(s)
         return s
 
-    def bullets(self, title, items, subtitle=None, image=AUTO, credit=None):
+    def bullets(self, title, items, subtitle=None, image=AUTO, credit=None,
+                **ortiqcha):
         """Asosiy maket: chapda matn, o'ngda rasm (rasm bo'lmasa — keng matn).
 
         `items` — satrlar ro'yxati yoki ("Sarlavha", "Izoh") juftliklari.
@@ -436,6 +468,7 @@ class Deck:
         uchun slayd muvozanatli ko'rinadi, rasm esa "goh katta, goh
         kichik" bo'lib qolmaydi.
         """
+        self._ortiqcha("bullets", ortiqcha)
         s = self._blank()
         self._bg_solid(s)
         body_top = self._title(s, title)
@@ -505,13 +538,15 @@ class Deck:
         self._footer(s)
         return s
 
-    def image_slide(self, title, image=AUTO, caption=None, credit=None):
+    def image_slide(self, title, image=AUTO, caption=None, credit=None,
+                    **ortiqcha):
         """Katta rasm slaydi. Diagramma (matplotlib PNG) uchun ham shu.
 
         Bu yerda rasm QIRQILMAYDI (mode="fit"): asosiy fotosurat yoki
         diagrammani qirqish mazmunni yo'qotadi. Ramka o'lchami esa
         doimiy, shuning uchun slayddan slaydga "sakramaydi".
         """
+        self._ortiqcha("image_slide", ortiqcha)
         s = self._blank()
         self._bg_solid(s)
         body_top = self._title(s, title)
@@ -540,8 +575,11 @@ class Deck:
         self._footer(s)
         return s
 
-    def stats(self, title, pairs, note=None):
-        """Katta raqamlar qatori — 2 tadan 4 tagacha."""
+    def stats(self, title, pairs, note=None, image=None, credit=None, **ortiqcha):
+        """Katta raqamlar qatori — 2 tadan 4 tagacha. `credit` — raqamlar
+        manbasi (izoh ostida). Rasm joyi yo'q: `image` e'tiborsiz."""
+        self._ortiqcha("stats", ortiqcha)
+        self._rasmsiz("stats", image)
         s = self._blank()
         self._bg_solid(s)
         body_top = self._title(s, title)
@@ -567,15 +605,20 @@ class Deck:
             _para(tf, value, 40, self.t["accent"], bold=True,
                   align=PP_ALIGN.CENTER, space_after=4, first=True)
             _para(tf, label, 14, self.t["muted"], align=PP_ALIGN.CENTER)
+        below = top + card_h + Inches(0.35)
         if note:
-            tf = _textbox(s, MARGIN, top + card_h + Inches(0.35),
-                          SLIDE_W - 2 * MARGIN, Inches(0.4))
+            tf = _textbox(s, MARGIN, below, SLIDE_W - 2 * MARGIN, Inches(0.4))
             _para(tf, note, 13, self.t["muted"], first=True)
+            below += Inches(0.45)
+        self._credit(s, MARGIN, below, SLIDE_W - 2 * MARGIN, credit)
         self._footer(s)
         return s
 
-    def table(self, title, rows, note=None):
-        """Jadval. `rows[0]` — sarlavha qatori."""
+    def table(self, title, rows, note=None, image=None, credit=None, **ortiqcha):
+        """Jadval. `rows[0]` — sarlavha qatori. `credit` — ma'lumot manbasi
+        (izoh ostida). Rasm joyi yo'q: `image` e'tiborsiz."""
+        self._ortiqcha("table", ortiqcha)
+        self._rasmsiz("table", image)
         s = self._blank()
         self._bg_solid(s)
         body_top = self._title(s, title)
@@ -585,8 +628,11 @@ class Deck:
             return s
         ncols = max(len(r) for r in rows)
         rows = [r + [""] * (ncols - len(r)) for r in rows]
+        # Izoh va manba uchun joy OLDINDAN ajratiladi: uzun jadvalda ular
+        # altbet bandiga tushib ketmasin.
+        extra = (Inches(0.45) if note else 0) + (Inches(0.3) if credit else 0)
         height = min(Inches(0.45) * len(rows),
-                     SLIDE_H - body_top - FOOTER_H - Inches(0.3))
+                     SLIDE_H - body_top - FOOTER_H - Inches(0.3) - extra)
         shape = s.shapes.add_table(len(rows), ncols, MARGIN, body_top,
                                    SLIDE_W - 2 * MARGIN, height)
         tbl = shape.table
@@ -602,15 +648,18 @@ class Deck:
                 p.font.bold = ri == 0
                 p.font.color.rgb = _rgb(self.t["bg"] if ri == 0 else self.t["fg"])
                 cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+        below = body_top + height + Inches(0.2)
         if note:
-            tf = _textbox(s, MARGIN, body_top + height + Inches(0.2),
-                          SLIDE_W - 2 * MARGIN, Inches(0.4))
+            tf = _textbox(s, MARGIN, below, SLIDE_W - 2 * MARGIN, Inches(0.4))
             _para(tf, note, 12, self.t["muted"], first=True)
+            below += Inches(0.45)
+        self._credit(s, MARGIN, below, SLIDE_W - 2 * MARGIN, credit)
         self._footer(s)
         return s
 
-    def quote(self, text, author=None, image=AUTO):
+    def quote(self, text, author=None, image=AUTO, credit=None, **ortiqcha):
         """Kuchli iqtibos — bo'limlar orasida ritm beradi."""
+        self._ortiqcha("quote", ortiqcha)
         s = self._blank()
         image = self._pick(image)
         if image:
@@ -623,10 +672,16 @@ class Deck:
               align=PP_ALIGN.CENTER, space_after=14, first=True)
         if author:
             _para(tf, f"— {author}", 16, self.t["accent"], align=PP_ALIGN.CENTER)
+        if image and credit:
+            self._credit(s, MARGIN, SLIDE_H - FOOTER_H - Inches(0.28), Inches(5), credit)
         self._footer(s)
         return s
 
-    def closing(self, title="Xulosa", subtitle=None, image=AUTO):
+    def closing(self, title="Xulosa", subtitle=None, image=AUTO, credit=None,
+                footer=None, **ortiqcha):
+        """Yakuniy slayd. `footer` — muqovadagidek pastki qator (masalan
+        aloqa yoki fan nomi)."""
+        self._ortiqcha("closing", ortiqcha)
         s = self._blank()
         image = self._pick(image)
         if image:
@@ -639,6 +694,12 @@ class Deck:
         _para(tf, title, 44, self.t["fg"], bold=True, space_after=10, first=True)
         if subtitle:
             _para(tf, subtitle, 19, self.t["muted"])
+        if footer:
+            tf2 = _textbox(s, MARGIN + Inches(0.35), Inches(5.6),
+                           SLIDE_W - 2 * MARGIN, Inches(0.4))
+            _para(tf2, footer, 14, self.t["accent"], bold=True, first=True)
+        if image and credit:
+            self._credit(s, MARGIN, SLIDE_H - FOOTER_H - Inches(0.28), Inches(5), credit)
         self._footer(s)
         return s
 
@@ -702,6 +763,10 @@ class Deck:
               f"{len(issues)} muammo")
         for m in issues:
             print("  - " + m)
+        # Ortiqcha argumentlar — slayd yasalgan, faqat ma'lumot. ISSUE_MARKER
+        # ATAYLAB yo'q: bu tuzatish raundiga arzimaydi (fayl to'g'ri).
+        for m in self._ogohlar:
+            print("  [ESLATMA] " + m)
         if issues:
             # Bu belgi bo'yicha _run_file_task modeldan tuzatish so'raydi.
             print(ISSUE_MARKER)
@@ -867,4 +932,32 @@ if __name__ == "__main__":
 
     assert not check(Presentation(out)), "toza taqdimotda muammo topildi"
     print("[5] toza taqdimot tekshiruvdan o'tdi OK")
+
+    # 6) Jonli logda (2026-10-30/31) TypeError bergan AYNAN shu chaqiruvlar
+    #    endi slayd yasaydi; ortiqcha argument — ogohlantirish, yiqilish emas.
+    from PIL import Image as _Img
+    os.makedirs("output", exist_ok=True)
+    _Img.new("RGB", (1600, 900), (40, 90, 140)).save("output/_r.jpg")
+    d6 = Deck("Tekshiruv", footer="T", images=["output/_r.jpg"])
+    d6.cover("Muqova", "Izoh", credit="a.uz", footer="Fan")
+    d6.section("Bo'lim", 1, credit="b.uz")
+    d6.table("Jadval", [["A", "B"], ["1", "2"]], image=None, credit="stat.uz")
+    d6.table("Jadval 2", [["A", "B"]] + [["x", "y"]] * 12, note="Izoh",
+             credit="stat.uz")
+    d6.stats("Raqamlar", [("4", "Yil")], note="Izoh", image="output/_r.jpg",
+             credit="wb.org")
+    d6.quote("Iqtibos matni.", "Muallif", credit="c.uz")
+    d6.bullets("Fikrlar", [("A", "B")], rang="qizil")
+    d6.closing("Xulosa", "Yakun", footer="Aloqa: @vexonai", credit="d.uz")
+    matnlar = " ".join(sh.text_frame.text for sl in d6.prs.slides
+                       for sh in sl.shapes if sh.has_text_frame)
+    assert "Manba: stat.uz" in matnlar and "Manba: wb.org" in matnlar, matnlar
+    assert "Aloqa: @vexonai" in matnlar and "Manba: d.uz" in matnlar, matnlar
+    ogoh = " | ".join(d6._ogohlar)
+    assert "bullets(): rang" in ogoh and "stats(): bu maketda rasm joyi yo'q" in ogoh, ogoh
+    assert "table()" not in ogoh, ogoh          # image=None — jim, ko'rsatma shunday
+    muammo6 = check(d6.prs)
+    assert not muammo6, muammo6                  # manba/izoh hech narsaga tegmaydi
+    print(f"[6] logdagi 4 xil TypeError endi slayd; {len(d6._ogohlar)} ta eslatma, "
+          "0 muammo OK")
     print("✅ deck.py ishlayapti")

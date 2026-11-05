@@ -303,6 +303,11 @@ async def main():
     # Deploydan keyin: uzilgan javoblar egasiga «Qayta so'rash» + o'zini tekshirish.
     from handlers import tiklanish
     asyncio.create_task(tiklanish.ishga_tushganda())
+    # Javob tezligi bazaga (panel → Tizim). Faqat Railway'da — lokal `.env`
+    # production bazasiga qaraydi va lokal vaqtlar statistikani buzardi.
+    if tiklanish.RAILWAYDA:
+        from core import olchov
+        olchov.saqlovchi(database.javob_vaqti_yoz)
     # Telegram Business (REJA.md 4.1): kunlik kartoteka va tozalash. «Javob
     # kutmoqda» ogohlantirishi 2026-10-06 da egasining so'rovi bilan o'chirildi.
     asyncio.create_task(biznes_module.biznes_hisobot_watcher())
@@ -390,7 +395,29 @@ async def main():
     # allowed_updates ro'yxatdan o'tgan handlerlardan chiqariladi.
     # `stopped_message_generation` uchun endi haqiqiy observer bor, ya'ni
     # u ro'yxatga o'zi tushadi — qo'lda qo'shish kerak emas.
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        await _yopish()
+
+
+async def _yopish() -> None:
+    """SIGTERM'dan keyin: ochiq qolgan sessiyalar va eski bot poller'i.
+
+    Usiz har deployda logda «Unclosed client session» (2026-11-05 gacha 13
+    marta) va eski bot jarayon o'lguncha polling qilardi. Har biri alohida
+    va 5 s bilan cheklangan — bittasi osilsa ham boshqalari yopiladi, Railway
+    esa konteynerni kutib turmaydi."""
+    from handlers import eski_bot, guest
+    for nom, fn in (("eski bot", eski_bot.toxtat),
+                    ("matn sessiyasi", messages_module.close_http_session),
+                    ("mehmon sessiyasi", getattr(guest, "close_http_session", None))):
+        if fn is None:
+            continue
+        try:
+            await asyncio.wait_for(fn(), timeout=5)
+        except Exception as e:
+            logger.warning(f"[To'xtash] {nom} yopilmadi: {e}")
 
 
 if __name__ == "__main__":

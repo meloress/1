@@ -180,6 +180,12 @@ one of these things, read the dict — do not retype the list. And when you do w
 copy anyway, the guard is always the same: walk the source for the calls that *write* the
 values and compare both directions, as `tests/test_web_journal.py` checks 1-2 do.
 
+Two smaller sets were added on 2026-11-05, both in `core/config.py`:
+- **`ACTIVITY_BUYRUQLAR`** (`start`). These rows are kept out of the daily «most used»
+  top-5, but they are counted in the panel's totals. `start` is now in `ACTIVITY_TYPES`;
+  without it the panel logged a warning on every open.
+- **`OQIM_NOMI`**: the reply-speed flow names on the «Tizim» card.
+
 The same discipline applies to **rules**, not just labels. Three validators are shared by
 the Telegram screen and the panel, and neither may re-implement them:
 `database.clean_promo_spec()` (promo code shape, 1-3650 days, 1-100000 uses, expiry in

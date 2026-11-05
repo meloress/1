@@ -16,6 +16,7 @@ Xulqqa ta'sir yo'q: o'lchov hech narsani ushlamaydi va hech narsani
 yutmaydi — dekorator istisnoni o'z holicha qayta ko'taradi, log yozilmasa
 ham (JSON xatosi) oqim davom etadi.
 """
+import asyncio
 import functools
 import json
 import logging
@@ -24,6 +25,19 @@ import time
 from contextvars import ContextVar
 
 logger = logging.getLogger("olchov")
+
+# Oqim tugaganda bazaga ham (panel → Tizim → javob tezligi, 2026-11-05).
+# `main.py` faqat Railway'da qo'yadi; None — faqat log. FAQAT model
+# chaqirilgan (`llm > 0`) oqimlar: Business'ning har 5 daqiqalik bo'sh
+# «hisobot»i statistikani to'ldirib yubormasin.
+_saqlovchi = None
+_vazifalar: set = set()
+
+
+def saqlovchi(fn) -> None:
+    """`fn(oqim, jami_ms, maydon)` — async, istisnosi yutiladi."""
+    global _saqlovchi
+    _saqlovchi = fn
 
 _joriy: ContextVar = ContextVar("olchov_joriy", default=None)
 # Bitta business update'ning korrelyatsiya id'si — debounce taymeri
@@ -69,6 +83,22 @@ def belgi(nom: str) -> None:
     hozir = time.perf_counter()
     o.bosqichlar[nom] = o.bosqichlar.get(nom, 0) + round((hozir - o.oxirgi) * 1000)
     o.oxirgi = hozir
+
+
+def ttft() -> None:
+    """Foydalanuvchi BIRINCHI so'zni ko'rgan payt (oqim boshidan, ms).
+    Faqat birinchisi yoziladi — tooldan keyingi qayta oqim hisoblanmaydi."""
+    o = _joriy.get()
+    if o is not None and "ttft_ms" not in o.maydon:
+        o.maydon["ttft_ms"] = round((time.perf_counter() - o.t0) * 1000)
+
+
+def boshlash() -> None:
+    """Oqim vaqtini HOZIRDAN boshlaydi — foydalanuvchini kutish (hujjatga
+    ko'rsatma yozishi) bot tezligiga kirmasin."""
+    o = _joriy.get()
+    if o is not None:
+        o.t0 = o.oxirgi = time.perf_counter()
 
 
 def qosh(**maydon) -> None:
@@ -120,8 +150,27 @@ def oqim(nom: str):
             finally:
                 _joriy.reset(belgi_)
                 o.maydon.setdefault("natija", natija)
-                yoz(oqim=nom, id=_sorov_id.get(),
-                    jami_ms=round((time.perf_counter() - o.t0) * 1000),
+                jami = round((time.perf_counter() - o.t0) * 1000)
+                yoz(oqim=nom, id=_sorov_id.get(), jami_ms=jami,
                     bosqichlar=o.bosqichlar, **o.maydon)
+                _saqla(nom, jami, o.maydon)
         return ichki
     return dek
+
+
+def _saqla(nom: str, jami: int, maydon: dict) -> None:
+    if _saqlovchi is None or not maydon.get("llm"):
+        return
+
+    async def _ish():
+        try:
+            await _saqlovchi(nom, jami, maydon)
+        except Exception as e:
+            logger.warning(f"olchov saqlanmadi: {e}")
+
+    try:
+        t = asyncio.get_running_loop().create_task(_ish())
+    except RuntimeError:
+        return
+    _vazifalar.add(t)
+    t.add_done_callback(_vazifalar.discard)

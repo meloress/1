@@ -258,6 +258,43 @@ async def main():
 
 asyncio.run(main())
 
+
+# ── To'xtash: SIGTERM'dan keyin hamma sessiya yopiladi ────────────
+async def yopish_sinovi():
+    import main as bosh
+    from handlers import eski_bot, guest
+    yopildi = []
+
+    class Sessiya:
+        closed = False
+
+        def __init__(self, nom):
+            self.nom = nom
+
+        async def close(self):
+            yopildi.append(self.nom)
+            self.closed = True
+
+    class EskiDp:
+        async def stop_polling(self):
+            yopildi.append("eski polling")
+            raise RuntimeError("Polling is not started")   # yiqilsa ham davom
+
+    eski_bot._dp = EskiDp()
+    eski_bot._bot = NS(session=Sessiya("eski bot"))
+    m._http_session = Sessiya("matn")
+    guest._http_session = Sessiya("mehmon")
+    await bosh._yopish()
+    return yopildi
+
+
+yopildi = asyncio.run(yopish_sinovi())
+check("to'xtashda: eski bot polling + sessiyasi, matn va mehmon sessiyalari yopiladi; "
+      "biri yiqilsa ham qolganlari",
+      yopildi == ["eski polling", "eski bot", "matn", "mehmon"])
+check("main.py: polling `finally` da _yopish() — SIGTERM'dan keyin ham",
+      "finally:\n        await _yopish()" in kod("main.py"))
+
 # ── 12-13. Manba qo'riqchilari (izohsiz kod) ─────────────────────
 mk = kod("handlers/messages.py")
 check("GeneratingState faqat _band() orqali qo'yiladi",

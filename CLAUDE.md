@@ -200,8 +200,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   A 429 arrives mid-stream. Pro gating is by omission from the schema.
 - **Pasted link** — a model-written URL is untrusted: `_is_public_url()` rejects by the
   **resolved IP** (internal Railway services are reachable).
-- **Web search** — ddgs gets `QIDIRUV_BACKEND` (Bing/Yandex/Yahoo), never bare `auto`:
-  Brave, Mojeek and DuckDuckGo are blocked from Railway's IP; queries run in parallel.
+- **Web search** — ddgs gets `QIDIRUV_BACKEND` (Yandex/Yahoo; there is no Bing for ddgs
+  text), never bare `auto`. Brave, Mojeek and DuckDuckGo are blocked from Railway's IP.
+  Queries run in parallel. An empty result is retried once without `site:`; Wikipedia is
+  used only when the engines **failed**.
 - **Photos** — chat pictures are URLs behind `[rasm:N]` tokens the model never sees as URLs;
   document pictures are bytes. The picker model must be **tile-based** (`gpt-4.1`; a
   patch-based one costs 23x). `[rasm:N]` is rewritten before it reaches history.
