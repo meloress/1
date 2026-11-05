@@ -15,7 +15,7 @@ python services/sandbox.py          # sandbox izolyatsiyasini tekshirish
 python services/sandbox_helpers/deck.py   # PPTX maketlarini tekshirish
 python tests/test_tts_lang.py --live  # jonli TTS sintezi bilan
 # JONLI model — lokal OpenAI kaliti yaroqsiz (2026-10-28), shuning uchun `railway run`:
-railway run python tests/eval_chat.py [--takror N] [id...]       # asosiy chat sifati
+railway run python tests/eval_chat.py [--takror N] [id...]       # asosiy chat sifati (to'liq --takror 2 ≈ 1,6 mln grant tokeni — tuzatishdan keyin faqat o'zgargan id'lar)
 railway run python tests/eval_biznes.py [--takror N] [--qoralama] [id...]  # Business qarorlari
 railway run python tests/eval_tabiiy.py [--takror N] [id...]     # Business: «bot sezilyaptimi» + hakam
 railway run python tests/eval_bilim.py [--takror N]              # «Bilimga qo'shaymi?» fakt ajratish

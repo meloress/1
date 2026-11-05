@@ -193,6 +193,15 @@ UMUMIY_TAQIQ = [
 ]
 
 
+# Grant tokenlari (keshdagilar ham sanaladi). Bitta to'liq --takror 2 ≈ 1,6 mln
+# (2026-11-05) — tuzatishdan keyin faqat o'zgargan id'larni qayta yuguring.
+TOKEN = [0]
+
+
+async def _token_sana(user_id, model, kirish, chiqish, keshdan, manba=None):
+    TOKEN[0] += kirish + chiqish
+
+
 class Kuzatuvchi:
     """Oqimni o'rab, model chaqirgan asbob nomlarini yozib boradi."""
     def __init__(self, oqim, nomlar):
@@ -238,7 +247,7 @@ async def bitta(xabar, pro):
     ai.safe_get_chat_history = bosh
     ai.safe_history_summary_message = hech
     ai._memory_context = xotira
-    ai._token_saqla = hech
+    ai._token_saqla = _token_sana
     rasmlar: list = []
     bolak = []
     t0 = time.perf_counter()
@@ -302,7 +311,8 @@ async def main():
                   f"{sorted(chaqirilgan)!s:28}", repr(matn[:70]),
                   ("  ← " + "; ".join(sabab)) if sabab else "")
     otdi = sum(1 for n in natijalar if n[1])
-    print(f"\nNATIJA: {otdi}/{len(natijalar)} = {otdi * 100 // max(1, len(natijalar))}%")
+    print(f"\nNATIJA: {otdi}/{len(natijalar)} = {otdi * 100 // max(1, len(natijalar))}%"
+          f"   tokenlar: {TOKEN[0]:,}")
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".eval_chat_oxirgi.json"),
               "w", encoding="utf-8") as f:
         json.dump(natijalar, f, ensure_ascii=False, indent=1)
