@@ -72,7 +72,7 @@ or written). `railway run` also injects production `DATABASE_URL` and `BOT_TOKEN
 it only for the `eval_*.py` scripts — they touch neither — never for `test_*.py`.
 
 **Live-eval baselines** — compare against these after any prompt edit:
-`eval_chat.py` **56/56** with `--takror 2` (28 cases, 2026-10-31, after the search-engine fix), `eval_biznes.py` **125/126** with
+`eval_chat.py` **60/60** with `--takror 2` (30 cases incl. the Vexon AI identity pair, 2026-11-05), `eval_biznes.py` **125/126** with
 `--takror 2` (63 cases incl. 3 `juft_*` owner-pair cases; the miss is `tashqi_shaxsiy`, 4/5
 on retry, 2026-10-28), `eval_bilim.py` **0 wrong, 20/21** with `--takror 3` (15 pairs incl. 4 avtomat-handoff ones, 2026-10-30),
 `eval_tabiiy.py` judge **9.5 / 9.5** (without / with owner style) and 0/64 "bot tells"
@@ -187,7 +187,7 @@ touching its code — the one-liner tells you *that* something breaks silently, 
 
 **`CHAT.md`** — the chat pipeline, one line per section:
 
-- **Token budget** — the free grant counts tokens, cached ones too; ~8 280 (free) / 8 603
+- **Token budget** — the free grant counts tokens, cached ones too; ~8 324 (free) / 8 647
   (Pro) fixed tokens per round. Re-measure with `tiktoken` after any schema/manifest/prompt
   edit. `prompt_cache_key` is per **plan**, never per user; `PROMPT_CACHE_RETENTION` is off on purpose.
 - **Stop button** — `@dp.stopped_message_generation()` observer; in aiogram 3.31
@@ -265,6 +265,11 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   `successful_payment` through `grant_paid_pro`; the price lives in the `prosub:` payload,
   and Pro is lifted to the next charge + 24 h so nothing else needed subscription logic.
   The bot can cancel a subscription but never re-enable it.
+- **Automatic maintenance** (2026-11-05, `services/avto_tatil.py`): it switches on only after
+  a serious OpenAI error (credit / 401 / 403 / every model 404) appears twice in a row **and**
+  a small control request confirms it. It switches off only what it switched on itself. During
+  maintenance a Business customer gets the panel text once per chat; this is the one
+  deliberate exception to "nothing technical reaches the customer".
 - **FSM is RAM (`MemoryStorage`)** — every deploy wipes it. A state that guards money needs
   a database fallback: the karta receipt is matched by `karta_chek_kutilmoqda()` when the
   state is gone, or a paid receipt goes to the AI as a photo question.

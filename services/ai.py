@@ -26,6 +26,7 @@ if shutil.which("ffmpeg"):
 else:
     AudioSegment.converter = "ffmpeg.exe"
 
+from services import avto_tatil
 from services.file_task_quota import FileTaskQuota, DailyQuota
 from services.sandbox import run_in_sandbox
 
@@ -1525,6 +1526,30 @@ def _replace_buttons(text: str, placeholders) -> str:
     return _BUTTON_ANY_RE.sub("", _BUTTON_RE.sub(one, text))
 
 
+# ─────────────────────────────────────────────────────────────
+# 👤 @USERNAME — bosiladigan havola
+#
+# Rich xabar `skip_entity_detection=True` bilan ketadi (`messages.py`), ya'ni
+# Telegram @username'ni O'ZI tanimaydi — «@jumayevou» oddiy matn bo'lib
+# qolardi (jonli shikoyat, 2026-11-05). Aniqlashni butunlay yoqish boshqa
+# narsani ham buzardi: `main.py` (.py — domen) havolaga aylanardi. Shuning
+# uchun faqat username, kodda.
+#
+# Oldidan harf/raqam (email: a@b.com), `@`, `[` (allaqachon havola), `/`
+# yoki `.` turmasin; Telegram username — harf bilan boshlanadi, 5-32 belgi.
+# Inline `kod` ichiga tegilmaydi (kod bloklari va URL'lar himoyada).
+# ─────────────────────────────────────────────────────────────
+_MENTION_RE = re.compile(r"(?<![\w@\[/.])@([A-Za-z][A-Za-z0-9_]{4,31})(?![\w@])")
+_INLINE_KOD_RE = re.compile(r"(`[^`\n]*`)")
+
+
+def _link_mentions(text: str) -> str:
+    bolaklar = _INLINE_KOD_RE.split(text)
+    for i in range(0, len(bolaklar), 2):
+        bolaklar[i] = _MENTION_RE.sub(r"[@\1](https://t.me/\1)", bolaklar[i])
+    return "".join(bolaklar)
+
+
 def strip_custom_emoji(markdown: str) -> str:
     """Premium emojini oddiy emojiga QAYTARADI (zaxira pog'onasi uchun).
 
@@ -1567,6 +1592,8 @@ def build_rich_markdown(text: str) -> str:
     # http'siz) shunchaki tashlanadi: yarim belgi xabarni buzmasin.
     protected = _outside_dead_zones(
         protected, lambda t: _replace_buttons(t, placeholders))
+    # @username — jadval/<aside> ichida markdown havola xom chiqardi.
+    protected = _outside_dead_zones(protected, _link_mentions)
     # Premium emoji ENG OXIRIDA: yuqoridagi bosqichlar hosil qilgan
     # jadval va <aside> bloklarini ko'rib, ularni chetlab o'tishi kerak.
     protected = _replace_text_emoji(protected)
@@ -4932,10 +4959,14 @@ async def get_openai_reply(
                     final_response = await stream.get_final_response()
                     _log_token_usage(final_response, resolved_model,
                                      total_rounds + 1, user_id)
+                avto_tatil.yaxshi()
                 break
             except RateLimitError as e:
-                if _urinish or _matn_ketdi:
+                # Kredit tugagan bo'lsa kutish befoyda — darhol yuqoriga
+                # va avtomatik ta'til hisobiga (`services/avto_tatil.py`).
+                if _urinish or _matn_ketdi or avto_tatil.jiddiy_xato(e):
                     logger.error(f"GPT javob xatosi: {e}")
+                    avto_tatil.xato(e)
                     raise
                 logger.warning(
                     f"TPM limiti — {RATE_LIMIT_RETRY_DELAY}s kutib qayta "
@@ -4943,6 +4974,7 @@ async def get_openai_reply(
                 await asyncio.sleep(RATE_LIMIT_RETRY_DELAY)
             except Exception as e:
                 logger.error(f"GPT javob xatosi: {e}")
+                avto_tatil.xato(e)
                 raise
 
         if not got_function_call:

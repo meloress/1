@@ -42,6 +42,23 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_qidiruv.py` — web search asks ddgs for `QIDIRUV_BACKEND`, not `auto` (dead engines
   on Railway's IP, `CHAT.md`); the 2-4 queries of one search run in parallel but their
   results keep query order; an all-empty answer is retried once with `auto`.
+- `test_avto_tatil.py` — maintenance that turns itself on. Its sharpest checks guard
+  against the bot stopping itself:
+  - a per-minute 429, 5xx, timeouts and dropped connections never count;
+  - one serious error is not enough, and a success resets the count;
+  - a control request that passes or is inconclusive switches nothing on;
+  - only maintenance the bot switched on itself gets switched off, and a manual one is never
+    touched.
+
+  Business checks: a customer gets the panel text once per maintenance per chat, a paused
+  chat stays silent, and an Instagram comment gets nothing. Source guards cover the hooks in
+  `get_openai_reply` and the SQL that clears the flag on a manual switch.
+- `test_karta_eslatma.py` — the karta payment after the request: `/pro` shows an open
+  request's state on top (checking / rejected / open until HH:MM) so nobody opens a second
+  one; one reminder after `KARTA_ESLATMA`, and when the window closes the request becomes
+  `eskirdi` and the user is told "time is up — if you paid, write to the admin" **with the
+  admin button**. A receipt that lands on a just-closed request is pointed to the admin too.
+  `eskirdi` is not in `_KARTA_FAOL` (frees the amount, takes no receipt).
 - `test_pro_obuna.py` — the monthly Stars subscription: someone else's `prosub:` link cannot
   be paid (pre_checkout) nor granted (successful_payment); a renewal is a short message, not
   🎉; a second concurrent subscription is cancelled; `grant_paid_pro(obuna=…)` lifts Pro to

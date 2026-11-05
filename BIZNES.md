@@ -658,6 +658,20 @@ message per customer message. `retry=False` exists for this: the retry button wo
 customer's text as the *owner's* DM question. Check 28 collects every customer-bound text in the
 whole run and fails on any error, marker or limit wording.
 
+**The one deliberate exception is maintenance (the owner asked on 2026-11-05).** When
+maintenance is on, manual or automatic (`ADMIN.md`), auto-replies stop. Each customer who
+writes gets the panel's maintenance text **once per maintenance per chat** (`_tatil_mijozga()`,
+keyed by `maintenance_vaqt`), and the owner gets one message. Rules:
+
+- The check is `adminga_ham=True`: an admin owner's auto-replies stop as well, because with
+  OpenAI down they fail anyway.
+- The check runs **last** in `_toxtash_sababi()`, so a chat the owner paused or switched off
+  stays silent. Outside working hours the bot stays silent too.
+- ⛔️ No maintenance text goes to an **Instagram comment**. Meta allows a single private reply
+  per comment; spending it on maintenance would leave the comment unanswerable afterwards.
+
+Tests: `tests/test_avto_tatil.py` checks 11-14.
+
 ⛔️ **`[egasiga: sabab]` is caught by code, not trusted to the model.** `egasiga_ajrat()` (next
 to `strip_rich_tokens()`) removes well-formed markers and also a *broken* one up to the end of
 the line — raw `[egasiga: narx` would show the customer the bot's internal instruction. A marker

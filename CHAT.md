@@ -16,10 +16,12 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 
 | | free | Pro |
 |---|---|---|
-| `instructions` (prompt + concise + image note) | 5 521 | 5 521 |
+| `instructions` (prompt + concise + image note) | 5 565 | 5 565 |
 | tool schemas (all doors closed) | 2 264 | 2 637 |
 | capability manifest | 495 | 445 |
-| **fixed total per round** | **8 280** | **8 603** |
+| **fixed total per round** | **8 324** | **8 647** |
+
+(+44 on 2026-11-05: the prompt now names the bot Vexon AI.)
 | history | 0 → ~8 200, then capped by the summary (~300) | |
 | median user message | ~10 | |
 | median reply | ~70 | |

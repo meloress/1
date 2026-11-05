@@ -295,6 +295,11 @@ async def main():
     asyncio.create_task(admin_daily.alert_watcher())
     # Pul olingan, Pro berilmagan to'lovlar — Telegram'ning o'z ro'yxatidan.
     asyncio.create_task(pro_module.stars_solishtir_watcher())
+    # Karta: chek yubormaganga eslatma, vaqti tugaganda «adminga yozing».
+    asyncio.create_task(pro_module.karta_watcher())
+    # Avtomatik texnik ta'til: o'zi yoqqanini tuzalgach o'zi o'chiradi.
+    from services import avto_tatil
+    asyncio.create_task(avto_tatil.kuzatuvchi())
     # Telegram Business (REJA.md 4.1): kunlik kartoteka va tozalash. «Javob
     # kutmoqda» ogohlantirishi 2026-10-06 da egasining so'rovi bilan o'chirildi.
     asyncio.create_task(biznes_module.biznes_hisobot_watcher())

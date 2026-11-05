@@ -1253,7 +1253,8 @@ async def _loyiha(buf: dict) -> None:
 # Bot mijozga O'ZI javob beradi. Eng qimmat bosqich: har mijoz xabari —
 # to'liq so'rov, `biznes` kunlik sanog'idan yechiladi (balldan emas).
 # ⛔️ Mijozga hech qachon: texnik xato matni, `[egasiga:]` markeri,
-# limit yoki pauza haqida xabar. Bular faqat EGASIGA.
+# limit yoki pauza haqida xabar. Bular faqat EGASIGA. Yagona ataylab
+# istisno — texnik ta'til matni, bir chatga bir marta (`_tatil_mijozga`).
 
 # Uzatish (tanlov / egasiga) paytida suhbatdoshga — EGASINING O'ZI yozgandek,
 # birinchi shaxsda (egasi so'radi, 2026-10-15). Avvalgi «Olimjon online
@@ -1425,8 +1426,6 @@ async def _toxtash_sababi(ul: dict, chat_id: int) -> str | None:
         return "huquq"
     if not ish_vaqtimi(ul.get("ish_vaqti"), _hozir()):
         return "ish vaqti emas"
-    if await database.get_maintenance_notice_for(ul["owner_id"]):
-        return "ta'til"
     holat = await database.biznes_chat_holati(ul["owner_id"], chat_id)
     if holat["ochirilgan"]:
         return "chatda o'chirilgan"
@@ -1434,7 +1433,43 @@ async def _toxtash_sababi(ul: dict, chat_id: int) -> str | None:
     # bazada qolgan eskilari ham e'tiborsiz (bot jim qolmasin).
     if holat["pauza"] and not holat.get("uzatish"):
         return "pauza"
+    # ENG OXIRIDA: ta'tilda mijoz ta'til xabarini oladi (`_tatil_mijozga`),
+    # ya'ni bu faqat bot baribir javob beradigan chatda bo'lishi kerak —
+    # egasi o'chirgan/pauzaga qo'ygan chatda jim. `adminga_ham`: egasi
+    # admin bo'lsa ham — OpenAI yiqilgan bo'lsa uning avtojavobi ham yo'q.
+    if await database.get_maintenance_notice_for(ul["owner_id"], adminga_ham=True):
+        return "ta'til"
     return None
+
+
+async def _tatil_mijozga(chat_id: int, conn_id: str, ul: dict) -> None:
+    """Texnik ta'til — mijozga paneldagi ta'til matni, HAR TA'TILDA bir chatga
+    BIR marta (egasi so'radi, 2026-11-05: jim qolgandan ko'ra «bot ishlamayapti»
+    deyilgani yaxshi). Egasiga ham bir marta. Kalit — ta'til boshlangan vaqt:
+    keyingi ta'tilda yana bir marta aytiladi. ⚠️ Instagram izohiga — YO'Q:
+    Meta izohga bitta yopiq javob beradi, ta'tilga sarflansa keyin javob
+    berib bo'lmaydi. Istisno tashlamaydi."""
+    egasi = ul["owner_id"]
+    try:
+        if instagram.bizniki(conn_id) and chat_id in instagram._izohlar:
+            return
+        t = await database.get_maintenance()
+        if not t.get("active"):
+            return
+        davr = str(t.get("vaqt"))
+        kalit = f"tatil:{chat_id}:{davr}"
+        if (egasi, kalit) in _aytilgan:
+            return
+        _aytilgan.add((egasi, kalit))
+        _bot_yubordi(await _qayta_429(lambda: _mijozga(
+            chat_id, conn_id, t["message"], belgi=ul.get("avto_belgi", True))))
+        logger.info(f"[BIZNES] ta'til xabari mijozga chat={chat_id}")
+        await _bir_marta(egasi, f"tatil:{davr}", ul["owner_chat"],
+                         "🛠 Botda texnik ta'til — avtojavoblar vaqtincha to'xtadi. "
+                         "Yozgan mijozlarga bir martadan ta'til xabari yuborildi; "
+                         "ta'til tugashi bilan avtojavoblar o'zi qayta ishlaydi.")
+    except Exception as e:
+        logger.warning(f"[BIZNES] ta'til xabari yuborilmadi chat={chat_id}: {e}")
 
 
 async def _xato_egasiga(egasi: int, dm: int, xato, qoralama: bool = False) -> None:
@@ -1477,6 +1512,8 @@ async def _avtojavob(message: Message, matn: str, ul: dict) -> None:
             olchov.qosh(natija="jim")
             await safe_update_history(chat_id, matn, role="user", thread_id=thread)
             logger.info(f"[BIZNES] avtomat jim chat={chat_id}: {sabab}")
+            if sabab == "ta'til":
+                await _tatil_mijozga(chat_id, conn_id, ul)
             return
         sanoq = await database.check_and_consume_daily(egasi, "biznes")
         olchov.belgi("sanoq")

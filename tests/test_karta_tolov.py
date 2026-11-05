@@ -85,6 +85,13 @@ async def karta_ol():
     return KARTA["v"]
 database.karta_ol = karta_ol
 
+
+# /pro ekrani bularni ham o'qiydi — soxtasiz jonli bazaga borardi (`.env`).
+async def obunasiz(uid):
+    return None
+database.pro_obuna_ol = obunasiz
+database.karta_faol_sorov = lambda uid, oyna: obunasiz(uid)
+
 _, bez = asyncio.run(p._render_pro_screen(1))
 KARTA["v"] = "xato"
 _, yiqildi = asyncio.run(p._render_pro_screen(1))

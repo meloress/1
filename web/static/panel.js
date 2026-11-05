@@ -1766,6 +1766,8 @@
     $("m-matn").textContent = d.matn;
     $("m-textarea").value = d.matn;
     var h = d.holat, q = [];
+    // Bot o'zi yoqqan ta'til — tuzalgach o'zi o'chadi (services/avto_tatil.py).
+    if (d.avto) q.push(["Avtomatik yoqilgan", d.avto, "down"]);
     if (h.commit) q.push(["Oxirgi deploy", h.commit, ""]);
     q.push(["Ishlash muddati", h.ishlash, ""]);
     q.push(["Mavzu rejimi", h.mavzu ? "yoqiq" : "o'chiq", ""]);

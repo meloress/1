@@ -328,9 +328,11 @@ def parse_obuna_payload(payload: str) -> tuple[int, int] | None:
 
 def vaqt_html(dt: datetime, fmt: str = "d") -> str:
     """Bot API 9.5 `date_time`: Telegram sanani har kimga O'Z vaqt
-    mintaqasi va tilida ko'rsatadi; ichidagi matn — eski mijozlar uchun."""
+    mintaqasi va tilida ko'rsatadi; ichidagi matn — eski mijozlar uchun.
+    `fmt="t"` — faqat soat («14:32»)."""
+    shakl = "%H:%M" if fmt == "t" else "%d.%m.%Y"
     return (f'<tg-time unix="{int(dt.timestamp())}" format="{fmt}">'
-            f'{dt.astimezone(TIMEZONE):%d.%m.%Y}</tg-time>')
+            f'{dt.astimezone(TIMEZONE).strftime(shakl)}</tg-time>')
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -463,6 +465,22 @@ def _obuna_faol(ob: dict | None) -> bool:
 
 
 async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    """Pro ekrani; ochiq karta to'lovi bo'lsa — tepasida uning holati."""
+    text, kb = await _pro_ekrani(user_id)
+    try:
+        r = await database.karta_faol_sorov(user_id, KARTA_CHEK_OYNA)
+    except Exception as e:
+        logger.warning(f"[Karta] ochiq to'lov o'qilmadi (user={user_id}): {e}")
+        r = None
+    if r:
+        blok, tugma = karta_holat_matni(r)
+        text = blok + text
+        if tugma:
+            kb = InlineKeyboardMarkup(inline_keyboard=[tugma] + kb.inline_keyboard)
+    return text, kb
+
+
+async def _pro_ekrani(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     ob = await _obuna(user_id)
     profile = await database.get_full_user_profile(user_id)
     plan_type = (profile or {}).get('plan_type') or 'free'
@@ -1102,6 +1120,11 @@ class KartaStates(StatesGroup):
 # oddiy savol (AI'ga o'tadi). Holat RAM'da — deploy uni o'chiradi, shuning
 # uchun so'rov xabarida «📎 Chekni yuborish» tugmasi turadi.
 KARTA_CHEK_OYNA = 3 * 3600
+# Karta raqamini olib, shuncha vaqt chek yubormaganga bir marta eslatma;
+# oyna tugaganda esa «vaqt tugadi, to'lagan bo'lsangiz — adminga» (`karta_watcher`).
+KARTA_ESLATMA = 30 * 60
+# Va'da: tez, lekin kafolat 24 soat — superadmin kechasi uxlaydi.
+KARTA_VADA = "odatda bir necha soat ichida (eng ko'pi 24 soat)"
 
 _RAD_SABAB = {
     "kelmadi": "to'lov kartaga kelib tushmadi",
@@ -1131,7 +1154,7 @@ def karta_korinishi(raqam: str) -> str:
 def karta_tariflar_matni() -> str:
     return ("💳 <b>Karta orqali to'lov</b>\n\n"
             "Muddatni tanlang — keyingi qadamda karta raqami va aniq summa chiqadi. "
-            "To'lagach chekni shu yerga yuborasiz, <b>24 soat ichida</b> Pro yoqiladi.")
+            f"To'lagach chekni shu yerga yuborasiz — Pro <b>{KARTA_VADA}</b> yoqiladi.")
 
 
 def _karta_tariflar_kb() -> InlineKeyboardMarkup:
@@ -1143,17 +1166,21 @@ def _karta_tariflar_kb() -> InlineKeyboardMarkup:
     ] + [_ORQAGA])
 
 
-def karta_sorov_matni(days: int, summa: int, raqam: str, egasi: str) -> str:
-    """Sof — testda."""
+def karta_sorov_matni(days: int, summa: int, raqam: str, egasi: str,
+                      lid: int | None = None) -> str:
+    """Sof — testda. `lid` — foydalanuvchiga ko'rinadigan to'lov raqami:
+    adminga yozganda «qaysi to'lov?» degan savol tug'ilmasin."""
     _, title, _ = PRO_PLANS_BY_DAYS[days]
     return (
-        f"💳 <b>Karta orqali to'lov — Pro {title}</b>\n\n"
+        f"💳 <b>Karta orqali to'lov — Pro {title}</b>\n"
+        + (f"🆔 To'lov <b>#{lid}</b> · ⏱ {KARTA_CHEK_OYNA // 3600} soat amal qiladi\n" if lid else "")
+        + "\n"
         f"1️⃣ Shu kartaga o'tkazing:\n<code>{karta_korinishi(raqam)}</code>\n"
         + (f"👤 {html_escape(egasi)}\n" if egasi else "")
         + f"\n2️⃣ <b>Aynan shu summani</b> yuboring:\n<b><code>{som(summa)}</code> so'm</b>\n"
         f"<i>Oxiridagi {summa - KARTA_NARX[days]} so'm — to'lovingizni tanib olishimiz uchun.</i>\n\n"
         "3️⃣ To'lagach, <b>chek rasmini</b> (skrinshot) yoki PDF'ini shu chatga yuboring.\n\n"
-        "⏳ Chekni tekshirib, <b>24 soat ichida</b> Pro'ni yoqamiz — natija shu yerga keladi."
+        f"⏳ Chekni tekshirib, Pro'ni <b>{KARTA_VADA}</b> yoqamiz — natija shu yerga keladi."
     )
 
 
@@ -1231,10 +1258,15 @@ async def process_karta_chek(message: Message, state: FSMContext) -> None:
     r = await database.karta_chek_yoz(lid, message.from_user.id, f.file_id, turi,
                                       f.file_unique_id)
     if not r:
-        await message.answer("Bu to'lov so'rovi endi faol emas. /pro dan qayta boshlang.")
+        # Oyna shu daqiqada yopilgan (`karta_watcher`) — pul ketgan bo'lishi
+        # mumkin, ya'ni «qayta boshlang» yetmaydi: chek adminga borsin.
+        await message.answer(
+            "⌛️ Bu to'lov so'rovi yopilgan.\n\nPul o'tkazgan bo'lsangiz — shu chekni pastdagi "
+            "tugma orqali adminga yuboring, tekshirib Pro'ni yoqamiz. Yangi to'lov: /pro",
+            reply_markup=admin_kb())
         return
-    await message.answer("✅ <b>Chek qabul qilindi.</b>\n\nTekshirib, 24 soat ichida "
-                         "Pro'ni yoqamiz — natija shu yerga keladi." + ADMIN_IZOH,
+    await message.answer(f"✅ <b>Chek qabul qilindi</b> (to'lov #{lid}).\n\nTekshirib, Pro'ni "
+                         f"{KARTA_VADA} yoqamiz — natija shu yerga keladi." + ADMIN_IZOH,
                          parse_mode="HTML", reply_markup=admin_kb())
     logger.info(f"[Karta] chek #{lid} user={message.from_user.id} summa={r['summa']}")
     u = message.from_user
@@ -1290,7 +1322,7 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         # Har so'rov qaysi kartani ko'rganini eslaydi: karta panelda almashsa,
         # eskisiga to'langan chekda superadmin o'sha kartaning oxirini ko'radi.
         s = await database.karta_sorov_yarat(uid, son, KARTA_NARX[son], raqam)
-        await query.message.answer(karta_sorov_matni(son, s["summa"], raqam, egasi),
+        await query.message.answer(karta_sorov_matni(son, s["summa"], raqam, egasi, s["id"]),
                                    parse_mode="HTML",
                                    reply_markup=_karta_sorov_kb(s["id"], s["summa"], raqam))
         await _chek_kut(state, s["id"])
@@ -1311,7 +1343,9 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         bekor = await database.karta_bekor(son, uid)
         if await state.get_state() == KartaStates.chek.state:
             await state.clear()
-        await query.answer("Bekor qilindi" if bekor else "Chek allaqachon yuborilgan")
+        # Bekor bo'lmadi — chek yuborilgan YOKI vaqti tugagan; ikkalasida ham
+        # bu so'rov foydalanuvchining qo'lida emas.
+        await query.answer("Bekor qilindi" if bekor else "Bu so'rov endi ochiq emas")
         if bekor:
             try:
                 await query.message.edit_text("✖️ To'lov so'rovi bekor qilindi.", reply_markup=None)
@@ -1379,6 +1413,80 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         logger.warning(f"[Karta] foydalanuvchiga xabar ketmadi #{son}: {e}")
         await query.answer("Bajarildi, lekin foydalanuvchiga xabar yetmadi (botni bloklagan bo'lishi mumkin).",
                            show_alert=True)
+
+
+def karta_holat_matni(r: dict) -> tuple[str, list]:
+    """/pro tepasidagi «to'lovim qayerda?» bloki va tugmasi. Sof — testda.
+    Busiz chek yuborgan odam ikkinchi so'rov ochardi yoki adminga yozardi."""
+    lid, summa = r["id"], som(r["summa"])
+    if r["holat"] == "tekshirilmoqda":
+        vaqt = f", chek {vaqt_html(r['chek_vaqti'], 't')} da" if r.get("chek_vaqti") else ""
+        return (f"⏳ <b>To'lovingiz tekshirilmoqda</b> — #{lid} · {summa} so'm{vaqt}.\n"
+                f"Pro {KARTA_VADA} yoqiladi, natija shu chatga keladi — qayta to'lash "
+                f"shart emas.\n\n"), []
+    tugma = [btn("📎 Chekni yuborish", f"pro:chek:{lid}", style=BTN_SUCCESS)]
+    if r["holat"] == "rad":
+        return (f"❌ <b>To'lov #{lid} tasdiqlanmadi</b> — {html_escape(r.get('sabab') or '')}.\n"
+                f"Pul o'tkazgan bo'lsangiz, to'g'ri chekni yuboring.\n\n"), tugma
+    tugash = r["yaratilgan"] + timedelta(seconds=KARTA_CHEK_OYNA)
+    return (f"💳 <b>Ochiq to'lovingiz bor</b> — #{lid} · {summa} so'm, "
+            f"{vaqt_html(tugash, 't')} gacha.\n"
+            f"To'lagan bo'lsangiz, chek rasmini shu chatga yuboring.\n\n"), tugma
+
+
+def karta_eslatma_matni(r: dict) -> str:
+    _, title, _ = PRO_PLANS_BY_DAYS[r["days"]]
+    tugash = r["yaratilgan"] + timedelta(seconds=KARTA_CHEK_OYNA)
+    return (f"⏳ <b>To'lovingiz kutilmoqda</b> — #{r['id']} · Pro {title} · "
+            f"<b>{som(r['summa'])} so'm</b>\n\n"
+            f"To'lagan bo'lsangiz, <b>chek rasmini</b> shu chatga yuboring.\n"
+            f"So'rov {vaqt_html(tugash, 't')} gacha ochiq.")
+
+
+def karta_tugadi_matni(r: dict) -> str:
+    return (f"⌛️ <b>To'lov vaqti tugadi</b> — #{r['id']} · {som(r['summa'])} so'm\n\n"
+            f"{KARTA_CHEK_OYNA // 3600} soat ichida chek kelmadi, shuning uchun so'rov yopildi.\n\n"
+            f"💳 <b>Pul o'tkazgan bo'lsangiz</b> — xavotir olmang: pastdagi tugma orqali "
+            f"adminga chek bilan yozing (to'lov #{r['id']}), tekshirib Pro'ni yoqamiz.\n"
+            f"Hali to'lamagan bo'lsangiz — yangi to'lov oching.")
+
+
+async def karta_watcher() -> None:
+    """main.py fonda. Har 5 daqiqada: chek yubormaganga bitta eslatma, oyna
+    tugaganda «vaqt tugadi». Holat bazada — deploy xabarni qaytarmaydi ham,
+    yo'qotmaydi ham."""
+    await asyncio.sleep(90)
+    while True:
+        try:
+            await karta_tekshir()
+        except Exception:
+            logger.exception("[Karta] watcher yiqildi")
+        await asyncio.sleep(300)
+
+
+async def karta_tekshir() -> None:
+    """Watcher'ning bitta aylanishi."""
+    r = await database.karta_eslatmalar(KARTA_ESLATMA, KARTA_CHEK_OYNA)
+    for x in r["eslat"]:
+        await _karta_xabar(x["user_id"], karta_eslatma_matni(x), [
+            [btn("📎 Chekni yuborish", f"pro:chek:{x['id']}", style=BTN_SUCCESS)],
+            [btn("✖️ Bekor qilish", f"pro:kb:{x['id']}", style=BTN_DANGER)]])
+    for x in r["tugadi"]:
+        await _karta_xabar(x["user_id"], karta_tugadi_matni(x), [
+            admin_tugmasi(),
+            [btn("💳 Yangi to'lov", "pro:kartalar", style=BTN_PRIMARY)]])
+    if r["eslat"] or r["tugadi"]:
+        logger.info(f"[Karta] eslatma {len(r['eslat'])}, vaqti tugadi {len(r['tugadi'])}")
+
+
+async def _karta_xabar(uid: int, matn: str, qatorlar: list) -> None:
+    try:
+        await bot.send_message(uid, matn, parse_mode="HTML",
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=qatorlar))
+    except Exception as e:
+        # Botni bloklagan — boshqalarga xalal bermasin.
+        logger.info(f"[Karta] xabar yetmadi user={uid}: {e}")
+    await asyncio.sleep(0.05)
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -288,6 +288,15 @@ async def create_users_table():
             ALTER TABLE bot_settings
                 ADD COLUMN IF NOT EXISTS biznes_avtomat BOOLEAN
         ''')
+        # Avtomatik texnik ta'til (2026-11-05, `services/avto_tatil.py`).
+        # `maintenance_avto` — sabab, faqat bot O'ZI yoqqanda; NULL = qo'lda
+        # yoki o'chiq. `maintenance_vaqt` — ta'til qachon boshlangan: Business
+        # mijoziga ta'til xabari HAR TA'TILDA bir marta (kalit shu vaqt).
+        await conn.execute('''
+            ALTER TABLE bot_settings
+                ADD COLUMN IF NOT EXISTS maintenance_avto TEXT,
+                ADD COLUMN IF NOT EXISTS maintenance_vaqt TIMESTAMPTZ
+        ''')
         # Karta orqali to'lov (2026-10-30) — panel → Sozlamalar → Karta,
         # faqat superadmin yozadi. NULL = karta tugmasi umuman chiqmaydi.
         await conn.execute('''
@@ -432,6 +441,10 @@ async def create_users_table():
                 hal_vaqti   TIMESTAMPTZ
             );
         ''')
+        # Chek yubormaganga «chekni yuboring» eslatmasi bir marta ketdimi
+        # (`karta_eslatmalar`). Doimiy DEFAULT — PG11+ da jadvalni qayta yozmaydi.
+        await conn.execute(
+            "ALTER TABLE karta_tolov ADD COLUMN IF NOT EXISTS eslatildi BOOLEAN NOT NULL DEFAULT FALSE")
 
         # ── REFERAL ─────────────────────────────────────────────────
         # invited_id PRIMARY KEY — bir odam FAQAT bir marta taklif qilinadi.
@@ -1092,24 +1105,31 @@ async def get_maintenance() -> Dict[str, Any]:
         await create_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT maintenance_active, maintenance_message, '
-                                  'biznes_avtomat FROM bot_settings WHERE id = 1')
+                                  'biznes_avtomat, maintenance_avto, maintenance_vaqt '
+                                  'FROM bot_settings WHERE id = 1')
         if not row:
             return {'active': False, 'message': DEFAULT_MAINTENANCE_MESSAGE,
-                    'avtomat': None}
+                    'avtomat': None, 'avto': None, 'vaqt': None}
         return {
             'active': bool(row['maintenance_active']),
             'message': row['maintenance_message'] or DEFAULT_MAINTENANCE_MESSAGE,
             # None — panelda hech qachon bosilmagan (standart qoladi).
             'avtomat': row['biznes_avtomat'],
+            # Bot O'ZI yoqqan bo'lsa — sabab (`avto_tatil.SABABLAR` kaliti).
+            'avto': row['maintenance_avto'],
+            'vaqt': row['maintenance_vaqt'],
         }
 
 
 @with_db_retry()
-async def get_maintenance_notice_for(user_id: int) -> Optional[str]:
+async def get_maintenance_notice_for(user_id: int, adminga_ham: bool = False) -> Optional[str]:
     """
     Bitta so'rovda: agar texnik ta'til yoqilgan bo'lsa va user_id admin/
     superadmin bo'lmasa — ko'rsatiladigan xabarni qaytaradi. Aks holda None
     (foydalanuvchi odatdagidek davom etishi kerak).
+
+    `adminga_ham` — Business avtojavobi: javobni MIJOZ oladi, egasi admin
+    bo'lsa ham OpenAI yiqilgan paytda u ham ishlamaydi.
     """
     global pool
     if pool is None:
@@ -1127,13 +1147,18 @@ async def get_maintenance_notice_for(user_id: int) -> Optional[str]:
             ''',
             user_id,
         )
-        if not row or not row['maintenance_active'] or row['is_admin'] or row['is_superadmin']:
+        if not row or not row['maintenance_active']:
+            return None
+        if not adminga_ham and (row['is_admin'] or row['is_superadmin']):
             return None
         return row['maintenance_message'] or DEFAULT_MAINTENANCE_MESSAGE
 
 
 @with_db_retry()
 async def set_maintenance(active: bool, message: Optional[str] = None) -> None:
+    """Qo'lda (panel). Holat O'ZGARSA avtomatik belgi tushadi — boshqaruv
+    adminga o'tadi; faqat matn tahriri esa avtomatik tiklanishni buzmaydi.
+    SET ichidagi `maintenance_active` — ESKI qiymat (Postgres qoidasi)."""
     global pool
     if pool is None:
         await create_db_pool()
@@ -1142,11 +1167,45 @@ async def set_maintenance(active: bool, message: Optional[str] = None) -> None:
             '''
             UPDATE bot_settings
             SET maintenance_active = $1,
-                maintenance_message = COALESCE($2, maintenance_message)
+                maintenance_message = COALESCE($2, maintenance_message),
+                maintenance_avto = CASE WHEN $1 = COALESCE(maintenance_active, FALSE)
+                                        THEN maintenance_avto END,
+                maintenance_vaqt = CASE WHEN $1 AND NOT COALESCE(maintenance_active, FALSE)
+                                        THEN NOW() ELSE maintenance_vaqt END
             WHERE id = 1
             ''',
             active, message,
         )
+
+
+@with_db_retry()
+async def maintenance_avto_yoq(sabab: str) -> bool:
+    """Bot O'ZI yoqadi — faqat ta'til o'chiq bo'lsa (qo'lda yoqilganiga
+    tegmaydi). Qaytadi: yoqildimi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            '''UPDATE bot_settings
+               SET maintenance_active = TRUE, maintenance_avto = $1,
+                   maintenance_vaqt = NOW()
+               WHERE id = 1 AND NOT COALESCE(maintenance_active, FALSE)
+               RETURNING 1''', sabab))
+
+
+@with_db_retry()
+async def maintenance_avto_ochir() -> bool:
+    """Bot O'ZI o'chiradi — faqat o'zi yoqqan bo'lsa. Qaytadi: o'chdimi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            '''UPDATE bot_settings
+               SET maintenance_active = FALSE, maintenance_avto = NULL
+               WHERE id = 1 AND maintenance_active AND maintenance_avto IS NOT NULL
+               RETURNING 1'''))
 
 
 @with_db_retry()
@@ -4056,6 +4115,53 @@ async def karta_chek_kutilmoqda(user_id: int, oyna_soniya: int) -> Optional[int]
             "(holat = 'kutmoqda' AND yaratilgan > NOW() - make_interval(secs => $2::int)) OR "
             "(holat = 'rad' AND hal_vaqti > NOW() - make_interval(secs => $2::int))) "
             "ORDER BY id DESC LIMIT 1", user_id, int(oyna_soniya))
+
+
+@with_db_retry()
+async def karta_faol_sorov(user_id: int, oyna_soniya: int) -> Optional[Dict[str, Any]]:
+    """/pro ekranidagi «to'lovim qayerda?» — eng oxirgi ochiq so'rov: chek
+    kutayotgan, tekshirilayotgan yoki yaqinda rad etilgan. Oyna —
+    `karta_chek_kutilmoqda` bilan bir xil, ya'ni ekran chek qabul qilinadigan
+    paytdagina «chekni yuboring» deydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchrow(
+            "SELECT id, holat, days, summa, sabab, yaratilgan, chek_vaqti FROM karta_tolov "
+            "WHERE user_id = $1 AND (holat = 'tekshirilmoqda' OR "
+            "(holat = 'kutmoqda' AND yaratilgan > NOW() - make_interval(secs => $2::int)) OR "
+            "(holat = 'rad' AND hal_vaqti > NOW() - make_interval(secs => $2::int))) "
+            "ORDER BY id DESC LIMIT 1", user_id, int(oyna_soniya))
+    return dict(r) if r else None
+
+
+@with_db_retry()
+async def karta_eslatmalar(eslat_soniya: int, oyna_soniya: int) -> Dict[str, List[Dict[str, Any]]]:
+    """Chek yubormaganlar: `eslat` — eslatma vaqti keldi (bir marta), `tugadi`
+    — oyna tugadi, so'rov `eskirdi` bo'ladi (summasi bo'shaydi, kech kelgan
+    rasm AI'ga o'tadi). Belgilash va olish BITTA `UPDATE … RETURNING` da —
+    ikki nusxa ishlasa ham xabar ikki marta ketmaydi.
+    `tugadi` faqat yaqinda tugaganlarni qaytaradi: birinchi ishga tushishda
+    kunlar oldingi ochiq so'rovlar jimgina yopiladi, odamga eskisi haqida
+    xabar bormaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        eslat = await conn.fetch(
+            "UPDATE karta_tolov SET eslatildi = TRUE WHERE holat = 'kutmoqda' AND NOT eslatildi "
+            "AND yaratilgan <= NOW() - make_interval(secs => $1::int) "
+            "AND yaratilgan > NOW() - make_interval(secs => $2::int) "
+            "RETURNING id, user_id, days, summa, yaratilgan",
+            int(eslat_soniya), int(oyna_soniya))
+        tugadi = await conn.fetch(
+            "UPDATE karta_tolov SET holat = 'eskirdi', hal_vaqti = NOW() WHERE holat = 'kutmoqda' "
+            "AND yaratilgan <= NOW() - make_interval(secs => $1::int) "
+            "RETURNING id, user_id, days, summa, yaratilgan", int(oyna_soniya))
+    yaqin = datetime.now(timezone.utc) - timedelta(seconds=int(oyna_soniya) + 6 * 3600)
+    return {"eslat": [dict(r) for r in eslat],
+            "tugadi": [dict(r) for r in tugadi if r["yaratilgan"] > yaqin]}
 
 
 @with_db_retry()

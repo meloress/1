@@ -236,3 +236,52 @@ next charge date).
 
 `tests/test_pro_obuna.py`; the SQL was run on pgserver (renewal +30 d, grace, duplicate
 update ignored, reminder exclusion).
+
+### A karta request has a life after the request (2026-11-05)
+
+A card payment is confirmed by the superadmin's own eye (no bank API), so the code's job is
+to keep the waiting honest. `/pro` shows the user's open request on top
+(`karta_faol_sorov()` — checking / rejected / open until HH:MM), otherwise someone who already
+sent a receipt opens a second request or writes to the admin. `karta_watcher()` (every 5 min)
+sends **one** reminder after `KARTA_ESLATMA` (30 min) to whoever took the card number and sent
+nothing, and when `KARTA_CHEK_OYNA` (3 h) closes it marks the request `eskirdi` and tells the
+user "time is up — if you paid, write to the admin" with the admin button: money may already
+have left their card, so "start again" alone would be wrong. Both are one `UPDATE … RETURNING`,
+so two instances never send twice, and requests that closed long ago (first run after deploy)
+are closed silently. `eskirdi` is not in `_KARTA_FAOL`: the amount is free again and no receipt
+can land on it. `tests/test_karta_eslatma.py`; the SQL was run on pgserver.
+
+### Maintenance turns itself on when OpenAI stops serving everyone (2026-11-05)
+
+`services/avto_tatil.py`. When credit runs out or the key dies, every user got "Xatolik yuz
+berdi" and the owner learned it hours later from the error-wave alert (20 a day). Now the bot
+switches maintenance on itself, tells the superadmin (DM) and the watch group, and switches it
+off again once OpenAI answers.
+
+⛔️ **The bot must never stop itself over a small error**, so there are three gates and all
+of them must pass:
+
+1. The error is one of four: `insufficient_quota` (credit), 401 (key), 403 (account/access),
+   404 on every model including the fallbacks. A per-minute 429, timeouts, 5xx and dropped
+   connections are never counted: they pass on their own.
+2. Two such errors in a row on real requests (`KETMA_KET`). One successful reply in between
+   (`yaxshi()` after `get_final_response()`) resets the count.
+3. A tiny control request (`sinov()`, 16 output tokens, the same fallback order as
+   `_open_response_stream`) fails with a serious error too. If it passes, or is inconclusive
+   (timeout), nothing is switched on. There is at most one control request per
+   `SINOV_ORALIGI` (120 s).
+
+The daily token limit (TPD) is left out on purpose. A small probe passes while a full chat
+request does not, so maintenance would flap on and off.
+
+**Switching back off.** `kuzatuvchi()` probes every 5 minutes and switches off only what it
+switched on itself (the `maintenance_avto` column holds the reason). A manual switch in the
+panel that **changes the state** clears that column, and control passes to the admin. A
+text-only edit does not clear it: `set_maintenance()` compares `$1` against the OLD
+`maintenance_active` inside the same `SET`. `maintenance_avto_yoq()` does nothing while
+maintenance is already on. While it stays broken, a reminder goes out every 6 hours. The flag
+is in Postgres, so a deploy does not lose it. The SQL was run on pgserver; the tests are in
+`tests/test_avto_tatil.py`.
+
+`maintenance_vaqt` holds the start of the current maintenance. Business keys "tell this
+customer once" on it (`BIZNES.md`).

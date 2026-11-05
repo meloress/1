@@ -332,6 +332,20 @@ def test_matematika_hamon_ishlaydi():
         assert "<tg-math>" in out, f"{ifoda} -> {out}"
     print("[25] haqiqiy formulalar hamon <tg-math> bo'ladi OK")
 
+
+def test_username_havola():
+    """Rich xabar `skip_entity_detection=True` — @username o'zi bosilmaydi.
+    «Kim yaratgan?» javobidagi @jumayevou oddiy matn bo'lib qolardi."""
+    out = build_rich_markdown("Og'abek Jumayev (@jumayevou) ishlab chiqqan.")
+    assert "([@jumayevou](https://t.me/jumayevou))" in out, out
+    # Email, kod, mavjud havola, URL, juda qisqa nom — tegilmaydi
+    for xom in ("info@vexon.uz ga yozing", "`@decorator` yozing",
+                "[@jumayevou](https://t.me/jumayevou)", "https://t.me/jumayevou",
+                "@abc qisqa", "```\n@property\n```"):
+        assert build_rich_markdown(xom).count("https://t.me/") == xom.count("https://t.me/"), \
+            f"{xom!r} -> {build_rich_markdown(xom)!r}"
+    print("[27] @username bosiladigan havola, email/kod/havola tegilmaydi OK")
+
     # Blok matematika ham ishlashda davom etadi.
     assert "<tg-math-block>" in build_rich_markdown("$$a^{2}+b^{2}=c^{2}$$")
     print("[26] blok matematika ishlaydi OK")
@@ -363,4 +377,5 @@ if __name__ == "__main__":
     test_jadval_haqiqiy()
     test_valyuta_jadvalni_buzmaydi()
     test_matematika_hamon_ishlaydi()
-    print("\nrich_markdown: barcha tekshiruvlar o'tdi (26/26).")
+    test_username_havola()
+    print("\nrich_markdown: barcha tekshiruvlar o'tdi (27/27).")

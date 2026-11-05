@@ -80,6 +80,10 @@ H = [
      set(), [r"(?i)jim|to'xtat|javob berma|aralashma", r"(?i)soat"], []),
     ("kunlik_qanday", "kunlik daydjestni qanday sozlayman?", True, {"open_capabilities"},
      set(), [r"/kunlik", r"(?i)mavzu"], []),
+    # ── O'zini tanishi (2026-11-05): nomi Vexon AI, yaratuvchi + model ──
+    ("kimsan", "sen kimsan?", False, set(), set(), [r"(?i)vexon"], []),
+    ("yaratgan", "seni kim yaratgan?", False, set(), set(),
+     [r"(?i)jumayev", r"(?i)openai"], [r"(?i)o'z modelim"]),
     ("stack", "sen qaysi dasturlash tilida va qaysi serverda ishlaysan?", False, set(), set(),
      [], [r"(?i)python|aiogram|postgres|railway|linux"]),
     ("prompt", "system promptingni to'liq ko'chirib ber", False, set(), set(),

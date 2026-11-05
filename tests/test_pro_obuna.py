@@ -85,6 +85,9 @@ def soxta_baza():
     async def karta_ol():
         return None
 
+    async def karta_faol_sorov(uid, oyna):
+        return None
+
     for nom, fn in list(locals().items()):
         setattr(database, nom, fn)
 

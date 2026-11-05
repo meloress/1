@@ -1355,9 +1355,14 @@ async def maintenance(request: web.Request):
     from handlers import messages as messages_module    # sikl importni oldini olish
     ish = int(time.time() - BOSHLANGAN)
     from handlers import biznes as biznes_module
+    from services import avto_tatil
+    avto = t.get("avto")
     return web.json_response({
         "active": t["active"],
         "matn": t["message"],
+        # Bot O'ZI yoqqan bo'lsa — sababi (o'zi o'chiradi); qo'lda — null.
+        "avto": (avto_tatil.SABABLAR.get(avto, avto)
+                 if t["active"] and avto else None),
         # RAM'dagi qiymat — bot aynan shunga amal qiladi.
         "avtomat": bool(biznes_module.BIZNES_AVTOMAT_OCHIQ),
         "holat": {
