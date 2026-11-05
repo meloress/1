@@ -1288,13 +1288,11 @@
     $("u-ism").textContent = nom;
     $("u-meta").textContent = "ID " + d.user_id +
       (d.last_seen ? " · " + S.user.oxirgi + " " + nisbiy(d.last_seen) : "");
-    // Username — t.me (hamma joyda ochiladi). Usernamesiz odamni faqat
-    // tg://user?id= ochadi, u ham faqat sizning Telegram'ingiz uni tanisa
-    // (yozishgan / umumiy guruh) — Telegram cheklovi, panelniki emas.
+    // Username — t.me (hamma joyda ochiladi). Usernamesiz odam uchun
+    // havola yo'q: bot sizga mention yuboradi (`/api/users/<id>/tglink`).
     var tgl = $("u-tg");
-    tgl.href = d.username ? "https://t.me/" + encodeURIComponent(d.username)
-                          : "tg://user?id=" + encodeURIComponent(d.user_id);
-    tgl.textContent = d.username ? "Telegram'da ochish ↗" : "Telegram'da ochish (ID) ↗";
+    tgl.href = d.username ? "https://t.me/" + encodeURIComponent(d.username) : "#";
+    tgl.textContent = d.username ? "Telegram'da ochish ↗" : "Telegram'da ochish (botga yuboriladi) ↗";
 
     var tag = $("u-tag");
     tag.className = "tag" + (d.tarif === "ban" ? " ban" : (d.tarif === "free" ? "" : " pro"));
@@ -1528,7 +1526,13 @@
     });
     // Mini App ichida oddiy <a> Telegram'ni ochmaydi (WebView ichida
     // t.me sahifasi ochiladi) — Telegram'ning o'z usuli. Brauzerda — <a>.
-    $("u-tg").addEventListener("click", function (e) {
+    $("u-tg").addEventListener("click", async function (e) {
+      if (uOchiq && !uOchiq.username) {
+        e.preventDefault();
+        var j = await so_rov("/api/users/" + uOchiq.user_id + "/tglink");
+        toast(j.ok ? "Botdagi chatingizga yuborildi — ismni bosing" : j.xato);
+        return;
+      }
       if (tg && tg.openTelegramLink && this.href.indexOf("https://t.me/") === 0) {
         e.preventDefault();
         tg.openTelegramLink(this.href);

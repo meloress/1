@@ -437,7 +437,13 @@ older rows, which are still plain `"30"` and `"sovga 45 kun"`.
 Rows in «Eng faol» (`s-top`) now open the profile, the same way the token rows (`s-token`)
 already did. The profile has a «Telegram'da ochish» link. With a username it goes to
 `https://t.me/<username>`; inside the Mini App this goes through `tg.openTelegramLink()`,
-because a plain `<a>` would open the t.me web page inside the WebView. Without a username the
-only link Telegram offers is `tg://user?id=`. That link works only if the admin's own Telegram
-already knows the person (they have chatted or share a group). This is Telegram's limit, not
-the panel's.
+because a plain `<a>` would open the t.me web page inside the WebView.
+
+A user without a username has no public link. `tg://user?id=` opened from the panel works
+only if the admin's own Telegram already knows that person. Instead, `POST
+/api/users/<id>/tglink` makes the **bot send the admin** a text mention
+(`<a href="tg://user?id=…">`). Bot API guarantees such a mention when the user has contacted
+the bot, and every one of our users has. It is text, not a button: a `tg://user` button is
+rejected by the user's privacy setting and would fail the whole message. The endpoint changes
+nothing, so it writes no audit row. It sends through `_xabar`, so it carries `@bir_marta`
+(`test_web_users.py` 14).

@@ -767,6 +767,29 @@ async def message(request: web.Request):
 
 
 @admin_only
+@bir_marta
+async def tglink(request: web.Request):
+    """Usernamesiz odamni Telegram'da ochish: bot ADMINGA mention yuboradi.
+
+    `tg://user?id=` ni panel o'zi ocholmaydi — Telegram uni faqat mijoz
+    o'sha odamni «tanisa» ochadi. Botning xabaridagi mention esa odam
+    botga yozgan bo'lsa ishlaydi (Bot API: «guaranteed to work if the user
+    has contacted the bot»), bizning har bir foydalanuvchimiz — shunday.
+    Tugma emas, matn: `tg://user?id=` tugmasi odamning maxfiylik
+    sozlamasida rad etilib, butun xabarni yiqitadi. Hech narsa
+    o'zgarmaydi — jurnalga yozilmaydi.
+    """
+    uid = _target(request)
+    yetdi = await _xabar(request["user_id"], (
+        f'👤 <a href="tg://user?id={uid}">Foydalanuvchi {uid}</a>\n\n'
+        "Ismni bosing — profili ochiladi."))
+    if not yetdi:
+        return web.json_response(
+            {"error": "xabar yetmadi — botga /start yozing"}, status=502)
+    return web.json_response({"ok": True})
+
+
+@admin_only
 # ⛔️ `@bir_marta` ATAYLAB YO'Q. Bu endpointda takrorlanishdan
 # himoya 10 soniyalik keshdan KUCHLIROQ va DOIMIY: `refunded_at`
 # ustuni (atomik yozuv, `db/database.py`), undan oldingi 409
@@ -1978,6 +2001,7 @@ def register(app: web.Application) -> None:
     app.router.add_post("/api/users/{user_id}/quota", quota)
     app.router.add_post("/api/users/{user_id}/ban", ban)
     app.router.add_post("/api/users/{user_id}/message", message)
+    app.router.add_post("/api/users/{user_id}/tglink", tglink)
     app.router.add_post("/api/payments/{payment_id}/refund", refund)
     app.router.add_get("/api/journal/audit", journal_audit)
     app.router.add_get("/api/journal/errors", journal_errors)

@@ -163,6 +163,7 @@ async def main():
             ("POST", f"/api/users/{UID}/premium"), ("POST", f"/api/users/{UID}/plan"),
             ("POST", f"/api/users/{UID}/quota"), ("POST", f"/api/users/{UID}/ban"),
             ("POST", f"/api/users/{UID}/message"), ("POST", "/api/payments/4812/refund"),
+            ("POST", f"/api/users/{UID}/tglink"),
         ]
         for metod, yol in yollar:
             r = await c.request(metod, yol, json={})
@@ -375,7 +376,18 @@ async def main():
         assert r.status == 200, await r.text()
         print("[13] so'rovlar orasida to'lov bo'lsa 409, hech narsa yozilmaydi OK")
 
-    print("\nweb users: barcha tekshiruvlar o'tdi (13/13).")
+        # 14) «Telegram'da ochish» usernamesiz: mention ADMINGA (sessiya 1),
+        #     foydalanuvchining o'ziga emas; hech narsa jurnalga yozilmaydi.
+        core.loader.bot = SoxtaBot()
+        AUDIT.clear(); XABARLAR.clear()
+        r = await c.post(f"/api/users/{UID}/tglink", headers=h, json={})
+        assert r.status == 200, await r.text()
+        assert XABARLAR == [(1, XABARLAR[0][1])], XABARLAR
+        assert f'href="tg://user?id={UID}"' in XABARLAR[0][1], XABARLAR[0][1]
+        assert not AUDIT, AUDIT
+        print("[14] tglink: mention adminga ketadi, audit yo'q OK")
+
+    print("\nweb users: barcha tekshiruvlar o'tdi (14/14).")
 
 
 if __name__ == "__main__":

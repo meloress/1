@@ -415,7 +415,8 @@ async def main():
         qoriqsiz = sorted(m for m in marshrutlar if not dekorator.get(m))
         assert not qoriqsiz, f"@admin_only yo'q: {qoriqsiz}"
         # 33: +2 — GET/POST /api/karta (karta to'lovi sozlamasi, 2026-10-30).
-        assert len(marshrutlar) == 33, f"marshrutlar soni kutilgandan boshqa ({len(marshrutlar)} ta)"
+        # 34: +1 — POST /api/users/<id>/tglink (usernamesiz odamga mention, 2026-11-05).
+        assert len(marshrutlar) == 34, f"marshrutlar soni kutilgandan boshqa ({len(marshrutlar)} ta)"
         print(f"[13] {len(marshrutlar)} ta marshrutning hammasi @admin_only bilan OK")
 
         # ── 14) ⭐ TELEGRAM RAD ETSA GURUH SAQLANMAYDI ──────────────
