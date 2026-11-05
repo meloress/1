@@ -1307,17 +1307,27 @@ def _extract_long_code(text: str) -> tuple[str, list]:
 
 
 _UZ_KIRILL_HARF = re.compile(r"[ўғқҳЎҒҚҲ]")
-_KIRILL_SORALDI = re.compile(r"(?i)kirill|кирилл")
+# Har xil yozilishi: kirill, krill, kiril, kirl, кирилл, крилл, cyrillic.
+# ⛔️ JONLI (2026-11-05): faqat «kirill» bor edi, odam «krillcha yozib ber»
+# dedi — model to'g'ri kirill yozdi, kod uni 4 marta ketma-ket lotinga
+# o'girdi. Ortiqcha mos kelish (masalan «kirlar») xavfsiz tomonda: o'giril-
+# maydi, xolos.
+_KIRILL_SORALDI = re.compile(r"(?i)\bk[iy]?r+[iy]?l|кир?ил|крил|cyril|eski\s+(alifbo|yozuv)")
+_LOTIN_HARF = re.compile(r"[A-Za-z]")
 
 
 def _alifbo(javob: str, savol: str) -> str:
     """Lotinda yozganga lotin javob. eval_chat `rahmat` (2026-11-05, 2/2):
     «Arzimaydi, xursandman. Кейин яна керак бўлса, ёзаверинг» — promptda
     «lotin yozuvida» turibdi, model qisqa odob gapida baribir kirillga o'tdi.
-    Biznesdagi `alifboga_mosla()` bilan bir xil, ikki qo'shimcha shart:
-    o'zbekcha kirill harfi (ўғқҳ) bo'lsa — ruscha iqtibosga tegmaydi;
-    savolda «kirill» bo'lsa — «kirillda yoz» javobi o'girilmaydi."""
-    if not _UZ_KIRILL_HARF.search(javob) or _KIRILL_SORALDI.search(savol):
+
+    Faqat ARALASH javob o'giriladi. Tegilmaydi:
+    - o'zbekcha kirill harfi (ўғқҳ) yo'q — ruscha iqtibos;
+    - javobda lotin harfi umuman yo'q — model kirillni ATAYLAB tanlagan;
+    - savolda yoki javobda «kirill» (har xil yozilishi) — gap alifbo haqida;
+    - savol kirillda (`alifboga_mosla` ichida)."""
+    if (not _UZ_KIRILL_HARF.search(javob) or not _LOTIN_HARF.search(javob)
+            or _KIRILL_SORALDI.search(savol) or _KIRILL_SORALDI.search(javob)):
         return javob
     from handlers.biznes import alifboga_mosla  # ⚠️ tsiklik: biznes → messages
     return alifboga_mosla(javob, savol)

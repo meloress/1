@@ -32,4 +32,20 @@ assert _alifbo("Salom!", "salom") == "Salom!"
 assert _alifbo("", "salom") == ""
 print("[5] lotin javob — o'zgarmaydi OK")
 
-print("\ntest_alifbo: 5/5 OK")
+# [6] JONLI (2026-11-05): «krillcha» — i harfisiz. Model to'g'ri kirill
+#     yozdi, kod 4 marta lotinga o'girdi.
+s = "Жумаева Хилола Убайдулла қизи"
+for savol in ("Jumayeva Xilola Ubaydulla qizi\n\nshuni krillcha yozib ber",
+              "krillcha yozib ber", "kirilda yoz", "lotincha demadim"):
+    assert _alifbo(s, savol) == s, savol
+s = "Mana: Жумаева Хилола Убайдулла қизи"
+for savol in ("krillcha yozib ber", "eski alifboda yoz"):
+    assert _alifbo(s, savol) == s, savol
+print("[6] «krillcha», «kirilda» va sof kirill javob — o'zgarmaydi OK")
+
+# [7] Javobning o'zi alifbo haqida gapirsa — tegilmaydi.
+s = "Uzr, xato ketdi. To'g'ri kirillchasi: **Жумаева Хилола Убайдулла қизи**"
+assert _alifbo(s, "nega yana lotincha yuborayabsan") == s
+print("[7] javobda «kirillchasi» — o'zgarmaydi OK")
+
+print("\ntest_alifbo: 7/7 OK")

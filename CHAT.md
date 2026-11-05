@@ -344,9 +344,18 @@ The LANGUAGE section says "lotin yozuvida", and the model still switched to Cyri
 courtesy lines: `eval_chat` `rahmat` 2/2 — «Arzimaydi, xursandman. Кейин яна керак бўлса,
 ёзаверинг». `messages._alifbo()` runs on the final text in `process_stream_draft()` (so the send
 and the history both get it) and reuses Business's `alifboga_mosla()`. Two extra conditions keep
-it narrow: it acts only when the answer has an Uzbek-only letter (ўғқҳ), so a Russian quote or
-song title is left alone, and never when the question mentions «kirill», so "write it in
-Cyrillic" still works. A user who writes in Cyrillic is never touched. Known gap: voice, a photo
+it narrow:
+- It acts only when the answer has an Uzbek-only letter (ўғқҳ), so a Russian quote or song
+  title is left alone.
+- It acts only when the answer also has Latin letters. A fully Cyrillic answer was chosen on
+  purpose.
+- It never acts when the question or the answer names the script, in any spelling
+  (`_KIRILL_SORALDI`: kirill, krill, kiril, кирил, «eski alifbo»).
+
+⛔️ Live regression, 2026-11-05: the first version matched only «kirill». A user wrote «krillcha
+yozib ber», and the code turned the model's correct Cyrillic into Latin four times in a row. The
+converted text went into history, so each time the model apologised and wrote Cyrillic again.
+`test_alifbo.py` 6-7. A user who writes in Cyrillic is never touched. Known gap: voice, a photo
 without a caption, and the retry button have no question text, so a Cyrillic-Uzbek user there
 gets Latin. The streaming draft is not converted; the final message replaces it.
 
