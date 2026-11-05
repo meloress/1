@@ -431,3 +431,13 @@ older rows, which are still plain `"30"` and `"sovga 45 kun"`.
   (`services/avto_tatil.py`). The card shows «Avtomatik yoqilgan». A manual switch clears it.
 
 `tests/test_web_settings.py` 7b.
+
+### A user opens from Statistics, and the profile links to Telegram (2026-11-05)
+
+Rows in «Eng faol» (`s-top`) now open the profile, the same way the token rows (`s-token`)
+already did. The profile has a «Telegram'da ochish» link. With a username it goes to
+`https://t.me/<username>`; inside the Mini App this goes through `tg.openTelegramLink()`,
+because a plain `<a>` would open the t.me web page inside the WebView. Without a username the
+only link Telegram offers is `tg://user?id=`. That link works only if the admin's own Telegram
+already knows the person (they have chatted or share a group). This is Telegram's limit, not
+the panel's.

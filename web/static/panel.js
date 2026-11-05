@@ -861,7 +861,8 @@
       ? '<div class="rbosh"><span>Foydalanuvchi</span><span class="ong">So\'rov</span><span>Ulush</span></div>' +
         d.top.map(function (u, i) {
           var nom = u.username ? "@" + u.username : "ID:" + u.user_id;
-          return '<div class="row"><div class="person">' + avatar(nom, i === 0) +
+          return '<div class="row bosiladi" data-uid="' + xavfsiz(u.user_id) + '"><div class="person">' +
+            avatar(nom, i === 0) +
             "<div><b>" + xavfsiz(nom) + "</b><span>" + xavfsiz(u.user_id) +
             '</span></div></div><b class="num ong">' + son(u.soni) + "</b>" +
             '<div class="track" style="height:9px;border-radius:999px;background:var(--panel-2);overflow:hidden">' +
@@ -880,7 +881,7 @@
     // bosilganda o'sha odamning profiliga o'tadi.
     $("s-token").innerHTML = (d.eng_qimmat || []).length
       ? d.eng_qimmat.map(function (u) {
-          return '<div class="row" data-uid="' + xavfsiz(u.user_id) + '">' +
+          return '<div class="row bosiladi" data-uid="' + xavfsiz(u.user_id) + '">' +
             '<div class="t"><b>ID ' + xavfsiz(u.user_id) + "</b></div>" +
             '<span class="num">' + million(u.token) + "</span>" +
             '<span class="num hint">' + son(u.raund) + " raund</span></div>";
@@ -1287,6 +1288,13 @@
     $("u-ism").textContent = nom;
     $("u-meta").textContent = "ID " + d.user_id +
       (d.last_seen ? " · " + S.user.oxirgi + " " + nisbiy(d.last_seen) : "");
+    // Username — t.me (hamma joyda ochiladi). Usernamesiz odamni faqat
+    // tg://user?id= ochadi, u ham faqat sizning Telegram'ingiz uni tanisa
+    // (yozishgan / umumiy guruh) — Telegram cheklovi, panelniki emas.
+    var tgl = $("u-tg");
+    tgl.href = d.username ? "https://t.me/" + encodeURIComponent(d.username)
+                          : "tg://user?id=" + encodeURIComponent(d.user_id);
+    tgl.textContent = d.username ? "Telegram'da ochish ↗" : "Telegram'da ochish (ID) ↗";
 
     var tag = $("u-tag");
     tag.className = "tag" + (d.tarif === "ban" ? " ban" : (d.tarif === "free" ? "" : " pro"));
@@ -1512,9 +1520,19 @@
   }
 
   function jadval() {
-    delegat("s-token", "data-uid", function (uid) {
-      kartochka(Number(uid)).then(function () { go("profil"); })
-        .catch(function (e) { console.error("[panel] profil:", e); });
+    ["s-token", "s-top"].forEach(function (id) {
+      delegat(id, "data-uid", function (uid) {
+        kartochka(Number(uid)).then(function () { go("profil"); })
+          .catch(function (e) { console.error("[panel] profil:", e); });
+      });
+    });
+    // Mini App ichida oddiy <a> Telegram'ni ochmaydi (WebView ichida
+    // t.me sahifasi ochiladi) — Telegram'ning o'z usuli. Brauzerda — <a>.
+    $("u-tg").addEventListener("click", function (e) {
+      if (tg && tg.openTelegramLink && this.href.indexOf("https://t.me/") === 0) {
+        e.preventDefault();
+        tg.openTelegramLink(this.href);
+      }
     });
     delegat("urows", "data-uid", function (uid) {
       titroq("light");
