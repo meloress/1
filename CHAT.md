@@ -338,6 +338,18 @@ The system prompt has a `CONFIDENTIAL` section, but a prompt rule is not a guara
 
 The prompt also carries a phishing/social-engineering section that fixes the *shape* of the answer (fake placeholders, a visible simulation label, red flags instead of a ready-to-send message) while explicitly forbidding over-refusal of ordinary security questions. `tests/test_safety_prompt.py` only guards that the section still exists — the wording is not asserted.
 
+### A Latin question gets a Latin answer — enforced in code (2026-11-05)
+
+The LANGUAGE section says "lotin yozuvida", and the model still switched to Cyrillic in short
+courtesy lines: `eval_chat` `rahmat` 2/2 — «Arzimaydi, xursandman. Кейин яна керак бўлса,
+ёзаверинг». `messages._alifbo()` runs on the final text in `process_stream_draft()` (so the send
+and the history both get it) and reuses Business's `alifboga_mosla()`. Two extra conditions keep
+it narrow: it acts only when the answer has an Uzbek-only letter (ўғқҳ), so a Russian quote or
+song title is left alone, and never when the question mentions «kirill», so "write it in
+Cyrillic" still works. A user who writes in Cyrillic is never touched. Known gap: voice, a photo
+without a caption, and the retry button have no question text, so a Cyrillic-Uzbek user there
+gets Latin. The streaming draft is not converted; the final message replaces it.
+
 ### The prompt is sent whole on every round, so duplication is expensive
 
 The free daily grant counts tokens, not requests, and caching does not reduce that count (OpenAI support, 2026-09-09) — so anything in `instructions` is paid for on **every round of every request**, and a searched request runs ~1.7 rounds. Measured with `tiktoken` (`o200k_base`), not estimated — see the table in "Token budget" (8 280 free / 8 603 Pro per round; +33 from `open_capabilities(bolim)`, 2026-10-06).

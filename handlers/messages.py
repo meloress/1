@@ -1306,6 +1306,23 @@ def _extract_long_code(text: str) -> tuple[str, list]:
     return _CODE_FENCE_RE.sub(one, text), fayllar
 
 
+_UZ_KIRILL_HARF = re.compile(r"[ўғқҳЎҒҚҲ]")
+_KIRILL_SORALDI = re.compile(r"(?i)kirill|кирилл")
+
+
+def _alifbo(javob: str, savol: str) -> str:
+    """Lotinda yozganga lotin javob. eval_chat `rahmat` (2026-11-05, 2/2):
+    «Arzimaydi, xursandman. Кейин яна керак бўлса, ёзаверинг» — promptda
+    «lotin yozuvida» turibdi, model qisqa odob gapida baribir kirillga o'tdi.
+    Biznesdagi `alifboga_mosla()` bilan bir xil, ikki qo'shimcha shart:
+    o'zbekcha kirill harfi (ўғқҳ) bo'lsa — ruscha iqtibosga tegmaydi;
+    savolda «kirill» bo'lsa — «kirillda yoz» javobi o'girilmaydi."""
+    if not _UZ_KIRILL_HARF.search(javob) or _KIRILL_SORALDI.search(savol):
+        return javob
+    from handlers.biznes import alifboga_mosla  # ⚠️ tsiklik: biznes → messages
+    return alifboga_mosla(javob, savol)
+
+
 async def process_stream_draft(message: Message, stream_generator, content_type: str = "text",
                                images: list | None = None) -> str:
     """OpenAI oqimini Telegram rich draft va yakuniy rich message ga ulaydi.
@@ -1613,8 +1630,9 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
     # ⚠️ Ichki nomlar shu yerda kesiladi — YAKUNIY matndan, ya'ni
     # yuborish, tarix va admin oynasi uchun bir joyda.
-    clean_text = strip_internal_names(
-        full_text.replace("[NO_BUTTON]", "").strip())
+    clean_text = _alifbo(strip_internal_names(
+        full_text.replace("[NO_BUTTON]", "").strip()),
+        getattr(message, "text", None) or getattr(message, "caption", None) or "")
     if timed_out:
         # Bir harf ham kelmagan bo'lsa — chaqiruvchining except bloki
         # toza xato + "Qayta so'rash" tugmasini beradi va ballni

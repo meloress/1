@@ -15,6 +15,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   of an existing table** — the `biznes_chat` column made `test_biznes_owner.py` fire on a
   query that was fine.
 
+- `test_alifbo.py` — a Latin question never gets a mixed-script answer (`messages._alifbo`):
+  the live `rahmat` reply is converted. The sharpest checks are 3 and 4: «kirillda yoz» and a
+  Russian quote without ўғқҳ stay Cyrillic.
 - `test_retry.py` — the «↻ Qayta so'rash» button: one `query.answer` per callback (a
   second one is rejected and the cooldown alert disappears), the retry charges points
   (the original request was refunded on failure, so a free retry would be a free channel),

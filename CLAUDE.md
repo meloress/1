@@ -72,7 +72,9 @@ or written). `railway run` also injects production `DATABASE_URL` and `BOT_TOKEN
 it only for the `eval_*.py` scripts — they touch neither — never for `test_*.py`.
 
 **Live-eval baselines** — compare against these after any prompt edit:
-`eval_chat.py` **60/60** with `--takror 2` (30 cases incl. the Vexon AI identity pair, 2026-11-05), `eval_biznes.py` **125/126** with
+`eval_chat.py` **119/120** with `--takror 2` (60 cases: 30 from real log topics incl. 2
+multi-turn «ha» / «noto'g'ri» and 2 adult-topic no-refusal cases, 2026-11-05; the miss was a
+too-narrow regex, since widened), `eval_biznes.py` **125/126** with
 `--takror 2` (63 cases incl. 3 `juft_*` owner-pair cases; the miss is `tashqi_shaxsiy`, 4/5
 on retry, 2026-10-28), `eval_bilim.py` **0 wrong, 20/21** with `--takror 3` (15 pairs incl. 4 avtomat-handoff ones, 2026-10-30),
 `eval_tabiiy.py` judge **9.5 / 9.5** (without / with owner style) and 0/64 "bot tells"
@@ -218,6 +220,9 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   button and its points back. After each deploy the bot checks itself and sends one message
   (`handlers/tiklanish.py`). Both run on Railway only.
 - **Streaming** — one failed draft ping is not proof the draft is dead (`rich_draft_ok`).
+- **Script** — a Latin question gets a Latin answer: `messages._alifbo()` converts Uzbek
+  Cyrillic in code, because the prompt rule did not hold. A Russian quote and «kirillda yoz» are
+  left alone.
 - **Tool names / model list** — `INTERNAL_TOOL_NAMES` lists every tool, doors included;
   `GPT_MODEL`/fallbacks stay on OpenAI's free list (`test_free_models.py`).
 - **Prompt** — per-user text never goes into `instructions` (kills the cache for everyone);
