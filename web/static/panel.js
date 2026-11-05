@@ -356,6 +356,10 @@
     if (tg && tg.BackButton) {
       tg.BackButton.onClick(function () { titroq("light"); go(oxirgiRoyxat); });
     }
+    // Telegram'dan / boshqa ilovadan panelga qaytdi — eskirgan bo'lsa yangilansin.
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") ekranYukla(hozir);
+    });
     go(BOSH_EKRAN);
   }
 
@@ -394,11 +398,27 @@
     return t.length > n ? t.slice(0, n) + "\u2026" : t;
   }
 
+  /* ⚠️ 401 = cookie (12 soat) tugagan. Jimgina qayta kirib bo'lmaydi:
+     `/api/session` 5 daqiqadan eski initData'ni qabul qilmaydi (qayta
+     ishlatishga qarshi). Ilgari har ekranda «Yuklanmadi · Qayta urinish»
+     chiqardi va urinish HECH QACHON ishlamasdi — endi to'g'ri gap. */
+  function sessiyaTugadimi(r) {
+    if (r.status === 401 && kirdi) { kirdi = false; xatoKorsat(S.kirish.tugadi); }
+  }
+
   async function ol(yol) {
     var r = await fetch(yol, { headers: imzo() });
+    sessiyaTugadimi(r);
     if (!r.ok) throw new Error(yol + " → " + r.status);
     return r.json();
   }
+
+  /* Qidiruv poygasi: sekin tarmoqda «ali» javobi «alisher» dan KEYIN
+     kelib, ekranni eski natija bilan yozib qo'yardi. Har so'rovga
+     raqam; javob kelganda u eng oxirgisi bo'lmasa — tashlanadi. */
+  var navbat = {};
+  function navbatOl(kalit) { return (navbat[kalit] = (navbat[kalit] || 0) + 1); }
+  function eskirganmi(kalit, n) { return n !== navbat[kalit]; }
 
   /* ══ SANA ═══════════════════════════════════════════════════════
      Server ISO-8601 (Toshkent siljishi bilan) yuboradi, formatlash
@@ -764,7 +784,8 @@
     $("n-xato").textContent = son(d.xato_soni);
     $("xatolar").innerHTML = d.xatolar.length
       ? d.xatolar.map(function (x) {
-          return '<div class="row"><span class="tag ' + (x.tur === "timeout" ? "warn" : "ban") +
+          return '<div class="row' + (x.user ? ' bosiladi" data-uid="' + xavfsiz(x.user) : "") +
+                 '"><span class="tag ' + (x.tur === "timeout" ? "warn" : "ban") +
                  '">' + xavfsiz(x.tur) + '</span><div class="t"><b>' + xavfsiz(x.matn) +
                  "</b><span>" + (x.user ? "ID " + xavfsiz(x.user) + " · " : "") +
                  xavfsiz(nisbiy(x.vaqt)) + "</span></div></div>";
@@ -990,8 +1011,10 @@
   }
 
   async function jurnalAudit() {
+    var n = navbatOl("audit");
     var d = await ol("/api/journal/audit?page=" + jSahifa.audit +
                      (jAdmin ? "&admin=" + jAdmin : "") + jFiltrQator("audit"));
+    if (eskirganmi("audit", n)) return;
     jSahifalar.audit = d.sahifalar;
     var fa = jFiltr.audit;
     $("j-audit-soni").textContent =
@@ -1046,8 +1069,10 @@
   }
 
   async function jurnalXatolar() {
+    var n = navbatOl("errors");
     var d = await ol("/api/journal/errors?page=" + jSahifa.errors +
                      jFiltrQator("errors"));
+    if (eskirganmi("errors", n)) return;
     jSahifalar.errors = d.sahifalar;
     var x = d.xulosa;
     $("j-xato-soni").textContent = "bugun " + son(x.kun) + " · hafta " + son(x.hafta);
@@ -1059,7 +1084,8 @@
         oxirgiKun = k;
         h += '<div class="kun-bosh">' + xavfsiz(kunNomi(r.vaqt)) + "</div>";
       }
-      h += '<div class="row"><span class="tag ' + (r.tur === "timeout" ? "warn" : "ban") + '">' +
+      h += '<div class="row' + (r.user ? ' bosiladi" data-uid="' + xavfsiz(r.user) : "") +
+        '"><span class="tag ' + (r.tur === "timeout" ? "warn" : "ban") + '">' +
         xavfsiz(r.tur) + '</span><div class="t"><b>' + xavfsiz(r.matn) + "</b><span>" +
         xavfsiz(soat(r.vaqt)) + (r.user ? " · ID " + xavfsiz(r.user) : "") +
         "</span></div></div>";
@@ -1146,13 +1172,23 @@
   /* ══ EKRAN YUKLASH ══════════════════════════════════════════════ */
   var yuklangan = {};
   var kirdi = false;
+  /* ⚠️ Ilgari ekran BIR MARTA yuklanardi: panel ochiq turganda (yoki
+     profilda Pro berib qaytganda) raqamlar ochilgan paytdagicha qolardi.
+     Endi faqat o'qiladigan ekranlar 60 soniyadan eski bo'lsa qayta
+     yuklanadi — ekranga qaytganda yoki Telegram'dan panelga qaytganda.
+     Sozlamalar va Promo YO'Q: ular qayta chizilsa yozilayotgan, hali
+     saqlanmagan qiymatlar (limitlar, promo formasi) o'chib ketardi. */
+  var YANGILANADI = { dash: 1, stats: 1, users: 1, journal: 1, broadcast: 1 };
+  var ESKIRISH_MS = 60000;
 
   function ekranYukla(nom) {
     var fn = { dash: boshqaruv, stats: statistika, users: jadvalYukla,
                journal: jurnal, promo: promoEkran, system: sozlamalar,
                broadcast: tarqatmalar }[nom];
-    if (!kirdi || !fn || yuklangan[nom]) return;
-    yuklangan[nom] = true;
+    if (!kirdi || !fn) return;
+    var t = yuklangan[nom];
+    if (t && !(YANGILANADI[nom] && Date.now() - t > ESKIRISH_MS)) return;
+    yuklangan[nom] = Date.now();
     fn().catch(function (e) {
       yuklangan[nom] = false;
       console.error("[panel] " + nom + " yuklanmadi:", e);
@@ -1237,7 +1273,9 @@
     var yol = "/api/users?page=" + uSahifa + "&filter=" + encodeURIComponent(uFiltr) +
               "&tartib=" + encodeURIComponent(uTartib) +
               (uQuery ? "&q=" + encodeURIComponent(uQuery) : "");
+    var n = navbatOl("users");
     var d = await ol(yol);
+    if (eskirganmi("users", n)) return;
     uSahifalar = d.sahifalar;
 
     ["all", "pro", "free", "ban", "nofaol"].forEach(function (k) {
@@ -1518,10 +1556,14 @@
   }
 
   function jadval() {
-    ["s-token", "s-top"].forEach(function (id) {
+    // Odam ko'rinadigan har ro'yxatdan — profilga (`kartochka` o'zi `go("profil")`).
+    ["s-token", "s-top", "xatolar", "j-xatolar"].forEach(function (id) {
       delegat(id, "data-uid", function (uid) {
-        kartochka(Number(uid)).then(function () { go("profil"); })
-          .catch(function (e) { console.error("[panel] profil:", e); });
+        titroq("light");
+        kartochka(Number(uid)).catch(function (e) {
+          console.error("[panel] profil:", e);
+          toast(S.yuklanmadi);
+        });
       });
     });
     // Mini App ichida oddiy <a> Telegram'ni ochmaydi (WebView ichida
@@ -1602,6 +1644,7 @@
       var r;
       try {
         r = await fetch(yol, cfg);
+        sessiyaTugadimi(r);
       } catch (e) {
         titroq("xato");
         return { ok: false, d: {}, status: 0, xato: S.kirish.ulanmadi[1] };

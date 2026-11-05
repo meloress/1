@@ -447,3 +447,21 @@ the bot, and every one of our users has. It is text, not a button: a `tg://user`
 rejected by the user's privacy setting and would fail the whole message. The endpoint changes
 nothing, so it writes no audit row. It sends through `_xabar`, so it carries `@bir_marta`
 (`test_web_users.py` 14).
+
+### Screens refresh, an expired session says so, and search cannot go stale (2026-11-05)
+
+- **Refresh.** A screen used to load once and keep the numbers from the moment the panel
+  opened, even after the admin gave someone Pro and came back. Now `dash`, `stats`, `users`,
+  `journal` and `broadcast` reload when they are older than 60 s: on returning to the screen
+  and on `visibilitychange`, i.e. coming back from Telegram. ⛔️ `system` and `promo` are
+  deliberately left out. Redrawing them would erase limit values and promo fields that were
+  typed but not saved.
+- **401.** When the 12-hour cookie expires, the panel shows «Sessiya tugadi» with the reason.
+  Before, every screen said «Yuklanmadi · Qayta urinish», and retrying could never work,
+  because `/api/session` refuses initData older than 5 minutes.
+- **Search race.** The users list and both journals number their requests and drop any answer
+  that is not the latest. Without this, on a slow network the answer for «ali» could arrive
+  after the one for «alisher» and overwrite it.
+- Error rows with a user ID, on the dashboard and in the journal, open that user's profile.
+
+`tests/test_panel_korinish.py` 17.

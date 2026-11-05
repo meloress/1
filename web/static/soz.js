@@ -220,7 +220,9 @@ window.SOZ = {
                  "Server javob bermadi. Internetni tekshirib, qayta urinib ko'ring."],
     kop:        ["Juda ko'p urinish", "Bir daqiqadan so'ng qayta urinib ko'ring."],
     rad:        ["Kirish rad etildi", "Panelni Telegram ichidagi «Panel» tugmasi orqali oching."],
-    yopildi:    ["Sessiya yopildi", "Panelni qayta ochish uchun Telegramdagi «Panel» tugmasini bosing."]
+    yopildi:    ["Sessiya yopildi", "Panelni qayta ochish uchun Telegramdagi «Panel» tugmasini bosing."],
+    tugadi:     ["Sessiya tugadi",
+                 "Xavfsizlik uchun 12 soatdan keyin chiqiladi. Panelni yoping va Telegramdagi «Panel» tugmasi orqali qayta oching."]
   },
 
   /* ── Karta to'lovi (Sozlamalar → Karta) ────────────────────── */

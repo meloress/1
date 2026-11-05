@@ -23,7 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _manba import css_kod, kod
+from _manba import css_kod, js_kod, kod
 os.environ.setdefault("BOT_TOKEN", "123456:TEST-TOKEN-FOR-PANEL-LOOK")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -370,7 +370,22 @@ def main() -> None:
     assert ".banner{" in CSS_SOF, "banner uslubi yo'q"
     print("[16] kuzatuv banneri ekran tepasida, matni lug'atda OK")
 
-    print("\npanel ko'rinishi: barcha tekshiruvlar o'tdi (16/16).")
+    # 17) Ekran 60 s dan eski bo'lsa qayta yuklanadi — lekin FORMALI ekran
+    #     emas: Sozlamalar/Promo qayta chizilsa yozilayotgan limit va promo
+    #     maydonlari o'chib ketardi. 401 — «Sessiya tugadi», cheksiz
+    #     «Qayta urinish» emas. Qidiruv javobi navbat raqami bilan.
+    js_sof = js_kod(JS)
+    m = re.search(r"var YANGILANADI = \{([^}]*)\}", js_sof)
+    assert m, "YANGILANADI ro'yxati yo'q — ekranlar yana bir martalik"
+    for nom in ("system", "promo"):
+        assert nom not in m.group(1), f"{nom} avtomatik yangilanadi — yozilgan qiymat o'chadi"
+    assert "visibilitychange" in js_sof, "panelga qaytganda yangilanmaydi"
+    assert "S.kirish.tugadi" in js_sof and "tugadi:" in soz_sof, "401 uchun «Sessiya tugadi» yo'q"
+    for k in ('"users"', '"audit"', '"errors"'):
+        assert f"eskirganmi({k}" in js_sof, f"{k} qidiruvi poygadan himoyalanmagan"
+    print("[17] eskirgan ekran yangilanadi (formalilar emas), 401, qidiruv poygasi OK")
+
+    print("\npanel ko'rinishi: barcha tekshiruvlar o'tdi (17/17).")
 
 
 if __name__ == "__main__":
