@@ -999,6 +999,12 @@ Uzbek speech goes to Gemini (`GEMINI_TTS_MODEL`, `gemini-3.1-flash-tts-preview`)
 back to edge-tts; Russian/English go straight to edge-tts. Both fail without raising
 anything a user would see as an error — the voice note just never arrives.
 
+- ⛔️ **Uzbek never goes to OpenAI TTS, Pro included** (2026-11-06). `gpt-4o-mini-tts` does
+  not know Uzbek and reads it with an English accent — the owner: "worse than the free voice,
+  impossible to understand". `text_to_speech_smart()` sends Pro to OpenAI only for ru/en;
+  Uzbek takes the free path (Gemini → edge-tts `uz-UZ-MadinaNeural`) for everyone.
+  Gemini load was checked first: 22 Uzbek replies, 0 quota errors in 25 deploys
+  (2026-10-28 … 11-06). `test_voice_fallback.py` 5b.
 - ⛔️ **Never call the bot's Gemini TTS model for anything else** (tests, ads, experiments).
   The free tier is a **per-model** quota (on `gemini-2.5-flash-preview-tts`: 3 requests/min,
   10/day), so ten side calls on the bot's model end Uzbek voice replies for every user until

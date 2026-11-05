@@ -5793,9 +5793,8 @@ _TTS_PRO_MODEL = "gpt-4o-mini-tts"
 
 # (ovoz, ohang ko'rsatmasi). `instructions` — gpt-4o-mini-tts ning
 # imkoniyati: ovozga qanday gapirishni MATN bilan aytish mumkin.
+# O'zbekcha bu yerda YO'Q — text_to_speech_smart() izohiga qarang.
 _TTS_PRO_VOICES = {
-    "uz": ("coral", "Speak Uzbek warmly and unhurried, like a friendly "
-                    "colleague explaining something. Clear consonants, no rush."),
     "ru": ("verse", "Говорите по-русски спокойно и дружелюбно, в среднем "
                     "темпе, без дикторского пафоса."),
     "en": ("cedar", "Speak natural, friendly English at a relaxed "
@@ -5840,7 +5839,7 @@ async def text_to_speech_pro(text: str, filename: str) -> Optional[str]:
         return None
 
     lang = detect_speech_lang(speech_text)
-    voice, instructions = _TTS_PRO_VOICES.get(lang, _TTS_PRO_VOICES["uz"])
+    voice, instructions = _TTS_PRO_VOICES.get(lang, _TTS_PRO_VOICES["en"])
     logger.info(f"[TTS-Pro] til={lang} ovoz={voice}")
 
     resp = await openai_client.audio.speech.create(
@@ -5891,8 +5890,14 @@ def _read_bytes(path: str) -> bytes:
 
 
 async def text_to_speech_smart(text: str, filename: str, *, is_pro: bool) -> Optional[str]:
-    """Pro bo'lsa tabiiy ovoz, xato bo'lsa edge-tts zaxirasi."""
-    if is_pro:
+    """Pro: rus/ingliz — OpenAI tabiiy ovozi, xato bo'lsa bepul yo'l.
+    O'zbekcha — HAMMA uchun bepul yo'l (Gemini → edge-tts «Madina»).
+
+    ⛔️ O'zbekchani OpenAI TTS'ga bermang: gpt-4o-mini-tts o'zbek tilini
+    bilmaydi, ingliz aksentida o'qiydi — egasi (2026-11-06): «free ovozidan
+    ham yomon, umuman tushunib bo'lmaydi». Gemini va Madina — ona tilida.
+    """
+    if is_pro and detect_speech_lang(clean_text_for_speech(text)) != "uz":
         try:
             out = await text_to_speech_pro(text, filename)
             if out:

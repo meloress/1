@@ -126,11 +126,25 @@ async def main():
         calls = Calls()
         restore = _patch(calls, pro_error=RuntimeError("API tushdi"))
         try:
-            out = await ai.text_to_speech_smart("salom", "x.mp3", is_pro=True)
+            out = await ai.text_to_speech_smart("Hello, how are you today?", "x.mp3",
+                                                is_pro=True)
         finally:
             restore()
-        assert out == "bepul.mp3" and calls.free == 1
+        assert out == "bepul.mp3" and calls.pro == 1 and calls.free == 1
         print("[5] Pro TTS xatosi -> edge-tts zaxira OK")
+
+        # ⛔️ JONLI SHIKOYAT (2026-11-06): Pro'ning o'zbekcha ovozi (gpt-4o-mini-tts)
+        # ingliz aksentida, «tushunib bo'lmaydi». O'zbekcha — doim bepul yo'l
+        # (Gemini → edge-tts Madina), OpenAI TTS umuman chaqirilmaydi.
+        for matn in ("salom", "Assalomu alaykum, bugun havo yaxshi", "Ассалому алайкум, қалайсиз"):
+            calls = Calls()
+            restore = _patch(calls, pro_result="pro.mp3")
+            try:
+                out = await ai.text_to_speech_smart(matn, "x.mp3", is_pro=True)
+            finally:
+                restore()
+            assert calls.pro == 0 and out == "bepul.mp3", (matn, calls.pro)
+        print("[5b] Pro o'zbekcha ovoz — OpenAI emas, Gemini/Madina OK")
 
         # ── 4) PRO bo'sh natija qaytaradi -> bu ham xato ────────────
         calls = Calls()
@@ -146,10 +160,11 @@ async def main():
         calls = Calls()
         restore = _patch(calls, pro_result=None)
         try:
-            out = await ai.text_to_speech_smart("salom", "x.mp3", is_pro=True)
+            out = await ai.text_to_speech_smart("Hello, how are you today?", "x.mp3",
+                                                is_pro=True)
         finally:
             restore()
-        assert out == "bepul.mp3"
+        assert out == "bepul.mp3" and calls.pro == 1
         print("[7] Pro TTS None -> zaxira OK")
 
     finally:
@@ -157,14 +172,15 @@ async def main():
             os.remove(path)
 
     # ── 5) Ovoz jadvali barcha tillarni qoplaydi ────────────────────
-    for lang in ("uz", "ru", "en"):
+    assert "uz" not in ai._TTS_PRO_VOICES, "o'zbekcha OpenAI ovoziga qaytmasin"
+    for lang in ("ru", "en"):
         assert lang in ai._TTS_PRO_VOICES, f"{lang} uchun Pro ovozi yo'q"
         voice, instructions = ai._TTS_PRO_VOICES[lang]
         assert voice and instructions, f"{lang}: ovoz yoki ko'rsatma bo'sh"
     # detect_speech_lang faqat shu uchtasini qaytaradi (tests/test_tts_lang.py),
     # lekin noma'lum qiymat kelsa ham yiqilmasligi kerak.
-    assert ai._TTS_PRO_VOICES.get("xx", ai._TTS_PRO_VOICES["uz"])[0] == "coral"
-    print("[8] uz/ru/en uchun ovoz va ohang belgilangan OK")
+    assert ai._TTS_PRO_VOICES.get("xx", ai._TTS_PRO_VOICES["en"])[0] == "cedar"
+    print("[8] ru/en uchun ovoz va ohang belgilangan OK")
 
     # ── 6) Uzun matn chegarasi ──────────────────────────────────────
     assert ai._TTS_PRO_MAX_CHARS <= 4096, "model chegarasidan oshmasligi kerak"
