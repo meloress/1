@@ -698,11 +698,11 @@ def _eslatma_zaxirasi(d: dict) -> str:
 # aylanadi (`.rg`), ya'ni faqat transform.
 _LOGO = (
     '<svg class="lg" viewBox="0 0 100 100"><defs>'
-    '<linearGradient id="la" x1="0" y1="0" x2=".7" y2="1"><stop offset="0" stop-color="#4f86ff"/>'
-    '<stop offset=".5" stop-color="#2327d8"/><stop offset=".85" stop-color="#3a2bd0"/>'
-    '<stop offset="1" stop-color="#9a6bff"/></linearGradient>'
-    '<linearGradient id="lb" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c77dff"/>'
-    '<stop offset=".4" stop-color="#29d0ff"/><stop offset="1" stop-color="#2f3bf0"/></linearGradient>'
+    '<linearGradient id="la" x1="0" y1="0" x2=".7" y2="1"><stop offset="0" stop-color="#6a9bff"/>'
+    '<stop offset=".5" stop-color="#3442ff"/><stop offset=".82" stop-color="#4a3cf0"/>'
+    '<stop offset="1" stop-color="#b07cff"/></linearGradient>'
+    '<linearGradient id="lb" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d792ff"/>'
+    '<stop offset=".4" stop-color="#3fdcff"/><stop offset="1" stop-color="#3d55ff"/></linearGradient>'
     '<linearGradient id="lc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fd8ff"/>'
     '<stop offset="1" stop-color="#e2a6ff"/></linearGradient>'
     '<radialGradient id="ld"><stop offset="0" stop-color="#3b5bff" stop-opacity=".45"/>'
@@ -712,7 +712,7 @@ _LOGO = (
     'stroke-dasharray="190 99" stroke-linecap="round"/>'
     '<path fill="url(#la)" d="M6 22C22 20 34 26 42 38L60 72C64 80 61 90 52 90C46 90 43 86 41 81L19 38C15 30 11 25 6 22Z"/>'
     '<path fill="url(#lb)" d="M95 18C84 19 73 25 66 35L47 65C57 68 64 62 69 54L86 29C89 24 92 20 95 18Z"/>'
-    '<path fill="url(#lc)" fill-opacity=".75" d="M6 22C22 20 34 26 42 38L49 51C40 38 28 28 6 22Z"/></svg>')
+    '<path fill="url(#lc)" fill-opacity=".85" d="M6 22C22 20 34 26 42 38L49 51C40 38 28 28 6 22Z"/></svg>')
 _BREND_CSS = (
     "body{margin:0;padding:10px;font-family:system-ui,sans-serif}"
     ".hd{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:18px;color:#fff;"
@@ -756,13 +756,18 @@ START_SLAYDLAR = (
     ("b", "Fayl yarataman", "Taqdimot, PDF, Word va Excel tayyorlab beraman"),
     ("w", "Har kungi yordam", "Ob-havo, valyuta kursi, namoz vaqtlari va eslatmalar"),
 )
-# Ikonkalar (24×24, chiziqli, `url(#ig)` — logo gradienti). Har biri faol
+# Ikonkalar (24×24, chiziqli, logo gradienti). ⛔️ Gradient har ikonkaning
+# O'Z <defs>'ida va `stroke` ATRIBUTIDA, zaxira rang bilan (`url(#gN) #6fa8ff`):
+# CSS `stroke:url(#ig)` boshqa SVG'dagi gradientga iPhone Telegram'ida (WebKit)
+# ishlamadi — jonli (2026-11-10) ikonkalar bo'm-bo'sh doira bo'lib chiqdi,
+# Chrome'da esa hammasi joyida edi. Va `scale`/animatsiya logoda YO'Q: iOS
+# animatsiyadagi elementni past aniqlikda rasterlaydi — logo xira chiqdi. Har biri faol
 # slaydda o'z harakatini qiladi; hammasi faqat transform (`.bo` sakraydi,
 # `.sx` cho'ziladi, `.ro` aylanadi, `.pu` uradi). O'zimizning satrlar —
 # innerHTML'ga faqat shular tushadi, model/foydalanuvchi matni emas.
 _IKONKA = {
     "c": '<path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>'
-         '<g fill="url(#ig)" stroke="none"><circle class="bo" cx="8" cy="10.5" r="1.3"/>'
+         '<g fill="#4fb8ff" stroke="none"><circle class="bo" cx="8" cy="10.5" r="1.3"/>'
          '<circle class="bo b2" cx="12" cy="10.5" r="1.3"/><circle class="bo b3" cx="16" cy="10.5" r="1.3"/></g>',
     "d": '<path d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M14 2v5h5"/>'
          '<path class="sx" d="M8 12h8"/><path class="sx b2" d="M8 15.5h8"/><path class="sx b3" d="M8 19h5"/>',
@@ -786,12 +791,12 @@ _START_SHABLON = ("<style>" + _BREND_CSS + """
 .o{transition:transform .9s cubic-bezier(.6,-.2,.25,1.25)}
 .n{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;transition:transform .9s cubic-bezier(.6,-.2,.25,1.25)}
 .i{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#121a52;box-shadow:inset 0 0 0 1px #34409e;transition:transform .5s,box-shadow .5s,background .5s}
-.n.on .i{transform:scale(1.3);background:#17206a;box-shadow:inset 0 0 0 2px #5b8cff,0 0 0 6px #4f7bff26}
-.i svg{width:24px;height:24px;fill:none;stroke:url(#ig);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+.n.on .i{background:#18237a;box-shadow:inset 0 0 0 2px #5b8cff,0 0 0 7px #4f7bff30}
+.i svg{width:24px;height:24px;overflow:visible;transition:width .4s,height .4s}
+.n.on .i svg{width:29px;height:29px}
 .lc{display:flex;align-items:center;justify-content:center;pointer-events:none}
-.lc .lg{width:104px;height:104px;animation:fl 5s ease-in-out infinite}
+.lc .lg{width:108px;height:108px}
 .lc .rg{display:none}
-@keyframes fl{50%{transform:translateY(-4px)}}
 .wm{font-size:1.65em;letter-spacing:-.01em;text-align:center;margin-top:8px}
 .ai{color:#9fb0ff}
 .tg{text-align:center;color:#9aa3d6;font-size:.86em;margin:2px 0 16px}
@@ -812,7 +817,7 @@ _START_SHABLON = ("<style>" + _BREND_CSS + """
 </style>
 <div class="c"><div class="or" id="or"><svg viewBox="0 0 250 250"><defs><linearGradient id="ig" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b8cff"/><stop offset=".5" stop-color="#29d0ff"/><stop offset="1" stop-color="#c77dff"/></linearGradient></defs>
 <circle cx="125" cy="125" r="103" fill="none" stroke="#28318a" stroke-width="1.2"/>
-<circle class="hl" cx="125" cy="125" r="103" fill="none" stroke="url(#ig)" stroke-width="2" stroke-dasharray="70 577" stroke-linecap="round"/>
+<circle class="hl" cx="125" cy="125" r="103" fill="none" stroke="url(#ig) #4f7bff" stroke-width="2" stroke-dasharray="70 577" stroke-linecap="round"/>
 <circle cx="125" cy="125" r="78" fill="none" stroke="#1f2770" stroke-width="1" stroke-dasharray="2 7"/></svg>
 <div class="o" id="o"></div><div class="lc">""" + _LOGO + """</div></div>
 <div class="wm">Vexon <span class="ai">AI</span></div><div class="tg">Shaxsiy AI yordamchingiz</div>
@@ -820,7 +825,7 @@ _START_SHABLON = ("<style>" + _BREND_CSS + """
 <script>""" + _JS_ASOS + """
 var S=@@S@@,IK=@@I@@,o=document.getElementById("o"),f=document.getElementById("f"),N=[],I=-1,A=0,L=S.length,T;
 S.forEach(function(x,i){var a=(i/S.length*360-90)*Math.PI/180,n=el("div","n"),c=el("div","i");n.style.left=125+103*Math.cos(a)+"px";n.style.top=125+103*Math.sin(a)+"px";
-c.innerHTML='<svg viewBox="0 0 24 24">'+(IK[x[0]]||"")+"</svg>";n.appendChild(c);n.onclick=function(e){e.stopPropagation();g(i);R()};o.appendChild(n);N.push(n)});
+c.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="url(#g'+i+') #6fa8ff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="g'+i+'" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#6b95ff"/><stop offset=".5" stop-color="#2fd2ff"/><stop offset="1" stop-color="#cf8bff"/></linearGradient></defs>'+(IK[x[0]]||"")+"</svg>";n.appendChild(c);n.onclick=function(e){e.stopPropagation();g(i);R()};o.appendChild(n);N.push(n)});
 function g(i){i=(i+L)%L;if(i==I)return;var d=I<0?i:((i-I)%L+L)%L;if(d>L/2)d-=L;A+=d;I=i;var r=-360/L*A;o.style.transform="rotate("+r+"deg)";
 N.forEach(function(n,j){n.style.transform="rotate("+(-r)+"deg)";n.className=j==I?"n on":"n"});
 f.className="f";f.innerHTML="";f.appendChild(el("b",0,S[I][1]));f.appendChild(el("span",0,S[I][2]));void f.offsetWidth;f.className="f v"}

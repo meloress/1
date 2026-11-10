@@ -77,6 +77,16 @@ og_ir = [n for n, h in HTMLLAR.items()
          if re.search(r"(?<![-\w])opacity\s*[:=]|filter\s*:|background-clip", h)]
 check(2, "kartalarda `opacity`/`filter`/`background-clip` yo'q (vidjet qo'llamaydi yoki og'ir)",
       not og_ir)
+# CSS ichidagi `url(#gradient)` iPhone Telegram'ida ishlamaydi (jonli
+# 2026-11-10: /start ikonkalari bo'sh doira) — gradient faqat SVG ATRIBUTIDA.
+# Kompyuterdagi Chrome ham, WebKit ham buni ko'rsatmadi — shuning uchun qo'riqchi.
+from services import vidjet as _v  # noqa: E402
+css_url = [n for n, h in {**HTMLLAR, "obhavo": _v.obhavo_html(), "valyuta": _v.valyuta_html(),
+                          "namoz": _v.namoz_html(), "eslatma": _v.eslatma_html()}.items()
+           if re.search(r"url\(#", " ".join(re.findall(r"<style>(.*?)</style>", h, re.S)))]
+check(21, "hech bir kartaning CSS'ida `url(#…)` yo'q (iPhone'da ishlamaydi)", not css_url)
+check(22, "/start ikonkalari gradientni o'z atributida, zaxira rang bilan oladi; logoda animatsiya yo'q",
+      "stroke=\"url(#g'+i+') #" in v.start_html() and ".lc .lg{width:108px;height:108px}" in v.start_html())
 check(3, "/start slaydlari bepul foydalanuvchiga yo'q narsani va'da qilmaydi (rasm chizish)",
       "chiz" not in json.dumps(v.START_SLAYDLAR, ensure_ascii=False).lower()
       and len(v.START_SLAYDLAR) >= 5)
