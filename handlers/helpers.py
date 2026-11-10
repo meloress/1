@@ -34,6 +34,43 @@ def make_retry_keyboard(chat_id: int, attempts: int = 0):
         [InlineKeyboardButton(text="📨 Adminga xabar", callback_data=f"report:{chat_id}")]
     ])
 
+def _rich_tekis(r) -> str:
+    """RichText (Bot API 10.4) → oddiy matn: satr, massiv yoki `text` maydonli
+    obyekt (rekursiv). Formula — `$LaTeX$` (model o'qiydi), custom emoji —
+    almashtiruvchi oddiy emoji."""
+    if isinstance(r, str):
+        return r
+    if isinstance(r, list):
+        return "".join(_rich_tekis(x) for x in r)
+    if hasattr(r, "model_dump"):
+        r = r.model_dump(exclude_none=True)
+    if isinstance(r, dict):
+        if "text" in r:
+            return _rich_tekis(r["text"])
+        if r.get("expression"):
+            return f"${r['expression']}$"
+        return r.get("alternative_text") or ""
+    return ""
+
+
+def iqtibos_matni(message) -> str:
+    """Foydalanuvchi reply'da BELGILAB olgan parcha (`message.quote`).
+
+    ⚠️ Bot javoblari — rich xabar, va rich xabardan olingan iqtibosda
+    `quote.text` BO'SH bo'ladi, matn esa `rich_texts` da (Bot API 10.4).
+    aiogram 3.31 bu maydonni bilmaydi — u `model_extra` ga tushadi;
+    yangilanganda haqiqiy maydon bo'ladi, shuning uchun ikkalasi o'qiladi."""
+    q = getattr(message, "quote", None)
+    if not q:
+        return ""
+    matn = getattr(q, "text", None) or ""
+    if not matn.strip():
+        rich = (getattr(q, "rich_texts", None)
+                or (getattr(q, "model_extra", None) or {}).get("rich_texts"))
+        matn = _rich_tekis(rich) if rich else ""
+    return " ".join(matn.split())
+
+
 def mavzu_kwargs(thread_id) -> dict:
     """Xom `bot.send_*` chaqiruvi uchun mavzu (topic) qo'shimchasi.
 

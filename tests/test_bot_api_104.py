@@ -123,6 +123,56 @@ check(9, "ulanmagan egaga — tugma yo'q va mavzu OCHILMAYDI",
 
 
 # ─────────────────────────────────────────────────────────────
+# 10-12. «💎 Pro tarifga o'tish» guruhda — faqat bosganga, xarid DM'da
+# ─────────────────────────────────────────────────────────────
+class _State:
+    async def clear(self):
+        pass
+
+
+class _ProQuery:
+    def __init__(self, chat_type):
+        self.id = "cbq-7"
+        self.data = "pro:open"
+        self.from_user = _User(777)
+        self.message = _Msg(chat_type, uid=BOT_ID)
+
+    async def answer(self, *a, **k):
+        pass
+
+
+_rich_chaqiruv, _ekran_chizildi = [], []
+
+
+async def _send_rich_soxta(target, text, kb=None, effect=None, **extra):
+    _rich_chaqiruv.append((text, kb, extra))
+
+
+async def _ekran_soxta(uid):
+    _ekran_chizildi.append(uid)
+    return "PRO EKRANI", None
+
+pro_module.send_rich = _send_rich_soxta
+pro_module._render_pro_screen = _ekran_soxta
+asyncio.run(pro_module.handle_pro_callback(_ProQuery("supergroup"), _State()))
+matn, kb, extra = _rich_chaqiruv[-1]
+url = kb.inline_keyboard[0][0].url if kb else ""
+check(10, "guruhda Pro ekrani CHIZILMAYDI — bosganga ephemeral havola (?start=pro)",
+      not _ekran_chizildi and url == "https://t.me/vexonai?start=pro"
+      and extra["ephemeral_message_parameters"] == {"receiver_user_id": 777,
+                                                    "callback_query_id": "cbq-7"})
+asyncio.run(pro_module.handle_pro_callback(_ProQuery("private"), _State()))
+check(11, "shaxsiy chatda — Pro ekrani odatdagidek, ephemeral'siz",
+      _ekran_chizildi == [777] and _rich_chaqiruv[-1][0] == "PRO EKRANI"
+      and not _rich_chaqiruv[-1][2])
+
+start = kod(Path(__file__).parent.parent / "handlers" / "messages.py")
+i_pro = start.find('if start_payload == "pro" and message.chat.type == "private":')
+check(12, "/start pro — Pro ekrani, salomlashuvdan OLDIN va ban/admin tekshiruvidan KEYIN",
+      0 < start.find("if await is_banned(message.from_user.id):") < i_pro
+      < start.find("await message.answer(_greeting_text(premium=True)"))
+
+# ─────────────────────────────────────────────────────────────
 print("─" * 55)
 if failures:
     print(f"❌ {len(failures)} ta tekshiruv yiqildi:")

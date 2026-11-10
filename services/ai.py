@@ -29,8 +29,8 @@ else:
 from services import avto_tatil
 from services.file_task_quota import FileTaskQuota, DailyQuota
 from services.sandbox import run_in_sandbox
-from services.vidjet import test_matnga
-from services import obhavo
+from services.vidjet import bloklar_matnga
+from services import obhavo, valyuta
 
 try:
     from core.config import (
@@ -1272,7 +1272,7 @@ def strip_rich_tokens(text: str) -> str:
     if not text:
         return text
     # Test bloki BIRINCHI: u o'zi `[batafsil: Javoblar]` hosil qiladi.
-    out = _DETAILS_OPEN_RE.sub(lambda m: f"**{m.group(1).strip()}**", test_matnga(text))
+    out = _DETAILS_OPEN_RE.sub(lambda m: f"**{m.group(1).strip()}**", bloklar_matnga(text))
     out = _DETAILS_CLOSE_RE.sub("", out)
     # Xarita oddiy xabarda chizilmaydi — belgi shunchaki olib tashlanadi
     # (matnning o'zi joyni baribir aytadi). Tugma esa havolaga aylanadi:
@@ -1574,7 +1574,7 @@ def build_rich_markdown(text: str) -> str:
     # `[test]` bu yerga faqat vidjet chizilmaydigan joyda yetib keladi
     # (guruh, guest): oddiy test bo'ladi, javoblari yig'iladigan bo'limda.
     # Himoyadan OLDIN — u hosil qilgan `[batafsil:]` pastda <details> bo'lsin.
-    protected, placeholders = _protect_spans(test_matnga(text))
+    protected, placeholders = _protect_spans(bloklar_matnga(text))
     # ⚠️ Jadval BIRINCHI o'giriladi va aynan himoya ICHIDA: (a) kod
     # bloklaridagi `|` jadvalga o'xshaydi; (b) _cell_html() katak matnini
     # html_escape qiladi, ya'ni undan OLDIN qo'yilgan <tg-time>/<tg-math>
@@ -3449,7 +3449,8 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
                          biznes_enabled: bool = False) -> dict:
     # internet_search va open_capabilities — ikkalasi ham doim
     # biriktirilgan, shuning uchun manifest ham ikkalasini aytadi.
-    bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"], _OBHAVO_TOOL["name"]]
+    bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"], _OBHAVO_TOOL["name"],
+           _VALYUTA_TOOL["name"]]
     # Faqat egasining «💼 Biznes» mavzusida — boshqa joyda ro'yxatda ham
     # yo'q (pastdagi "Never available" gapi o'sha holat uchun to'g'ri).
     if biznes_enabled:
@@ -4274,20 +4275,85 @@ _OBHAVO_TOOL = {
     "type": "function",
     "name": "ob_havo",
     "description": (
-        "Joyning HOZIRGI ob-havosi, keyingi soatlar va 3 kunlik prognozi "
-        "(haqiqiy ma'lumot). Ob-havo, harorat, yomg'ir/qor haqidagi savolda "
-        "internet_search o'rniga SHUNI chaqiring. Joy aytilmagan bo'lsa — "
-        "so'rang."
+        "Hozirgi ob-havo va 3 kunlik prognoz (haqiqiy). Ob-havo savolida "
+        "internet_search o'rniga shu; joy aytilmasa — so'rang."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "joy": {"type": "string", "description": "Shahar, masalan Toshkent"},
+            "joy": {"type": "string", "description": "Shahar"},
         },
         "required": ["joy"],
         "additionalProperties": False,
     },
 }
+
+
+# ─────────────────────────────────────────────────────────────
+# 💱 VALYUTA — Markaziy bank (services/valyuta.py)
+# Ob-havo bilan bir xil sabab: "dollar kursi" veb-qidiruvga ketardi.
+# Konvertatsiyani KOD hisoblaydi — model arifmetikasi kafolat emas.
+# ─────────────────────────────────────────────────────────────
+_VALYUTA_TOOL = {
+    "type": "function",
+    "name": "valyuta",
+    "description": (
+        "Markaziy bank kursi va konvertatsiya (ISO kod, so'm — UZS). Kurs "
+        "savolida internet_search o'rniga shu."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "kodlar": {"type": "array", "items": {"type": "string"}},
+            "summa": {"type": "number"},
+            "dan": {"type": "string"},
+            "ga": {"type": "string"},
+        },
+        "required": ["kodlar"],
+        "additionalProperties": False,
+    },
+}
+
+
+async def _run_valyuta_task(args: dict, vidjet_out: Optional[list]) -> str:
+    kodlar = valyuta.toza_kodlar(args.get("kodlar"))
+    dan = (valyuta.toza_kodlar([args.get("dan")]) or ["UZS"])[0]
+    ga = (valyuta.toza_kodlar([args.get("ga")]) or ["UZS"])[0]
+    # Konvertatsiya valyutasi ro'yxatda ham bo'lsin — karta uni ko'rsatsin.
+    for c in (dan, ga):
+        if c != "UZS" and c not in kodlar:
+            kodlar.append(c)
+    kodlar = (kodlar or list(valyuta.STANDART))[:valyuta.KOD_MAX]
+    try:
+        k = await valyuta.kurslar()
+    except valyuta.XizmatYoq as e:
+        logger.warning(f"[VALYUTA] Markaziy bank javob bermadi: {e}")
+        return ("Markaziy bank xizmati hozir javob bermadi (texnik nosozlik). "
+                "Shuni AYTING; kursni O'YLAB TOPMANG.")
+    yoq = [c for c in kodlar if c not in k]
+    kodlar = [c for c in kodlar if c in k]
+    if not kodlar:
+        return (f"Bunday valyuta kodi topilmadi: {', '.join(yoq)}. "
+                "Foydalanuvchidan qaysi valyutaligini aniqlashtiring.")
+    qismlar = [valyuta.matn(k, kodlar)]
+    if yoq:
+        qismlar.append(f"Topilmadi: {', '.join(yoq)}.")
+    summa = args.get("summa")
+    if isinstance(summa, (int, float)) and not isinstance(summa, bool) and summa > 0:
+        natija = valyuta.hisobla(k, float(summa), dan, ga)
+        if natija is not None:
+            nomi = lambda c: "so'm" if c == "UZS" else c
+            qismlar.append(f"KONVERTATSIYA (kod hisobladi, AYNAN shuni yozing): "
+                           f"{valyuta.son(summa)} {nomi(dan)} = {valyuta.son(natija)} {nomi(ga)}")
+    qismlar.append("⚠️ Bu Markaziy bankning RASMIY kursi. Bankda sotib olish/sotish "
+                   "kursi biroz farq qiladi — odam pul almashtirish haqida so'rasa, "
+                   "shuni bir gap bilan ayting.")
+    if vidjet_out is not None:
+        vidjet_out.append({"tur": "valyuta", "d": valyuta.holat(k, kodlar)})
+        qismlar.append("Kurslar kartasi javobingizdan KEYIN avtomatik chiqadi. Javobni "
+                       "1-2 gap bilan yozing (konvertatsiya so'ralgan bo'lsa — uning "
+                       "natijasi); kurslar ro'yxatini, jadvalni YOZMANG.")
+    return "\n".join(qismlar)
 
 
 async def _run_obhavo_task(args: dict, vidjet_out: Optional[list]) -> str:
@@ -4962,6 +5028,9 @@ async def get_openai_reply(
     # 2: "Toshkent va Samarqandda" — ikki joy, ikki chaqiruv.
     MAX_OBHAVO_ROUNDS = 2
     obhavo_rounds = 0
+    # 2: kurs + aniqlashtirilgan konvertatsiya.
+    MAX_VALYUTA_ROUNDS = 2
+    valyuta_rounds = 0
 
     # Business topshirig'i — `biznes_enabled` yuqorida, holat bloki bilan
     # birga hisoblangan. 5: qidir + suhbat + yubor, yoki bilim + o'zgartirish,
@@ -5049,6 +5118,8 @@ async def get_openai_reply(
             active_tools.append(_NEARBY_TOOL)
         if obhavo_rounds < MAX_OBHAVO_ROUNDS:
             active_tools.append(_OBHAVO_TOOL)
+        if valyuta_rounds < MAX_VALYUTA_ROUNDS:
+            active_tools.append(_VALYUTA_TOOL)
         if biznes_enabled and biznes_rounds < MAX_BIZNES_ROUNDS:
             active_tools.append(_BIZNES_XABAR_TOOL)
         # Doim biriktiriladi: "sen nima qila olasan" savoli istalgan
@@ -5178,6 +5249,7 @@ async def get_openai_reply(
         reminder_ran = False
         nearby_ran = False
         obhavo_ran = False
+        valyuta_ran = False
 
         for call_item in pending_calls:
             try:
@@ -5294,6 +5366,10 @@ async def get_openai_reply(
                 # veb-qidiruv so'roviga aylanardi.
                 obhavo_ran = True
                 tool_output = await _run_obhavo_task(args, vidjet_out)
+            elif call_item.name == "valyuta":
+                # ⚠️ `else` dan OLDIN — aks holda veb-qidiruv bo'lardi.
+                valyuta_ran = True
+                tool_output = await _run_valyuta_task(args, vidjet_out)
             else:
                 search_ran = True
                 primary_query = args.get("primary_query", "")
@@ -5441,6 +5517,8 @@ async def get_openai_reply(
             nearby_rounds += 1
         if obhavo_ran:
             obhavo_rounds += 1
+        if valyuta_ran:
+            valyuta_rounds += 1
         total_rounds += 1
 
         # Tool'dan OLDIN yozilgan oraliq matn ("Hozir tayyorlab beraman...")
@@ -5685,7 +5763,7 @@ def clean_text_for_speech(text: str) -> str:
     # 1. Oxiridagi manbalar ro'yxati. Ekrandagidan farqli: bu yerda
     #    BITTA manba ham yetarli, chunki u ham to'liq o'qilib ketadi.
     # Test belgilari (`? + -`) o'qilsa, javob savoldan oldin aytilib qo'yardi.
-    text = _DETAILS_CLOSE_RE.sub("", _DETAILS_OPEN_RE.sub(r"\1", test_matnga(text)))
+    text = _DETAILS_CLOSE_RE.sub("", _DETAILS_OPEN_RE.sub(r"\1", bloklar_matnga(text)))
     satrlar = text.rstrip().split("\n")
     topilgan = _sources_tail(satrlar, 1)
     if topilgan is not None:

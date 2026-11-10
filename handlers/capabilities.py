@@ -57,6 +57,19 @@ _PRO, _FREE = _Limit("pro"), _Limit("free")
 # "bepulda 3, Pro'da 20" deb yozardi — bepul odam buni O'ZIDA ishlaydi
 # deb o'qirdi, so'rardi, rad javob olardi. Endi ekran FAQAT o'sha odamda
 # nima ishlashini aytadi.
+def _mavzular_yoqilgan() -> bool:
+    """Botda mavzu rejimi bormi (getMe, ishga tushganda o'qiladi)."""
+    from handlers import messages as _m          # ⚠️ tsiklik import
+    return bool(getattr(_m, "TOPICS_ENABLED", False))
+
+
+def _mavzular_matni() -> str:
+    return ("🗂 <b>Mavzular</b> — bitta chat ichida bir nechta suhbat "
+            "yuritsangiz bo'ladi va <b>har biri o'z xotirasida</b> qoladi. "
+            "Yangi mavzu ochsangiz, birinchi javobdan keyin unga o'zim "
+            "nom qo'yaman.\n\n")
+
+
 SECTIONS: dict[str, dict] = {
     "chat": {
         "button": "Suhbat",
@@ -66,14 +79,20 @@ SECTIONS: dict[str, dict] = {
             "Istalgan savolni bering — javob yozilib borayotganini "
             "jonli ko'rasiz.\n\n"
             "Javob bugungi ma'lumotni talab qilsa, o'zim internetdan "
-            "qidiraman va manbalarni ko'rsataman: valyuta kursi, "
-            "ob-havo, yangiliklar, narxlar.\n\n"
+            "qidiraman va manbalarni ko'rsataman: yangiliklar, narxlar.\n\n"
+            "🌤 <b>Ob-havo</b> va 💱 <b>valyuta kursi</b> — haqiqiy manbadan "
+            "(Open-Meteo, Markaziy bank). «100 dollar necha so'm» ni aniq "
+            "hisoblayman; shaxsiy chatda tayyor karta ham chiqadi.\n\n"
+            "📝 <b>Test</b> va 🗂 <b>kartochkalar</b> — «5 ta test tuz» yoki "
+            "«inglizcha 10 ta so'z kartochkasi» desangiz, shaxsiy chatda "
+            "bosib yechiladigan test yoki aylanadigan kartochka yuboraman.\n\n"
             "🔗 <b>Havola tashlasangiz</b> — o'sha sahifani ochib o'qiyman, "
-            "qidiruvga ketmayman. «Shuni qisqartir» desangiz kifoya.\n\n"
-            "🗂 <b>Mavzular</b> — bitta chat ichida bir nechta suhbat "
-            "yuritsangiz bo'ladi va <b>har biri o'z xotirasida</b> qoladi. "
-            "Yangi mavzu ochsangiz, birinchi javobdan keyin unga o'zim "
-            "nom qo'yaman.\n\n"
+            "qidiruvga ketmayman. «Shuni qisqartir» desangiz kifoya. "
+            "Javobimdan bir qismini belgilab reply qilsangiz — aynan "
+            "o'sha qism haqida gaplashamiz.\n\n"
+            # Mavzu rejimi o'chiq bo'lsa (getMe) — bu paragraf bajarib
+            # bo'lmaydigan maslahat bo'lardi (jonli, 2026-11-10).
+            + (_mavzular_matni() if _mavzular_yoqilgan() else "")
             + (f"Suhbatni eslab qolaman — oxirgi <b>{CONTEXT_WINDOW_PRO}</b> ta "
                "xabar (Pro tarifingizdagi uzaytirilgan xotira). "
                if pro else

@@ -12,7 +12,7 @@ ekranga FAQAT `textContent` orqali chiqadi — `innerHTML` ga hech qachon.
 
 ⚠️ Production'da vidjet FAQAT shaxsiy chatda ishlaydi (2026-11). Boshqa
 hamma joyda — guruh, guest, draft, oddiy zaxira — belgi oddiy matnga
-aylanadi: `test_matnga()`.
+aylanadi: `bloklar_matnga()`.
 """
 import html
 import json
@@ -32,7 +32,11 @@ _SAVOL_UZUN, _VARIANT_UZUN, _IZOH_UZUN = 300, 150, 300
 
 # `[test]` … `[/test]`. Yopilmagani matn OXIRIGACHA blok hisoblanadi: model
 # yopishni unutsa ham test yo'qolmasin.
-_TEST_RE = re.compile(r"\[\s*test\s*\]\s*\n?(.*?)(?:\[\s*/\s*test\s*\]|\Z)", re.S | re.I)
+# `[kartochka]` — xuddi shu yo'l (lug'at/atama kartochkalari).
+_BLOK_RE = re.compile(
+    r"\[\s*(test|kartochka)\s*\]\s*\n?(.*?)(?:\[\s*/\s*\1\s*\]|\Z)", re.S | re.I)
+KARTOCHKA_MAX = 30
+_KARTA_UZUN = 120
 _HARF = "ABCDEF"
 
 
@@ -173,20 +177,37 @@ def test_oqi(blok: str) -> list:
     return savollar[:TEST_SAVOL_MAX]
 
 
-def test_ajrat(matn: str) -> tuple:
-    """(bloklarsiz matn, [savollar ro'yxati, …]). Bitta ham to'g'ri savoli
-    yo'q blok AJRATILMAYDI — u `test_matnga()` orqali matn bo'lib qoladi."""
-    testlar = []
+def kartochka_oqi(blok: str) -> list:
+    """`old — orqa` qatorlari: [[old, orqa], …]. Ajratgichi yo'q qator
+    tashlanadi. Ajratgich: ` — `, ` – `, ` - `, `=`, `: ` (model har xil
+    yozadi). Ikki nuqta faqat bo'sh joy bilan — "10:30" bo'linmasin; so'z
+    ichidagi chiziqcha ("well-known") ham ajratgich emas."""
+    out = []
+    for qator in blok.splitlines():
+        q = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s+", "", qator).strip()
+        qism = re.split(r"\s+[—–-]\s+|\s*=\s*|:\s+", q, maxsplit=1)
+        if len(qism) == 2:
+            old, orqa = (oddiy_matn(x.strip())[:_KARTA_UZUN] for x in qism)
+            if old and orqa:
+                out.append([old, orqa])
+    return out[:KARTOCHKA_MAX]
+
+
+def bloklar_ajrat(matn: str) -> tuple:
+    """(bloklarsiz matn, [(tur, ma'lumot), …]). Bitta ham to'g'ri qatori
+    yo'q blok AJRATILMAYDI — u `bloklar_matnga()` orqali matn bo'lib qoladi."""
+    bloklar = []
 
     def bir(m):
-        s = test_oqi(m.group(1))
-        if not s:
+        tur = m.group(1).lower()
+        d = BLOK_TURLARI[tur][0](m.group(2))
+        if not d:
             return m.group(0)
-        testlar.append(s)
+        bloklar.append((tur, d))
         return ""
 
-    qolgan = _TEST_RE.sub(bir, matn or "")
-    return re.sub(r"\n{3,}", "\n\n", qolgan).strip(), testlar
+    qolgan = _BLOK_RE.sub(bir, matn or "")
+    return re.sub(r"\n{3,}", "\n\n", qolgan).strip(), bloklar
 
 
 def test_matni(savollar: list) -> str:
@@ -200,22 +221,29 @@ def test_matni(savollar: list) -> str:
     return "\n\n".join(qismlar)
 
 
-def test_matnga(matn: str, qoralama: bool = False) -> str:
-    """Vidjet chizilmaydigan joy uchun: blok → oddiy matnli test.
+def kartochka_matni(k: list) -> str:
+    return "🗂 **Kartochkalar**\n\n" + "\n".join(
+        f"{n}. **{a}** — {b}" for n, (a, b) in enumerate(k, 1))
+
+
+def bloklar_matnga(matn: str, qoralama: bool = False) -> str:
+    """Vidjet chizilmaydigan joy uchun: blok → oddiy matn (test, kartochka).
 
     `qoralama=True` — oqim paytidagi draft: blok o'rniga faqat "tayyorlanmoqda".
     Aks holda `+` belgili qatorlar javobni test tugashidan OLDIN ochib qo'yardi."""
-    if not matn or "test" not in matn.lower():
+    if not matn or "[" not in matn:
         return matn
 
     def bir(m):
+        tur = m.group(1).lower()
+        oqi, matni, _, _, kutish = BLOK_TURLARI[tur]
         if qoralama:
-            return "📝 _Test tayyorlanmoqda…_"
-        s = test_oqi(m.group(1))
+            return kutish
+        d = oqi(m.group(2))
         # Hech narsa o'qilmadi — belgilarsiz xom matn qoladi, ma'lumot yo'qolmasin.
-        return test_matni(s) if s else m.group(1).strip()
+        return matni(d) if d else m.group(2).strip()
 
-    return _TEST_RE.sub(bir, matn)
+    return _BLOK_RE.sub(bir, matn)
 
 
 def _json(qiymat) -> str:
@@ -284,6 +312,57 @@ def test_html(savollar: list) -> str | None:
 def test_izohi(savollar: list) -> str:
     """Vidjetni qo'llamaydigan ilova FAQAT shuni ko'radi (va chat ro'yxati)."""
     return f"📝 Test · {len(savollar)} ta savol"
+
+
+# ── Lug'at kartochkalari ──────────────────────────────────────────
+# Bosilsa aylanadi (old ↔ orqa), ← → bilan o'tiladi, «Aralash» tartibni
+# o'zgartiradi. Holat (joriy kartochka, tomoni, tartib) — localStorage'da.
+# Model matni faqat textContent orqali. 3D aylantirish profilda yo'q —
+# tomon rangi va matni almashadi.
+_KARTOCHKA_SHABLON = """<style>
+body{margin:0;padding:10px 12px 12px;font-family:system-ui,sans-serif}
+.n{color:var(--tg-theme-hint-color);font-size:.85em}
+.k{margin:8px 0 10px;min-height:120px;border-radius:14px;background:var(--tg-theme-secondary-bg-color);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px}
+.k b{font-size:1.35em}
+.k span{color:var(--tg-theme-hint-color);font-size:.78em;margin-top:10px}
+.o{background:var(--tg-theme-button-color);color:var(--tg-theme-button-text-color)}
+.o span{color:var(--tg-theme-button-text-color)}
+.t{display:flex;gap:6px}.t button{flex:1}
+</style>
+<div id="a"></div>
+<script>
+var K=@@K@@,S;try{S=JSON.parse(localStorage.getItem("s"))}catch(e){}
+if(!S||!S.p||S.p.length!=K.length)S={i:0,o:0,p:K.map(function(x,i){return i})};
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function go(){try{localStorage.setItem("s",JSON.stringify(S))}catch(e){}r()}
+function r(){var a=document.getElementById("a"),c=K[S.p[S.i]],k=el("div","k"+(S.o?" o":"")),t=el("div","t"),p=el("button",0,"←"),q=el("button",0,"Aralash"),x=el("button",0,"→");a.innerHTML="";
+a.appendChild(el("div","n","Kartochka "+(S.i+1)+" / "+K.length));
+k.appendChild(el("b",0,c[S.o]));k.appendChild(el("span",0,S.o?"Bosing — orqaga":"Bosing — javobi"));
+k.onclick=function(){S.o=S.o?0:1;go()};a.appendChild(k);
+p.onclick=function(){S.i=(S.i+K.length-1)%K.length;S.o=0;go()};
+x.onclick=function(){S.i=(S.i+1)%K.length;S.o=0;go()};
+q.onclick=function(){for(var i=S.p.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),z=S.p[i];S.p[i]=S.p[j];S.p[j]=z}S.i=0;S.o=0;go()};
+t.appendChild(p);t.appendChild(q);t.appendChild(x);a.appendChild(t)}
+r();
+</script>"""
+
+
+def kartochka_html(k: list) -> str | None:
+    html = _KARTOCHKA_SHABLON.replace("@@K@@", _json(k))
+    return html if sigadimi(html) else None
+
+
+def kartochka_izohi(k: list) -> str:
+    return f"🗂 Kartochkalar · {len(k)} ta"
+
+
+# tur → (o'qish, matn shakli, HTML yoki None, izoh, draftdagi o'rinbosar).
+# Yangi blok turi — shu yerga bitta qator va _BLOK_RE ga nomi.
+BLOK_TURLARI = {
+    "test": (test_oqi, test_matni, test_html, test_izohi, "📝 _Test tayyorlanmoqda…_"),
+    "kartochka": (kartochka_oqi, kartochka_matni, kartochka_html, kartochka_izohi,
+                  "🗂 _Kartochkalar tayyorlanmoqda…_"),
+}
 
 
 # ── Jonli limit kartasi (/profile) ────────────────────────────────
@@ -413,3 +492,84 @@ def obhavo_holati(d: dict) -> str:
 
 def obhavo_izohi(d: dict) -> str:
     return f"🌤 {d['j']}: {d['h']}°, {d['s'].lower()}"
+
+
+# ── Valyuta kartasi ───────────────────────────────────────────────
+# Holat — services/valyuta.py::holat(): {"d": sana, "r": [[kod, nom,
+# 1 birlik so'mda, kunlik farq], ...], "t": vaqt}. Konvertor klaviaturasiz:
+# qatorni bosib valyuta, tugmani bosib summa tanlanadi (vidjetda input yo'q).
+# ⚠️ `f()` — Python'dagi `valyuta.son()` ning AYNAN o'zi (2 xona, 1 dan
+# kichikda 4, oxirgi nollarsiz, minglik bo'sh joy, vergul): javob matni va
+# karta bitta summani ikki xil yozmasin.
+# Yangilash: 1 soatdan eski bo'lsa "v:USD,EUR" so'raydi (kurs kuniga bir).
+VALYUTA_SOROVI = "v:"
+_VALYUTA_SHABLON = r"""<style>
+body{margin:0;padding:12px 14px 14px;font-family:system-ui,sans-serif}
+.h{font-weight:600}
+.n{color:var(--tg-theme-hint-color);font-size:.8em;margin:2px 0 8px}
+.r{display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:12px;margin:0 0 2px}
+.s{background:var(--tg-theme-secondary-bg-color)}
+.f{font-size:1.4em;line-height:1}
+.k{flex:1;min-width:0}
+.k b,.v b{display:block}
+.k span{display:block;color:var(--tg-theme-hint-color);font-size:.78em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v{text-align:right;font-variant-numeric:tabular-nums}
+.up{color:#2e9e4f;font-size:.8em}.dn{color:#d9534f;font-size:.8em}.eq{color:var(--tg-theme-hint-color);font-size:.8em}
+.c{display:flex;gap:6px;margin:10px 0 8px}
+.c button{flex:1;padding:6px 0}
+.c .on{background:var(--tg-theme-button-color);color:var(--tg-theme-button-text-color)}
+.o{font-size:1.15em;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+</style>
+<div id="a"></div>
+<script>
+var W=window.TelegramWidget,D,I=0,M=100,X=[1,10,100,1000];
+function p(s){try{return JSON.parse(s)}catch(e){return null}}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function f(x){var s=x.toFixed(Math.abs(x)>=1?2:4);if(s.indexOf(".")>=0)s=s.replace(/0+$/,"").replace(/\.$/,"");var q=s.split(".");return q[0].replace(/\B(?=(\d{3})+(?!\d))/g," ")+(q[1]?","+q[1]:"")}
+function fl(c){return c=="XDR"?"🌐":String.fromCodePoint(127397+c.charCodeAt(0),127397+c.charCodeAt(1))}
+function r(){var a=document.getElementById("a"),d=D;if(!d||!d.r||!d.r.length)return;if(I>=d.r.length)I=0;a.innerHTML="";
+a.appendChild(el("div","h","💱 Valyuta kursi"));a.appendChild(el("div","n","Markaziy bank · "+d.d));
+d.r.forEach(function(x,i){var q=el("div","r"+(i==I?" s":"")),k=el("div","k"),v=el("div","v"),o=f(Math.abs(x[3]));
+q.appendChild(el("span","f",fl(x[0])));k.appendChild(el("b",0,x[0]));k.appendChild(el("span",0,x[1]));q.appendChild(k);
+v.appendChild(el("b",0,f(x[2])+" so'm"));v.appendChild(el("span",o=="0"?"eq":x[3]>0?"up":"dn",o=="0"?"o'zgarmagan":(x[3]>0?"▲ ":"▼ ")+o));
+q.appendChild(v);q.onclick=function(){I=i;r()};a.appendChild(q)});
+var c=el("div","c");X.forEach(function(m){var b=el("button",m==M?"on":0,f(m));b.onclick=function(){M=m;r()};c.appendChild(b)});a.appendChild(c);
+var x=d.r[I];a.appendChild(el("div","o",f(M)+" "+x[0]+" = "+f(M*x[2])+" so'm"))}
+var S=p(W&&W.chatData),L;try{L=p(localStorage.getItem("d"))}catch(e){}
+D=L&&S&&L.t>S.t?L:S;r();
+function y(){if(!W||!W.request||!D||!D.r||Date.now()/1e3-D.t<3600)return;
+W.request("v:"+D.r.map(function(x){return x[0]}).join(",")).then(function(o){var x=p(o.result);if(x&&x.r&&x.r.length){D=x;r();try{localStorage.setItem("d",JSON.stringify(x))}catch(e){}}},function(){})}
+y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});setInterval(y,300000);
+</script>"""
+
+
+def valyuta_html() -> str:
+    return _VALYUTA_SHABLON
+
+
+def valyuta_holati(d: dict) -> str:
+    return _json(d)
+
+
+def valyuta_izohi(d: dict) -> str:
+    """Vidjetsiz ilova ko'radigan yagona matn — birinchi kurs shu yerda ham."""
+    from services.valyuta import son
+    x = d["r"][0]
+    return f"💱 Markaziy bank kursi ({d['d']}): 1 {x[0]} = {son(x[2])} so'm"
+
+
+def valyuta_matni(d: dict) -> str:
+    """Karta rad etilganda — o'sha raqamlar matn bilan."""
+    from services.valyuta import son
+    return "\n".join([f"💱 Markaziy bank kursi ({d['d']}):"]
+                     + [f"1 {x[0]} ({x[1]}) = {son(x[2])} so'm" for x in d["r"]])
+
+
+def turi(tur: str):
+    """(html, holat, izoh, zaxira matn) — asbob navbatga qo'ygan vidjet turi
+    bo'yicha. Yangi kartani qo'shish — shu yerga bitta qator."""
+    from services import obhavo
+    return {
+        "obhavo": (obhavo_html, obhavo_holati, obhavo_izohi, obhavo.matn),
+        "valyuta": (valyuta_html, valyuta_holati, valyuta_izohi, valyuta_matni),
+    }.get(tur)

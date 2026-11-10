@@ -27,7 +27,7 @@ from handlers.messages import (
     RICH_MEDIA_TIMEOUT, _send_rich_message, OUTCOME_REJECTED, OUTCOME_UNKNOWN,
     MAX_RICH_CHARS,
 )
-from handlers.helpers import notify_watchers
+from handlers.helpers import iqtibos_matni, notify_watchers
 from services.ai import (
     get_gpt_reply,
     extract_text_from_document,
@@ -278,8 +278,9 @@ def _quoted_context(message: Message) -> str:
     if src is None:
         return ""
 
-    quote = getattr(message, "quote", None)
-    text = (getattr(quote, "text", None) if quote else None) or src.text or src.caption
+    # `iqtibos_matni` — rich xabardan (bot javobi) olingan iqtibosni ham
+    # o'qiydi: u yerda `quote.text` bo'sh, matn `rich_texts` da (10.4).
+    text = iqtibos_matni(message) or src.text or src.caption
     if not text or not text.strip():
         return ""
 

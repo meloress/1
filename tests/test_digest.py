@@ -348,7 +348,7 @@ async def main():
     # ── 19-20. Kuzatuvchi: standart mavzu, topic, bitta xato boshqalarni to'xtatmaydi
     qurildi, ketdi = [], []
 
-    async def fake_build(topics):
+    async def fake_build(topics, vidjet_out=None):   # _build_digest imzosi
         qurildi.append(topics)
         if topics == "YIQIL":
             raise RuntimeError("model")

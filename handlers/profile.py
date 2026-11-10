@@ -1,6 +1,6 @@
 from aiogram import types
 from core.loader import logger
-from services import obhavo, vidjet
+from services import obhavo, valyuta, vidjet
 from datetime import datetime, timezone, timedelta
 from db.database import get_full_user_profile
 from core.config import (
@@ -214,6 +214,17 @@ async def vidjet_sorovi(sorov: dict) -> None:
                 javob["data"] = vidjet.obhavo_holati(await obhavo.prognoz(lat, lon))
         except Exception as e:
             logger.info(f"[Vidjet] ob-havo yangilanmadi ({data!r}): {e}")
+    elif data.startswith(vidjet.VALYUTA_SOROVI):
+        # Valyuta kartasi — "v:USD,EUR". Kodlar ham qurilmadan: toza_kodlar
+        # faqat 3 harfli lotin kodni o'tkazadi, Markaziy bankda yo'qi tushadi.
+        try:
+            kodlar = valyuta.toza_kodlar(data[len(vidjet.VALYUTA_SOROVI):])
+            k = await valyuta.kurslar()
+            holat = valyuta.holat(k, kodlar)
+            if holat["r"]:
+                javob["data"] = vidjet.valyuta_holati(holat)
+        except Exception as e:
+            logger.info(f"[Vidjet] valyuta yangilanmadi ({data!r}): {e}")
     elif data == vidjet.KARTA_SOROVI and uid:
         try:
             profil = await get_full_user_profile(uid)

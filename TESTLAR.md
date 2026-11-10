@@ -27,7 +27,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   `ephemeral_params(query.message)` made the limit message ephemeral *to the bot*, Telegram
   rejected it, and `send_rich`'s plain round posted it to the whole group. Checks 6-9: the
   `/biznes` link to the «💼 Biznes» topic (`t.me/<bot>/<thread_id>`). It is not shown inside
-  that topic, and the topic is never opened for an owner who is not connected.
+  that topic, and the topic is never opened for an owner who is not connected. Checks
+  10-12: in a group, «💎 Pro tarifga o'tish» does **not** draw the Pro screen (prices, an
+  invoice and the gift/promo FSM would land in the group). It sends the person who pressed
+  it an ephemeral `?start=pro` link instead, and `/start pro` opens the screen in the DM
+  after the ban/admin checks.
 - `test_vidjet.py` — the quiz widget and the live `/profile` card (Bot API 10.4). The
   sharpest checks: 9-10 (the draft hides the `+` answer lines, even in an unclosed block),
   12 (a model-written `</script>` cannot close the script), 17 (a rejected widget sends the
@@ -36,7 +40,12 @@ Some are structural guards rather than feature tests, and they earn their keep o
   and 29 (a real aiogram `Dispatcher` gets `widget_query` without "unknown update type"). Checks 31-42 are the weather
   tool and card: 37 keeps "place not found" apart from "service down", 38 pins the
   `ob_havo` dispatch above the bare `else`, 39 is the group case (`None`, numbers in the
-  text) and 41 sends the numbers as text when the card is rejected.
+  text) and 41 sends the numbers as text when the card is rejected. 43-44: LaTeX and
+  markdown never reach a widget raw (live: «$7 \times 8$»), while «$5 va $10» stays a price.
+  45-54 cover currency. The sharpest is 45, where `Nominal` (VND per 10 units) would
+  otherwise be a 10x error. 55-59 cover flashcards, 60-62 quotes from a rich message (the
+  quote's `text` is empty and the words are in `rich_texts`), and 63-64 cover `/kunlik`
+  sending the card, with text when it is rejected.
 - `test_biznes_ekran.py` — the `/biznes` screens plus the owner-facing premium-emoji
   middleware (a request carrying `business_connection_id` is never touched by it), the
   customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the

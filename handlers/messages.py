@@ -40,7 +40,7 @@ from core import olchov
 from services import menu as menu_module
 from services.file_task_quota import DailyQuota
 from handlers.helpers import (notify_watchers, send_error_with_retry,
-                             mavzu_kwargs)
+                             iqtibos_matni, mavzu_kwargs)
 from core.memory import (get_text_merge_lock, text_merge_buffers,
                          clear_text_merge_buffer, forget_sent_images,
                          remember_location, forget_location)
@@ -52,7 +52,7 @@ from services.ai import (
     build_rich_markdown, embed_images, strip_image_tokens, strip_rich_tokens,
     strip_custom_emoji, code_fences_to_html, strip_internal_names,
 )
-from services import obhavo, vidjet
+from services import vidjet
 
 from db.history import take_long_warning
 
@@ -1359,40 +1359,54 @@ def _vidjet_royxati(message: Message) -> list | None:
     return [] if turi == "private" else None
 
 
-async def _obhavo_yubor(message: Message, d: dict, thread_id) -> None:
-    """Ob-havo kartasi. Model javobi QISQA (raqamlar kartada deb aytilgan),
-    shuning uchun karta yetib bormasa raqamlar matn bilan ketadi."""
+async def karta_yubor(chat_id: int, v: dict, thread_id=None) -> str | None:
+    """Asbob navbatga qo'ygan karta (ob-havo, valyuta) — `sendWidget`.
+
+    Qaytadi: None — yetdi (yoki timeout: yetgan bo'lishi mumkin, takror
+    yo'q); matn — rad etildi va chaqiruvchi o'sha raqamlarni MATN bilan
+    yuborishi SHART: model javobi qisqa (raqamlar kartada deb aytilgan),
+    ya'ni karta yetmasa raqamlar hech qayerda qolmasdi. Oddiy javob ham,
+    /kunlik ham shu bitta funksiyadan o'tadi."""
+    t = vidjet.turi(v.get("tur"))
+    if t is None:
+        return None
+    html, holat, izoh, zaxira = t
+    d = v["d"]
     outcome: list = []
-    payload = {"chat_id": message.chat.id, "html": vidjet.obhavo_html(),
-               "chat_data": vidjet.obhavo_holati(d), "allow_queries": True,
-               "caption": vidjet.obhavo_izohi(d)}
+    payload = {"chat_id": chat_id, "html": html(), "chat_data": holat(d),
+               "allow_queries": True, "caption": izoh(d)}
     if thread_id:
         payload["message_thread_id"] = thread_id
     if (await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None
             or OUTCOME_UNKNOWN in outcome):
-        return
-    logger.warning(f"[Vidjet] ob-havo rad etildi (chat={message.chat.id}) — matn bilan")
-    await _answer_plain(message, obhavo.matn(d))
+        return None
+    logger.warning(f"[Vidjet] {v.get('tur')} rad etildi (chat={chat_id}) — matn bilan")
+    return zaxira(d)
 
 
-async def _testni_yubor(message: Message, savollar: list, thread_id) -> None:
-    """Interaktiv test vidjeti; bo'lmasa — o'sha test matn bilan.
+async def _vidjet_yubor(message: Message, v: dict, thread_id) -> None:
+    if (matn := await karta_yubor(message.chat.id, v, thread_id)):
+        await _answer_plain(message, matn)
 
-    Test matndan AJRATIB olingan, ya'ni vidjet yetib bormasa savollar
+
+async def _blokni_yubor(message: Message, tur: str, d: list, thread_id) -> None:
+    """Interaktiv test yoki kartochkalar vidjeti; bo'lmasa — o'sha matn bilan.
+
+    Blok matndan AJRATIB olingan, ya'ni vidjet yetib bormasa savollar
     hech qayerda qolmaydi — shuning uchun zaxira majburiy. Timeout'da esa
     takror yo'q: vidjet yetib borgan bo'lishi mumkin (OUTCOME_UNKNOWN)."""
-    html = vidjet.test_html(savollar)
+    _, matni, html_ol, izoh, _ = vidjet.BLOK_TURLARI[tur]
+    html = html_ol(d)
     if html:
         outcome: list = []
-        payload = {"chat_id": message.chat.id, "html": html,
-                   "caption": vidjet.test_izohi(savollar)}
+        payload = {"chat_id": message.chat.id, "html": html, "caption": izoh(d)}
         if thread_id:
             payload["message_thread_id"] = thread_id
         if (await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None
                 or OUTCOME_UNKNOWN in outcome):
             return
-        logger.warning(f"[Vidjet] test rad etildi (chat={message.chat.id}) — matn bilan")
-    matn = vidjet.test_matni(savollar)
+        logger.warning(f"[Vidjet] {tur} rad etildi (chat={message.chat.id}) — matn bilan")
+    matn = matni(d)
     if await _send_rich_message(message.chat.id, markdown=build_rich_markdown(matn),
                                 message_thread_id=thread_id) is None:
         await _answer_plain(message, strip_rich_tokens(matn))
@@ -1533,7 +1547,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         # `[test]` — oqimda faqat "tayyorlanmoqda": `+` qatorlari javobni
         # test boshlanmasdan ochib qo'yardi.
         display_text = strip_internal_names(strip_rich_tokens(strip_image_tokens(
-            vidjet.test_matnga(current_text, qoralama=True))))
+            vidjet.bloklar_matnga(current_text, qoralama=True))))
         if not final:
             display_text += " ✍️"
 
@@ -1723,12 +1737,12 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     kod_fayllar: list = []
     if clean_text:
         clean_text, kod_fayllar = _extract_long_code(clean_text)
-    # Test — matndan keyin alohida vidjet (Bot API 10.4). Production'da
+    # Test va kartochkalar — matndan keyin alohida vidjet (Bot API 10.4). Production'da
     # vidjet FAQAT shaxsiy chatda; boshqa joyda blok matnda qoladi va
     # build_rich_markdown uni oddiy testga aylantiradi.
-    testlar: list = []
+    bloklar: list = []
     if clean_text and message.chat.type == "private":
-        clean_text, testlar = vidjet.test_ajrat(clean_text)
+        clean_text, bloklar = vidjet.bloklar_ajrat(clean_text)
     if clean_text:
         # Rich xabarga 32768 belgi sig'adi, oddiysiga 4096. Bo'lish
         # qaysi yo'l bilan ketishiga qarab tanlanadi — guruhda ham rich
@@ -1823,11 +1837,10 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
                 await _answer_plain(message, kichik)
 
-    for savollar in testlar:
-        await _testni_yubor(message, savollar, message_thread_id)
+    for tur, d in bloklar:
+        await _blokni_yubor(message, tur, d, message_thread_id)
     for v in vidjetlar or []:
-        if v.get("tur") == "obhavo":
-            await _obhavo_yubor(message, v["d"], message_thread_id)
+        await _vidjet_yubor(message, v, message_thread_id)
 
     # Uzun kod — matndan keyin alohida fayl(lar) bo'lib boradi.
     if kod_fayllar:
@@ -2221,6 +2234,14 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
     except Exception:
         pass
 
+    # `?start=pro` — guruhdagi «💎 Pro tarifga o'tish» shu yerga olib keladi
+    # (pro.handle_pro_callback): xarid faqat shaxsiy chatda. Salomlashuv
+    # o'rniga darhol Pro ekrani — odam aynan shuni bosib kelgan.
+    if start_payload == "pro" and message.chat.type == "private":
+        text, kb = await pro_module._render_pro_screen(user_id)
+        await pro_module.send_rich(message, text, kb)
+        return
+
     # Salomlashuv ostidagi tugma imkoniyatlar ekranini ochadi. Ro'yxatni
     # o'qigan odam odatda "xo'sh, endi nima yozay?" degan joyda to'xtaydi —
     # tugma aynan shu bo'shliqni yopadi va tayyor misollarga olib boradi.
@@ -2449,7 +2470,18 @@ async def handle_text(message: Message, state: FSMContext):
         if await tasdiq_ushla(message):
             return
 
-    await _queue_for_ai(chat_id, message, await _biznes_iqtibos(message), state)
+    await _queue_for_ai(chat_id, message, _iqtibosli(message, await _biznes_iqtibos(message)),
+                        state)
+
+
+def _iqtibosli(message: Message, matn: str) -> str:
+    """Foydalanuvchi bot javobidan PARCHA belgilab reply qilsa — o'sha parcha.
+    Model o'z javobini tarixdan biladi, lekin "shuni tushuntir"dagi «shu»
+    qaysi qism ekanini bilmasdi. Iqtibos bo'lmasa matn o'zgarmaydi (0 token)."""
+    parcha = iqtibos_matni(message)[:600]
+    if not parcha:
+        return matn
+    return f"[Foydalanuvchi shu parchani belgilab yozmoqda: «{parcha}»]\n{matn}"
 
 
 async def _biznes_iqtibos(message: Message) -> str:

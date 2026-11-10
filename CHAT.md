@@ -16,15 +16,17 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 
 | | free | Pro |
 |---|---|---|
-| `instructions` (prompt + concise + image note) | 5 667 | 5 667 |
-| tool schemas (all doors closed) | 2 399 | 2 772 |
-| capability manifest | 495 | 445 |
-| **fixed total per round** | **8 561** | **8 884** |
+| `instructions` (prompt + concise + image note) | 5 707 | 5 707 |
+| tool schemas (all doors closed) | 2 489 | 2 862 |
+| capability manifest | 499 | 449 |
+| **fixed total per round** | **8 695** | **9 018** |
 
 (+44 on 2026-11-05: the prompt now names the bot Vexon AI. +102 on 2026-11-10: the
 `[test]` quiz rule — the first draft was +202 and was trimmed. +135 the same day: the
 `ob_havo` tool schema, always attached — a weather question used to cost a whole search
-round instead.)
+round instead. Later that day: +40 the `[kartochka]` rule, +124 the `valyuta` schema (first
+draft 206, trimmed), −34 `ob_havo` trimmed to 101, +4 manifest. All measured with
+`tiktoken`; the per-row values are the previous measurement plus these deltas.)
 | history | 0 → ~8 200, then capped by the summary (~300) | |
 | median user message | ~10 | |
 | median reply | ~70 | |
@@ -753,8 +755,43 @@ is sent as `obhavo.matn()`: the model's reply was told the numbers are on the ca
 not found" and "service down" are different answers (`find_nearby`'s rule). The card asks
 `"w:lat,lon"` when it appears with data older than 15 minutes and keeps the newer copy in
 `localStorage`. The coordinates in that request come from the user's device and are
-range-checked. The schema costs 135 tokens on every round; it replaces a search round
+range-checked. The schema costs 101 tokens on every round; it replaces a search round
 (~2 000 tokens) on every weather question.
+
+**Currency** (`valyuta`, `services/valyuta.py`, cbu.uz) is the same pattern, with three
+rules of its own:
+- **Code does the conversion.** "100 dollar necha so'm" is computed by `valyuta.hisobla()`
+  and handed to the model as a finished line. Model arithmetic is not a guarantee.
+- **`Nominal`.** IDR, IRR and VND are quoted per 10 units; ignoring it is a 10x error.
+- **The tool says this is the official rate.** A bank's buy/sell rate differs, and without
+  that sentence the model would tell someone they can buy dollars at that price.
+
+`son()` and the card's JS `f()` are deliberately the same format (two decimals, four below
+1, no trailing zeros, space thousands, comma decimal), so the reply and the card cannot
+print one amount two ways. Rates are cached in RAM for 30 minutes. The card refreshes with
+`"v:USD,EUR"` after an hour, and those codes come from the device, so they go through
+`toza_kodlar()`.
+
+`karta_yubor(chat_id, v, thread_id)` is the one sender for both cards. It returns `None`
+when the card is delivered (or on a timeout, which may have delivered it), otherwise the
+fallback text, which the caller must send. `/kunlik` uses the same function:
+`_build_digest(topics, vidjet_out)` passes the list to the tool loop, so a digest whose
+topics mention weather or currency gets real numbers and the card. Nobody is asked for a
+city: the card shows whatever the topics name.
+
+**Flashcards** (`[kartochka] front — back [/kartochka]`) go through the same block
+mechanism as the quiz. `BLOK_TURLARI` holds one row per type and `_BLOK_RE` holds the tag
+names; extraction, the draft placeholder, the text fallback and the sender
+(`_blokni_yubor`) are shared. The parser accepts `—`, `–`, ` - `, `=` and `: ` (with a
+space after it, so "10:30" is not split), and a hyphen inside a word ("well-known") is not
+a separator. Every string goes through `oddiy_matn()`.
+
+**Quotes from a rich message** (10.4): a bot reply is a rich message, and a quote taken
+from one has an **empty** `quote.text`; the text is in `rich_texts`, which aiogram 3.31
+puts in `model_extra`. `helpers.iqtibos_matni()` reads both and flattens the RichText tree
+(maths as `$…$`, custom emoji as their plain alternative). Guest mode uses it in
+`_quoted_context`. In a DM, `_iqtibosli()` prepends the selected part, so "shuni
+tushuntir" knows which part was meant. Without a quote the request is unchanged (0 tokens).
 
 ⚠️ **aiogram 3.31 does not know `widget_query`.** The field lands in `Update.model_extra`
 and `update.event_type` raises "unknown update type", so `profile.vidjet_mw` is a

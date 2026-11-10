@@ -318,11 +318,23 @@ async def main():
     # Bularning hammasi kodda ISHLAYDI, lekin ekranda aytilmagani uchun
     # foydalanuvchilar mavjudligini ham bilmasdi.
     for key, kalit_soz in (("guruh", "@vexonai"),
-                           ("joy", "Joylashuv"),
-                           ("chat", "Mavzular")):
+                           ("joy", "Joylashuv")):
         assert key in cap.SECTIONS, f"'{key}' bo'limi yo'q"
         assert kalit_soz in cap._section_text(key, False), (key, kalit_soz)
-    print("[14] guruh rejimi, joylashuv va mavzular ekranda bor OK")
+    # Mavzular — FAQAT botda mavzu rejimi yoqilgan bo'lsa (getMe). Jonli,
+    # 2026-11-10: rejim yoqilganda Telegram botga xabarni qabul qilmay
+    # qo'ydi va u o'chirildi — o'chiq rejimni reklama qilish bajarib
+    # bo'lmaydigan maslahat bo'lardi.
+    import handlers.messages as _m
+    asl = _m.TOPICS_ENABLED
+    try:
+        _m.TOPICS_ENABLED = True
+        assert "Mavzular" in cap._section_text("chat", False)
+        _m.TOPICS_ENABLED = False
+        assert "Mavzular" not in cap._section_text("chat", False)
+    finally:
+        _m.TOPICS_ENABLED = asl
+    print("[14] guruh rejimi, joylashuv; mavzular faqat rejim yoqilganda OK")
 
     print("\ncapabilities: barcha tekshiruvlar o'tdi (16/16).")
 

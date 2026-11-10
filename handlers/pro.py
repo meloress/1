@@ -2184,6 +2184,21 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
     if action == "open":
         await query.answer()
         await state.clear()          # sovg'a/promokod holatidan chiqish ham shu tugma
+        chat = getattr(query.message, "chat", None)
+        if chat is not None and chat.type != "private":
+            # Guruhda Pro ekrani butun guruhga chiqardi — tarif, xarid, invoice
+            # SHAXSIY ma'lumot. Ekranning keyingi tugmalari ham guruhga
+            # yaramaydi (invoice ochiq ketadi, sovg'a/promokod FSM guruhda
+            # ochiladi). Shuning uchun guruhda — faqat bosgan odamga
+            # (ephemeral, Bot API 10.4) shaxsiy chatga havola.
+            from handlers.messages import ephemeral_params   # ⚠️ tsiklik import
+            havola = f"https://t.me/{BOT_USERNAME or 'vexonai'}?start=pro"
+            await send_rich(query.message,
+                            "💎 <b>Pro tarifi</b> — narxlar va to'lov shaxsiy chatda.",
+                            InlineKeyboardMarkup(inline_keyboard=[[btn(
+                                "💎 Pro'ni ochish", "", url=havola, style=BTN_SUCCESS)]]),
+                            **ephemeral_params(query.message, query))
+            return
         text, kb = await _render_pro_screen(user_id)
         # Limit xabari ostidagi tugmadan kelinganda o'sha xabarni tahrirlash
         # noto'g'ri bo'lardi (foydalanuvchi limit haqidagi ma'lumotni

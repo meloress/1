@@ -72,6 +72,9 @@ async def mavzu_yoz(owner, tid):
     baza[owner] = tid
 
 b.bot = SoxtaBot()
+# Bu test mavzu rejimi YOQILGAN holatni sinaydi (getMe has_topics_enabled).
+import handlers.messages as _msg  # noqa: E402
+_msg.TOPICS_ENABLED = True
 database.biznes_mavzu_ol = mavzu_ol
 database.biznes_mavzu_yoz = mavzu_yoz
 
@@ -170,4 +173,16 @@ check(10, "baza xatosida biznes_mavzumi True — nomlamaslik xavfsiz tomon",
       asyncio.run(database.biznes_mavzumi(DM, 101)) is True)
 database.pool, database.create_db_pool = asl_pool
 
-print("\nHammasi o'tdi: 10/10")
+# Mavzu rejimi O'CHIQ (jonli, 2026-11-10: yoqilganda bot xabar qabul qilmay
+# qo'ydi). Bazada eski raqam turgan bo'lsa ham — mavzu ham, urinish ham yo'q.
+_msg.TOPICS_ENABLED = False
+b._mavzu.clear()
+baza[DM] = 555
+q.clear()
+asyncio.run(b._dm_yubor(DM, "rejim o'chiq"))
+check(11, "mavzu rejimi o'chiq: eski raqam ishlatilmaydi, mavzu ochilmaydi, xabar mavzusiz",
+      yuborilgan() == [("send", DM, None, "rejim o'chiq")]
+      and not [x for x in q if x[0] == "ochildi"])
+_msg.TOPICS_ENABLED = True
+
+print("\nHammasi o'tdi: 11/11")

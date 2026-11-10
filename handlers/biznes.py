@@ -481,6 +481,14 @@ def _mavzu_keshda(dm: int):
 async def biznes_mavzusi(dm: int, yangi: bool = False) -> int | None:
     """Egasining «💼 Biznes» mavzusi; yo'q bo'lsa ochiladi. `yangi=True` —
     saqlangani o'chirilgan (Telegram rad etdi), yangisini och."""
+    # ⚠️ Botda mavzu rejimi O'CHIQ bo'lsa — mavzu yo'q, bazadagi eski raqam
+    # ham ishlatilmaydi. Jonli (2026-11-10): rejim yoqilganda Telegram botga
+    # yozilgan xabarlarni qabul qilmay qo'ydi va u o'chirildi; eski raqam
+    # qolsa, /biznes o'lik mavzuga havola berardi va har xabar avval
+    # yo'q mavzuga urinib ko'rardi. Bayroq getMe'dan, ishga tushganda.
+    from handlers import messages as _m          # ⚠️ tsiklik import
+    if not _m.TOPICS_ENABLED:
+        return None
     if not yangi and (bor := _mavzu_keshda(dm)):
         return bor[0]
     async with _mavzu_qulf.setdefault(dm, asyncio.Lock()):

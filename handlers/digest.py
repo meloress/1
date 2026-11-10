@@ -19,7 +19,7 @@ from core.loader import logger
 from db import database
 from handlers.helpers import _dm_or_deactivate
 from handlers.helpers import _mavzular
-from handlers.messages import _send_rich_message, _thread_key
+from handlers.messages import _send_rich_message, _thread_key, karta_yubor
 from handlers.pro import btn, send_rich, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
 from services.ai import (get_gpt_reply, build_rich_markdown, strip_image_tokens,
                          strip_internal_names)
@@ -406,7 +406,7 @@ async def _send_digest(user_id: int, body: str, thread_id: int = 0) -> None:
                             thread_id=thread_id)
 
 
-async def _build_digest(topics: str) -> str:
+async def _build_digest(topics: str, vidjet_out: list | None = None) -> str:
     """Daydjest matnini oddiy tool sikli orqali tayyorlaydi.
 
     chat_id=0 ATAYLAB: (a) foydalanuvchining suhbat tarixi daydjestni
@@ -427,7 +427,11 @@ async def _build_digest(topics: str) -> str:
         f"ko'pi bilan 6. Kirish va xulosa bittadan qisqa gap."
     )
     parts: list[str] = []
-    async for chunk in get_gpt_reply(0, prompt, is_pro=True):
+    # `vidjet_out` — mavzularda ob-havo yoki valyuta bo'lsa, asbob haqiqiy
+    # raqamni oladi va karta navbatga tushadi (daydjest doim shaxsiy chatga,
+    # ya'ni vidjet ishlaydi). Shahar so'ralmaydi: mavzuda nima yozilgan
+    # bo'lsa — o'sha; ob-havo so'ramaganga karta majburan yuborilmaydi.
+    async for chunk in get_gpt_reply(0, prompt, is_pro=True, vidjet_out=vidjet_out):
         if not chunk or chunk.startswith("[STATUS]"):
             continue
         if "[CLEAR_TEXT]" in chunk:
@@ -440,6 +444,20 @@ async def _build_digest(topics: str) -> str:
     return strip_image_tokens(strip_internal_names("".join(parts))).strip()
 
 
+async def _kartalar(uid: int, vidjetlar: list, thread_id: int) -> None:
+    """Daydjestdan keyin ob-havo/valyuta kartalari. Mavzu o'chirilgan bo'lsa
+    mavzusiz (daydjestning o'zi kabi); karta rad etilsa — raqamlar matn
+    bilan, chunki asbob modelga "raqamlar kartada" deb aytgan."""
+    for v in vidjetlar:
+        matn = None
+        for mavzu in _mavzular(thread_id):
+            matn = await karta_yubor(uid, v, mavzu)
+            if matn is None:
+                break
+        if matn:
+            await _dm_or_deactivate(uid, html_escape(matn), thread_id=thread_id)
+
+
 async def _bitta_daydjest(row: dict, sem: asyncio.Semaphore) -> None:
     """Bitta foydalanuvchi. Xato SHU YERDA ushlanadi: ilgari bir kishining
     yuborish xatosi butun tsiklni to'xtatardi, qolganlar esa bazada
@@ -450,13 +468,16 @@ async def _bitta_daydjest(row: dict, sem: asyncio.Semaphore) -> None:
             topics = row.get("digest_topics")
             if not topics:                  # SQL buni o'tkazmaydi — ikkinchi qavat
                 return
-            body = await _build_digest(topics)
+            vidjetlar: list = []
+            body = await _build_digest(topics, vidjetlar)
             if not body:
                 # Ilgari jim edi: sanoq "yuborildi", foydalanuvchi esa hech narsa olmasdi.
                 logger.warning(f"[Daydjest] bo'sh javob (user={uid})")
                 return
-            await _send_digest(uid, body, row.get("digest_thread_id") or 0)
-            logger.info(f"[Daydjest] yuborildi (user={uid})")
+            thread = row.get("digest_thread_id") or 0
+            await _send_digest(uid, body, thread)
+            await _kartalar(uid, vidjetlar, thread)
+            logger.info(f"[Daydjest] yuborildi (user={uid}, karta={len(vidjetlar)})")
         except Exception as e:
             # Sanoq allaqachon "yuborildi" deb belgilangan — ertaga qayta
             # uriniladi. Ataylab: soat bo'yi qayta urinib bezovta qilmaymiz.

@@ -461,6 +461,8 @@ draws a tappable quiz:
     [/test]
   - One "+" per question, 2-6 answers, at most 10 questions. Never reveal the
     answers outside the block.
+FLASHCARDS — for vocabulary/term cards: [kartochka], one "front — back" per
+line (at most 30), [/kartochka]; Telegram draws flip cards.
 
 For explicit dates and times use 2026-06-17 15:00 format so Telegram can localize it.
 When in doubt, plain text. Clarity beats formatting.
@@ -508,6 +510,7 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "manage_reminder": "eslatma qo'yish",
     "find_nearby": "yaqin atrofdagi joylarni topish",
     "ob_havo": "ob-havo ma'lumotini olish",
+    "valyuta": "valyuta kursini olish",
     # Ikki bosqichli asboblarning "eshik" nomlari — ular ham model
     # ko'radigan haqiqiy nomlar, ya'ni ular ham sirqib chiqishi mumkin.
     "start_file_task": "fayl yaratishni boshlash",
