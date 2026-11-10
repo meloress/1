@@ -212,6 +212,21 @@ async def _kunlik_vidjeti(target, profile) -> bool:
         return False
 
 
+async def _kartani_yangila(message, profile, hours) -> None:
+    """Soat o'zgargach — shu xabardagi karta darhol yangi holatda
+    (`editMessageWidgetData`); karta bo'lmasa hech narsa. Ilgari karta "k"
+    so'rovi bilan 6 s gacha kechikardi. Saqlash allaqachon bo'lgan — xato
+    shu yerda qoladi."""
+    if profile is None:
+        return
+    try:
+        from handlers.messages import vidjet_holatini_yoz
+        p = {**profile, "digest_hours": sorted(hours), "digest_hour": None}
+        await vidjet_holatini_yoz(message, vidjet.kunlik_holati(kunlik_holati(p)))
+    except Exception as e:
+        logger.info(f"[Daydjest] karta yangilanmadi: {e}")
+
+
 async def _ekran(target, profile) -> None:
     """/kunlik ekrani — `/kunlik` va «⚙️ Soatlar» tugmasi IKKALASI shu yerdan.
     Ilgari tugma o'z qisqa matnini chizardi (mavzusiz, muddati o'tganda ham
@@ -276,6 +291,7 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
             await query.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
+        await _kartani_yangila(query.message, await _profile_or_none(user_id), [])
         return
 
     if action == "topics":
@@ -344,6 +360,7 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
         if hours and action == "h" and javob.startswith("✅") and profile.get("digest_topics"):
             javob += f" · birinchisi {keyingi_vaqt(hours, _hozir())}"
         await query.answer(javob)
+        await _kartani_yangila(query.message, profile, hours)
         if hours and not profile.get("digest_topics"):
             await _ask_topics(query.message, state)
             return

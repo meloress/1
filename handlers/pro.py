@@ -635,26 +635,73 @@ def pro_qatorlari() -> list:
                 ["💼", "Business", "—", "✓"]]
 
 
-async def pro_kartasi(user_id: int) -> dict:
+def tarif_plitkalari(tur: str) -> list:
+    """Kartadagi tarif plitkalari: [nom, narx, izoh, chegirma, eng foydali].
+    `tur` — "s" Stars yoki "k" karta (so'm). Ostidagi TUGMALAR bilan bitta
+    manba: `PRO_PLANS` / `KARTA_NARX`, eng foydalisi `_buy_buttons()` dagi
+    qoida (kun boshiga eng arzon) — karta tugmadan boshqa narsa demasin."""
+    best = min(PRO_PLANS, key=lambda p: p[1] / p[0])[0]
+    out = []
+    for days, stars, title, badge in PRO_PLANS:
+        narx = stars if tur == "s" else KARTA_NARX[days]
+        birlik = " ⭐" if tur == "s" else " so'm"
+        izoh = f"{days} kun"
+        if days != 30:
+            izoh += f" · oyiga ≈ {som(round(narx * 30 / days))}{birlik}"
+        out.append([title, som(narx) + birlik, izoh, badge, 1 if days == best else 0])
+    return out
+
+
+def _sana(dt) -> str:
+    return f"{dt.astimezone(database.TASHKENT_TZ):%d.%m.%Y}"
+
+
+async def pro_kartasi(user_id: int, ekran: str = "") -> dict:
     """Pro kartasining holati — `_pro_ekrani()` dagi tarif qoidasining o'zi:
-    muddati o'tgan Pro — bepul, muddatsiz — "m", obuna — keyingi to'lov."""
+    muddati o'tgan Pro — bepul, muddatsiz — "m", obuna — keyingi to'lov.
+    `ekran`: "" asosiy, "s" Stars / "k" karta tariflari, "x" obunani
+    o'chirish tasdig'i (services/vidjet.py — kalitlar)."""
     profile = await database.get_full_user_profile(user_id) or {}
     plan_type = profile.get('plan_type') or 'free'
     muddat = profile.get('premium_until')
     if plan_type != 'free' and muddat is not None and muddat < datetime.now(timezone.utc):
         plan_type = 'free'
+    h = "f" if plan_type == 'free' else "m" if muddat is None else "p"
+    if ekran == "s":
+        d = {"e": "s", "h": h, "t": tarif_plitkalari("s")}
+        # Obuna qatori — `_buy_buttons(obuna=...)` bilan bir xil shart.
+        if not _obuna_faol(await _obuna(user_id)):
+            d["ob"] = OBUNA_NARX
+        return d
+    if ekran == "k":
+        return {"e": "k", "h": h, "t": tarif_plitkalari("k")}
+    if ekran == "x":
+        return {"e": "x", "h": h, **({"n": _sana(muddat)} if muddat else {})}
     d = {"r": pro_qatorlari()}
-    if plan_type == 'free':
-        return {**d, "h": "f"}
-    if muddat is None:
-        return {**d, "h": "m"}
-    d.update(h="p", k=_days_left(muddat), n=f"{muddat.astimezone(database.TASHKENT_TZ):%d.%m.%Y}")
+    if h != "p":
+        return {**d, "h": h}
+    d.update(h="p", k=_days_left(muddat), n=_sana(muddat))
     ob = await _obuna(user_id)
     if _obuna_faol(ob):
         d["o"] = 1
         if ob.get("keyingi"):
-            d["n"] = f"{ob['keyingi'].astimezone(database.TASHKENT_TZ):%d.%m.%Y}"
+            d["n"] = _sana(ob["keyingi"])
     return d
+
+
+async def _pro_ekrani_almashtir(query: CallbackQuery, user_id: int, ekran: str) -> None:
+    """Tugmalar almashgach — Pro kartasi ham o'sha ekranga (o'sha xabarda).
+    Xabar karta bo'lmasa (eski matnli ekran) — hech narsa. Xato tugma
+    ishini buzmaydi: tugmalar allaqachon almashgan."""
+    from handlers.messages import vidjet_holatini_yoz, vidjet_xabari
+    from services import vidjet
+    if vidjet_xabari(query.message) is None:
+        return
+    try:
+        await vidjet_holatini_yoz(query.message, vidjet.pro_holati(
+            await pro_kartasi(user_id, ekran)))
+    except Exception as e:
+        logger.info(f"[Pro] karta ekrani almashmadi (user={user_id}): {e}")
 
 
 def _korinadigan(matn: str) -> int:
@@ -1050,6 +1097,17 @@ async def _notify_obuna(message: Message, charge_id: str, obuna: dict) -> None:
             + (f"{keyingi}\n" if keyingi else "")
             + f"<i>O'chirish: /pro</i>"))
         return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)],
+        admin_tugmasi(),
+    ])
+    gacha = f"{obuna['gacha'].astimezone(database.TASHKENT_TZ):%d.%m.%Y}" if obuna.get("gacha") else ""
+    if _shaxsiy(message) and await _tabrik_yubor(
+            message.chat.id, tabrik_kartasi("o", gacha=gacha),
+            f"🎉 <b>OYLIK OBUNA FAOLLASHTIRILDI!</b>\n"
+            f"♻️ Har 30 kunda {OBUNA_NARX} ⭐ — o'chirish: /pro\n\n"
+            f"🧾 <b>Chek:</b> <code>{charge_id}</code>", kb):
+        return
     await send_rich(message, (
         f"🎉 <b>OYLIK OBUNA FAOLLASHTIRILDI!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1062,10 +1120,7 @@ async def _notify_obuna(message: Message, charge_id: str, obuna: dict) -> None:
         f"🔕 O'chirish istalgan payt: /pro → «Avtomatik to'lovni o'chirish». "
         f"To'langan muddat oxirigacha ishlaydi.\n\n"
         f"🧾 <b>Chek:</b> <code>{charge_id}</code>"
-    ), kb=InlineKeyboardMarkup(inline_keyboard=[
-        [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)],
-        admin_tugmasi(),
-    ]), effect=MESSAGE_EFFECTS.get("🎉"))
+    ), kb=kb, effect=MESSAGE_EFFECTS.get("🎉"))
 
 
 _OBUNA_HOLAT = {"canceled": "bekor", "active": "faol", "failed": "xato"}
@@ -1110,6 +1165,20 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
     _, title, _ = PRO_PLANS_BY_DAYS[days]
 
     if beneficiary == payer:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)],
+            [btn("🎁 Do'stga ham sovg'a qilish", "pro:gift")],
+            admin_tugmasi(),
+        ])
+        # Shaxsiy chatda — bayram kartasi; chek raqami izohda (adminga shu kerak).
+        if _shaxsiy(message) and await _tabrik_yubor(
+                message.chat.id,
+                tabrik_kartasi("p", title=title, days=days, gacha=await _tugash_sanasi(payer)),
+                f"🎉 <b>PRO TARIF FAOLLASHTIRILDI!</b>\n"
+                f"📦 Muddat: <b>{title}</b> ({days} kun)\n\n"
+                f"🧾 <b>Chek:</b> <code>{charge_id}</code>\n"
+                f"<i>Muammo bo'lsa shu raqamni adminga yuboring.</i>", kb):
+            return
         # 🎉 effekt — Telegram'ning animatsion nishonlash effekti. Faqat
         # shaxsiy chatda ishlaydi; send_rich() aks holda effektsiz yuboradi.
         await send_rich(message, (
@@ -1125,24 +1194,61 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
             f"🧾 <b>Chek:</b> <code>{charge_id}</code>\n"
             f"<i>Muammo bo'lsa shu raqamni adminga yuboring.</i>\n\n"
             f"Rahmat! Bemalol foydalanavering 🙌"
-        ), kb=InlineKeyboardMarkup(inline_keyboard=[
-            [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)],
-            [btn("🎁 Do'stga ham sovg'a qilish", "pro:gift")],
-            admin_tugmasi(),
-        ]), effect=MESSAGE_EFFECTS.get("🎉"))
+        ), kb=kb, effect=MESSAGE_EFFECTS.get("🎉"))
         return
 
     # ── Sovg'a ──
     recipient_name = f"<code>{beneficiary}</code>"
+    oddiy_nom = str(beneficiary)     # kartada — oddiy matn (textContent)
     try:
         target = await database.get_full_user_profile(beneficiary)
         if target:
             recipient_name = _display_name(target, beneficiary)
+            u = target.get("username")
+            if u and u != "Mavjud emas":
+                oddiy_nom = f"@{u}"
     except Exception:
         pass
 
     giver = f"@{message.from_user.username}" if message.from_user.username else "Do'stingiz"
-    delivered = True
+    # Oluvchiga — sovg'a kartasi; yetmasa (bloklagan, rad) — oldingi matn.
+    delivered = await _tabrik_yubor(
+        beneficiary, tabrik_kartasi("g", title=title, kim=giver),
+        f"🎁 <b>Sizga Pro sovg'a qilindi!</b>\n{giver} — Pro {title} ({days} kun)",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)]]))
+    if not delivered:
+        delivered = await _sovga_matni(beneficiary, giver, title, days)
+
+    note = "" if delivered else (
+        "\n\n⚠️ Unga xabar yetkazib bo'lmadi (botni bloklagan bo'lishi mumkin), "
+        "lekin tarif <b>berildi</b>."
+    )
+    # Yuboruvchiga — o'sha karta «yuborildi» ko'rinishida; chek izohda.
+    izoh = (f"🎁 <b>SOVG'A YUBORILDI!</b>\n👤 Kimga: {recipient_name}\n"
+            f"📦 Muddat: <b>{title}</b> ({days} kun)\n\n"
+            f"🧾 <b>Chek:</b> <code>{charge_id}</code>{note}")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [btn("🎁 Yana sovg'a qilish", "pro:gift", style=BTN_PRIMARY)]])
+    if _shaxsiy(message) and await _tabrik_yubor(
+            message.chat.id, tabrik_kartasi(
+                "y", title=title, days=days, kim=oddiy_nom,
+                eslatma="" if delivered else "⚠️ Unga xabar yetmadi, lekin tarif berildi"),
+            izoh, kb):
+        return
+    await send_rich(message, (
+        f"🎁 <b>SOVG'A YUBORILDI!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<blockquote>"
+        f"👤 Kimga: {recipient_name}\n"
+        f"📦 Muddat: <b>{title}</b> ({days} kun)"
+        f"</blockquote>\n\n"
+        f"🧾 <b>Chek:</b> <code>{charge_id}</code>{note}"
+    ), kb=kb, effect=MESSAGE_EFFECTS.get("🎉"))
+
+
+async def _sovga_matni(beneficiary: int, giver: str, title: str, days: int) -> bool:
+    """Sovg'a oluvchiga oddiy matn (karta yetmaganda). Qaytadi: yetdimi."""
     try:
         await bot.send_message(beneficiary, (
             f"🎁 <b>SIZGA SOVG'A!</b>\n"
@@ -1157,6 +1263,7 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
             message_effect_id=MESSAGE_EFFECTS.get("🎉"),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)]]))
+        return True
     except Exception as exc:
         # Effekt yoki klaviatura sabab bo'lishi mumkin — soddaroq holda takror.
         try:
@@ -1165,25 +1272,10 @@ async def _notify_purchase(message: Message, payer: int, beneficiary: int,
                 f"📦 Muddat: <b>{title}</b> ({days} kun)\n"
                 f"👤 Holatni ko'rish: /profile"
             ), parse_mode="HTML")
+            return True
         except Exception:
-            delivered = False
             logger.warning(f"[Pro] sovg'a xabari yetmadi (user={beneficiary}): {exc}")
-
-    note = "" if delivered else (
-        "\n\n⚠️ Unga xabar yetkazib bo'lmadi (botni bloklagan bo'lishi mumkin), "
-        "lekin tarif <b>berildi</b>."
-    )
-    await send_rich(message, (
-        f"🎁 <b>SOVG'A YUBORILDI!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<blockquote>"
-        f"👤 Kimga: {recipient_name}\n"
-        f"📦 Muddat: <b>{title}</b> ({days} kun)"
-        f"</blockquote>\n\n"
-        f"🧾 <b>Chek:</b> <code>{charge_id}</code>{note}"
-    ), kb=InlineKeyboardMarkup(inline_keyboard=[
-        [btn("🎁 Yana sovg'a qilish", "pro:gift", style=BTN_PRIMARY)]]),
-        effect=MESSAGE_EFFECTS.get("🎉"))
+            return False
 
 
 async def _safe_send(message: Message, text: str) -> None:
@@ -1392,6 +1484,7 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
             await query.message.answer("Karta orqali to'lov hozircha yo'q — Stars bilan to'lang: /pro")
             return
         await _tugmalarni_almashtir(query, _karta_tariflar_kb(), karta_tariflar_matni())
+        await _pro_ekrani_almashtir(query, uid, "k")
         return
     try:
         son = int(parts[2])
@@ -1416,10 +1509,11 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         # Har so'rov qaysi kartani ko'rganini eslaydi: karta panelda almashsa,
         # eskisiga to'langan chekda superadmin o'sha kartaning oxirini ko'radi.
         s = await database.karta_sorov_yarat(uid, son, KARTA_NARX[son], raqam)
-        await query.message.answer(karta_sorov_matni(son, s["summa"], raqam, egasi, s["id"]),
-                                   parse_mode="HTML",
-                                   reply_markup=_karta_sorov_kb(s["id"], s["summa"], raqam))
-        await _chek_kut(state, s["id"])
+        # ⚠️ Chek kutish holati kartadan MUSTAQIL: yuborishda nima bo'lsa ham yoqiladi.
+        try:
+            await _tolov_ekrani(query.message, son, s["summa"], raqam, egasi, s["id"])
+        finally:
+            await _chek_kut(state, s["id"])
         logger.info(f"[Karta] so'rov #{s['id']} user={uid} kun={son} summa={s['summa']}")
         return
 
@@ -1441,8 +1535,19 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         # bu so'rov foydalanuvchining qo'lida emas.
         await query.answer("Bekor qilindi" if bekor else "Bu so'rov endi ochiq emas")
         if bekor:
+            from handlers.messages import vidjet_holatini_yoz, vidjet_xabari
+            w = vidjet_xabari(query.message)
             try:
-                await query.message.edit_text("✖️ To'lov so'rovi bekor qilindi.", reply_markup=None)
+                if w is None:
+                    await query.message.edit_text("✖️ To'lov so'rovi bekor qilindi.", reply_markup=None)
+                else:
+                    # Karta: matni yo'q (edit_text yiqiladi) — holati «bekor», tugmalar olinadi.
+                    import json
+                    from services import vidjet
+                    d = json.loads(w.get("chat_data") or "{}")
+                    d["h"] = "b"
+                    await vidjet_holatini_yoz(query.message, vidjet.tolov_holati(d))
+                    await query.message.edit_reply_markup(reply_markup=None)
             except Exception:
                 pass
         return
@@ -1501,12 +1606,146 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
             [btn("📎 Chekni qayta yuborish", f"pro:chek:{son}", style=BTN_PRIMARY)],
             admin_tugmasi()])
     try:
-        await bot.send_message(r["user_id"], matn, parse_mode="HTML", reply_markup=kb)
+        # Tasdiq — bayram kartasi (foydalanuvchining shaxsiy chati), yetmasa — matn.
+        if not (sabab is None and await _tabrik_yubor(
+                r["user_id"], tabrik_kartasi("k", gacha=await _tugash_sanasi(r["user_id"])),
+                matn, None)):
+            await bot.send_message(r["user_id"], matn, parse_mode="HTML", reply_markup=kb)
         await query.answer("✅ Tasdiqlandi" if sabab is None else "Rad etildi")
     except Exception as e:
         logger.warning(f"[Karta] foydalanuvchiga xabar ketmadi #{son}: {e}")
         await query.answer("Bajarildi, lekin foydalanuvchiga xabar yetmadi (botni bloklagan bo'lishi mumkin).",
                            show_alert=True)
+
+
+# ── Brend kartalari: to'lov va bayram (Bot API 10.4 vidjeti) ──────
+# Har biri BEZAK: yetmasa (rad, xato) — o'sha eski matnli xabar, tugmalari
+# bilan. Pul yo'li (grant, chek, tasdiq) kartadan OLDIN tugagan bo'ladi.
+
+def tolov_kartasi(days: int, summa: int, raqam: str, egasi: str, lid: int) -> dict:
+    """Karta to'lovi kartasining holati (services/vidjet.py — kalitlar).
+    Raqamlar `karta_sorov_matni()` dagining o'zi. Sof — testda."""
+    _, title, _ = PRO_PLANS_BY_DAYS[days]
+    return {"id": lid, "t": title, "n": raqam, "nf": karta_korinishi(raqam),
+            "o": egasi or "", "s": summa, "sf": som(summa), "w": summa - KARTA_NARX[days],
+            "x": int(time.time()) + KARTA_CHEK_OYNA, "h": "k"}
+
+
+def tolov_izohi(days: int, summa: int, raqam: str, egasi: str, lid: int) -> str:
+    """Kartaning izohi — vidjetni ko'rsatmaydigan ilova FAQAT shuni ko'radi,
+    shuning uchun to'lash uchun kerak narsa (karta, summa, chek) shu yerda ham."""
+    _, title, _ = PRO_PLANS_BY_DAYS[days]
+    return (f"💳 <b>Karta orqali to'lov — Pro {title}</b> · #{lid}\n"
+            f"Karta: <code>{karta_korinishi(raqam)}</code>"
+            + (f" · {html_escape(egasi)}" if egasi else "") + "\n"
+            f"Summa: <b><code>{som(summa)}</code> so'm</b> — aynan shu summa\n\n"
+            "To'lagach, <b>chek rasmini</b> (skrinshot) yoki PDF'ini shu chatga yuboring.")
+
+
+_TOLOV_HOLAT = {"kutmoqda": "k", "tekshirilmoqda": "t", "rad": "r",
+                "tasdiqlandi": "a", "bekor": "b", "eskirdi": "e"}
+
+
+async def tolov_holati(user_id: int, lid: int) -> dict:
+    """"t:<id>" so'roviga javob. `karta_sorov_ol` user_id bilan o'qiydi —
+    begona yoki yo'q to'lov {"h": "x"} (karta o'zgarmaydi)."""
+    r = await database.karta_sorov_ol(lid, user_id)
+    d = {"h": _TOLOV_HOLAT.get((r or {}).get("holat"), "x")}
+    if d["h"] == "r":
+        d["z"] = r.get("sabab") or ""
+    elif d["h"] == "a":
+        try:
+            p = await database.get_full_user_profile(user_id)
+            if p and p.get("premium_until"):
+                d["g"] = _sana(p["premium_until"])
+        except Exception:
+            pass
+    return d
+
+
+async def _tolov_ekrani(target, days: int, summa: int, raqam: str, egasi: str,
+                        lid: int) -> None:
+    """Karta raqami va summa: shaxsiy chatda — karta, aks holda yoki rad
+    etilsa — oldingi matn. Tugmalar IKKALASIDA bir xil (`_karta_sorov_kb`)."""
+    kb = _karta_sorov_kb(lid, summa, raqam)
+    if getattr(getattr(target, "chat", None), "type", None) == "private":
+        try:
+            from handlers.messages import vidjet_yubor
+            from services import vidjet
+            if await vidjet_yubor(
+                    target.chat.id, vidjet.tolov_html(),
+                    vidjet.tolov_holati(tolov_kartasi(days, summa, raqam, egasi, lid)),
+                    tolov_izohi(days, summa, raqam, egasi, lid), kb, sorov=True):
+                return
+        except Exception as e:
+            logger.warning(f"[Karta] to'lov kartasi yuborilmadi #{lid}: {e}")
+    await target.answer(karta_sorov_matni(days, summa, raqam, egasi, lid),
+                        parse_mode="HTML", reply_markup=kb)
+
+
+def _pro_imkoniyatlari() -> list:
+    """Bayram kartasidagi imkoniyatlar — PLAN_LIMITS dan (`_perks_block` bilan
+    bitta manba): tarifda yo'q narsa kartada chiqmaydi."""
+    l = [["⚡", f"{_son(daily_limit('pro', 'points'))} ball/kun"],
+         ["📄", f"{_son(daily_limit('pro', 'files'))} ta fayl/kun"]]
+    if daily_limit('pro', 'images') != 0:
+        l.append(["🎨", f"{_son(daily_limit('pro', 'images'))} ta rasm/kun"])
+    if daily_limit('pro', 'research') != 0:
+        l.append(["🔬", "/research — PDF hisobot"])
+    return l + [["🧠", "Chuqur fikrlash"], ["💬", XOTIRA[0].upper() + XOTIRA[1:]]]
+
+
+def tabrik_kartasi(tur: str, *, title: str = "", days: int = 0, gacha: str = "",
+                   kim: str = "", eslatma: str = "") -> dict:
+    """Bayram kartasining holati. `tur`: p — sotib oldi, o — oylik obuna,
+    k — karta to'lovi tasdiqlandi, g — sovg'a oldi, y — sovg'a yubordi.
+    `kim` — oddiy matn (kartada textContent). Sof — testda."""
+    if tur == "o":
+        a, b = "Oylik obuna yoqildi!", "Pro har oy o'zi uzayadi" + (
+            f" · keyingi to'lov {gacha}" if gacha else "")
+        u = "O'chirish istalgan payt: /pro"
+    elif tur == "k":
+        a, b = "To'lov tasdiqlandi!", f"Pro {gacha} gacha faol" if gacha else "Pro faollashdi"
+        u = "Rahmat! Bemalol foydalanavering 🙌"
+    elif tur == "g":
+        a, b = "Sizga sovg'a! 🎁", f"{kim} sizga Pro {title} sovg'a qildi"
+        u = "Holatni ko'rish: /profile"
+    elif tur == "y":
+        a, b = "Sovg'a yuborildi! 🎁", f"{kim} — Pro {title} ({days} kun)"
+        u = eslatma or "Do'stingizga sovg'a xabari bordi"
+    else:
+        a = "Pro faollashdi!"
+        b = f"{title} ({days} kun)" + (f" · {gacha} gacha" if gacha else "")
+        u = "Rahmat! Bemalol foydalanavering 🙌"
+    return {"a": a, "b": b, "l": _pro_imkoniyatlari(), "u": u}
+
+
+def _shaxsiy(message) -> bool:
+    """Shaxsiy chatmi — xato bermaydi (to'lovdan keyingi yo'lda yiqilish
+    tasdiq xabarini yo'qotardi)."""
+    return getattr(getattr(message, "chat", None), "type", None) == "private"
+
+
+async def _tabrik_yubor(chat_id: int, holat: dict, izoh: str, kb,
+                        effekt: bool = True) -> bool:
+    """Bayram kartasi. False — chaqiruvchi oddiy matnni yuboradi. Hech qachon
+    ko'tarilmaydi: to'lov allaqachon berilgan, bu faqat tabrik."""
+    try:
+        from handlers.messages import vidjet_yubor
+        from services import vidjet
+        return await vidjet_yubor(chat_id, vidjet.tabrik_html(), vidjet.tabrik_holati(holat),
+                                  izoh, kb, effekt=MESSAGE_EFFECTS.get("🎉") if effekt else None)
+    except Exception as e:
+        logger.warning(f"[Pro] bayram kartasi yuborilmadi (chat={chat_id}): {e}")
+        return False
+
+
+async def _tugash_sanasi(user_id: int) -> str:
+    try:
+        p = await database.get_full_user_profile(user_id)
+        return _sana(p["premium_until"]) if p and p.get("premium_until") else ""
+    except Exception:
+        return ""
 
 
 def karta_holat_matni(r: dict) -> tuple[str, list]:
@@ -1625,8 +1864,29 @@ _CANCEL_KB = InlineKeyboardMarkup(
     force_reply=True)
 
 
+async def _pro_vidjet_yubor(target, holat: dict, izoh: str, kb) -> bool:
+    """Shaxsiy chatda Pro kartasini (berilgan ekranda) yangi xabar qilib
+    yuboradi. False — chaqiruvchi oddiy matnni yuboradi; hech qachon ko'tarilmaydi."""
+    if getattr(getattr(target, "chat", None), "type", None) != "private":
+        return False
+    try:
+        from handlers.messages import _thread_key, vidjet_yubor
+        from services import vidjet
+        return await vidjet_yubor(target.chat.id, vidjet.pro_html(), vidjet.pro_holati(holat),
+                                  izoh, kb, thread_id=_thread_key(target))
+    except Exception as e:
+        logger.warning(f"[Pro] karta yuborilmadi ({holat.get('e')}): {e}")
+        return False
+
+
 async def _start_gift(target, state: FSMContext) -> None:
     await state.set_state(GiftStates.waiting_for_recipient)
+    # Karta — qadamlar; izohda qisqa savol. `force_reply` (_CANCEL_KB) karta
+    # bilan rad etilsa — oldingi matnli so'rov, o'sha klaviatura bilan.
+    if await _pro_vidjet_yubor(target, {"e": "g"}, (
+            "🎁 <b>Kimga sovg'a qilmoqchisiz?</b>\n"
+            "@username, ID raqam yoki uning xabarini forward qiling."), _CANCEL_KB):
+        return
     await send_rich(target, _GIFT_PROMPT, _CANCEL_KB)
 
 
@@ -1751,13 +2011,20 @@ async def process_gift_recipient(message: Message, state: FSMContext):
     target = await database.get_full_user_profile(recipient_id)
     await state.clear()
     name = _display_name(target or {}, recipient_id)
+    kb = InlineKeyboardMarkup(inline_keyboard=(
+        _buy_buttons(recipient_id)
+        + [[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="pro:close")]]
+    ))
+    u = (target or {}).get("username")
+    oddiy = f"@{u}" if u and u != "Mavjud emas" else str(recipient_id)
+    # Karta — sovg'a tariflari (obunasiz: obuna to'lovchining o'z balansidan).
+    if await _pro_vidjet_yubor(message, {"e": "s", "gf": oddiy, "t": tarif_plitkalari("s")},
+                               f"🎁 <b>Sovg'a: {name}</b>\n\nMuddatni tanlang:", kb):
+        return
     await message.answer(
         f"🎁 <b>Sovg'a: {name}</b>\n\nMuddatni tanlang:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=(
-            _buy_buttons(recipient_id)
-            + [[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="pro:close")]]
-        )),
+        reply_markup=kb,
     )
 
 
@@ -2348,6 +2615,7 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
         await _tugmalarni_almashtir(query, InlineKeyboardMarkup(
             inline_keyboard=_buy_buttons(obuna=not _obuna_faol(await _obuna(user_id)))
             + [_ORQAGA]), "⭐️ <b>Muddatni tanlang:</b>")
+        await _pro_ekrani_almashtir(query, user_id, "s")
         return
 
     if action == "obuna":
@@ -2363,6 +2631,7 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
                 [btn("🔕 Ha, o'chirilsin", "pro:obuna_bekor:ha", style=BTN_DANGER)],
                 [btn("⬅️ Yo'q, qolsin", "pro:usul")],
             ]), "🔕 Avtomatik to'lov o'chirilsinmi?")
+            await _pro_ekrani_almashtir(query, user_id, "x")
             return
         if await obuna_toxtat(user_id):
             until = ((await database.get_full_user_profile(user_id)) or {}).get("premium_until")
@@ -2384,6 +2653,7 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
         await query.answer()
         _, kb = await _render_pro_screen(user_id)
         await _tugmalarni_almashtir(query, kb, "💎 <b>Pro</b> — to'lov usulini tanlang:")
+        await _pro_ekrani_almashtir(query, user_id, "")
         return
 
     if action in ("kartalar", "karta", "chek", "kb", "kt", "kr"):

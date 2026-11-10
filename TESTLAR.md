@@ -55,6 +55,15 @@ Some are structural guards rather than feature tests, and they earn their keep o
     flashcards) still fits 4 KB and carries the logo signature.
   - Checks 25-27: the full profile state (expired Pro reads as free, join date in Tashkent
     time) and the `"y"` answer without a name.
+  - Checks 28-40: the screens behind the buttons.
+    - Check 30: Stars, card, back and subscription-off switch the card in place, and an
+      old text message gets no write.
+    - Checks 31-32: the card-payment card keeps the exact buttons and the receipt FSM;
+      if it is rejected, the old text goes out.
+    - Check 33: `"t:<id>"` answers only the asker's own payment.
+    - Checks 36-37: purchase and gift celebration cards, with a text fallback when
+      delivery fails.
+    - Check 40: a `/kunlik` hour press pushes the new hours at once.
   - Check 2: no `opacity`/`filter` (the widget's heavy elements).
   - Check 4: the comparison numbers come from PLAN_LIMITS.
   - Check 6: the Pro card's buttons are exactly the normal screen's, so the payment path is

@@ -1386,6 +1386,56 @@ async def karta_yubor(chat_id: int, v: dict, thread_id=None) -> str | None:
     return matn
 
 
+def vidjet_xabari(message) -> dict | None:
+    """Xabardagi vidjet (`Message.widget`, Bot API 10.4) yoki None. aiogram
+    3.31 maydonni bilmaydi — u `model_extra` da; o'rgangach haqiqiy bo'ladi."""
+    w = getattr(message, "widget", None)
+    if w is None:
+        w = (getattr(message, "model_extra", None) or {}).get("widget")
+    if w is not None and not isinstance(w, dict) and hasattr(w, "model_dump"):
+        w = w.model_dump(exclude_none=True)
+    return w if isinstance(w, dict) else None
+
+
+async def vidjet_yubor(chat_id: int, html: str, holat: str, izoh: str, kb=None, *,
+                       sorov: bool = False, effekt: str | None = None,
+                       thread_id=None) -> bool:
+    """Brend kartasini yuboradi. Qaytadi: yetdimi — timeout ham True (yetgan
+    bo'lishi mumkin, takror yuborilmaydi); False — chaqiruvchi oddiy matnli
+    ekranni yuboradi. Izoh HTML, unda premium emoji YO'Q (Premium tugasa
+    butun xabar rad etilardi)."""
+    payload = {"chat_id": chat_id, "html": html, "chat_data": holat,
+               "caption": izoh, "parse_mode": "HTML"}
+    if sorov:
+        payload["allow_queries"] = True
+    if kb is not None:
+        payload["reply_markup"] = kb.model_dump(exclude_none=True)
+    if effekt:
+        payload["message_effect_id"] = effekt
+    if thread_id:
+        payload["message_thread_id"] = thread_id
+    outcome: list = []
+    if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
+        return True
+    return OUTCOME_UNKNOWN in outcome
+
+
+async def vidjet_holatini_yoz(message, holat: str) -> bool:
+    """Shu xabardagi kartaning `chat_data` sini almashtiradi
+    (`editMessageWidgetData`) — karta `chatDataChanged` da o'zi qayta
+    chiziladi. Xabar karta bo'lmasa (eski matnli ekran) — hech narsa, False.
+    Xato hech qachon ko'tarilmaydi: bu bezak, tugma o'z ishini qilib bo'lgan."""
+    if vidjet_xabari(message) is None or getattr(message, "chat", None) is None:
+        return False
+    try:
+        return await _telegram_api_request("editMessageWidgetData", {
+            "chat_id": message.chat.id, "message_id": message.message_id,
+            "chat_data": holat}) is not None
+    except Exception as e:
+        logger.info(f"[Vidjet] holat yangilanmadi: {e}")
+        return False
+
+
 async def _vidjet_yubor(message: Message, v: dict, thread_id) -> None:
     if (matn := await karta_yubor(message.chat.id, v, thread_id)):
         await _answer_plain(message, matn)

@@ -282,6 +282,15 @@ async def vidjet_sorovi(sorov: dict) -> None:
         from handlers.messages import tadqiqot_ol   # ⚠️ og'ir modul
         j = tadqiqot_ol(uid, data[len(vidjet.TADQIQOT_SOROVI):])
         javob["data"] = vidjet.tadqiqot_holati(j if j else {"x": 1})
+    elif data.startswith(vidjet.TOLOV_SOROVI) and uid:
+        # Karta to'lovi kartasi — "t:<id>". `tolov_holati` SO'RAGAN odamning
+        # o'z to'lovini o'qiydi (user_id bilan); begona id — {"h": "x"}.
+        try:
+            from handlers.pro import tolov_holati   # ⚠️ tsiklik import
+            lid = int(data[len(vidjet.TOLOV_SOROVI):])
+            javob["data"] = vidjet.tolov_holati(await tolov_holati(uid, lid))
+        except Exception as e:
+            logger.info(f"[Vidjet] to'lov holati o'qilmadi ({data!r}): {e}")
     elif data == vidjet.KARTA_SOROVI and uid:
         try:
             profil = await get_full_user_profile(uid)

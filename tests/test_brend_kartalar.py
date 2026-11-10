@@ -66,8 +66,9 @@ class _Msg:
 # 1-3. SHABLONLAR
 # ─────────────────────────────────────────────────────────────
 HTMLLAR = {"start": v.start_html(), "pro": v.pro_html(), "kunlik": v.kunlik_html(),
-           "tadqiqot": v.tadqiqot_html(), "profil": v.karta_html()}
-check(1, "5 karta ham 4 KB (siqilgan) ga sig'adi va hammasida Vexon logosi bor",
+           "tadqiqot": v.tadqiqot_html(), "profil": v.karta_html(), "tolov": v.tolov_html(),
+           "tabrik": v.tabrik_html()}
+check(1, "brend kartalarining hammasi 4 KB (siqilgan) ga sig'adi va hammasida Vexon logosi bor",
       all(v.sigadimi(h) and 'class="lg"' in h and "url(#la)" in h for h in HTMLLAR.values()))
 # Vidjet `opacity` va `filter` ni "og'ir" element deb sanaydi (16 tadan oshsa
 # to'xtatadi) — logo shaffoflikni faqat fill-/stop-opacity bilan beradi.
@@ -95,7 +96,7 @@ check(23, "ob-havo, valyuta, namoz, eslatma, test, kartochka: 4 KB ichida, pasti
       all(h and v.sigadimi(h) and "VEXON AI</div>" in h and "url(#va) #" in h and 'class="lg"' not in h
           for h in IMZOLI.values()))
 check(24, "brend sarlavhasida nomi boshqa kartada (kunlik, tadqiqot) «VEXON AI» satri; profil ham",
-      all('class="vk">VEXON' in HTMLLAR[n] for n in ("kunlik", "tadqiqot", "profil"))
+      all('class="vk">VEXON' in HTMLLAR[n] for n in ("kunlik", "tadqiqot", "profil", "tolov"))
       and 'class="vk"' not in v.pro_html())
 check(3, "/start slaydlari bepul foydalanuvchiga yo'q narsani va'da qilmaydi (rasm chizish)",
       "chiz" not in json.dumps(v.START_SLAYDLAR, ensure_ascii=False).lower()
@@ -379,6 +380,328 @@ check(27, "\"y\" javobi — o'sha to'liq holat (ismsiz: karta eski ismni saqlayd
       m_ == "answerWidgetQuery" and json.loads(p_["data"])["p"] == "p" and "n" not in json.loads(p_["data"])
       and "if(D&&D.n&&!x.n)x.n=D.n" in v.karta_html())
 pf.get_full_user_profile = asl_gfp
+
+# ─────────────────────────────────────────────────────────────
+# 28-40. Tugmalar ortidagi ekranlar — kartalar
+# ─────────────────────────────────────────────────────────────
+from core.config import PRO_PLANS, KARTA_NARX, OBUNA_NARX, MESSAGE_EFFECTS  # noqa: E402
+from db import database  # noqa: E402
+
+asl2 = {k: getattr(database, k, None) for k in (
+    "get_full_user_profile", "karta_sorov_yarat", "is_banned", "karta_sorov_ol", "karta_bekor",
+    "get_user_by_identifier", "set_digest")}
+asl_pro = (pro._obuna, pro._karta, pro.send_rich, pro.bot)
+database.get_full_user_profile, pro._obuna = _profil, _obuna
+
+
+class _VMsg(_Msg):
+    """Karta xabari: aiogram 3.31 `widget` ni `model_extra` ga qo'yadi."""
+    def __init__(self, holat=None, t="private", karta=True):
+        super().__init__(t)
+        self.message_id = 9
+        self.model_extra = ({"widget": {"html": "<b>", "chat_data": json.dumps(holat or {})}}
+                            if karta else {})
+        self.tugmalar, self.javoblar = [], []
+
+    async def edit_reply_markup(self, reply_markup=None):
+        self.tugmalar.append(reply_markup)
+
+    async def edit_text(self, *a, **k):
+        self.javoblar.append(("edit_text", a))
+
+    async def answer(self, text, **k):
+        self.javoblar.append((text, k.get("reply_markup")))
+
+
+class _Bos:
+    def __init__(self, data, message, uid=777):
+        self.data, self.message = data, message
+        self.from_user = type("U", (), {"id": uid, "username": "u"})()
+        self.alert = []
+
+    async def answer(self, *a, **k):
+        self.alert.append(a)
+
+
+class _Holat:
+    def __init__(self):
+        self.h, self.data = None, {}
+
+    async def set_state(self, s):
+        self.h = getattr(s, "state", s)
+
+    async def update_data(self, **k):
+        self.data.update(k)
+
+    async def get_state(self):
+        return self.h
+
+    async def get_data(self):
+        return self.data
+
+    async def clear(self):
+        self.h = None
+
+
+def _yozuvlar():
+    return [json.loads(pl["chat_data"]) for m, pl in chaqiruvlar if m == "editMessageWidgetData"]
+
+
+def _yuborilgan():
+    return [pl for m, pl in chaqiruvlar if m == "sendWidget"]
+
+
+s_, k_ = pro.tarif_plitkalari("s"), pro.tarif_plitkalari("k")
+eng = min(PRO_PLANS, key=lambda x: x[1] / x[0])[0]
+check(28, "tarif plitkalari: nom/narx/chegirma PRO_PLANS va KARTA_NARX dan, eng foydalisi bitta "
+          "(kun boshiga eng arzon — tugmalardagi qoida), 1 oyda «oyiga» yo'q",
+      [x[0] for x in s_] == [x[2] for x in PRO_PLANS] and [x[3] for x in s_] == [x[3] for x in PRO_PLANS]
+      and [x[1] for x in s_] == [f"{pro.som(x[1])} ⭐" for x in PRO_PLANS]
+      and [x[1] for x in k_] == [f"{pro.som(KARTA_NARX[x[0]])} so'm" for x in PRO_PLANS]
+      and [x[4] for x in s_] == [1 if x[0] == eng else 0 for x in PRO_PLANS] == [x[4] for x in k_]
+      and "oyiga" not in s_[0][2] and "oyiga" in s_[-1][2]
+      and f"oyiga ≈ {pro.som(round(KARTA_NARX[365] * 30 / 365))} so'm" in k_[-1][2])
+
+PROFIL.update(plan_type="free", premium_until=None)
+OBUNA.clear()
+es = asyncio.run(pro.pro_kartasi(777, "s"))
+OBUNA["v"] = {"holat": "faol", "keyingi": _hozir, "narx": OBUNA_NARX}
+PROFIL.update(plan_type="pro", premium_until=datetime(2026, 12, 11, 20, 0, tzinfo=timezone.utc))
+es_ob = asyncio.run(pro.pro_kartasi(777, "s"))
+ex = asyncio.run(pro.pro_kartasi(777, "x"))
+OBUNA.clear()
+ek = asyncio.run(pro.pro_kartasi(777, "k"))
+check(29, "ekran holati: Stars — obuna qatori faqat obuna yo'q bo'lsa (tugmalar sharti); karta; "
+          "obunani o'chirish — tugash sanasi; hammasi 1 KB ichida, jadvalsiz",
+      es["e"] == "s" and es["h"] == "f" and es["ob"] == OBUNA_NARX and es["t"] == s_
+      and "ob" not in es_ob and es_ob["h"] == "p" and ek["e"] == "k" and ek["t"] == k_
+      and ex == {"e": "x", "h": "p", "n": "12.12.2026"} and "r" not in es
+      and all(len(v.pro_holati(x).encode()) < 1024 for x in (es, es_ob, ek, ex)))
+
+
+async def _karta_bor():
+    return ("8600123412341234", "ALI VALIYEV")
+
+pro._karta = _karta_bor
+msg._telegram_api_request = _api(True)
+PROFIL.update(plan_type="free", premium_until=None)
+ekranlar = []
+for data in ("pro:stars", "pro:kartalar", "pro:usul", "pro:obuna_bekor"):
+    chaqiruvlar.clear()
+    vm = _VMsg()
+    asyncio.run(pro.handle_pro_callback(_Bos(data, vm), _Holat()))
+    ekranlar.append((_yozuvlar(), vm.tugmalar))
+chaqiruvlar.clear()
+oddiy = _VMsg(karta=False)
+asyncio.run(pro.handle_pro_callback(_Bos("pro:stars", oddiy), _Holat()))
+check(30, "Stars / Karta / Orqaga / obunani o'chirish — tugmalar almashadi VA karta o'sha xabarda "
+          "o'sha ekranga o'tadi; matnli (eski) xabarda karta yozuvi yo'q",
+      [x[0][0].get("e", "") for x in ekranlar] == ["s", "k", "", "x"]
+      and all(len(x[0]) == 1 and len(x[1]) == 1 for x in ekranlar)
+      and "r" in ekranlar[2][0][0] and ekranlar[1][0][0]["t"] == k_
+      and oddiy.tugmalar and not _yozuvlar())
+
+KS = {}
+
+
+async def _yarat(uid, kun, narx, karta):
+    return {"id": 42, "summa": narx + 47}
+
+
+async def _ban_yoq(uid):
+    return False
+
+database.karta_sorov_yarat, database.is_banned = _yarat, _ban_yoq
+chaqiruvlar.clear()
+msg._telegram_api_request = _api({"message_id": 10})
+h1, vm = _Holat(), _VMsg()
+asyncio.run(pro.handle_pro_callback(_Bos("pro:karta:30", vm), h1))
+yw = _yuborilgan()
+kb_kutilgan = pro._karta_sorov_kb(42, 25_047, "8600123412341234").model_dump(exclude_none=True)
+hk = json.loads(yw[0]["chat_data"]) if yw else {}
+check(31, "karta to'lovi — shaxsiy chatda karta: raqam, summa, tanish so'mlar, 3 soatlik oyna, "
+          "so'rovlar yoqilgan; izohda karta va summa; tugmalar O'SHA; chek kutish yoqilgan",
+      len(yw) == 1 and yw[0]["html"] == v.tolov_html() and yw[0]["allow_queries"] is True
+      and hk["n"] == "8600123412341234" and hk["nf"] == "8600 1234 1234 1234" and hk["s"] == 25_047
+      and hk["sf"] == "25 047" and hk["w"] == 47 and hk["h"] == "k" and hk["id"] == 42
+      and abs(hk["x"] - (datetime.now().timestamp() + pro.KARTA_CHEK_OYNA)) < 60
+      and "8600 1234 1234 1234" in yw[0]["caption"] and "25 047" in yw[0]["caption"]
+      and yw[0]["reply_markup"] == kb_kutilgan and not vm.javoblar
+      and h1.h == "KartaStates:chek" and h1.data["karta_id"] == 42
+      and len(v.tolov_holati(hk).encode()) < 1024)
+
+msg._telegram_api_request = _api(None, msg.OUTCOME_REJECTED)
+h2, vm2 = _Holat(), _VMsg()
+asyncio.run(pro.handle_pro_callback(_Bos("pro:karta:30", vm2), h2))
+check(32, "karta rad etilsa — oldingi matn (karta_sorov_matni), o'sha tugmalar, chek kutish baribir",
+      len(vm2.javoblar) == 1 and vm2.javoblar[0][0] == pro.karta_sorov_matni(
+          30, 25_047, "8600123412341234", "ALI VALIYEV", 42)
+      and vm2.javoblar[0][1].model_dump(exclude_none=True) == kb_kutilgan and h2.h == "KartaStates:chek")
+
+TOLOV = {}
+
+
+async def _sorov_ol(lid, uid):
+    return TOLOV.get((lid, uid))
+
+database.karta_sorov_ol = _sorov_ol
+PROFIL.update(plan_type="pro", premium_until=datetime(2026, 12, 11, 20, 0, tzinfo=timezone.utc))
+javoblar = []
+msg._telegram_api_request = _api(True)
+for holati in ("kutmoqda", "tekshirilmoqda", "rad", "tasdiqlandi", "eskirdi"):
+    TOLOV[(42, 777)] = {"holat": holati, "sabab": "summa mos emas"}
+    chaqiruvlar.clear()
+    asyncio.run(pf.vidjet_sorovi({"id": "q", "from": {"id": 777}, "data": "t:42"}))
+    javoblar.append(json.loads(chaqiruvlar[-1][1]["data"]))
+chaqiruvlar.clear()
+asyncio.run(pf.vidjet_sorovi({"id": "q", "from": {"id": 5}, "data": "t:42"}))
+begona = json.loads(chaqiruvlar[-1][1]["data"])
+asyncio.run(pf.vidjet_sorovi({"id": "q2", "from": {"id": 777}, "data": "t:abc"}))
+buzuq = chaqiruvlar[-1]
+check(33, "\"t:<id>\": o'z to'lovi holati (rad — sabab, tasdiq — tugash sanasi); begona — x; "
+          "buzuq id — baribir javob (TIMEOUT emas)",
+      [x["h"] for x in javoblar] == ["k", "t", "r", "a", "e"] and javoblar[2]["z"] == "summa mos emas"
+      and javoblar[3]["g"] == "12.12.2026" and begona == {"h": "x"}
+      and buzuq == ("answerWidgetQuery", {"widget_query_id": "q2"}))
+
+
+async def _bekor(lid, uid):
+    return True
+
+database.karta_bekor = _bekor
+chaqiruvlar.clear()
+vm3 = _VMsg(holat=hk)
+asyncio.run(pro.handle_pro_callback(_Bos("pro:kb:42", vm3), _Holat()))
+yz = _yozuvlar()
+check(34, "karta xabarida «Bekor qilish» — karta holati «b» (qolgani o'sha), tugmalar olinadi, "
+          "edit_text urinilmaydi",
+      len(yz) == 1 and yz[0]["h"] == "b" and yz[0]["n"] == hk["n"] and vm3.tugmalar == [None]
+      and not any(x[0] == "edit_text" for x in vm3.javoblar))
+
+tp = pro.tabrik_kartasi("p", title="1 oy", days=30, gacha="12.12.2026")
+tg = pro.tabrik_kartasi("g", title="3 oy", kim="@" + "a" * 60)
+ty = pro.tabrik_kartasi("y", title="1 oy", days=30, kim="12345", eslatma="⚠️ yetmadi")
+check(35, "bayram kartasi: matnlar turiga qarab, imkoniyatlar PLAN_LIMITS dan, 1 KB ichida",
+      tp["a"] == "Pro faollashdi!" and tp["b"] == "1 oy (30 kun) · 12.12.2026 gacha"
+      and tg["b"].startswith("@aaa") and "3 oy" in tg["b"] and ty["u"] == "⚠️ yetmadi"
+      and pro._son(daily_limit('pro', 'points')) in tp["l"][0][1]
+      and pro.tabrik_kartasi("k", gacha="")["b"] == "Pro faollashdi"
+      and all(len(v.tabrik_holati(x).encode()) < 1024 for x in (tp, tg, ty)))
+
+yuborildi.clear()
+pro.send_rich = _rich
+chaqiruvlar.clear()
+msg._telegram_api_request = _api({"message_id": 11})
+asyncio.run(pro._notify_purchase(_Msg(), 777, 777, 30, "CHEK-1"))
+yw = _yuborilgan()
+yaxshi = (len(yw) == 1 and yw[0]["html"] == v.tabrik_html() and "CHEK-1" in yw[0]["caption"]
+          and yw[0]["message_effect_id"] == MESSAGE_EFFECTS["🎉"] and not yuborildi
+          and "pro:profile" in json.dumps(yw[0]["reply_markup"])
+          and json.loads(yw[0]["chat_data"])["b"] == "1 oy (30 kun) · 12.12.2026 gacha")
+msg._telegram_api_request = _api(None, msg.OUTCOME_REJECTED)
+asyncio.run(pro._notify_purchase(_Msg(), 777, 777, 30, "CHEK-1"))
+check(36, "xarid: bayram kartasi (chek izohda, effekt, o'sha tugmalar); rad etilsa — oldingi matn",
+      yaxshi and len(yuborildi) == 1 and "PRO TARIF FAOLLASHTIRILDI" in yuborildi[0])
+
+
+class _Bot:
+    def __init__(self):
+        self.yuborildi = []
+
+    async def send_message(self, uid, matn, **k):
+        self.yuborildi.append(uid)
+        raise RuntimeError("bloklagan")
+
+pro.bot = _Bot()
+
+
+def _rad_888(natija):
+    async def f(method, payload, *, outcome=None, timeout=None):
+        chaqiruvlar.append((method, payload))
+        if payload.get("chat_id") == 888:
+            outcome.append(msg.OUTCOME_REJECTED)
+            return None
+        return natija
+    return f
+
+yuborildi.clear()
+chaqiruvlar.clear()
+PROFIL.update(username="dost")
+msg._telegram_api_request = _api({"message_id": 12})
+asyncio.run(pro._notify_purchase(_Msg(), 777, 888, 90, "CHEK-2"))
+ikki = [(x["chat_id"], json.loads(x["chat_data"])["a"]) for x in _yuborilgan()]
+chaqiruvlar.clear()
+msg._telegram_api_request = _rad_888({"message_id": 13})
+asyncio.run(pro._notify_purchase(_Msg(), 777, 888, 90, "CHEK-2"))
+yw = _yuborilgan()
+check(37, "sovg'a: oluvchiga «Sizga sovg'a», beruvchiga «yuborildi» kartasi; oluvchiga yetmasa "
+          "(karta ham, matn ham) — beruvchi kartasi va izohida ogohlantirish",
+      ikki == [(888, "Sizga sovg'a! 🎁"), (555, "Sovg'a yuborildi! 🎁")]
+      and set(pro.bot.yuborildi) == {888} and yw[-1]["chat_id"] == 555
+      and "yetmadi" in json.loads(yw[-1]["chat_data"])["u"] and "yetkazib bo'lmadi" in yw[-1]["caption"]
+      and "@dost" in json.loads(yw[-1]["chat_data"])["b"] and not yuborildi)
+PROFIL.pop("username", None)
+
+chaqiruvlar.clear()
+msg._telegram_api_request = _api({"message_id": 14})
+hg = _Holat()
+asyncio.run(pro._start_gift(_Msg(), hg))
+yw = _yuborilgan()
+yuborildi.clear()
+asyncio.run(pro._start_gift(_Msg("supergroup"), _Holat()))
+check(38, "sovg'a so'rovi: shaxsiy chatda karta (qadamlar), javob maydoni (force_reply) o'sha; "
+          "holat yoqilgan; guruhda — oldingi matn",
+      len(yw) == 1 and json.loads(yw[0]["chat_data"]) == {"e": "g"}
+      and yw[0]["reply_markup"].get("force_reply") is True and hg.h == "GiftStates:waiting_for_recipient"
+      and len(yuborildi) == 1 and "SOVG'A QILISH" in yuborildi[0])
+
+
+class _Yozdi(_VMsg):
+    def __init__(self, matn):
+        super().__init__(karta=False)
+        self.text, self.forward_origin = matn, None
+
+
+async def _topdi(x):
+    return 888
+
+database.get_user_by_identifier = _topdi
+PROFIL.update(plan_type="free", premium_until=None, username="dost")
+chaqiruvlar.clear()
+asyncio.run(pro.process_gift_recipient(_Yozdi("@dost"), _Holat()))
+yw = _yuborilgan()
+hs = json.loads(yw[0]["chat_data"]) if yw else {}
+check(39, "sovg'a oluvchisi topildi — tariflar kartasi (oluvchi nomi, obunasiz), tugmalar sovg'a "
+          "narxlari (pro:buy:<kun>:888)",
+      len(yw) == 1 and hs == {"e": "s", "gf": "@dost", "t": s_}
+      and all(f"pro:buy:{x[0]}:888" in json.dumps(yw[0]["reply_markup"]) for x in PRO_PLANS)
+      and "pro:obuna" not in json.dumps(yw[0]["reply_markup"]))
+PROFIL.pop("username", None)
+
+
+async def _saqla(uid, hours, topics=None, thread_id=None):
+    pass
+
+database.set_digest = _saqla
+PROFIL.update(plan_type="pro", premium_until=_hozir + timedelta(days=9),
+              digest_hours=[20], digest_hour=None, digest_topics="sport")
+chaqiruvlar.clear()
+vk = _VMsg(holat={"h": [20]})
+asyncio.run(dg.handle_digest_callback(_Bos("dg:h:8", vk), _Holat()))
+yz = _yozuvlar()
+chaqiruvlar.clear()
+asyncio.run(dg.handle_digest_callback(_Bos("dg:h:9", _VMsg(karta=False)), _Holat()))
+check(40, "/kunlik: soat bosilganda karta darhol yangi soatlar bilan; matnli xabarda — yozuv yo'q; "
+          "shablonlar `chatDataChanged` ni tinglaydi",
+      len(yz) == 1 and yz[0]["h"] == [8, 20] and yz[0]["m"] == "sport" and not _yozuvlar()
+      and all('onEvent("chatDataChanged"' in h for h in (v.pro_html(), v.tolov_html(), v.kunlik_html())))
+for k_nom in ("digest_hours", "digest_hour", "digest_topics"):
+    PROFIL.pop(k_nom, None)
+
+for k_nom, qiymat in asl2.items():
+    if qiymat is not None:
+        setattr(database, k_nom, qiymat)
+pro._obuna, pro._karta, pro.send_rich, pro.bot = asl_pro
 
 # ─────────────────────────────────────────────────────────────
 print("─" * 55)

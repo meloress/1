@@ -277,6 +277,22 @@ asyncio.run(p.handle_pro_callback(begona, Holat()))
 check(8, "superadmin EMAS — yasalgan «pro:kt» rad, bazaga tegilmaydi",
       not any(x[0] in ("tasdiqla", "rad") for x in q) and "bosh admin" in begona.alert[0])
 
+# Kartalar (sendWidget) — tarmoqsiz: avval RAD ETILGAN karta (eski matn yo'li
+# o'zgarmasin), keyin 9b da yetgan karta.
+import handlers.messages as msg            # noqa: E402
+vidjetlar = []
+
+
+def _api(natija):
+    async def f(method, payload, *, outcome=None, timeout=None):
+        vidjetlar.append((method, payload))
+        if natija is None and outcome is not None:
+            outcome.append(msg.OUTCOME_REJECTED)
+        return natija
+    return f
+
+
+msg._telegram_api_request = _api(None)
 q.clear()
 asyncio.run(p.handle_pro_callback(So("pro:kt:7"), Holat()))
 send = [x for x in q if x[0] == "send"]
@@ -285,6 +301,18 @@ check(9, "tasdiq: Pro bazada, menyu, audit «karta_tasdiq», egasiga «faollashd
       and any(x[0] == "audit" and x[1] == "karta_tasdiq" and x[2] == 55 for x in q)
       and send and send[0][1] == 55 and "Pro faollashdi" in send[0][2]
       and any(x[0] == "caption" and "TASDIQLANDI" in x[1] for x in q))
+
+holat["tasdiq"].append({"user_id": 55, "days": 30, "summa": 25_047})
+msg._telegram_api_request = _api({"message_id": 3})
+q.clear()
+vidjetlar.clear()
+asyncio.run(p.handle_pro_callback(So("pro:kt:7"), Holat()))
+check("9b", "tasdiq kartasi yetsa — egasiga bayram kartasi (effekt bilan), matn ikkinchi marta YO'Q",
+      [m for m, _ in vidjetlar] == ["sendWidget"] and vidjetlar[0][1]["chat_id"] == 55
+      and "To'lov tasdiqlandi" in vidjetlar[0][1]["chat_data"]
+      and vidjetlar[0][1].get("message_effect_id")
+      and not any(x[0] == "send" for x in q) and ("menyu", 55, True) in q)
+msg._telegram_api_request = _api(None)
 
 q.clear()
 ikkinchi = So("pro:kt:7")
@@ -492,4 +520,4 @@ check(21, "FSM yo'q, bazada kutayotgan so'rov — chek superadminga; so'rov yo'q
       and j < main.index("handle_maintenance_notice, F.text")
       and 'F.chat.type == "private"' in main[j:j + 200])
 
-print("\nHammasi o'tdi: 21/21")
+print("\nHammasi o'tdi: 22/22")

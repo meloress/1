@@ -255,7 +255,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   city in that table never reaches the geocoder, which put Farg‘ona 14 minutes off. A new
   reminder gets a countdown card in a DM. `/start`, `/pro`, `/kunlik`, `/research` and
   `/profile` show brand cards (vector Vexon logo), every other card is signed with a small
-  logo and «VEXON AI» (`_imzoli()`); every one falls back to the old screen, and the Pro
+  logo and «VEXON AI» (`_imzoli()`); the screens behind the Pro/gift/card-payment/
+  `/kunlik` buttons change the card in place (`editMessageWidgetData`), and payment and
+  gift confirmations are a celebration card. Payment stays on the buttons, and the old
+  text is the fallback; every one falls back to the old screen, and the Pro
   card keeps the normal screen's buttons. Asset cards are sent through
   `karta_yubor()`, `/kunlik` included;
   a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know

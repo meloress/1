@@ -846,8 +846,35 @@ cancelled). The fallback text is empty, because the reply already gave the time.
     only. The first version started at "empty" and filled the ring with `setTimeout`; in
     headless Chrome the ring sometimes stayed empty, and a slow webview would do the same.
 - **`/kunlik`.** Pressing an hour changes the keyboard, not the message text. So the caption
-  is fixed, and the state (dial, topics, countdown to the next digest) lives on the card,
-  which asks `"k"` every 6 s while it is visible.
+  is fixed, and the state (dial, topics, countdown to the next digest) lives on the card.
+  Since 2026-11-11 the hour button also pushes the new state at once
+  (`digest._kartani_yangila()` → `editMessageWidgetData`); the card still asks `"k"`
+  every 6 s while visible, because saving topics happens in another message.
+- **Screens behind the buttons (2026-11-11).** A card changes in place: the button swaps
+  the keyboard as before, then `messages.vidjet_holatini_yoz()` sends the new
+  `chat_data` with `editMessageWidgetData`, and the card redraws on `chatDataChanged`.
+  The message is a card only if `messages.vidjet_xabari()` finds `widget`, which aiogram
+  3.31 keeps in `model_extra`. An old text screen gets no write.
+  - **Pro card, one template, `"e"` = screen.** `""` is the main screen, `"s"`/`"k"` are
+    the Stars/card plan tiles, `"x"` confirms turning off the subscription, `"g"` is the
+    gift prompt. The gift plans are `"s"` plus `"gf"`. The tiles come from
+    `pro.tarif_plitkalari()`, the same `PRO_PLANS`/`KARTA_NARX` and "cheapest per day"
+    rule as the buttons. ⛔️ The tiles are not tappable. Payment stays on the buttons.
+  - **Card payment** (`pro:karta:<days>`) is a bank-card picture with 📋 copy buttons
+    (`TelegramWidget.copyText`), the sum with its marker digits, steps and a 3-hour
+    timer. The caption still has the card number and sum for apps without widgets.
+    The status changes in the database (receipt, superadmin decision, watcher), so the
+    card asks `"t:<id>"` every 15 s while it is `k`/`t`/`r`. The asking user's own row
+    only, through `karta_sorov_ol(lid, user_id)`. «Bekor qilish» writes `h: "b"`
+    itself, because `edit_text` fails on a card.
+  - **Celebration card** (`pro.tabrik_kartasi()`): purchase, the first subscription
+    payment, card payment approved, gift received and gift sent. The receipt id stays in
+    the caption, since the admin needs it. The confetti plays once per message
+    (localStorage).
+  - ⚠️ Everything after the payment is granted is wrapped. `_tabrik_yubor()` never
+    raises, and `_shaxsiy()` reads the chat type without raising: a fake without
+    `chat.type` crashed `_notify_obuna` and lost the confirmation. The receipt FSM in
+    `pro:karta` runs in a `finally`, whatever happens to the card.
 - **`/research`.** Progress reaches the card through the `ai.TADQIQOT` ContextVar, not a
   parameter. Fakes in the tests copy the `get_gpt_reply` signature, and a new parameter
   would silently make them stale.
