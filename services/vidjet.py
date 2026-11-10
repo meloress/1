@@ -720,8 +720,11 @@ _BREND_CSS = (
     ".hd .lg{width:56px;height:56px;flex:none}"
     ".rg{transform-origin:50px 50px;animation:rg 10s linear infinite}"
     "@keyframes rg{to{transform:rotate(360deg)}}"
-    ".wm{font-weight:800;letter-spacing:.16em;background:linear-gradient(90deg,#fff,#b9c4ff 55%,#c88bff);"
-    "-webkit-background-clip:text;background-clip:text;color:transparent}"
+    # ⛔️ `background-clip:text` YO'Q: Telegram vidjeti uni qo'llamaydi — jonli
+    # (2026-11-10) matn shaffof qolib, o'rnida gradient to'rtburchak chiqdi.
+    # Rang — oddiy `color`; "AI" logo rangida (`.ai`).
+    ".wm{font-weight:800;letter-spacing:.16em;color:#fff}"
+    ".ai{color:#9fb0ff}"
     ".st{font-size:.82em;color:#aab3d9;margin-top:2px}"
     ".pr{display:inline-block;margin-left:7px;padding:1px 8px;border-radius:9px;font-size:.72em;"
     "letter-spacing:.06em;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff);vertical-align:2px}")
@@ -766,7 +769,7 @@ _START_SHABLON = ("<style>" + _BREND_CSS + """
 .d i{display:inline-block;width:6px;height:6px;border-radius:3px;margin:0 3px;background:#3a4380;transition:width .3s}
 .d .on{width:18px;background:linear-gradient(90deg,#3f6bff,#29d0ff)}
 </style>
-<div class="c">""" + _LOGO + """<div class="wm">VEXON AI</div><div class="st">Sizning shaxsiy AI yordamchingiz</div>
+<div class="c">""" + _LOGO + """<div class="wm">VEXON <span class="ai">AI</span></div><div class="st">Sizning shaxsiy AI yordamchingiz</div>
 <div class="w"><div class="t" id="t"></div></div><div class="d" id="d"></div></div>
 <script>""" + _JS_ASOS + """
 var S=@@S@@,t=document.getElementById("t"),d=document.getElementById("d"),I=0,K=[],T;
@@ -807,7 +810,7 @@ _PRO_SHABLON = ("<style>" + _BREND_CSS + """
 .b{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:10px;font-size:.8em;background:var(--tg-theme-secondary-bg-color)}
 .u{color:var(--tg-theme-hint-color);font-size:.85em;margin-top:4px}
 </style>
-""" + _sarlavha("VEXON AI", pro=True) + """<div id="a"></div>
+""" + _sarlavha('VEXON <span class="ai">AI</span>', pro=True) + """<div id="a"></div>
 <script>""" + _JS_ASOS + """
 var D=p(W&&W.chatData)||{},a=document.getElementById("a");
 function tb(r,b){var t=el("div","tb"),h=el("div","r hr");h.appendChild(el("span","n",""));if(!b)h.appendChild(el("span","v f","Bepul"));h.appendChild(el("span","v p",b?"Sizda":"Pro"));t.appendChild(h);

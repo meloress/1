@@ -71,9 +71,12 @@ check(1, "4 karta ham 4 KB (siqilgan) ga sig'adi va hammasida Vexon logosi bor",
       all(v.sigadimi(h) and 'class="lg"' in h and "url(#la)" in h for h in HTMLLAR.values()))
 # Vidjet `opacity` va `filter` ni "og'ir" element deb sanaydi (16 tadan oshsa
 # to'xtatadi) — logo shaffoflikni faqat fill-/stop-opacity bilan beradi.
+# `background-clip:text` — Telegram vidjeti qo'llamaydi: jonli (2026-11-10)
+# «VEXON AI» o'rnida gradient to'rtburchak chiqdi, matn ko'rinmadi.
 og_ir = [n for n, h in HTMLLAR.items()
-         if re.search(r"(?<![-\w])opacity\s*[:=]|filter\s*:", h)]
-check(2, "logoda va kartalarda `opacity`/`filter` yo'q (faqat fill-/stop-opacity)", not og_ir)
+         if re.search(r"(?<![-\w])opacity\s*[:=]|filter\s*:|background-clip", h)]
+check(2, "kartalarda `opacity`/`filter`/`background-clip` yo'q (vidjet qo'llamaydi yoki og'ir)",
+      not og_ir)
 check(3, "/start slaydlari bepul foydalanuvchiga yo'q narsani va'da qilmaydi (rasm chizish)",
       "chiz" not in json.dumps(v.START_SLAYDLAR, ensure_ascii=False).lower()
       and len(v.START_SLAYDLAR) >= 5)

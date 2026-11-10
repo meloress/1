@@ -243,10 +243,10 @@ async def main():
     tk.TEKSHIRUVLAR = (("Baza", ok), ("OpenAI", bir_yiqiladi), ("Telegram", ok))
     yuborildi.clear()
     matn = await tk.ozini_tekshir(2, qayta=0)
-    check("hammasi joyida (biri 1-urinishda yiqilib, 2-sida o'tdi) — superadmin'ga OVOZSIZ ✅",
+    check("hammasi joyida (biri 1-urinishda yiqilib, 2-sida o'tdi) — superadmin'ga OVOZLI ✅",
           matn.startswith("✅") and "abcdef1" in matn and "OpenAI ✓" in matn
           and "2 ta uzilgan" in matn and yuborildi[0][0] == 555
-          and yuborildi[0][2].get("disable_notification") is True and guruh == [])
+          and not yuborildi[0][2].get("disable_notification") and guruh == [])
 
     tk.TEKSHIRUVLAR = (("Baza", ok), ("Sandbox", doim_yiqiladi))
     yuborildi.clear()

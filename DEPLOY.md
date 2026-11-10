@@ -71,7 +71,8 @@ UTC+5). Use it before concluding anything from a screenshot — a table complain
 nearly misdiagnosed because it was unclear whether the fix had deployed yet.
 
 About two minutes after a deploy starts, the bot itself sends the superadmin a message
-(`handlers/tiklanish.py`, 2026-11-05): a silent «✅ Deploy ishga tushdi · `<hash>`», or a
+(`handlers/tiklanish.py`, 2026-11-05): a «✅ Deploy ishga tushdi · `<hash>`» (with sound
+since 2026-11-10, at the owner's request; silent before), or a
 «❌» that names the part that failed (database / OpenAI / Telegram / sandbox / panel). The
 same message also says how many cut-off replies got a «Qayta so'rash».
 

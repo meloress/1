@@ -113,7 +113,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
     - the «Qayta so'rash» button goes through the existing `failed_requests` / `retry:<chat>`
       path, topic kept;
     - nothing at all happens off Railway.
-  - The deploy self-check sends a silent ✅ to the superadmin, or a loud ❌ to the superadmin
+  - The deploy self-check sends a ✅ with sound to the superadmin (silent until 2026-11-10), or a loud ❌ to the superadmin
     and the watch group.
   - Source guards: `GeneratingState` is set only in `_band()`, and the queue is woken only
     behind `_bosh()`.

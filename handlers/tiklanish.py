@@ -204,8 +204,9 @@ async def ozini_tekshir(tiklandi: int | None, qayta: float = 20) -> str:
         else:
             sid = await database.get_superadmin_id()
             if sid:
-                await bot.send_message(sid, matn, parse_mode="HTML",
-                                       disable_notification=True)
+                # OVOZLI (2026-11-10, egasining talabi): push qilingan versiya
+                # ishga tushganini egasi darhol bilsin — ilgari ovozsiz edi.
+                await bot.send_message(sid, matn, parse_mode="HTML")
     except Exception as e:
         logger.warning(f"[Tiklanish] hisobot yuborilmadi: {e}")
     logger.info(f"[Tiklanish] o'zini tekshirish: {len(xatolar)} ta xato")
