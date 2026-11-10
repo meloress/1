@@ -493,13 +493,18 @@ async def _pro_ekrani(user_id: int, ixcham: bool = False) -> tuple[str, InlineKe
             and premium_until < datetime.now(timezone.utc):
         plan_type = 'free'
     karta_bor = bool(await _karta())
+    # Ixcham (karta izohi): ajratuvchi chiziq va «👇 … tanlang» satri YO'Q.
+    # Jonli (iPhone, 2026-11-11): karta tariflar ekraniga o'tganda izoh eskicha
+    # «To'lov usulini tanlang» deb qolardi (izoh almashmaydi), chiziq esa
+    # telefonda karta ostida uzun to'siq bo'lib turardi.
+    chiziq = "" if ixcham else "━━━━━━━━━━━━━━━━━━━━\n"
 
     # Muddatsiz tarif — sotib olishning ma'nosi yo'q va uni toza qo'llash
     # ham mumkin emas, shuning uchun narx tugmalari umuman ko'rsatilmaydi.
     if plan_type != 'free' and premium_until is None:
         text = (
             "💎 <b>SIZDA MUDDATSIZ TARIF</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{chiziq}\n"
             "<blockquote>Hech qanday kunlik cheklov qo'llanilmaydi.\n"
             "Sotib olishning hojati yo'q — bemalol foydalanavering 🙌</blockquote>"
         )
@@ -515,7 +520,7 @@ async def _pro_ekrani(user_id: int, ixcham: bool = False) -> tuple[str, InlineKe
                    if ob.get("keyingi") else "")
         text = (
             f"💎 <b>PRO TARIFINGIZ FAOL</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{chiziq}\n"
             + ("" if ixcham else f"{_progress_ring(_days_left(premium_until), obuna=True)}\n\n")
             + f"<blockquote>♻️ <b>Oylik obuna yoqilgan</b> — Pro har oy o'zi uzayadi.\n"
             f"{keyingi}"
@@ -531,29 +536,29 @@ async def _pro_ekrani(user_id: int, ixcham: bool = False) -> tuple[str, InlineKe
         days_left = _days_left(premium_until)
         header = (
             f"💎 <b>PRO TARIFINGIZ FAOL</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{chiziq}\n"
             + ("" if ixcham else f"{_progress_ring(days_left)}\n\n")
             + f"<blockquote>♻️ Muddatni istalgan vaqtda uzaytirishingiz mumkin.\n"
-            f"Yangi kunlar qolganiga <b>qo'shiladi</b> — yonib ketmaydi.</blockquote>\n\n"
-            f"👇 <b>Uzaytirish:</b>"
+            f"Yangi kunlar qolganiga <b>qo'shiladi</b> — yonib ketmaydi.</blockquote>"
+            + ("" if ixcham else "\n\n👇 <b>Uzaytirish:</b>")
         )
         extra = [[btn("🎁 Do'stga sovg'a qilish", "pro:gift")]]
     else:
         header = (
             f"💎 <b>PRO TARIF</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{chiziq}\n"
             # Ixcham (vidjet izohi): taqqoslash kartada; imkoniyatlar yig'iq
             # holda shu yerda qoladi — vidjetni bilmaydigan ilova uchun.
-            + (_perks_block().replace("<blockquote>", "<blockquote expandable>", 1) + "\n"
+            + (_perks_block().replace("<blockquote>", "<blockquote expandable>", 1)
                if ixcham else
                f"{_perks_block()}\n"
                f"📊 <b>Kunlik hisobda</b>  <i>(ochish uchun bosing)</i>\n"
-               f"{_daily_table()}\n")
-            + (f"⭐️ <b>Telegram Stars</b> yoki 💳 <b>karta orqali</b> so'mda to'lash mumkin.\n\n"
-               f"👇 <b>To'lov usulini tanlang:</b>" if karta_bor else
-               f"⭐️ To'lov <b>Telegram Stars</b> orqali — "
-               f"bank kartasi kerak emas, bir bosishda.\n\n"
-               f"👇 <b>Muddatni tanlang:</b>")
+               f"{_daily_table()}\n"
+               + (f"⭐️ <b>Telegram Stars</b> yoki 💳 <b>karta orqali</b> so'mda to'lash mumkin.\n\n"
+                  f"👇 <b>To'lov usulini tanlang:</b>" if karta_bor else
+                  f"⭐️ To'lov <b>Telegram Stars</b> orqali — "
+                  f"bank kartasi kerak emas, bir bosishda.\n\n"
+                  f"👇 <b>Muddatni tanlang:</b>"))
         )
         # ⚠️ Promokod/referal tugmalari ATAYLAB yo'q — pro_keyboard_for()
         # izohiga qarang.
@@ -647,7 +652,9 @@ def tarif_plitkalari(tur: str) -> list:
         birlik = " ⭐" if tur == "s" else " so'm"
         izoh = f"{days} kun"
         if days != 30:
-            izoh += f" · oyiga ≈ {som(round(narx * 30 / days))}{birlik}"
+            # Bo'linmas bo'shliq: tor telefonda «20 / 833 so'm» bo'lib uzilmasin.
+            oyiga = f"{som(round(narx * 30 / days))}{birlik}".replace(" ", " ")
+            izoh += f" · oyiga ≈ {oyiga}"
         out.append([title, som(narx) + birlik, izoh, badge, 1 if days == best else 0])
     return out
 

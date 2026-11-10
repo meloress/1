@@ -175,9 +175,14 @@ for plan, muddat in (("free", None), ("pro", _hozir + timedelta(days=5)), ("pro"
     PROFIL.update(plan_type=plan, premium_until=muddat)
     for obuna in (None, {"holat": "faol", "keyingi": _hozir, "narx": 250}):
         OBUNA["v"] = obuna
-        izohlar.append(pro._korinadigan(asyncio.run(pro._render_pro_screen(777, ixcham=True))[0]))
+        iz = asyncio.run(pro._render_pro_screen(777, ixcham=True))[0]
+        izohlar.append(pro._korinadigan(iz))
+        # Jonli (iPhone, 2026-11-11): izoh karta ekrani almashganda ham qoladi —
+        # «👇 … tanlang» eskirib qolardi, chiziq esa uzun to'siq bo'lib turardi.
+        if "━" in iz or "👇" in iz:
+            izohlar.append(10 ** 6)
 OBUNA.clear()
-check(7, f"har holatda izoh 1024 belgidan qisqa (eng uzuni {max(izohlar)})",
+check(7, f"har holatda izoh 1024 belgidan qisqa (eng uzuni {max(izohlar)}), chiziqsiz va «👇»siz",
       max(izohlar) <= v.CAPTION_MAX)
 
 yuborildi = []
@@ -453,6 +458,8 @@ def _yuborilgan():
 
 s_, k_ = pro.tarif_plitkalari("s"), pro.tarif_plitkalari("k")
 eng = min(PRO_PLANS, key=lambda x: x[1] / x[0])[0]
+check(41, "«Eng foydali» belgisi plitka ICHIDA (absolute bilan tepada — iPhone'da chiziq bo'lib chiqdi)",
+      'n.appendChild(el("em",0,"Eng foydali"))' in v.pro_html() and "top:-9px" not in v.pro_html())
 check(28, "tarif plitkalari: nom/narx/chegirma PRO_PLANS va KARTA_NARX dan, eng foydalisi bitta "
           "(kun boshiga eng arzon — tugmalardagi qoida), 1 oyda «oyiga» yo'q",
       [x[0] for x in s_] == [x[2] for x in PRO_PLANS] and [x[3] for x in s_] == [x[3] for x in PRO_PLANS]
@@ -460,7 +467,8 @@ check(28, "tarif plitkalari: nom/narx/chegirma PRO_PLANS va KARTA_NARX dan, eng 
       and [x[1] for x in k_] == [f"{pro.som(KARTA_NARX[x[0]])} so'm" for x in PRO_PLANS]
       and [x[4] for x in s_] == [1 if x[0] == eng else 0 for x in PRO_PLANS] == [x[4] for x in k_]
       and "oyiga" not in s_[0][2] and "oyiga" in s_[-1][2]
-      and f"oyiga ≈ {pro.som(round(KARTA_NARX[365] * 30 / 365))} so'm" in k_[-1][2])
+      and f"oyiga ≈ {pro.som(round(KARTA_NARX[365] * 30 / 365))} so'm" in k_[-1][2].replace(" ", " ")
+      and " so'm" not in k_[-1][2].split("·")[1])     # raqam ichida uzilmaydi (bo'linmas bo'shliq)
 
 PROFIL.update(plan_type="free", premium_until=None)
 OBUNA.clear()

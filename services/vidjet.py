@@ -673,7 +673,13 @@ _BREND_CSS = (
     ".vk{font-size:.62em;font-weight:800;letter-spacing:.22em;color:#dfe3ff;margin-bottom:3px}"
     ".st{font-size:.82em;color:#aab3d9;margin-top:2px}"
     ".pr{display:inline-block;margin-left:7px;padding:1px 8px;border-radius:9px;font-size:.72em;"
-    "letter-spacing:.06em;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff);vertical-align:2px}")
+    "letter-spacing:.06em;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff);vertical-align:2px}"
+    ".wm{white-space:nowrap}"
+    # Telefonda xabar pufagi kompyuterdagidan tor (~290 px): sarlavha bir
+    # qatorda qolsin, «PRO» belgisi pastga tushmasin. `.hd .wm` — shablonning
+    # o'z `.wm{font-size}` qoidasidan kuchliroq (u _BREND_CSS dan keyin keladi).
+    "@media (max-width:340px){.hd{padding:12px;gap:10px}.hd .lg{width:46px;height:46px}"
+    ".hd .wm{font-size:.98em;letter-spacing:.05em}.pr{margin-left:5px;padding:1px 6px}}")
 _JS_ASOS = ("var W=window.TelegramWidget;"
             "function p(s){try{return JSON.parse(s)}catch(e){return null}}"
             "function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;"
@@ -820,6 +826,9 @@ def start_html() -> str:
 # yuboradi — karta `chatDataChanged` da o'sha joyida qayta chiziladi.
 # ⛔️ To'lov tugmalari kartada EMAS — ular xabar ostida (reply_markup), pul
 # yo'li o'zgarmaydi. Plitkalar faqat ko'rsatadi, bosilmaydi.
+# ⚠️ «Eng foydali» belgisi plitka ICHIDA, nom yonida: `position:absolute` bilan
+# plitka tepasiga chiqarilgani iPhone Telegram'ida (2026-11-11) ingichka chiziq
+# va ramka ortida xira matn bo'lib chiqdi; kompyuterda joyida edi.
 _PRO_SHABLON = ("<style>" + _BREND_CSS + """
 .wm{font-size:1.2em}
 .tb{margin-top:8px}
@@ -841,13 +850,13 @@ _PRO_SHABLON = ("<style>" + _BREND_CSS + """
 .b{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:10px;font-size:.8em;background:var(--tg-theme-secondary-bg-color)}
 .u{color:var(--tg-theme-hint-color);font-size:.85em;margin-top:8px}
 .pt{position:relative;display:flex;align-items:center;gap:10px;margin-top:8px;padding:11px 14px;border-radius:14px;background:var(--tg-theme-secondary-bg-color)}
-.pt.bs{margin-top:16px;box-shadow:inset 0 0 0 2px #6b72ff}
+.pt.bs{box-shadow:inset 0 0 0 2px #6b72ff}
 .pt.ob{color:#fff;background:linear-gradient(110deg,#2c3bc4,#7b3fd6)}
 .pn{flex:1;min-width:0}.pn b{display:block}.pn span{font-size:.78em;color:var(--tg-theme-hint-color)}
 .ob .pn span{color:#dfe3ff}
 .pp{text-align:right;white-space:nowrap}.pp b{font-size:1.08em;font-variant-numeric:tabular-nums}
 .pp i{display:block;font-style:normal;font-size:.72em;font-weight:700;color:#2fbf71}
-.pt em{position:absolute;top:-9px;left:12px;padding:1px 8px;border-radius:8px;font-size:.68em;font-style:normal;font-weight:700;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff)}
+.pt em{display:inline-block;margin-left:7px;padding:2px 8px;border-radius:8px;font-size:.66em;font-style:normal;font-weight:700;vertical-align:2px;white-space:nowrap;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff)}
 .gx{display:block;margin:12px auto 2px}
 .sg{display:flex;align-items:center;gap:10px;margin-top:8px;padding:9px 12px;border-radius:12px;background:var(--tg-theme-secondary-bg-color)}
 .sg i{flex:none;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-style:normal;font-weight:700;font-size:.8em;color:#fff;background:linear-gradient(135deg,#3f6bff,#b25cff)}
@@ -869,8 +878,8 @@ if(D.o)i.appendChild(el("div","b","♻️ Har oy o'zi uzayadi"));
 if(D.n)i.appendChild(el("div","u",(D.o?"Keyingi to'lov: ":"Tugaydi: ")+D.n));
 q.appendChild(i);a.appendChild(q);tb((D.r||[]).filter(function(x){return x[3]!="✓"}),1);
 var h=(D.r||[]).filter(function(x){return x[3]=="✓"}).map(function(x){return x[0]+" "+x[1]});if(h.length)a.appendChild(el("div","u","Yana: "+h.join(" · ")))}
-function pt(x,c){var q=el("div","pt"+(x[4]?" bs":"")+(c?" "+c:"")),l=el("div","pn"),r=el("div","pp");l.appendChild(el("b",0,x[0]));l.appendChild(el("span",0,x[2]));q.appendChild(l);
-if(x[3])r.appendChild(el("i",0,x[3]));r.appendChild(el("b",0,x[1]));q.appendChild(r);if(x[4])q.appendChild(el("em",0,"Eng foydali"));a.appendChild(q)}
+function pt(x,c){var q=el("div","pt"+(x[4]?" bs":"")+(c?" "+c:"")),l=el("div","pn"),r=el("div","pp"),n=el("b",0,x[0]);if(x[4])n.appendChild(el("em",0,"Eng foydali"));l.appendChild(n);l.appendChild(el("span",0,x[2]));q.appendChild(l);
+if(x[3])r.appendChild(el("i",0,x[3]));r.appendChild(el("b",0,x[1]));q.appendChild(r);a.appendChild(q)}
 function pl(){var g=D.gf,k=D.e=="k";S.textContent=g?"🎁 Sovg'a: "+g:(k?"💳 Karta orqali · ":"⭐️ Telegram Stars · ")+(D.h=="f"?"muddatni tanlang":"uzaytirish");
 if(D.ob)pt(["♻️ Har oy avtomatik",D.ob+" ⭐/oy","Pro uzilmaydi · istalgan payt o'chirasiz","",0],"ob");
 (D.t||[]).forEach(function(x){pt(x)});
@@ -1020,6 +1029,7 @@ _TOLOV_SHABLON = ("<style>" + _BREND_CSS + """
 .bc{margin-top:10px;padding:14px 16px 12px;border-radius:18px;color:#fff;background:linear-gradient(135deg,#2335a8,#5b2fc0 58%,#141a5c)}
 .bt{display:flex;justify-content:space-between;align-items:center;font-size:.66em;font-weight:800;letter-spacing:.2em;color:#dfe3ff}
 .bn{font-size:1.32em;font-weight:600;letter-spacing:.08em;margin:18px 0 12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media (max-width:340px){.bn{font-size:1.12em;letter-spacing:.03em}.bc{padding:12px 13px 11px}.sm b{font-size:1.25em}.sm{padding:11px 12px}}
 .bo{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.82em;color:#dfe3ff}
 .bo span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cp{flex:none;border:0;border-radius:10px;padding:6px 11px;font:600 .82em system-ui,sans-serif;color:#fff;background:#ffffff33}
@@ -1027,7 +1037,7 @@ _TOLOV_SHABLON = ("<style>" + _BREND_CSS + """
 .sm{display:flex;align-items:center;gap:10px;margin-top:10px;padding:12px 14px;border-radius:16px;background:var(--tg-theme-secondary-bg-color)}
 .sm div{flex:1;min-width:0}
 .sm small{display:block;font-size:.76em;color:var(--tg-theme-hint-color)}
-.sm b{font-size:1.45em;font-variant-numeric:tabular-nums}
+.sm b{font-size:1.45em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .sm i{font-style:normal;color:#7d8bff}
 .w{font-size:.76em;color:var(--tg-theme-hint-color);margin:6px 4px 0}
 .sp{display:flex;gap:4px;margin:14px 2px 0}
@@ -1146,11 +1156,12 @@ _KARTA_SHABLON = ("<style>" + _BREND_CSS + """
 .bt{height:6px;border-radius:3px;margin-top:5px;overflow:hidden;background:var(--tg-theme-secondary-bg-color)}
 .bt i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#3f6bff,#29d0ff)}
 .bt .z{background:#e5484d}
-.gr{display:flex;gap:6px;margin-top:14px}
-.gr div{flex:1;min-width:0;padding:9px 6px;border-radius:12px;text-align:center;background:var(--tg-theme-secondary-bg-color)}
+.gr{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.gr div{flex:1 1 28%;min-width:0;padding:9px 6px;border-radius:12px;text-align:center;background:var(--tg-theme-secondary-bg-color)}
 .gr b{display:block;font-size:.94em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gr span{font-size:.72em;color:var(--tg-theme-hint-color)}
 .ft{text-align:center;color:var(--tg-theme-hint-color);font-size:.76em;margin-top:12px}
+@media (max-width:340px){.gr div{flex-basis:40%}.cr{gap:10px}.cr svg{width:92px;height:92px}}
 </style>
 <div class="hd">""" + _LOGO + """<div class="hi"><div class="vk">VEXON <span class="ai">AI</span></div><div class="nm" id="nm"></div><div class="st" id="st"></div></div><div class="pl" id="pl"></div></div><div id="a"></div>
 <script>""" + _JS_ASOS + """
