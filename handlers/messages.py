@@ -52,6 +52,7 @@ from services.ai import (
     build_rich_markdown, embed_images, strip_image_tokens, strip_rich_tokens,
     strip_custom_emoji, code_fences_to_html, strip_internal_names,
 )
+from services import vidjet
 
 from db.history import take_long_warning
 
@@ -1346,6 +1347,29 @@ def _alifbo(javob: str, savol: str) -> str:
     return alifboga_mosla(javob, savol)
 
 
+async def _testni_yubor(message: Message, savollar: list, thread_id) -> None:
+    """Interaktiv test vidjeti; bo'lmasa — o'sha test matn bilan.
+
+    Test matndan AJRATIB olingan, ya'ni vidjet yetib bormasa savollar
+    hech qayerda qolmaydi — shuning uchun zaxira majburiy. Timeout'da esa
+    takror yo'q: vidjet yetib borgan bo'lishi mumkin (OUTCOME_UNKNOWN)."""
+    html = vidjet.test_html(savollar)
+    if html:
+        outcome: list = []
+        payload = {"chat_id": message.chat.id, "html": html,
+                   "caption": vidjet.test_izohi(savollar)}
+        if thread_id:
+            payload["message_thread_id"] = thread_id
+        if (await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None
+                or OUTCOME_UNKNOWN in outcome):
+            return
+        logger.warning(f"[Vidjet] test rad etildi (chat={message.chat.id}) — matn bilan")
+    matn = vidjet.test_matni(savollar)
+    if await _send_rich_message(message.chat.id, markdown=build_rich_markdown(matn),
+                                message_thread_id=thread_id) is None:
+        await _answer_plain(message, strip_rich_tokens(matn))
+
+
 async def process_stream_draft(message: Message, stream_generator, content_type: str = "text",
                                images: list | None = None) -> str:
     """OpenAI oqimini Telegram rich draft va yakuniy rich message ga ulaydi.
@@ -1477,8 +1501,10 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
         # oqim paytida esa xom holda ekranda turib qolardi.
         # strip_internal_names — ichki tool nomlari oqim paytida ham
         # ekranga chiqmasin (core/config.py: INTERNAL_TOOL_NAMES).
-        display_text = strip_internal_names(
-            strip_rich_tokens(strip_image_tokens(current_text)))
+        # `[test]` — oqimda faqat "tayyorlanmoqda": `+` qatorlari javobni
+        # test boshlanmasdan ochib qo'yardi.
+        display_text = strip_internal_names(strip_rich_tokens(strip_image_tokens(
+            vidjet.test_matnga(current_text, qoralama=True))))
         if not final:
             display_text += " ✍️"
 
@@ -1668,6 +1694,12 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     kod_fayllar: list = []
     if clean_text:
         clean_text, kod_fayllar = _extract_long_code(clean_text)
+    # Test — matndan keyin alohida vidjet (Bot API 10.4). Production'da
+    # vidjet FAQAT shaxsiy chatda; boshqa joyda blok matnda qoladi va
+    # build_rich_markdown uni oddiy testga aylantiradi.
+    testlar: list = []
+    if clean_text and message.chat.type == "private":
+        clean_text, testlar = vidjet.test_ajrat(clean_text)
     if clean_text:
         # Rich xabarga 32768 belgi sig'adi, oddiysiga 4096. Bo'lish
         # qaysi yo'l bilan ketishiga qarab tanlanadi — guruhda ham rich
@@ -1761,6 +1793,9 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                         continue
 
                 await _answer_plain(message, kichik)
+
+    for savollar in testlar:
+        await _testni_yubor(message, savollar, message_thread_id)
 
     # Uzun kod — matndan keyin alohida fayl(lar) bo'lib boradi.
     if kod_fayllar:

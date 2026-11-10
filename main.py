@@ -23,7 +23,7 @@ from handlers import capabilities
 from db.history import init_db
 from core.memory import start_cleanup_task
 from aiogram.filters import Command
-from handlers.profile import handle_profile
+from handlers.profile import handle_profile, vidjet_mw
 from db.database import ensure_profile_columns
 
 from handlers.guest import router as guest_router
@@ -135,6 +135,13 @@ async def main():
         if not messages_module.request_stop(event.draft_id):
             logger.debug(f"[Stop] noma'lum draft_id={event.draft_id} — "
                          "javob allaqachon tugagan bo'lishi mumkin")
+
+    # ═══════════════════════════════════════════════════════════════
+    #  🧩 VIDJET SO'ROVI (Bot API 10.4)
+    # ═══════════════════════════════════════════════════════════════
+    # aiogram 3.31 `widget_query` ni bilmaydi — outer middleware uni
+    # `event_type` o'qilishidan OLDIN ushlaydi (handlers/profile.py).
+    dp.update.outer_middleware(vidjet_mw)
 
     # ═══════════════════════════════════════════════════════════════
     #  TO'LOV HANDLERLARI — dp.message'ga TO'G'RIDAN-TO'G'RI
@@ -396,7 +403,10 @@ async def main():
     # `stopped_message_generation` uchun endi haqiqiy observer bor, ya'ni
     # u ro'yxatga o'zi tushadi — qo'lda qo'shish kerak emas.
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        # `widget_query` — qo'lda: aiogram bu turni bilmaydi (yuqoridagi
+        # middleware), ro'yxatda bo'lmasa Telegram uni umuman yubormaydi.
+        await dp.start_polling(bot, allowed_updates=[
+            *dp.resolve_used_update_types(), "widget_query"])
     finally:
         await _yopish()
 

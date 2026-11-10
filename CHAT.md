@@ -16,12 +16,13 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 
 | | free | Pro |
 |---|---|---|
-| `instructions` (prompt + concise + image note) | 5 565 | 5 565 |
+| `instructions` (prompt + concise + image note) | 5 667 | 5 667 |
 | tool schemas (all doors closed) | 2 264 | 2 637 |
 | capability manifest | 495 | 445 |
-| **fixed total per round** | **8 324** | **8 647** |
+| **fixed total per round** | **8 426** | **8 749** |
 
-(+44 on 2026-11-05: the prompt now names the bot Vexon AI.)
+(+44 on 2026-11-05: the prompt now names the bot Vexon AI. +102 on 2026-11-10: the
+`[test]` quiz rule — the first draft was +202 and was trimmed.)
 | history | 0 → ~8 200, then capped by the summary (~300) | |
 | median user message | ~10 | |
 | median reply | ~70 | |
@@ -690,6 +691,54 @@ Custom emoji in text requires the bot owner to hold Telegram Premium, and a laps
 ### A map is drawn from a marker the model writes
 
 `[xarita:41.3111,69.2797,13]` becomes `<tg-map lat=… long=… zoom=…/>`. Coordinates come from the model — no geocoding, which would add a network call, a rate limit and a failure point. The code validates only the *ranges* (lat −90…90, long −180…180, zoom 1…20) and drops the marker when they fail; it cannot validate the *place*, since 41.9/12.5 is Rome and 41.3/69.3 is Tashkent and both look fine, so accuracy is the prompt's job. `<tg-map/>` is self-closing — written as `<tg-map></tg-map>` it gets the whole message rejected, which is exactly why the tag is emitted by code and not by the model. Like premium emoji, it is skipped inside table cells and `<aside>` via `_outside_dead_zones()`.
+
+### Widgets: a quiz from a marker, a live card on /profile (Bot API 10.4, 2026-11-10)
+
+A widget is HTML that runs **inside the message**: QuickJS in a sandbox, no network at
+all, no keyboard (inputs are removed), at most 32 KB of HTML and **4 KB after zlib level
+9**, state written only by the bot (`chat_data` / `public_data`, 1 KB each). Full rules:
+https://core.telegram.org/bots/widgets. ⚠️ In production a widget works **only in the
+private chat with the bot** and cannot be forwarded; groups, inline and forwards are
+test-server only. An app without widget support shows only the caption.
+
+⛔️ **The model never writes widget HTML** — the map/button rule again. It writes
+`[test] ? savol / + to'g'ri / - xato / ! izoh [/test]`; `services/vidjet.py` parses it and
+fills a fixed template. Model text enters the script as JSON with `<` escaped to `<`
+(so `</script>` in a question cannot close the script) and reaches the screen only through
+`textContent`. A malformed question is dropped and the answers are shuffled in code (the
+model almost always writes the correct one first).
+
+- **DM:** `process_stream_draft()` pulls the block out like `_extract_long_code()` and
+  `_testni_yubor()` sends `sendWidget` after the text. The block is no longer in the text,
+  so a rejected widget must fall back to the **text** quiz, or the questions are lost. A
+  timeout gets no retry (`OUTCOME_UNKNOWN`, same as rich sends). A quiz that does not fit
+  4 KB goes as text whole, never silently cut. History keeps the original block.
+- **Everywhere else** (groups, guest, the plain fallback) `test_matnga()` runs first in
+  `build_rich_markdown()` / `strip_rich_tokens()` and turns the block into a text quiz,
+  answers in `[batafsil: Javoblar]`. ⚠️ The **draft** uses `qoralama=True` and shows only
+  «tayyorlanmoqda»: the `+` lines would otherwise reveal every answer while streaming.
+  `clean_text_for_speech()` runs it too.
+- The quiz sends **no** queries: answers live in the message's `localStorage`.
+
+**/profile** in a DM is one widget message: the live counters are the widget, the profile
+header is the caption (plus a one-line credit snapshot for apps without widgets), the Pro
+keyboard sits under it. If `sendWidget` is rejected the old text profile goes out
+unchanged. The card asks the bot `"y"` when it appears on screen and every 15 s while
+visible (background requests: private chat only, at most one per 5 s), and
+`profile.vidjet_sorovi()` answers with **that user's** counters (`from` is authenticated
+by Telegram). So nothing that charges points has to "refresh the card".
+`karta_raqamlari()` reads the same profile as the text and the same expiry rule
+(`_amaldagi_tarif()`). Every query is answered, even when the database fails, or the
+widget shows `TIMEOUT`.
+
+⚠️ **aiogram 3.31 does not know `widget_query`.** The field lands in `Update.model_extra`
+and `update.event_type` raises "unknown update type", so `profile.vidjet_mw` is a
+`dp.update` **outer** middleware: it runs before `_listen_update` reads `event_type`. And
+`"widget_query"` is appended to `allowed_updates` by hand, because
+`resolve_used_update_types()` cannot find a type that has no observer; without it Telegram
+never sends the update and the card silently stays on its first numbers. When aiogram
+learns 10.4 the field becomes real, so the middleware reads both, like the
+`disabled`/`model_extra` rule. `tests/test_vidjet.py` checks 29-30 run a real `Dispatcher`.
 
 ### Editing a photo the user already sent
 

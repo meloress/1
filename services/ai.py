@@ -29,6 +29,7 @@ else:
 from services import avto_tatil
 from services.file_task_quota import FileTaskQuota, DailyQuota
 from services.sandbox import run_in_sandbox
+from services.vidjet import test_matnga
 
 try:
     from core.config import (
@@ -1269,7 +1270,8 @@ def strip_rich_tokens(text: str) -> str:
     """
     if not text:
         return text
-    out = _DETAILS_OPEN_RE.sub(lambda m: f"**{m.group(1).strip()}**", text)
+    # Test bloki BIRINCHI: u o'zi `[batafsil: Javoblar]` hosil qiladi.
+    out = _DETAILS_OPEN_RE.sub(lambda m: f"**{m.group(1).strip()}**", test_matnga(text))
     out = _DETAILS_CLOSE_RE.sub("", out)
     # Xarita oddiy xabarda chizilmaydi — belgi shunchaki olib tashlanadi
     # (matnning o'zi joyni baribir aytadi). Tugma esa havolaga aylanadi:
@@ -1568,7 +1570,10 @@ def build_rich_markdown(text: str) -> str:
     """Best-effort rich message markdown for Telegram Bot API 10.3."""
     if not text:
         return ""
-    protected, placeholders = _protect_spans(text)
+    # `[test]` bu yerga faqat vidjet chizilmaydigan joyda yetib keladi
+    # (guruh, guest): oddiy test bo'ladi, javoblari yig'iladigan bo'limda.
+    # Himoyadan OLDIN — u hosil qilgan `[batafsil:]` pastda <details> bo'lsin.
+    protected, placeholders = _protect_spans(test_matnga(text))
     # ⚠️ Jadval BIRINCHI o'giriladi va aynan himoya ICHIDA: (a) kod
     # bloklaridagi `|` jadvalga o'xshaydi; (b) _cell_html() katak matnini
     # html_escape qiladi, ya'ni undan OLDIN qo'yilgan <tg-time>/<tg-math>
@@ -5607,6 +5612,8 @@ def clean_text_for_speech(text: str) -> str:
     """
     # 1. Oxiridagi manbalar ro'yxati. Ekrandagidan farqli: bu yerda
     #    BITTA manba ham yetarli, chunki u ham to'liq o'qilib ketadi.
+    # Test belgilari (`? + -`) o'qilsa, javob savoldan oldin aytilib qo'yardi.
+    text = _DETAILS_CLOSE_RE.sub("", _DETAILS_OPEN_RE.sub(r"\1", test_matnga(text)))
     satrlar = text.rstrip().split("\n")
     topilgan = _sources_tail(satrlar, 1)
     if topilgan is not None:

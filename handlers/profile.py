@@ -1,4 +1,6 @@
 from aiogram import types
+from core.loader import logger
+from services import vidjet
 from datetime import datetime, timezone, timedelta
 from db.database import get_full_user_profile
 from core.config import (
@@ -167,6 +169,91 @@ def _build_pro_counters(profile: dict, plan_type: str) -> str:
     return "💎 <b>PRO IMKONIYATLARI</b>\n" + "\n".join(rows)
 
 
+def _amaldagi_tarif(profile: dict) -> str:
+    """Muddati o'tgan, lekin watcher hali free'ga tushirmagan Pro — bot uni
+    allaqachon bepul deb hisoblaydi (check_and_consume_quota); ekran ham shunday."""
+    plan_type = profile.get('plan_type') or 'free'
+    tugash = profile.get('premium_until')
+    if plan_type != 'free' and tugash is not None and tugash < datetime.now(timezone.utc):
+        return 'free'
+    return plan_type
+
+
+def karta_raqamlari(profile: dict) -> dict:
+    """Jonli kartaning raqamlari (services/vidjet.py: kalitlar). Matnli
+    profil bilan BIR XIL manba va bir xil qoida: bepulda yo'q imkoniyat
+    (chegara 0) chizilmaydi, None — cheksiz."""
+    plan_type = _amaldagi_tarif(profile)
+    out = {}
+    for kalit, limit_nomi, ustun in (
+            ("b", "points", "daily_requests_used"), ("f", "files", "daily_files_used"),
+            ("r", "images", "daily_images_used"), ("t", "research", "daily_research_used")):
+        limit = daily_limit(plan_type, limit_nomi)
+        if limit is None or limit > 0:
+            used = profile.get(ustun, 0) or 0
+            out[kalit] = [min(used, limit) if limit is not None else used, limit]
+    return out
+
+
+async def vidjet_sorovi(sorov: dict) -> None:
+    """Karta vidjetining "y" so'roviga yangi raqamlar (`widget_query`).
+
+    `from` ni Telegram o'zi tasdiqlaydi (soxtalashtirib bo'lmaydi) — shuning
+    uchun javob har doim SO'RAGAN odamning raqamlari. Har so'rovga javob
+    beriladi, xatoda ham: javobsiz so'rov vidjetda TIMEOUT bo'ladi."""
+    from handlers.messages import _telegram_api_request  # ⚠️ og'ir modul
+    javob = {"widget_query_id": sorov.get("id")}
+    uid = (sorov.get("from") or {}).get("id")
+    if sorov.get("data") == vidjet.KARTA_SOROVI and uid:
+        try:
+            profil = await get_full_user_profile(uid)
+            if profil:
+                javob["data"] = vidjet.karta_holati(karta_raqamlari(profil))
+        except Exception as e:
+            logger.warning(f"[Vidjet] karta raqamlari o'qilmadi (user={uid}): {e}")
+    await _telegram_api_request("answerWidgetQuery", javob)
+
+
+async def vidjet_mw(handler, event, data):
+    """`dp.update` outer middleware — vidjet so'rovini zanjirdan oldin oladi.
+
+    aiogram 3.31 `widget_query` ni BILMAYDI: maydon `model_extra` ga
+    tushadi, `update.event_type` esa "unknown update type" deb yiqiladi.
+    Outer middleware o'sha joydan (ichki `_listen_update`) OLDIN ishlaydi.
+    aiogram 10.4'ni o'rgangach maydon haqiqiy bo'ladi — ikkalasi o'qiladi."""
+    sorov = (getattr(event, "widget_query", None)
+             or (event.model_extra or {}).get("widget_query"))
+    if sorov is None:
+        return await handler(event, data)
+    if not isinstance(sorov, dict):
+        sorov = sorov.model_dump(by_alias=True, exclude_none=True)
+    await vidjet_sorovi(sorov)
+
+
+async def _karta_yubor(message: types.Message, profile: dict, sarlavha: str, kb) -> bool:
+    """Shaxsiy chatda profil — jonli karta vidjeti, izohi profil sarlavhasi.
+    Qaytadi: yetib bordimi (yoki timeout — takror yuborilmaydi)."""
+    from handlers.messages import (OUTCOME_UNKNOWN, _telegram_api_request,
+                                   _thread_key)
+    raqam = karta_raqamlari(profile)
+    b = raqam.get("b")
+    # Vidjetni qo'llamaydigan ilova FAQAT izohni ko'radi — ball o'sha yerda ham tursin.
+    if b:
+        sarlavha += ("\n\n🔋 <b>AI Creditlar:</b> "
+                     + ("cheksiz" if b[1] is None else f"<code>{b[0]} / {b[1]}</code>"))
+    payload = {"chat_id": message.chat.id, "html": vidjet.karta_html(),
+               "chat_data": vidjet.karta_holati(raqam), "allow_queries": True,
+               "caption": sarlavha[:vidjet.CAPTION_MAX], "parse_mode": "HTML",
+               "show_caption_above_media": True,
+               "reply_markup": kb.model_dump(exclude_none=True)}
+    if tid := _thread_key(message):
+        payload["message_thread_id"] = tid
+    outcome: list = []
+    if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
+        return True
+    return OUTCOME_UNKNOWN in outcome
+
+
 async def handle_profile(message: types.Message, user_id: int | None = None):
     """Foydalanuvchi profilini shakllantirish va yuborish.
 
@@ -186,12 +273,7 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
     else:
         username = "Mavjud emas"
     status_text = "🟢 Faol" if profile_data['is_active'] else "🔴 Bloklangan"
-    plan_type = profile_data['plan_type'] or 'free'
-    # Muddati o'tgan, lekin watcher hali free'ga tushirmagan Pro — bot uni
-    # allaqachon bepul deb hisoblaydi (check_and_consume_quota); ekran ham shunday.
-    tugash = profile_data.get('premium_until')
-    if plan_type != 'free' and tugash is not None and tugash < datetime.now(timezone.utc):
-        plan_type = 'free'
+    plan_type = _amaldagi_tarif(profile_data)
     plan_label = _plan_label(plan_type, profile_data.get('premium_until'))
     media_status = "Faol" if profile_data['media_analysis_active'] else "O'chirilgan"
     daily_used = profile_data['daily_requests_used']
@@ -204,7 +286,7 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
         profile_data.get('daily_files_used', 0), file_limit, plan_type)
     pro_section = _build_pro_counters(profile_data, plan_type)
 
-    text = (
+    sarlavha = (
         f"🪪 <b>SHAXSIY KABINET</b>\n\n"
         f"👤 <b>Profil:</b> {username}\n"
         f"🆔 <b>ID:</b> <code>{profile_data['user_id']}</code>\n"
@@ -215,8 +297,10 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
         f"🧠 <b>Tanlangan Model:</b> <code>{profile_data['current_model']}</code>\n\n"
         
         f"📊 <b>FOYDALANISH STATISTIKASI</b>\n"
-        f"├ ✉️ <b>Barcha xabarlar:</b> <code>{profile_data['total_messages']}</code>\n\n"
-
+        f"├ ✉️ <b>Barcha xabarlar:</b> <code>{profile_data['total_messages']}</code>"
+    )
+    text = (
+        f"{sarlavha}\n\n"
         f"{credit_section}\n\n"
 
         f"{file_section}\n\n"
@@ -227,5 +311,13 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
     # Klaviatura quruvchisi pro.py'da yashaydi (pro.py profile.py'ni
     # import qilmaydi — sikl bo'lmasligi uchun shu yo'nalish).
     from handlers.pro import pro_keyboard_for
-    await message.answer(text, parse_mode="HTML",
-                         reply_markup=pro_keyboard_for(plan_type))
+    kb = pro_keyboard_for(plan_type)
+    # Bot API 10.4: shaxsiy chatda raqamlar — jonli karta. Rad etilsa
+    # (eski server, buzuq tugma) — oldingi matnli profil, o'zgarishsiz.
+    if message.chat.type == "private":
+        try:
+            if await _karta_yubor(message, profile_data, sarlavha, kb):
+                return
+        except Exception as e:
+            logger.warning(f"[Vidjet] karta yuborilmadi (user={user_id}): {e}")
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)

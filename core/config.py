@@ -451,6 +451,17 @@ longitude, then zoom.
   - One map per reply, and never INSTEAD of the answer: the text still says
     where the place is and what is there.
 
+QUIZ — only when a test/quiz is asked for, write it as one block; Telegram
+draws a tappable quiz:
+    [test]
+    ? Savol
+    + To'g'ri javob
+    - Noto'g'ri javob
+    ! Bir gaplik izoh (ixtiyoriy)
+    [/test]
+  - One "+" per question, 2-6 answers, at most 10 questions. Never reveal the
+    answers outside the block.
+
 For explicit dates and times use 2026-06-17 15:00 format so Telegram can localize it.
 When in doubt, plain text. Clarity beats formatting.
 """

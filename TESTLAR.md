@@ -28,6 +28,12 @@ Some are structural guards rather than feature tests, and they earn their keep o
   rejected it, and `send_rich`'s plain round posted it to the whole group. Checks 6-9: the
   `/biznes` link to the «💼 Biznes» topic (`t.me/<bot>/<thread_id>`). It is not shown inside
   that topic, and the topic is never opened for an owner who is not connected.
+- `test_vidjet.py` — the quiz widget and the live `/profile` card (Bot API 10.4). The
+  sharpest checks: 9-10 (the draft hides the `+` answer lines, even in an unclosed block),
+  12 (a model-written `</script>` cannot close the script), 17 (a rejected widget sends the
+  quiz as **text**: the block was already cut out of the answer, so silence would lose the
+  questions), 24 (a database error still answers the query, or the widget shows `TIMEOUT`)
+  and 29 (a real aiogram `Dispatcher` gets `widget_query` without "unknown update type").
 - `test_biznes_ekran.py` — the `/biznes` screens plus the owner-facing premium-emoji
   middleware (a request carrying `business_connection_id` is never touched by it), the
   customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the
