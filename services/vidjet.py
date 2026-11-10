@@ -745,43 +745,93 @@ def _sarlavha(nom: str, izoh_id: str = "st", pro: bool = False) -> str:
 # Ma'lumotsiz, so'rovsiz: logo, nom va o'zi almashadigan imkoniyatlar.
 # Slaydlar — `_greeting_text()` dagi va'dalarning O'ZI (u izohda turadi):
 # karta botda yo'q narsani va'da qilmasin (rasm chizish — Pro, shu yerda yo'q).
+# Birinchi maydon — `_IKONKA` kaliti: oddiy emoji emas, logo gradientidagi
+# SVG ikonka. Logo emojilarimiz (custom emoji, stiker) vidjet ichida
+# CHIQMAYDI — vidjet tarmoqsiz, stikerni yuklay olmaydi.
 START_SLAYDLAR = (
-    ("💬", "Istalgan savol", "Kerak bo'lsa internetdan qidiraman va manbasini ko'rsataman"),
-    ("📄", "Hujjatlar", "PDF, Word, Excel yoki TXT yuboring — o'qib, tahlil qilaman"),
-    ("📸", "Rasmlar", "Rasm yuboring — xuddi insondek ko'rib tushuntiraman"),
-    ("🎙", "Ovozli xabar", "Gapirib so'rang — ovozli javob qaytaraman"),
-    ("🛠", "Fayl yarataman", "Taqdimot, PDF, Word va Excel tayyorlab beraman"),
-    ("🌤", "Har kungi yordam", "Ob-havo, valyuta kursi, namoz vaqtlari va eslatmalar"),
+    ("c", "Istalgan savol", "Kerak bo'lsa internetdan qidiraman va manbasini ko'rsataman"),
+    ("d", "Hujjatlar", "PDF, Word, Excel yoki TXT yuboring — o'qib, tahlil qilaman"),
+    ("f", "Rasmlar", "Rasm yuboring — xuddi insondek ko'rib tushuntiraman"),
+    ("m", "Ovozli xabar", "Gapirib so'rang — ovozli javob qaytaraman"),
+    ("b", "Fayl yarataman", "Taqdimot, PDF, Word va Excel tayyorlab beraman"),
+    ("w", "Har kungi yordam", "Ob-havo, valyuta kursi, namoz vaqtlari va eslatmalar"),
 )
+# Ikonkalar (24×24, chiziqli, `url(#ig)` — logo gradienti). Har biri faol
+# slaydda o'z harakatini qiladi; hammasi faqat transform (`.bo` sakraydi,
+# `.sx` cho'ziladi, `.ro` aylanadi, `.pu` uradi). O'zimizning satrlar —
+# innerHTML'ga faqat shular tushadi, model/foydalanuvchi matni emas.
+_IKONKA = {
+    "c": '<path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>'
+         '<g fill="url(#ig)" stroke="none"><circle class="bo" cx="8" cy="10.5" r="1.3"/>'
+         '<circle class="bo b2" cx="12" cy="10.5" r="1.3"/><circle class="bo b3" cx="16" cy="10.5" r="1.3"/></g>',
+    "d": '<path d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M14 2v5h5"/>'
+         '<path class="sx" d="M8 12h8"/><path class="sx b2" d="M8 15.5h8"/><path class="sx b3" d="M8 19h5"/>',
+    "f": '<rect x="3" y="4" width="18" height="16" rx="3"/><circle class="pu" cx="9" cy="9.5" r="1.8"/>'
+         '<path d="M21 15.5l-4.5-4.5L6 20"/>',
+    "m": '<rect class="pu" x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
+    "b": '<path class="ro" d="M12 2.5l2.1 5.6 5.9 2.1-5.9 2.1L12 18l-2.1-5.7L4 10.2l5.9-2.1z"/>'
+         '<path class="pu" d="M19 15.5l.9 2.2 2.1.8-2.1.8-.9 2.2-.9-2.2-2.1-.8 2.1-.8z"/>',
+    "w": '<g class="ro"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22'
+         'M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g>',
+}
+# «Orbita»: logo markazda, imkoniyatlar uning halqasida aylanadi — faoli
+# tepaga chiqadi, matni pastda almashadi. Karusel = logo orbitasi (nuqtalar
+# kerak emas, joyni orbita ko'rsatadi). Hammasi transform: halqa `.o`
+# −60°·I ga buriladi, har tugun `.n` +60°·I ga — ikonka doim tik turadi.
 _START_SHABLON = ("<style>" + _BREND_CSS + """
-.c{border-radius:20px;padding:18px 14px 14px;color:#fff;text-align:center;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1c2b8f 0,#0a0f2e 55%,#05060f 100%)}
-.c .lg{width:96px;height:96px;animation:fl 4s ease-in-out infinite}
-@keyframes fl{50%{transform:translateY(-5px)}}
-.c .wm{font-size:1.5em;letter-spacing:.22em;margin-top:6px}
-.c .st{margin:2px 0 14px}
-.w{overflow:hidden;border-radius:14px;background:#141a3d}
-.t{display:flex;transition:transform .5s}
-.s{flex:0 0 100%;box-sizing:border-box;padding:14px;text-align:left;min-height:66px}
-.s b{display:block;margin-bottom:3px}
-.s span{color:#c7cdee;font-size:.88em}
-.i{font-size:1.7em;float:left;margin:1px 12px 0 0}
-.d{margin-top:10px}
-.d i{display:inline-block;width:6px;height:6px;border-radius:3px;margin:0 3px;background:#3a4380;transition:width .3s}
-.d .on{width:18px;background:linear-gradient(90deg,#3f6bff,#29d0ff)}
+.c{border-radius:22px;padding:6px 16px 18px;color:#eef1ff;overflow:hidden;background:radial-gradient(90% 60% at 50% 34%,#1d2a8c 0,#0e1440 48%,#070b24 100%)}
+.or{position:relative;width:250px;height:250px;margin:14px auto 0}
+.or>svg,.o,.lc{position:absolute;left:0;top:0;width:250px;height:250px}
+.hl{transform-origin:125px 125px;animation:rg 14s linear infinite}
+.o{transition:transform .9s cubic-bezier(.6,-.2,.25,1.25)}
+.n{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;transition:transform .9s cubic-bezier(.6,-.2,.25,1.25)}
+.i{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#121a52;box-shadow:inset 0 0 0 1px #34409e;transition:transform .5s,box-shadow .5s,background .5s}
+.n.on .i{transform:scale(1.3);background:#17206a;box-shadow:inset 0 0 0 2px #5b8cff,0 0 0 6px #4f7bff26}
+.i svg{width:24px;height:24px;fill:none;stroke:url(#ig);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;overflow:visible}
+.lc{display:flex;align-items:center;justify-content:center;pointer-events:none}
+.lc .lg{width:104px;height:104px;animation:fl 5s ease-in-out infinite}
+.lc .rg{display:none}
+@keyframes fl{50%{transform:translateY(-4px)}}
+.wm{font-size:1.65em;letter-spacing:-.01em;text-align:center;margin-top:8px}
+.ai{color:#9fb0ff}
+.tg{text-align:center;color:#9aa3d6;font-size:.86em;margin:2px 0 16px}
+.f{border-radius:16px;padding:14px 16px;background:#0b1035;box-shadow:inset 0 0 0 1px #222b74;min-height:62px}
+.f b{display:block;font-size:1.08em;margin-bottom:4px}
+.f span{color:#c3c9ee;font-size:.9em;line-height:1.4}
+.f.v{animation:kr .45s ease-out}
+@keyframes kr{from{transform:translateY(7px)}}
+.on .bo{animation:bo 1.2s ease-in-out infinite}
+@keyframes bo{30%{transform:translateY(-2px)}}
+.on .sx{transform-origin:8px 0;animation:sx 1.6s ease-in-out infinite}
+@keyframes sx{0%{transform:scaleX(.2)}60%,100%{transform:scaleX(1)}}
+.on .ro{transform-origin:12px 12px;animation:rg 8s linear infinite}
+.on .pu{transform-origin:12px 12px;animation:pu 1.4s ease-in-out infinite}
+@keyframes pu{50%{transform:scale(1.12)}}
+.b2{animation-delay:.15s!important}.b3{animation-delay:.3s!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-<div class="c">""" + _LOGO + """<div class="wm">VEXON <span class="ai">AI</span></div><div class="st">Sizning shaxsiy AI yordamchingiz</div>
-<div class="w"><div class="t" id="t"></div></div><div class="d" id="d"></div></div>
+<div class="c"><div class="or" id="or"><svg viewBox="0 0 250 250"><defs><linearGradient id="ig" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b8cff"/><stop offset=".5" stop-color="#29d0ff"/><stop offset="1" stop-color="#c77dff"/></linearGradient></defs>
+<circle cx="125" cy="125" r="103" fill="none" stroke="#28318a" stroke-width="1.2"/>
+<circle class="hl" cx="125" cy="125" r="103" fill="none" stroke="url(#ig)" stroke-width="2" stroke-dasharray="70 577" stroke-linecap="round"/>
+<circle cx="125" cy="125" r="78" fill="none" stroke="#1f2770" stroke-width="1" stroke-dasharray="2 7"/></svg>
+<div class="o" id="o"></div><div class="lc">""" + _LOGO + """</div></div>
+<div class="wm">Vexon <span class="ai">AI</span></div><div class="tg">Shaxsiy AI yordamchingiz</div>
+<div class="f" id="f"></div></div>
 <script>""" + _JS_ASOS + """
-var S=@@S@@,t=document.getElementById("t"),d=document.getElementById("d"),I=0,K=[],T;
-S.forEach(function(x,i){var s=el("div","s"),k=el("i");s.appendChild(el("div","i",x[0]));s.appendChild(el("b",0,x[1]));s.appendChild(el("span",0,x[2]));t.appendChild(s);k.onclick=function(){g(i);R()};d.appendChild(k);K.push(k)});
-function g(i){I=(i+S.length)%S.length;t.style.transform="translateX("+(-100*I)+"%)";K.forEach(function(k,j){k.className=j==I?"on":""})}
-function R(){clearInterval(T);T=setInterval(function(){g(I+1)},3800)}
-g(0);R();t.onclick=function(){g(I+1);R()};
+var S=@@S@@,IK=@@I@@,o=document.getElementById("o"),f=document.getElementById("f"),N=[],I=-1,A=0,L=S.length,T;
+S.forEach(function(x,i){var a=(i/S.length*360-90)*Math.PI/180,n=el("div","n"),c=el("div","i");n.style.left=125+103*Math.cos(a)+"px";n.style.top=125+103*Math.sin(a)+"px";
+c.innerHTML='<svg viewBox="0 0 24 24">'+(IK[x[0]]||"")+"</svg>";n.appendChild(c);n.onclick=function(e){e.stopPropagation();g(i);R()};o.appendChild(n);N.push(n)});
+function g(i){i=(i+L)%L;if(i==I)return;var d=I<0?i:((i-I)%L+L)%L;if(d>L/2)d-=L;A+=d;I=i;var r=-360/L*A;o.style.transform="rotate("+r+"deg)";
+N.forEach(function(n,j){n.style.transform="rotate("+(-r)+"deg)";n.className=j==I?"n on":"n"});
+f.className="f";f.innerHTML="";f.appendChild(el("b",0,S[I][1]));f.appendChild(el("span",0,S[I][2]));void f.offsetWidth;f.className="f v"}
+function R(){clearInterval(T);T=setInterval(function(){g(I+1)},4200)}
+g(0);R();document.getElementById("or").onclick=f.onclick=function(){g(I+1);R()};
 </script>""")
 
 
 def start_html() -> str:
-    return _START_SHABLON.replace("@@S@@", _json([list(s) for s in START_SLAYDLAR]))
+    return (_START_SHABLON.replace("@@S@@", _json([list(s) for s in START_SLAYDLAR]))
+            .replace("@@I@@", _json(_IKONKA)))
 
 
 # ── /pro: tariflar kartasi ────────────────────────────────────────
