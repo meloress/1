@@ -1,6 +1,6 @@
 from aiogram import types
 from core.loader import logger
-from services import vidjet
+from services import obhavo, vidjet
 from datetime import datetime, timezone, timedelta
 from db.database import get_full_user_profile
 from core.config import (
@@ -204,7 +204,17 @@ async def vidjet_sorovi(sorov: dict) -> None:
     from handlers.messages import _telegram_api_request  # ⚠️ og'ir modul
     javob = {"widget_query_id": sorov.get("id")}
     uid = (sorov.get("from") or {}).get("id")
-    if sorov.get("data") == vidjet.KARTA_SOROVI and uid:
+    data = sorov.get("data") or ""
+    if data.startswith(vidjet.OBHAVO_SOROVI):
+        # Ob-havo kartasi — "w:lat,lon". `data` foydalanuvchi qurilmasidan
+        # keladi (callback_data kabi): faqat ikki son, diapazoni tekshirilgan.
+        try:
+            lat, lon = (float(x) for x in data[len(vidjet.OBHAVO_SOROVI):].split(","))
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                javob["data"] = vidjet.obhavo_holati(await obhavo.prognoz(lat, lon))
+        except Exception as e:
+            logger.info(f"[Vidjet] ob-havo yangilanmadi ({data!r}): {e}")
+    elif data == vidjet.KARTA_SOROVI and uid:
         try:
             profil = await get_full_user_profile(uid)
             if profil:

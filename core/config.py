@@ -507,6 +507,7 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "update_memory": "xotirani yangilash",
     "manage_reminder": "eslatma qo'yish",
     "find_nearby": "yaqin atrofdagi joylarni topish",
+    "ob_havo": "ob-havo ma'lumotini olish",
     # Ikki bosqichli asboblarning "eshik" nomlari — ular ham model
     # ko'radigan haqiqiy nomlar, ya'ni ular ham sirqib chiqishi mumkin.
     "start_file_task": "fayl yaratishni boshlash",

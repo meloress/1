@@ -239,3 +239,77 @@ def karta_html() -> str:
 def karta_holati(raqamlar: dict) -> str:
     """`chat_data` va so'rov javobi — bitta format (1024 baytdan ancha kichik)."""
     return _json(raqamlar)
+
+
+# ── Ob-havo kartasi ───────────────────────────────────────────────
+# Holat (`chat_data`) — services/obhavo.py::prognoz() qaytargan lug'at.
+# Shahar nomi tashqi API'dan keladi — u ham faqat textContent orqali chiqadi;
+# innerHTML ga faqat shu yerdagi O'ZIMIZNING ikonka satrlari tushadi.
+# Yangilash: karta ko'ringanda ma'lumot 15 daqiqadan eski bo'lsa botdan
+# "w:lat,lon" so'raydi; yangisi shu xabarning localStorage'ida qoladi.
+# ⚠️ Animatsiya faqat transform bilan: opacity/blur vidjet profilida "og'ir"
+# element, 16 tadan oshsa vidjet to'xtatiladi.
+OBHAVO_SOROVI = "w:"
+_OBHAVO_SHABLON = """<style>
+body{margin:0;padding:14px 16px 16px;font-family:system-ui,sans-serif;color:#fff;background:linear-gradient(165deg,#4f9be6,#2a62b8)}
+body.b{background:linear-gradient(165deg,#8494a8,#4d5b6e)}
+body.n{background:linear-gradient(165deg,#24335c,#0e1530)}
+.u{display:flex;justify-content:space-between;align-items:flex-start}
+.c{font-weight:600}
+.h{font-size:3.4em;font-weight:300;line-height:1.05;margin:2px 0}
+.s{font-size:.92em}
+.m{font-size:.8em;color:rgba(255,255,255,.82);margin-top:8px}
+.r{display:flex;margin-top:10px;padding:8px 4px;border-radius:14px;background:rgba(255,255,255,.16)}
+.r div{flex:1;text-align:center;font-size:.75em;color:rgba(255,255,255,.85)}
+.r b{display:block;font-size:1.25em;color:#fff;font-weight:600}
+.r svg{margin:3px auto}
+@keyframes a{to{transform:rotate(360deg)}}
+@keyframes d{0%,100%{transform:translateX(0)}50%{transform:translateX(1.5px)}}
+@keyframes y{from{transform:translateY(-2px)}to{transform:translateY(2px)}}
+.a .ry{transform-origin:12px 12px;animation:a 14s linear infinite}
+.a .cl{animation:d 4s ease-in-out infinite}
+.a .dr{animation:y .8s linear infinite alternate}
+</style>
+<div id="a"></div>
+<script>
+var W=window.TelegramWidget,D,
+SN='<g class="ry" stroke="#FFD54A" stroke-width="1.6" stroke-linecap="round"><path d="M12 1.5v2.4M12 20.1v2.4M1.5 12h2.4M20.1 12h2.4M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M4.6 19.4l1.7-1.7M17.7 6.3l1.7-1.7"/></g><circle cx="12" cy="12" r="4.6" fill="#FFD54A"/>',
+MN='<path fill="#F3E3A1" d="M15 3a8.8 8.8 0 1 0 6 15.2A7.2 7.2 0 0 1 15 3z"/>',
+CL='<path class="cl" fill="#fff" d="M7 18.5h10.6a4 4 0 0 0 .3-8 5.6 5.6 0 0 0-10.8 1.6A3.2 3.2 0 0 0 7 18.5z"/>',
+CU='<path class="cl" fill="#fff" d="M7 15.5h10.6a4 4 0 0 0 .3-8 5.6 5.6 0 0 0-10.8 1.6A3.2 3.2 0 0 0 7 15.5z"/>',
+G={q:SN,qb:'<g transform="translate(-4 -4) scale(.8)">'+SN+'</g>'+CL,b:CL,
+t:'<path stroke="#fff" stroke-width="1.8" stroke-linecap="round" d="M4 8h16M2.5 12h19M5 16h14"/>',
+y:CU+'<path class="dr" stroke="#9fd3ff" stroke-width="1.6" stroke-linecap="round" d="M9 18l-1 3M13 18l-1 3M17 18l-1 3"/>',
+qr:CU+'<g class="dr" fill="#fff"><circle cx="8.5" cy="19.5" r="1.1"/><circle cx="12.5" cy="21" r="1.1"/><circle cx="16.5" cy="19.5" r="1.1"/></g>',
+m:CU+'<path fill="#FFD54A" d="M12.8 15l-3 4.6h2.3l-1 3.9 4-5.6h-2.3l1.6-2.9z"/>'};
+function p(s){try{return JSON.parse(s)}catch(e){return null}}
+function ic(k,n,tun,a){var g=G[k]||CL;if(tun&&k=="q")g=MN;if(tun&&k=="qb")g='<g transform="translate(-4 -4) scale(.8)">'+MN+'</g>'+CL;
+return '<svg'+(a?' class="a"':'')+' width="'+n+'" height="'+n+'" viewBox="0 0 24 24">'+g+'</svg>'}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function qator(v,f){var r=el("div","r");v.forEach(function(x){var c=el("div");f(c,x);r.appendChild(c)});return r}
+function r(d){if(!d)return;D=d;var a=document.getElementById("a"),u=el("div","u"),l=el("div"),i=el("div");
+document.body.className=d.tun?"n":/^(b|t|y|qr|m)$/.test(d.k)?"b":"";
+a.innerHTML="";l.appendChild(el("div","c",d.j));l.appendChild(el("div","h",d.h+"°"));l.appendChild(el("div","s",d.s));
+i.innerHTML=ic(d.k,78,d.tun,1);u.appendChild(l);u.appendChild(i);a.appendChild(u);
+a.appendChild(el("div","m","His qilinadi "+d.f+"° · Shamol "+d.w+" km/soat · Namlik "+d.nm+"%"));
+a.appendChild(qator(d.s2,function(c,x){c.appendChild(el("span",0,x[0]));var s=el("div");s.innerHTML=ic(x[1],22,x[3]);c.appendChild(s);c.appendChild(el("b",0,x[2]+"°"))}));
+a.appendChild(qator(d.k3,function(c,x){c.appendChild(el("span",0,x[0]));var s=el("div");s.innerHTML=ic(x[1],22,0);c.appendChild(s);c.appendChild(el("b",0,x[2]+"°"));c.appendChild(el("span",0,x[3]+"°"))}));
+a.appendChild(el("div","m",d.v+" holatiga · Open-Meteo"))}
+var S=p(W&&W.chatData),L;try{L=p(localStorage.getItem("d"))}catch(e){}
+r(L&&S&&L.t>S.t?L:S);
+function y(){if(!W||!W.request||!D||!D.c||Date.now()/1e3-D.t<900)return;
+W.request("w:"+D.c[0]+","+D.c[1]).then(function(o){var x=p(o.result);if(x&&x.s2){x.j=D.j;r(x);try{localStorage.setItem("d",JSON.stringify(x))}catch(e){}}},function(){})}
+y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});setInterval(y,60000);
+</script>"""
+
+
+def obhavo_html() -> str:
+    return _OBHAVO_SHABLON
+
+
+def obhavo_holati(d: dict) -> str:
+    return _json(d)
+
+
+def obhavo_izohi(d: dict) -> str:
+    return f"🌤 {d['j']}: {d['h']}°, {d['s'].lower()}"

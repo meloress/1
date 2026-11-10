@@ -33,7 +33,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
   12 (a model-written `</script>` cannot close the script), 17 (a rejected widget sends the
   quiz as **text**: the block was already cut out of the answer, so silence would lose the
   questions), 24 (a database error still answers the query, or the widget shows `TIMEOUT`)
-  and 29 (a real aiogram `Dispatcher` gets `widget_query` without "unknown update type").
+  and 29 (a real aiogram `Dispatcher` gets `widget_query` without "unknown update type"). Checks 31-42 are the weather
+  tool and card: 37 keeps "place not found" apart from "service down", 38 pins the
+  `ob_havo` dispatch above the bare `else`, 39 is the group case (`None`, numbers in the
+  text) and 41 sends the numbers as text when the card is rejected.
 - `test_biznes_ekran.py` — the `/biznes` screens plus the owner-facing premium-emoji
   middleware (a request carrying `business_connection_id` is never touched by it), the
   customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the

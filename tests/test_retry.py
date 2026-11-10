@@ -67,7 +67,7 @@ def gpt(chat_id, prompt, **kw):
     return gen()
 
 
-async def oqim(message, gen, images=None):
+async def oqim(message, gen, images=None, vidjetlar=None):  # process_stream_draft imzosi
     return "".join([c async for c in gen])
 
 

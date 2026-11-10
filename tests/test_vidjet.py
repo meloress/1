@@ -257,6 +257,7 @@ olingan, otdi = [], []
 async def _sorov_soxta(sorov):
     olingan.append(sorov)
 
+_asl_sorov = pf.vidjet_sorovi
 pf.vidjet_sorovi = _sorov_soxta
 dp = Dispatcher()
 dp.update.outer_middleware(pf.vidjet_mw)
@@ -276,6 +277,105 @@ asyncio.run(dp.feed_update(bot, Update.model_validate({
     "update_id": 2, "message": {"message_id": 1, "date": 0, "chat": {"id": 7, "type": "private"},
                                 "from": {"id": 7, "is_bot": False, "first_name": "a"}, "text": "salom"}})))
 check(30, "oddiy xabar middleware'dan o'tib handlerga yetadi", otdi == ["salom"])
+
+# ─────────────────────────────────────────────────────────────
+# 31-42. OB-HAVO (asbob + karta)
+# ─────────────────────────────────────────────────────────────
+from services import obhavo
+import services.ai as ai
+
+# Haqiqiy Open-Meteo javobining shakli (2026-11-10, Toshkent) — qisqartirilgan.
+_OM = {"current": {"time": "2026-11-10T11:00", "temperature_2m": 16.5, "apparent_temperature": 15.4,
+                   "relative_humidity_2m": 75, "wind_speed_10m": 11.2, "weather_code": 51, "is_day": 1},
+       "hourly": {"time": [f"2026-11-10T{h:02d}:00" for h in range(11, 24)],
+                  "temperature_2m": [16.5, 16.5, 15.3, 15.5, 15.2, 14.0, 12.6, 12.2, 11.5, 10.8, 10.2, 10.2, 9.7],
+                  "weather_code": [51, 55, 80, 2, 3, 3, 53, 80, 81, 80, 61, 61, 53],
+                  "is_day": [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]},
+       "daily": {"time": ["2026-11-10", "2026-11-11", "2026-11-12"], "weather_code": [81, 53, 3],
+                 "temperature_2m_max": [17.1, 9.2, 10.6], "temperature_2m_min": [9.2, 2.3, 0.3]}}
+
+
+async def _get_soxta(url, params):
+    if "geocoding" in url:
+        return {"results": [{"name": "Toshkent", "country": "O‘zbekiston",
+                             "latitude": 41.26, "longitude": 69.22}]} if params["name"] == "Toshkent" else {}
+    return _OM
+
+
+obhavo._get = _get_soxta
+d = asyncio.run(obhavo.ob_havo("Toshkent"))
+check(31, "Open-Meteo javobi o'qiladi: 6 soat, 3 kun, holat o'zbekcha",
+      d["h"] == 16 and d["s"] == "Mayda yomg'ir" and len(d["s2"]) == 6 and d["s2"][0][0] == "13:00"
+      and [k[0] for k in d["k3"]][:2] == ["Bugun", "Ertaga"] and d["c"] == [41.26, 69.22]
+      and d["s2"][3][3] == 1)        # 19:00 — tun belgisi
+check(32, "holat 1024 baytdan kichik, HTML 4 KB'ga sig'adi",
+      len(v.obhavo_holati(d).encode()) < 1024 and v.sigadimi(v.obhavo_html()))
+check(33, "model yozgan joy nomi bir qatorli va qisqa",
+      obhavo.toza_joy("Tosh\nkent  " + "x" * 200) == ("Tosh kent " + "x" * 200)[:obhavo.JOY_UZUN])
+
+
+async def _get_buzuq(url, params):
+    return {"current": {}}
+
+obhavo._get = _get_buzuq
+try:
+    asyncio.run(obhavo.prognoz(41, 69))
+    buzuq = False
+except obhavo.XizmatYoq:
+    buzuq = True
+check(34, "kutilmagan javob shakli — XizmatYoq (KeyError emas)", buzuq)
+obhavo._get = _get_soxta
+
+out = []
+dm = asyncio.run(ai._run_obhavo_task({"joy": "Toshkent"}, out))
+guruh = asyncio.run(ai._run_obhavo_task({"joy": "Toshkent"}, None))
+check(35, "shaxsiy chat: karta navbatga, model javobni QISQA yozadi",
+      out and out[0]["tur"] == "obhavo" and "1-2 gap" in dm and "16°" in dm)
+check(36, "guruh/guest: karta yo'q, raqamlar modelga to'liq",
+      "16°" in guruh and "kartada" not in guruh)
+yoq = asyncio.run(ai._run_obhavo_task({"joy": "Qwerty"}, None))
+
+
+async def _get_ishlamaydi(url, params):
+    raise obhavo.XizmatYoq("timeout")
+
+obhavo._get = _get_ishlamaydi
+ishlamadi = asyncio.run(ai._run_obhavo_task({"joy": "Toshkent"}, []))
+obhavo._get = _get_soxta
+check(37, "\"joy topilmadi\" va \"xizmat javob bermadi\" — ikki xil javob, raqam o'ylab topilmaydi",
+      "topilmadi" in yoq and "texnik" in ishlamadi and "O'YLAB TOPMANG" in ishlamadi)
+
+aik = kod(ILDIZ / "services" / "ai.py")
+check(38, "ob_havo dispatch'i bare `else` (veb-qidiruv) dan OLDIN",
+      0 < aik.index('elif call_item.name == "ob_havo"')
+      < aik.index("            else:\n                search_ran = True"))
+
+check(39, "guruhda vidjet ro'yxati None (asbob raqamni matnga yozadi)",
+      msg._vidjet_royxati(_Msg()) == [] and msg._vidjet_royxati(_Msg("supergroup")) is None)
+
+chaqiruvlar.clear()
+msg._telegram_api_request = _api_soxta({"message_id": 5})
+asyncio.run(msg._obhavo_yubor(_Msg(), d, None))
+m, p = chaqiruvlar[-1]
+check(40, "karta: sendWidget, so'rovlar yoqilgan, holatda koordinata",
+      m == "sendWidget" and p["allow_queries"] is True
+      and json.loads(p["chat_data"])["c"] == [41.26, 69.22] and "16°" in p["caption"])
+
+msg._telegram_api_request = _api_soxta(None, msg.OUTCOME_REJECTED)
+mm = _Msg()
+asyncio.run(msg._obhavo_yubor(mm, d, None))
+check(41, "karta rad etilsa — raqamlar matn bilan (model javobi qisqa edi)",
+      len(mm.javoblar) == 1 and "16°" in mm.javoblar[0][0])
+
+pf.vidjet_sorovi = _asl_sorov
+chaqiruvlar.clear()
+msg._telegram_api_request = _api_soxta(True)
+for data in ("w:41.26,69.22", "w:999,1", "w:abc"):
+    asyncio.run(pf.vidjet_sorovi({"id": data, "from": {"id": 7}, "data": data}))
+javoblar = {p["widget_query_id"]: p for _, p in chaqiruvlar}
+check(42, "\"w:lat,lon\" so'roviga yangi prognoz; buzuq koordinataga ma'lumotsiz javob",
+      json.loads(javoblar["w:41.26,69.22"]["data"])["h"] == 16
+      and "data" not in javoblar["w:999,1"] and "data" not in javoblar["w:abc"])
 
 # ─────────────────────────────────────────────────────────────
 print("─" * 55)

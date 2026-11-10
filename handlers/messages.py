@@ -52,7 +52,7 @@ from services.ai import (
     build_rich_markdown, embed_images, strip_image_tokens, strip_rich_tokens,
     strip_custom_emoji, code_fences_to_html, strip_internal_names,
 )
-from services import vidjet
+from services import obhavo, vidjet
 
 from db.history import take_long_warning
 
@@ -1347,6 +1347,34 @@ def _alifbo(javob: str, savol: str) -> str:
     return alifboga_mosla(javob, savol)
 
 
+def _vidjet_royxati(message: Message) -> list | None:
+    """Asboblar javobdan keyin yuboradigan vidjetlar (ob-havo kartasi).
+
+    ⚠️ None — vidjet chizilmaydigan joy: production'da vidjet FAQAT shaxsiy
+    chatda, bu handler'lar esa bot a'zo bo'lgan guruhda ham ishlaydi. None
+    bo'lsa asbob raqamlarni javob matnining O'ZIGA yozdiradi.
+    `getattr` — bezak javob yo'lini hech qachon yiqitmasin: chat turi
+    noma'lum bo'lsa, vidjetsiz (xavfsiz) tomon tanlanadi."""
+    turi = getattr(getattr(message, "chat", None), "type", None)
+    return [] if turi == "private" else None
+
+
+async def _obhavo_yubor(message: Message, d: dict, thread_id) -> None:
+    """Ob-havo kartasi. Model javobi QISQA (raqamlar kartada deb aytilgan),
+    shuning uchun karta yetib bormasa raqamlar matn bilan ketadi."""
+    outcome: list = []
+    payload = {"chat_id": message.chat.id, "html": vidjet.obhavo_html(),
+               "chat_data": vidjet.obhavo_holati(d), "allow_queries": True,
+               "caption": vidjet.obhavo_izohi(d)}
+    if thread_id:
+        payload["message_thread_id"] = thread_id
+    if (await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None
+            or OUTCOME_UNKNOWN in outcome):
+        return
+    logger.warning(f"[Vidjet] ob-havo rad etildi (chat={message.chat.id}) — matn bilan")
+    await _answer_plain(message, obhavo.matn(d))
+
+
 async def _testni_yubor(message: Message, savollar: list, thread_id) -> None:
     """Interaktiv test vidjeti; bo'lmasa — o'sha test matn bilan.
 
@@ -1371,7 +1399,8 @@ async def _testni_yubor(message: Message, savollar: list, thread_id) -> None:
 
 
 async def process_stream_draft(message: Message, stream_generator, content_type: str = "text",
-                               images: list | None = None) -> str:
+                               images: list | None = None,
+                               vidjetlar: list | None = None) -> str:
     """OpenAI oqimini Telegram rich draft va yakuniy rich message ga ulaydi.
 
     `images` — services/ai.py topib bergan internet rasmlari ro'yxati.
@@ -1796,6 +1825,9 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
     for savollar in testlar:
         await _testni_yubor(message, savollar, message_thread_id)
+    for v in vidjetlar or []:
+        if v.get("tur") == "obhavo":
+            await _obhavo_yubor(message, v["d"], message_thread_id)
 
     # Uzun kod — matndan keyin alohida fayl(lar) bo'lib boradi.
     if kod_fayllar:
@@ -2632,15 +2664,16 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
         output_files: list = []
         file_quota_box: list = []
         images: list = []
+        vidjetlar = _vidjet_royxati(last_message)
         stream_gen = get_gpt_reply(chat_id, prompt_text, user_id=user_id,
                                    output_files=output_files,
                                    file_quota_out=file_quota_box,
-                                   images_out=images,
+                                   images_out=images, vidjet_out=vidjetlar,
                                    is_pro=_is_pro(quota),
                                    tg_name=last_message.from_user.full_name,
                                    thread_id=thread_id,
                                    **file_kwargs)
-        full_reply = await process_stream_draft(last_message, stream_gen, images=images)
+        full_reply = await process_stream_draft(last_message, stream_gen, images=images, vidjetlar=vidjetlar)
 
         if output_files:
             await _send_output_files(chat_id, output_files, thread_id)
@@ -2758,6 +2791,7 @@ async def handle_research(message: Message, state: FSMContext,
     output_files: list = []
     images: list = []
     try:
+        vidjetlar = _vidjet_royxati(message)
         stream_gen = get_gpt_reply(
             chat_id, f"Chuqur tadqiqot mavzusi: {topic[:1000]}",
             # user_id=None ATAYLAB: fayl sanog'i yechilmasin. Tadqiqot
@@ -2765,13 +2799,13 @@ async def handle_research(message: Message, state: FSMContext,
             # allaqachon to'langan, ikki marta yechish adolatsiz bo'lardi.
             user_id=None,
             output_files=output_files,
-            images_out=images,
+            images_out=images, vidjet_out=vidjetlar,
             is_pro=True,
             research=True,
             thread_id=thread_id,
         )
         full_reply = await process_stream_draft(message, stream_gen,
-                                                content_type="research", images=images)
+                                                content_type="research", images=images, vidjetlar=vidjetlar)
 
         if output_files:
             await _send_output_files(chat_id, output_files, thread_id)
@@ -2887,18 +2921,19 @@ async def handle_photo(message: Message, state: FSMContext):
         images: list = []
         prompt_text = (f"{pending_file_note('rasm.jpg')}"
                        f"\n\nFoydalanuvchi so'rovi: {caption}")
+        vidjetlar = _vidjet_royxati(message)
         stream_gen = get_gpt_reply(chat_id, prompt_text, user_id=user_id,
                                    input_image=base64_image,
                                    input_file_bytes=image_bytes,
                                    input_filename="rasm.jpg",
                                    output_files=output_files,
                                    file_quota_out=file_quota_box,
-                                   images_out=images,
+                                   images_out=images, vidjet_out=vidjetlar,
                                    is_pro=_is_pro(quota),
                                    tg_name=message.from_user.full_name,
                                    thread_id=thread_id)
         full_reply = await process_stream_draft(message, stream_gen, content_type="photo",
-                                                images=images)
+                                                images=images, vidjetlar=vidjetlar)
 
         # Tahrirlangan rasm shu yerda yuboriladi va `produced=True` bilan
         # eslab qolinadi — «yana biroz yorqinroq qil» zanjiri shu bilan
@@ -3053,6 +3088,7 @@ async def handle_document(message: Message, state: FSMContext):
         output_files: list = []
         file_quota_box: list = []
         images: list = []
+        vidjetlar = _vidjet_royxati(message)
         stream_gen = get_gpt_reply(
             chat_id, prompt,
             user_id=user_id,
@@ -3060,13 +3096,13 @@ async def handle_document(message: Message, state: FSMContext):
             input_filename=file_name,
             output_files=output_files,
             file_quota_out=file_quota_box,
-            images_out=images,
+            images_out=images, vidjet_out=vidjetlar,
             is_pro=_is_pro(quota),
             tg_name=message.from_user.full_name,
             thread_id=thread_id,
         )
         full_reply = await process_stream_draft(message, stream_gen,
-                                                content_type="document", images=images)
+                                                content_type="document", images=images, vidjetlar=vidjetlar)
 
         if output_files:
             await _send_output_files(chat_id, output_files, thread_id)
@@ -3208,15 +3244,16 @@ async def handle_voice(message: Message, state: FSMContext):
         output_files: list = []
         file_quota_box: list = []
         images: list = []
+        vidjetlar = _vidjet_royxati(message)
         stream_gen = get_gpt_reply(chat_id, user_text, user_id=user_id,
                                    output_files=output_files,
                                    file_quota_out=file_quota_box,
-                                   images_out=images,
+                                   images_out=images, vidjet_out=vidjetlar,
                                    is_pro=_is_pro(quota),
                                    tg_name=message.from_user.full_name,
                                    thread_id=thread_id)
         full_reply_text = await process_stream_draft(message, stream_gen,
-                                                     content_type="voice", images=images)
+                                                     content_type="voice", images=images, vidjetlar=vidjetlar)
 
         if output_files:
             await _send_output_files(chat_id, output_files, thread_id)

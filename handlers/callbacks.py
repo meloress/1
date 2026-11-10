@@ -13,6 +13,7 @@ from services.ai import get_gpt_reply, safe_update_history
 from handlers.helpers import make_retry_keyboard, mavzu_kwargs
 
 from handlers.messages import (process_stream_draft, _check_quota, _is_pro, _refund_quota,
+                               _vidjet_royxati,
                                _send_limit_reached_message, _send_output_files)
 
 # --------------------------------------------------
@@ -92,14 +93,15 @@ async def handle_retry_callback(query: CallbackQuery):
             images: list = []
             output_files: list = []
             quota_box: list = []
+            vidjetlar = _vidjet_royxati(query.message)
             stream_gen = get_gpt_reply(chat_id, prompt, user_id=user_id,
                                        output_files=output_files,
                                        file_quota_out=quota_box,
-                                       images_out=images, is_pro=_is_pro(quota),
+                                       images_out=images, vidjet_out=vidjetlar, is_pro=_is_pro(quota),
                                        tg_name=query.from_user.full_name,
                                        thread_id=thread_id)
 
-            reply = await process_stream_draft(query.message, stream_gen, images=images)
+            reply = await process_stream_draft(query.message, stream_gen, images=images, vidjetlar=vidjetlar)
             if output_files:
                 await _send_output_files(chat_id, output_files, thread_id)
 

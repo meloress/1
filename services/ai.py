@@ -30,6 +30,7 @@ from services import avto_tatil
 from services.file_task_quota import FileTaskQuota, DailyQuota
 from services.sandbox import run_in_sandbox
 from services.vidjet import test_matnga
+from services import obhavo
 
 try:
     from core.config import (
@@ -3448,7 +3449,7 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
                          biznes_enabled: bool = False) -> dict:
     # internet_search va open_capabilities — ikkalasi ham doim
     # biriktirilgan, shuning uchun manifest ham ikkalasini aytadi.
-    bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"]]
+    bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"], _OBHAVO_TOOL["name"]]
     # Faqat egasining «💼 Biznes» mavzusida — boshqa joyda ro'yxatda ham
     # yo'q (pastdagi "Never available" gapi o'sha holat uchun to'g'ri).
     if biznes_enabled:
@@ -4261,6 +4262,58 @@ _REMINDER_TOOL = {
 }
 
 
+# ─────────────────────────────────────────────────────────────
+# 🌤 OB-HAVO — Open-Meteo (services/obhavo.py)
+# Ilgari ob-havo savoli veb-qidiruvga ketardi: bir raund + sahifa matni,
+# raqamlar esa model sahifadan qanday o'qisa shunday. Bu asbob HAQIQIY
+# raqamni beradi, shaxsiy chatda esa javobdan keyin karta vidjeti chiqadi.
+# Joy nomi model yozgan matn — u faqat URL-kodlangan so'rov parametri
+# bo'ladi (`obhavo.toza_joy`), hech qayerga ichki manzil bo'lib tushmaydi.
+# ─────────────────────────────────────────────────────────────
+_OBHAVO_TOOL = {
+    "type": "function",
+    "name": "ob_havo",
+    "description": (
+        "Joyning HOZIRGI ob-havosi, keyingi soatlar va 3 kunlik prognozi "
+        "(haqiqiy ma'lumot). Ob-havo, harorat, yomg'ir/qor haqidagi savolda "
+        "internet_search o'rniga SHUNI chaqiring. Joy aytilmagan bo'lsa — "
+        "so'rang."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "joy": {"type": "string", "description": "Shahar, masalan Toshkent"},
+        },
+        "required": ["joy"],
+        "additionalProperties": False,
+    },
+}
+
+
+async def _run_obhavo_task(args: dict, vidjet_out: Optional[list]) -> str:
+    """`ob_havo` chaqiruvi. `vidjet_out` — shaxsiy chat (karta chiziladi):
+    model javobni QISQA yozadi, raqamlar kartada. Aks holda (guruh, guest)
+    karta yo'q va raqamlar javobning o'zida bo'lishi kerak."""
+    joy = obhavo.toza_joy(args.get("joy"))
+    try:
+        d = await obhavo.ob_havo(joy)
+    except obhavo.JoyTopilmadi:
+        return (f"«{joy}» degan joy topilmadi. Foydalanuvchidan shahar nomini "
+                "aniqlashtirishni so'rang.")
+    except obhavo.XizmatYoq as e:
+        logger.warning(f"[OBHAVO] xizmat javob bermadi ({joy}): {e}")
+        return ("Ob-havo xizmati hozir javob bermadi (texnik nosozlik). Shuni "
+                "AYTING va birozdan keyin qayta so'rashni taklif qiling. "
+                "Raqamlarni O'YLAB TOPMANG.")
+    if vidjet_out is not None:
+        vidjet_out.append({"tur": "obhavo", "d": d})
+        return (obhavo.matn(d) + "\n\nShu ma'lumotlar bilan karta javobingizdan "
+                "KEYIN avtomatik chiqadi. Javobni 1-2 gap bilan yozing: asosiy "
+                "holat va amaliy maslahat (soyabon, issiq kiyim). Soatlar va "
+                "kunlar ro'yxatini, jadvalni YOZMANG — ular kartada.")
+    return obhavo.matn(d) + "\n\nShu raqamlar bilan qisqa javob yozing."
+
+
 async def _run_nearby_task(coords, args: dict) -> str:
     """`find_nearby` chaqiruvi — natija modelga MATN bo'lib qaytadi.
 
@@ -4686,6 +4739,10 @@ async def get_openai_reply(
     # embed_images() bilan javob matniga qo'yadi). None → rasm umuman
     # qidirilmaydi, ya'ni eski xatti-harakat saqlanadi.
     images_out: Optional[list] = None,
+    # Javobdan keyin yuboriladigan vidjetlar (hozir: ob-havo kartasi).
+    # None — vidjet chizilmaydigan joy (guruh, guest): asbob raqamlarni
+    # javob matnining o'ziga yozdiradi.
+    vidjet_out: Optional[list] = None,
     is_pro: bool = False,
     research: bool = False,
     tg_name: Optional[str] = None,
@@ -4902,6 +4959,9 @@ async def get_openai_reply(
     # marta qayta chaqira oladi ("3 km da yo'q ekan, 10 km ga qaraymiz").
     MAX_NEARBY_ROUNDS = 2
     nearby_rounds = 0
+    # 2: "Toshkent va Samarqandda" — ikki joy, ikki chaqiruv.
+    MAX_OBHAVO_ROUNDS = 2
+    obhavo_rounds = 0
 
     # Business topshirig'i — `biznes_enabled` yuqorida, holat bloki bilan
     # birga hisoblangan. 5: qidir + suhbat + yubor, yoki bilim + o'zgartirish,
@@ -4987,6 +5047,8 @@ async def get_openai_reply(
                                 else _REMINDER_INTENT_TOOL)
         if nearby_enabled and nearby_rounds < MAX_NEARBY_ROUNDS:
             active_tools.append(_NEARBY_TOOL)
+        if obhavo_rounds < MAX_OBHAVO_ROUNDS:
+            active_tools.append(_OBHAVO_TOOL)
         if biznes_enabled and biznes_rounds < MAX_BIZNES_ROUNDS:
             active_tools.append(_BIZNES_XABAR_TOOL)
         # Doim biriktiriladi: "sen nima qila olasan" savoli istalgan
@@ -5115,6 +5177,7 @@ async def get_openai_reply(
         memory_ran = False
         reminder_ran = False
         nearby_ran = False
+        obhavo_ran = False
 
         for call_item in pending_calls:
             try:
@@ -5226,6 +5289,11 @@ async def get_openai_reply(
                 # ⚠️ Bu ham `else` dan OLDIN — yuqoridagi izohga qarang.
                 nearby_ran = True
                 tool_output = await _run_nearby_task(nearby_coords, args)
+            elif call_item.name == "ob_havo":
+                # ⚠️ `else` dan OLDIN: aks holda "Toshkentda ob-havo"
+                # veb-qidiruv so'roviga aylanardi.
+                obhavo_ran = True
+                tool_output = await _run_obhavo_task(args, vidjet_out)
             else:
                 search_ran = True
                 primary_query = args.get("primary_query", "")
@@ -5371,6 +5439,8 @@ async def get_openai_reply(
             reminder_rounds += 1
         if nearby_ran:
             nearby_rounds += 1
+        if obhavo_ran:
+            obhavo_rounds += 1
         total_rounds += 1
 
         # Tool'dan OLDIN yozilgan oraliq matn ("Hozir tayyorlab beraman...")
@@ -5413,6 +5483,7 @@ async def get_gpt_reply(
     output_files: Optional[list] = None,
     file_quota_out: Optional[list] = None,
     images_out: Optional[list] = None,
+    vidjet_out: Optional[list] = None,
     is_pro: bool = False,
     research: bool = False,
     tg_name: Optional[str] = None,
@@ -5432,6 +5503,7 @@ async def get_gpt_reply(
         output_files=output_files,
         file_quota_out=file_quota_out,
         images_out=images_out,
+        vidjet_out=vidjet_out,
         is_pro=is_pro,
         research=research,
         tg_name=tg_name,

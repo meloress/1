@@ -17,12 +17,14 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 | | free | Pro |
 |---|---|---|
 | `instructions` (prompt + concise + image note) | 5 667 | 5 667 |
-| tool schemas (all doors closed) | 2 264 | 2 637 |
+| tool schemas (all doors closed) | 2 399 | 2 772 |
 | capability manifest | 495 | 445 |
-| **fixed total per round** | **8 426** | **8 749** |
+| **fixed total per round** | **8 561** | **8 884** |
 
 (+44 on 2026-11-05: the prompt now names the bot Vexon AI. +102 on 2026-11-10: the
-`[test]` quiz rule — the first draft was +202 and was trimmed.)
+`[test]` quiz rule — the first draft was +202 and was trimmed. +135 the same day: the
+`ob_havo` tool schema, always attached — a weather question used to cost a whole search
+round instead.)
 | history | 0 → ~8 200, then capped by the summary (~300) | |
 | median user message | ~10 | |
 | median reply | ~70 | |
@@ -730,6 +732,20 @@ by Telegram). So nothing that charges points has to "refresh the card".
 `karta_raqamlari()` reads the same profile as the text and the same expiry rule
 (`_amaldagi_tarif()`). Every query is answered, even when the database fails, or the
 widget shows `TIMEOUT`.
+
+**Weather** is a tool, not a marker: the model does not know the weather, so a marker
+alone would mean invented numbers in the text and nothing at all in a group. `ob_havo`
+(`services/obhavo.py`, Open-Meteo, free, no key) returns the real numbers to the model. In
+a DM it also queues a card through `vidjet_out` (the `images_out` pattern) and tells the
+model to write 1-2 sentences. In a group `_vidjet_royxati()` returns `None`, so the tool
+asks for the numbers in the text instead. ⚠️ The `messages.py` handlers also run in groups
+the bot is a member of, which is why that list is `None` there, not `[]`. A rejected card
+is sent as `obhavo.matn()`: the model's reply was told the numbers are on the card. "Place
+not found" and "service down" are different answers (`find_nearby`'s rule). The card asks
+`"w:lat,lon"` when it appears with data older than 15 minutes and keeps the newer copy in
+`localStorage`. The coordinates in that request come from the user's device and are
+range-checked. The schema costs 135 tokens on every round; it replaces a search round
+(~2 000 tokens) on every weather question.
 
 ⚠️ **aiogram 3.31 does not know `widget_query`.** The field lands in `Update.model_extra`
 and `update.event_type` raises "unknown update type", so `profile.vidjet_mw` is a

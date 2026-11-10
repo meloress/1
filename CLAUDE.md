@@ -189,7 +189,7 @@ touching its code — the one-liner tells you *that* something breaks silently, 
 
 **`CHAT.md`** — the chat pipeline, one line per section:
 
-- **Token budget** — the free grant counts tokens, cached ones too; ~8 426 (free) / 8 749
+- **Token budget** — the free grant counts tokens, cached ones too; ~8 561 (free) / 8 884
   (Pro) fixed tokens per round. Re-measure with `tiktoken` after any schema/manifest/prompt
   edit. `prompt_cache_key` is per **plan**, never per user; `PROMPT_CACHE_RETENTION` is off on purpose.
 - **Stop button** — `@dp.stopped_message_generation()` observer; in aiogram 3.31
@@ -248,6 +248,7 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   tags; a lapsed Premium rejects the whole message, so the downgrade rung strips them.
   `_compact_tables()` runs before maths; inline maths never takes `re.S`.
 - **Widgets** (Bot API 10.4) — DM only in production; the model writes `[test]`, never HTML;
+  weather is the `ob_havo` tool (real numbers to the model, a card via `vidjet_out` in a DM);
   a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know
   `widget_query`, so `profile.vidjet_mw` is an outer middleware and the type is appended
   to `allowed_updates` by hand.
