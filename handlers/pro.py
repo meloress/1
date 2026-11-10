@@ -466,9 +466,10 @@ def _obuna_faol(ob: dict | None) -> bool:
     return bool(ob) and ob.get("holat") == "faol"
 
 
-async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """Pro ekrani; ochiq karta to'lovi bo'lsa — tepasida uning holati."""
-    text, kb = await _pro_ekrani(user_id)
+async def _render_pro_screen(user_id: int, ixcham: bool = False) -> tuple[str, InlineKeyboardMarkup]:
+    """Pro ekrani; ochiq karta to'lovi bo'lsa — tepasida uning holati.
+    `ixcham` — vidjet izohi (`pro_ekranini_yubor`): jadval va halqa kartada."""
+    text, kb = await _pro_ekrani(user_id, ixcham)
     try:
         r = await database.karta_faol_sorov(user_id, KARTA_CHEK_OYNA)
     except Exception as e:
@@ -482,7 +483,7 @@ async def _render_pro_screen(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     return text, kb
 
 
-async def _pro_ekrani(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+async def _pro_ekrani(user_id: int, ixcham: bool = False) -> tuple[str, InlineKeyboardMarkup]:
     ob = await _obuna(user_id)
     profile = await database.get_full_user_profile(user_id)
     plan_type = (profile or {}).get('plan_type') or 'free'
@@ -515,8 +516,8 @@ async def _pro_ekrani(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         text = (
             f"💎 <b>PRO TARIFINGIZ FAOL</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{_progress_ring(_days_left(premium_until), obuna=True)}\n\n"
-            f"<blockquote>♻️ <b>Oylik obuna yoqilgan</b> — Pro har oy o'zi uzayadi.\n"
+            + ("" if ixcham else f"{_progress_ring(_days_left(premium_until), obuna=True)}\n\n")
+            + f"<blockquote>♻️ <b>Oylik obuna yoqilgan</b> — Pro har oy o'zi uzayadi.\n"
             f"{keyingi}"
             f"O'chirsangiz, to'langan muddat oxirigacha ishlaydi.</blockquote>"
         )
@@ -531,8 +532,8 @@ async def _pro_ekrani(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         header = (
             f"💎 <b>PRO TARIFINGIZ FAOL</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{_progress_ring(days_left)}\n\n"
-            f"<blockquote>♻️ Muddatni istalgan vaqtda uzaytirishingiz mumkin.\n"
+            + ("" if ixcham else f"{_progress_ring(days_left)}\n\n")
+            + f"<blockquote>♻️ Muddatni istalgan vaqtda uzaytirishingiz mumkin.\n"
             f"Yangi kunlar qolganiga <b>qo'shiladi</b> — yonib ketmaydi.</blockquote>\n\n"
             f"👇 <b>Uzaytirish:</b>"
         )
@@ -541,9 +542,13 @@ async def _pro_ekrani(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
         header = (
             f"💎 <b>PRO TARIF</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{_perks_block()}\n"
-            f"📊 <b>Kunlik hisobda</b>  <i>(ochish uchun bosing)</i>\n"
-            f"{_daily_table()}\n"
+            # Ixcham (vidjet izohi): taqqoslash kartada; imkoniyatlar yig'iq
+            # holda shu yerda qoladi — vidjetni bilmaydigan ilova uchun.
+            + (_perks_block().replace("<blockquote>", "<blockquote expandable>", 1) + "\n"
+               if ixcham else
+               f"{_perks_block()}\n"
+               f"📊 <b>Kunlik hisobda</b>  <i>(ochish uchun bosing)</i>\n"
+               f"{_daily_table()}\n")
             + (f"⭐️ <b>Telegram Stars</b> yoki 💳 <b>karta orqali</b> so'mda to'lash mumkin.\n\n"
                f"👇 <b>To'lov usulini tanlang:</b>" if karta_bor else
                f"⭐️ To'lov <b>Telegram Stars</b> orqali — "
@@ -606,10 +611,97 @@ def _progress_ring(days_left: int, obuna: bool = False) -> str:
 #  3. FOYDALANUVCHI HANDLERLARI
 # ═══════════════════════════════════════════════════════════════════
 
+def _son(x) -> str:
+    """None — cheksiz, 0 — tarifda yo'q."""
+    return "∞" if x is None else "—" if not x else f"{x:,}".replace(",", " ")
+
+
+def pro_qatorlari() -> list:
+    """Kartadagi bepul/Pro taqqoslash — `_perks_block()` va `_daily_table()`
+    bilan BITTA manba (PLAN_LIMITS): limit o'zgarsa karta ham o'zgaradi.
+    "Savol" va "rasm tahlili" — o'sha ballga necha marta (`_daily_table`)."""
+    def har(tarif, narx):
+        ball = daily_limit(tarif, 'points')
+        return None if ball is None else ball // narx
+    q = [["⚡", "Ball / kun", _son(daily_limit('free', 'points')), _son(daily_limit('pro', 'points'))],
+         ["💬", "Matnli savol", _son(har('free', MESSAGE_COST_TEXT)), _son(har('pro', MESSAGE_COST_TEXT))],
+         ["📸", "Rasm tahlili", _son(har('free', MESSAGE_COST_PHOTO)), _son(har('pro', MESSAGE_COST_PHOTO))]]
+    for belgi, nom, kalit in (("📄", "Fayl yaratish", "files"), ("🎨", "Rasm chizish", "images"),
+                              ("🔬", "Tadqiqot (PDF)", "research")):
+        q.append([belgi, nom, _son(daily_limit('free', kalit)), _son(daily_limit('pro', kalit))])
+    # Kod Pro'ga bog'lagan imkoniyatlar: takroriy eslatma (_run_reminder_task),
+    # /kunlik (digest._pro_faol), Business (biznes).
+    return q + [["⏰", "Takroriy eslatma", "—", "✓"], ["📰", "/kunlik", "—", "✓"],
+                ["💼", "Business", "—", "✓"]]
+
+
+async def pro_kartasi(user_id: int) -> dict:
+    """Pro kartasining holati — `_pro_ekrani()` dagi tarif qoidasining o'zi:
+    muddati o'tgan Pro — bepul, muddatsiz — "m", obuna — keyingi to'lov."""
+    profile = await database.get_full_user_profile(user_id) or {}
+    plan_type = profile.get('plan_type') or 'free'
+    muddat = profile.get('premium_until')
+    if plan_type != 'free' and muddat is not None and muddat < datetime.now(timezone.utc):
+        plan_type = 'free'
+    d = {"r": pro_qatorlari()}
+    if plan_type == 'free':
+        return {**d, "h": "f"}
+    if muddat is None:
+        return {**d, "h": "m"}
+    d.update(h="p", k=_days_left(muddat), n=f"{muddat.astimezone(database.TASHKENT_TZ):%d.%m.%Y}")
+    ob = await _obuna(user_id)
+    if _obuna_faol(ob):
+        d["o"] = 1
+        if ob.get("keyingi"):
+            d["n"] = f"{ob['keyingi'].astimezone(database.TASHKENT_TZ):%d.%m.%Y}"
+    return d
+
+
+def _korinadigan(matn: str) -> int:
+    """Telegram izoh chegarasini teglar va entity'larsiz sanaydi."""
+    return len(html.unescape(re.sub(r"<[^>]+>", "", matn)))
+
+
+async def _pro_vidjeti(message: Message, user_id: int) -> bool:
+    """Shaxsiy chatda Pro ekrani — karta vidjeti, izohi ixcham matn,
+    tugmalari O'SHA (to'lov yo'li o'zgarmaydi). Qaytadi: yetdimi (timeout —
+    yetgan bo'lishi mumkin, takror yo'q). False — chaqiruvchi oddiy ekranni
+    yuboradi: rad etilgan premium emoji ham shu yerda `send_rich` ning
+    pasaytirish zinasiga tushadi."""
+    from handlers.messages import OUTCOME_UNKNOWN, _telegram_api_request, _thread_key
+    from services import vidjet
+    text, kb = await _render_pro_screen(user_id, ixcham=True)
+    if _korinadigan(text) > vidjet.CAPTION_MAX:
+        return False
+    payload = {"chat_id": message.chat.id, "html": vidjet.pro_html(),
+               "chat_data": vidjet.pro_holati(await pro_kartasi(user_id)),
+               "caption": text, "parse_mode": "HTML", "show_caption_above_media": False,
+               "reply_markup": kb.model_dump(exclude_none=True)}
+    if tid := _thread_key(message):
+        payload["message_thread_id"] = tid
+    outcome: list = []
+    if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
+        return True
+    return OUTCOME_UNKNOWN in outcome
+
+
+async def pro_ekranini_yubor(message: Message, user_id: int) -> None:
+    """/pro, «💎 Pro tarifga o'tish», /start pro — bitta yo'l. Karta faqat
+    shaxsiy chatda (production'da vidjet boshqa joyda yo'q); har qanday
+    xatoda — oddiy matnli ekran: bezak sotuvni hech qachon to'xtatmasin."""
+    if getattr(getattr(message, "chat", None), "type", None) == "private":
+        try:
+            if await _pro_vidjeti(message, user_id):
+                return
+        except Exception as e:
+            logger.warning(f"[Pro] karta yuborilmadi (user={user_id}): {e}")
+    text, kb = await _render_pro_screen(user_id)
+    await send_rich(message, text, kb)
+
+
 async def handle_pro(message: Message, state: FSMContext):
     await state.clear()
-    text, kb = await _render_pro_screen(message.from_user.id)
-    await send_rich(message, text, kb)
+    await pro_ekranini_yubor(message, message.from_user.id)
 
 
 async def _send_invoice(chat_id: int, days: int, beneficiary_id: int,
@@ -2199,11 +2291,10 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
                                 "💎 Pro'ni ochish", "", url=havola, style=BTN_SUCCESS)]]),
                             **ephemeral_params(query.message, query))
             return
-        text, kb = await _render_pro_screen(user_id)
         # Limit xabari ostidagi tugmadan kelinganda o'sha xabarni tahrirlash
         # noto'g'ri bo'lardi (foydalanuvchi limit haqidagi ma'lumotni
         # yo'qotardi) — yangi xabar yuboramiz.
-        await send_rich(query.message, text, kb)
+        await pro_ekranini_yubor(query.message, user_id)
         return
 
     if action == "buy":

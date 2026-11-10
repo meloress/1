@@ -812,6 +812,39 @@ The card asks `"e:<id>"`, and `vidjet_sorovi` answers from the **asking** user's
 `{at}` (the next time, so a repeating reminder rolls over) or `{x:1}` (sent or
 cancelled). The fallback text is empty, because the reply already gave the time.
 
+**Brand cards: `/start`, `/pro`, `/kunlik`, `/research`.** These are DM-only widgets.
+- **The logo is a vector drawing** (`vidjet._LOGO`). A widget cannot load an image (no
+  network), and a PNG does not fit in 4 KB compressed. The drawing contains no
+  `opacity`/`filter`, which the widget counts as heavy elements; transparency comes only
+  from `fill-opacity` and the gradient.
+- **Every card falls back to the old screen.** If a card is rejected or raises, the
+  screen is sent as before, with its own downgrade ladder. A card is decoration and never
+  stops a greeting or a sale.
+- **`/start`.** The card is the logo plus feature slides, and the greeting is its caption.
+  Every slide repeats a promise from `_greeting_text()`. Drawing images is Pro, so no slide
+  mentions it.
+- **`/pro`.** It goes through one function, `pro_ekranini_yubor()`, for `/pro`, «💎 Pro'ga
+  o'tish» and `/start pro`.
+  - The buttons are exactly those of the normal screen, so the payment path does not
+    change.
+  - The comparison numbers come from the same PLAN_LIMITS as `_perks_block()`
+    (`pro_qatorlari()`).
+  - The caption is compact: perks are folded into an expandable quote, and the table is on
+    the card.
+  - ⚠️ **The ring's final value is in the attribute.** The animation is a `from` keyframe
+    only. The first version started at "empty" and filled the ring with `setTimeout`; in
+    headless Chrome the ring sometimes stayed empty, and a slow webview would do the same.
+- **`/kunlik`.** Pressing an hour changes the keyboard, not the message text. So the caption
+  is fixed, and the state (dial, topics, countdown to the next digest) lives on the card,
+  which asks `"k"` every 6 s while it is visible.
+- **`/research`.** Progress reaches the card through the `ai.TADQIQOT` ContextVar, not a
+  parameter. Fakes in the tests copy the `get_gpt_reply` signature, and a new parameter
+  would silently make them stale.
+  - `_tadqiqot_qayd()` runs after every tool result. It records the search query and the
+    number of unique links, and switches the stage to "summary" after the PDF.
+  - The card asks `"r:<id>"`, which reads only the asking user's own job.
+  - The jobs live in RAM. After a deploy the card says "uzildi" (interrupted).
+
 **Flashcards** (`[kartochka] front — back [/kartochka]`) go through the same block
 mechanism as the quiz. `BLOK_TURLARI` holds one row per type and `_BLOK_RE` holds the tag
 names; extraction, the draft placeholder, the text fallback and the sender

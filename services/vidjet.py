@@ -690,6 +690,253 @@ def _eslatma_zaxirasi(d: dict) -> str:
     return ""
 
 
+# ── Brend: Vexon «V» logosi (SVG) ─────────────────────────────────
+# Vidjet tashqi rasm yuklay olmaydi (tarmoq yo'q), JPEG/PNG esa siqilgan
+# 4 KB ga sig'maydi — logo vektorda: assets/vexon_v.png dagi ikki lenta va
+# logodagi halqa. ⚠️ `opacity`/`filter` YO'Q (vidjet ularni "og'ir" deb
+# sanaydi) — shaffoflik faqat `fill-opacity` va gradient bilan. Halqa
+# aylanadi (`.rg`), ya'ni faqat transform.
+_LOGO = (
+    '<svg class="lg" viewBox="0 0 100 100"><defs>'
+    '<linearGradient id="la" x1="0" y1="0" x2=".7" y2="1"><stop offset="0" stop-color="#4f86ff"/>'
+    '<stop offset=".5" stop-color="#2327d8"/><stop offset=".85" stop-color="#3a2bd0"/>'
+    '<stop offset="1" stop-color="#9a6bff"/></linearGradient>'
+    '<linearGradient id="lb" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c77dff"/>'
+    '<stop offset=".4" stop-color="#29d0ff"/><stop offset="1" stop-color="#2f3bf0"/></linearGradient>'
+    '<linearGradient id="lc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fd8ff"/>'
+    '<stop offset="1" stop-color="#e2a6ff"/></linearGradient>'
+    '<radialGradient id="ld"><stop offset="0" stop-color="#3b5bff" stop-opacity=".45"/>'
+    '<stop offset="1" stop-color="#3b5bff" stop-opacity="0"/></radialGradient></defs>'
+    '<circle cx="50" cy="50" r="50" fill="url(#ld)"/>'
+    '<circle class="rg" cx="50" cy="50" r="46" fill="none" stroke="#5a6dff" stroke-width="1.3" '
+    'stroke-dasharray="190 99" stroke-linecap="round"/>'
+    '<path fill="url(#la)" d="M6 22C22 20 34 26 42 38L60 72C64 80 61 90 52 90C46 90 43 86 41 81L19 38C15 30 11 25 6 22Z"/>'
+    '<path fill="url(#lb)" d="M95 18C84 19 73 25 66 35L47 65C57 68 64 62 69 54L86 29C89 24 92 20 95 18Z"/>'
+    '<path fill="url(#lc)" fill-opacity=".75" d="M6 22C22 20 34 26 42 38L49 51C40 38 28 28 6 22Z"/></svg>')
+_BREND_CSS = (
+    "body{margin:0;padding:10px;font-family:system-ui,sans-serif}"
+    ".hd{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:18px;color:#fff;"
+    "background:radial-gradient(130% 160% at 0% 0%,#22309a 0,#0b1033 50%,#05060f 100%)}"
+    ".hd .lg{width:56px;height:56px;flex:none}"
+    ".rg{transform-origin:50px 50px;animation:rg 10s linear infinite}"
+    "@keyframes rg{to{transform:rotate(360deg)}}"
+    ".wm{font-weight:800;letter-spacing:.16em;background:linear-gradient(90deg,#fff,#b9c4ff 55%,#c88bff);"
+    "-webkit-background-clip:text;background-clip:text;color:transparent}"
+    ".st{font-size:.82em;color:#aab3d9;margin-top:2px}"
+    ".pr{display:inline-block;margin-left:7px;padding:1px 8px;border-radius:9px;font-size:.72em;"
+    "letter-spacing:.06em;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff);vertical-align:2px}")
+_JS_ASOS = ("var W=window.TelegramWidget;"
+            "function p(s){try{return JSON.parse(s)}catch(e){return null}}"
+            "function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;"
+            "if(x!=null)e.textContent=x;return e}"
+            "function z(n){return(n<10?'0':'')+n}")
+
+
+def _sarlavha(nom: str, izoh_id: str = "st", pro: bool = False) -> str:
+    return ('<div class="hd">' + _LOGO + '<div><div class="wm">' + nom
+            + ('<span class="pr">PRO</span>' if pro else "") + '</div><div class="st" id="'
+            + izoh_id + '"></div></div></div>')
+
+
+# ── /start: kutib olish kartasi ───────────────────────────────────
+# Ma'lumotsiz, so'rovsiz: logo, nom va o'zi almashadigan imkoniyatlar.
+# Slaydlar — `_greeting_text()` dagi va'dalarning O'ZI (u izohda turadi):
+# karta botda yo'q narsani va'da qilmasin (rasm chizish — Pro, shu yerda yo'q).
+START_SLAYDLAR = (
+    ("💬", "Istalgan savol", "Kerak bo'lsa internetdan qidiraman va manbasini ko'rsataman"),
+    ("📄", "Hujjatlar", "PDF, Word, Excel yoki TXT yuboring — o'qib, tahlil qilaman"),
+    ("📸", "Rasmlar", "Rasm yuboring — xuddi insondek ko'rib tushuntiraman"),
+    ("🎙", "Ovozli xabar", "Gapirib so'rang — ovozli javob qaytaraman"),
+    ("🛠", "Fayl yarataman", "Taqdimot, PDF, Word va Excel tayyorlab beraman"),
+    ("🌤", "Har kungi yordam", "Ob-havo, valyuta kursi, namoz vaqtlari va eslatmalar"),
+)
+_START_SHABLON = ("<style>" + _BREND_CSS + """
+.c{border-radius:20px;padding:18px 14px 14px;color:#fff;text-align:center;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1c2b8f 0,#0a0f2e 55%,#05060f 100%)}
+.c .lg{width:96px;height:96px;animation:fl 4s ease-in-out infinite}
+@keyframes fl{50%{transform:translateY(-5px)}}
+.c .wm{font-size:1.5em;letter-spacing:.22em;margin-top:6px}
+.c .st{margin:2px 0 14px}
+.w{overflow:hidden;border-radius:14px;background:#141a3d}
+.t{display:flex;transition:transform .5s}
+.s{flex:0 0 100%;box-sizing:border-box;padding:14px;text-align:left;min-height:66px}
+.s b{display:block;margin-bottom:3px}
+.s span{color:#c7cdee;font-size:.88em}
+.i{font-size:1.7em;float:left;margin:1px 12px 0 0}
+.d{margin-top:10px}
+.d i{display:inline-block;width:6px;height:6px;border-radius:3px;margin:0 3px;background:#3a4380;transition:width .3s}
+.d .on{width:18px;background:linear-gradient(90deg,#3f6bff,#29d0ff)}
+</style>
+<div class="c">""" + _LOGO + """<div class="wm">VEXON AI</div><div class="st">Sizning shaxsiy AI yordamchingiz</div>
+<div class="w"><div class="t" id="t"></div></div><div class="d" id="d"></div></div>
+<script>""" + _JS_ASOS + """
+var S=@@S@@,t=document.getElementById("t"),d=document.getElementById("d"),I=0,K=[],T;
+S.forEach(function(x,i){var s=el("div","s"),k=el("i");s.appendChild(el("div","i",x[0]));s.appendChild(el("b",0,x[1]));s.appendChild(el("span",0,x[2]));t.appendChild(s);k.onclick=function(){g(i);R()};d.appendChild(k);K.push(k)});
+function g(i){I=(i+S.length)%S.length;t.style.transform="translateX("+(-100*I)+"%)";K.forEach(function(k,j){k.className=j==I?"on":""})}
+function R(){clearInterval(T);T=setInterval(function(){g(I+1)},3800)}
+g(0);R();t.onclick=function(){g(I+1);R()};
+</script>""")
+
+
+def start_html() -> str:
+    return _START_SHABLON.replace("@@S@@", _json([list(s) for s in START_SLAYDLAR]))
+
+
+# ── /pro: tariflar kartasi ────────────────────────────────────────
+# Holat (handlers/pro.py::pro_kartasi): {"h": "f" bepul | "p" Pro | "m"
+# muddatsiz, "r": [[belgi, nom, bepul, pro], ...] — raqamlar PLAN_LIMITS dan,
+# "k": qolgan kun, "o": obuna, "n": keyingi to'lov / tugash sanasi}.
+# ⛔️ To'lov tugmalari kartada EMAS — ular xabar ostida (reply_markup), pul
+# yo'li o'zgarmaydi. Karta faqat ko'rsatadi.
+_PRO_SHABLON = ("<style>" + _BREND_CSS + """
+.wm{font-size:1.2em}
+.tb{margin-top:8px}
+.r{display:flex;align-items:center;padding:7px 4px;border-bottom:1px solid var(--tg-theme-secondary-bg-color)}
+.r:last-child{border:0}
+.n{flex:1;min-width:0}
+.v{width:64px;text-align:center;font-variant-numeric:tabular-nums}
+.f{color:var(--tg-theme-hint-color)}
+.p{font-weight:700;color:var(--tg-theme-button-color)}
+.hr{border:0;padding-bottom:2px}
+.hr .v{font-size:.78em;font-weight:600}
+.hr .p{color:#fff;border-radius:8px;padding:3px 0;background:linear-gradient(90deg,#3f6bff,#8a5cff)}
+.rn{display:flex;align-items:center;gap:16px;margin-top:10px;padding:4px 6px}
+.rn svg{width:98px;height:98px;flex:none}
+.ar{animation:ar 1.4s ease-out}
+@keyframes ar{from{stroke-dashoffset:251.3}}
+.k{font-size:1.15em;font-weight:700}
+.b{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:10px;font-size:.8em;background:var(--tg-theme-secondary-bg-color)}
+.u{color:var(--tg-theme-hint-color);font-size:.85em;margin-top:4px}
+</style>
+""" + _sarlavha("VEXON AI", pro=True) + """<div id="a"></div>
+<script>""" + _JS_ASOS + """
+var D=p(W&&W.chatData)||{},a=document.getElementById("a");
+function tb(r,b){var t=el("div","tb"),h=el("div","r hr");h.appendChild(el("span","n",""));if(!b)h.appendChild(el("span","v f","Bepul"));h.appendChild(el("span","v p",b?"Sizda":"Pro"));t.appendChild(h);
+r.forEach(function(x){var q=el("div","r");q.appendChild(el("span","n",x[0]+" "+x[1]));if(!b)q.appendChild(el("span","v f",x[2]));q.appendChild(el("span","v p",x[3]));t.appendChild(q)});a.appendChild(t)}
+if(D.h=="f"){document.getElementById("st").textContent="Ko'proq imkoniyat, kamroq cheklov";tb(D.r||[])}
+else{document.getElementById("st").textContent="Pro tarifingiz faol";
+var m=D.h=="m",k=D.k||0,C=251.3,o=m?0:C*(1-Math.min(k,30)/30),q=el("div","rn"),i=el("div"),c=k<=3&&!m&&!D.o?"#e5484d":"url(#rq)";
+q.innerHTML='<svg viewBox="0 0 100 100"><defs><linearGradient id="rq"><stop offset="0" stop-color="#3f6bff"/><stop offset="1" stop-color="#b25cff"/></linearGradient></defs><circle cx="50" cy="50" r="40" fill="none" stroke="var(--tg-theme-secondary-bg-color)" stroke-width="9"/><circle class="ar" cx="50" cy="50" r="40" fill="none" stroke="'+c+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="'+o+'" transform="rotate(-90 50 50)"/><text x="50" y="50" text-anchor="middle" font-size="22" font-weight="700" fill="currentColor"></text><text x="50" y="66" text-anchor="middle" font-size="10" fill="var(--tg-theme-hint-color)"></text></svg>';
+var x=q.getElementsByTagName("text");x[0].textContent=m?"∞":k;x[1].textContent=m?"muddatsiz":"kun qoldi";
+i.appendChild(el("div","k",m?"Muddatsiz tarif":"Pro faol"));
+if(D.o)i.appendChild(el("div","b","♻️ Har oy o'zi uzayadi"));
+if(D.n)i.appendChild(el("div","u",(D.o?"Keyingi to'lov: ":"Tugaydi: ")+D.n));
+q.appendChild(i);a.appendChild(q);tb((D.r||[]).filter(function(x){return x[3]!="✓"}),1);
+var h=(D.r||[]).filter(function(x){return x[3]=="✓"}).map(function(x){return x[0]+" "+x[1]});if(h.length)a.appendChild(el("div","u","Yana: "+h.join(" · ")))}
+</script>""")
+
+
+def pro_html() -> str:
+    return _PRO_SHABLON
+
+
+def pro_holati(d: dict) -> str:
+    return _json(d)
+
+
+# ── /kunlik: daydjest kartasi ─────────────────────────────────────
+# Holat (handlers/digest.py::kunlik_holati): {"l": 1 — bepul (panjara
+# qulf), "h": [soatlar], "m": mavzular, "t"}. Sanoq Toshkent soati (UTC+5,
+# yozgi vaqt yo'q) bilan: keyingisi — `keyingi_vaqt()` qoidasi (joriy soat
+# "yuborilgan"). Tugmada soat bosilsa xabar MATNI o'zgarmaydi — shuning
+# uchun karta "k" bilan holatni 6 soniyada bir so'raydi (ko'rinib turganda).
+KUNLIK_SOROVI = "k"
+_KUNLIK_SHABLON = ("<style>" + _BREND_CSS + """
+.wm{font-size:1.05em;letter-spacing:.1em}
+.dl{display:block;width:230px;height:230px;margin:6px auto 0}
+.m{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:4px 0 2px}
+.m span{padding:4px 10px;border-radius:12px;font-size:.82em;background:var(--tg-theme-secondary-bg-color)}
+.u{color:var(--tg-theme-hint-color);font-size:.8em;text-align:center;margin-top:6px}
+.x{color:#e5484d;font-weight:600}
+</style>
+""" + _sarlavha("KUNLIK DAYDJEST") + """<div id="a"></div>
+<script>""" + _JS_ASOS + """
+var D,NS="http://www.w3.org/2000/svg",a=document.getElementById("a"),SV,Q=0;
+function s(t,o,x){var e=document.createElementNS(NS,t);for(var k in o)e.setAttribute(k,o[k]);if(x!=null)e.textContent=x;return e}
+function hz(){var t=new Date(Date.now()+18e6);return{h:t.getUTCHours(),m:t.getUTCMinutes(),s:t.getUTCSeconds()}}
+function nx(){var h=D.h||[],n=hz(),b=h.filter(function(x){return x>n.h});if(!h.length)return null;var x=b.length?b[0]:h[0]+24;return{h:x%24,q:x*3600-(n.h*3600+n.m*60+n.s)}}
+function r(){if(!D)return;a.innerHTML="";var e=D.l,h=D.h||[],n=hz(),T=nx();
+document.getElementById("st").textContent=e?"💎 Pro imkoniyati":h.length?(D.m?"✅ Faol · har kuni "+h.length+" marta":"❗ Mavzu yozilmagan"):"🔕 O'chirilgan";
+SV=s("svg",{viewBox:"0 0 200 200","class":"dl"});
+SV.appendChild(s("defs")).innerHTML='<linearGradient id="kg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3f6bff"/><stop offset="1" stop-color="#b25cff"/></linearGradient>';
+SV.appendChild(s("circle",{cx:100,cy:100,r:84,fill:"none",stroke:"var(--tg-theme-secondary-bg-color)","stroke-width":2}));
+var f=(n.h+n.m/60)/24,w=(f*360-90)*Math.PI/180;SV.appendChild(s("path",{d:"M100 16A84 84 0 "+(f>.5?1:0)+" 1 "+(100+84*Math.cos(w))+" "+(100+84*Math.sin(w)),fill:"none",stroke:"url(#kg)","stroke-width":3,"stroke-linecap":"round"}));
+for(var i=0;i<24;i++){var g=(i/24*360-90)*Math.PI/180,on=h.indexOf(i)>=0,X=100+84*Math.cos(g),Y=100+84*Math.sin(g);
+SV.appendChild(s("circle",{cx:X,cy:Y,r:on?8:2.6,fill:on?(e?"var(--tg-theme-hint-color)":"url(#kg)"):"var(--tg-theme-hint-color)"}));
+if(on)SV.appendChild(s("text",{x:X,y:Y+3.2,"text-anchor":"middle","font-size":8,"font-weight":700,fill:"#fff"},z(i)));
+else if(i%6==0)SV.appendChild(s("text",{x:100+68*Math.cos(g),y:100+68*Math.sin(g)+3,"text-anchor":"middle","font-size":9,fill:"var(--tg-theme-hint-color)"},z(i)))}
+SV.appendChild(s("circle",{cx:100+84*Math.cos(w),cy:100+84*Math.sin(w),r:4.5,fill:"#fff",stroke:"url(#kg)","stroke-width":2.5}));
+var ok=!e&&T&&D.m;SV.appendChild(s("text",{x:100,y:88,"text-anchor":"middle","font-size":10,fill:"var(--tg-theme-hint-color)"},e?"Pro tarif":ok?"Keyingisi":T?"Mavzu kerak":"Soat tanlang"));
+SV.appendChild(s("text",{x:100,y:114,"text-anchor":"middle","font-size":24,"font-weight":700,fill:"currentColor"},ok?z(T.h)+":00":"—"));
+SV.appendChild(s("text",{id:"cd",x:100,y:132,"text-anchor":"middle","font-size":10,fill:"var(--tg-theme-hint-color)"}));
+a.appendChild(SV);var m=el("div","m");(D.m||"").split(/[,;\\n]+/).forEach(function(x){x=x.trim();if(x&&m.childNodes.length<8)m.appendChild(el("span",0,x.length>28?x.slice(0,27)+"…":x))});
+if(D.m)a.appendChild(m);else if(h.length&&!e)a.appendChild(el("div","u x","Mavzu yozilmaguncha daydjest kelmaydi"));
+a.appendChild(el("div","u",e?"Har kuni tanlagan soatingizda tayyor xulosa":"Soatni pastdagi tugmadan tanlaysiz · Toshkent vaqti"));c()}
+function c(){var T=nx(),k=document.getElementById("cd");if(!k||!T||D.l||!D.m)return;var q=T.q;k.textContent=Math.floor(q/3600)+":"+z(Math.floor(q/60)%60)+":"+z(q%60)+" qoldi";if(q<=0)r()}
+function y(){if(!W||!W.request||Date.now()-Q<5500)return;Q=Date.now();W.request("k").then(function(o){var x=p(o.result);if(x&&x.h){D=x;r()}},function(){})}
+D=p(W&&W.chatData);r();y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});
+setInterval(function(){c();y()},1000);var L=-1;setInterval(function(){var n=hz();if(n.m!=L){L=n.m;r()}},5000);
+</script>""")
+
+
+def kunlik_html() -> str:
+    return _KUNLIK_SHABLON
+
+
+def kunlik_holati(d: dict) -> str:
+    return _json(d)
+
+
+# ── /research: jarayon kartasi ────────────────────────────────────
+# Holat (handlers/messages.py::_tadqiqot_ochiq): {"id", "m": mavzu, "b":
+# bosqich q qidiruv / p PDF / x xulosa / t tayyor / e to'xtadi, "q": oxirgi
+# qidiruvlar, "s": manba (noyob havola) soni, "t0": boshlanish, "d": tugash,
+# "f": fayl soni}. Karta "r:<id>" bilan 5 s da bir so'raydi (Telegram'ning
+# fon so'rovi chegarasi), tugagach to'xtaydi. Bot qayta ishga tushsa RAM
+# bo'sh — javob {x:1}, karta "uzildi" deydi (javob o'zi «Qayta so'rash» oladi).
+TADQIQOT_SOROVI = "r:"
+_TADQIQOT_SHABLON = ("<style>" + _BREND_CSS + """
+.wm{font-size:1.05em;letter-spacing:.1em}
+.m{font-weight:600;margin:12px 4px 10px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.sp{display:flex;gap:4px;margin:0 2px}
+.sp div{flex:1;text-align:center;font-size:.72em;color:var(--tg-theme-hint-color)}
+.sp i{display:block;height:5px;border-radius:3px;margin-bottom:6px;background:var(--tg-theme-secondary-bg-color);font-style:normal}
+.sp .ok i{background:linear-gradient(90deg,#3f6bff,#8a5cff)}
+.sp .on i{background:linear-gradient(90deg,#3f6bff,#29d0ff);animation:pl 1s ease-in-out infinite alternate;transform-origin:left}
+@keyframes pl{from{transform:scaleX(.35)}to{transform:scaleX(1)}}
+.sp .ok,.sp .on{color:inherit;font-weight:600}
+.k{display:flex;justify-content:space-between;margin:12px 4px 6px;font-size:.88em}
+.q{font-size:.84em;color:var(--tg-theme-hint-color);margin:3px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.z{font-weight:700;text-align:center;margin-top:10px}
+</style>
+""" + _sarlavha("CHUQUR TADQIQOT") + """<div id="a"></div>
+<script>""" + _JS_ASOS + """
+var D,Q=0,a=document.getElementById("a"),B=[["Qidiruv"],["Manbalar"],["PDF"],["Xulosa"]];
+function ix(){return D.b=="t"?4:D.b=="x"?3:D.b=="p"?2:(D.q&&D.q.length?1:0)}
+function v(){var e=(D.d||Date.now()/1e3)-D.t0;e=Math.max(0,Math.round(e));return Math.floor(e/60)+":"+z(e%60)}
+function r(){a.innerHTML="";var i=ix(),u=D.b=="t"||D.b=="e";
+document.getElementById("st").textContent=D.b=="t"?"✅ Tayyor":D.b=="e"?"⚠️ "+(D.x?"Jarayon uzildi":"To'xtadi"):"Ishlayapman…";
+document.querySelector(".rg").style.animationDuration=u?"10s":"1.6s";
+a.appendChild(el("div","m",D.m));var s=el("div","sp");
+B.forEach(function(x,j){var c=el("div",j<i?"ok":j==i&&!u?"on":"");c.appendChild(el("i"));c.appendChild(document.createTextNode((j<i?"✓ ":"")+x[0]));s.appendChild(c)});a.appendChild(s);
+var k=el("div","k");k.appendChild(el("span",0,"🔎 "+(D.q||[]).length+" qidiruv · 🔗 "+(D.s||0)+" manba"));k.appendChild(el("span",0,"⏱ "+v()));a.appendChild(k);
+(D.q||[]).slice(-4).forEach(function(x){a.appendChild(el("div","q","✓ «"+x+"»"))});
+if(D.b=="t")a.appendChild(el("div","z",D.f?"📄 PDF hisobot va xulosa pastda":"Xulosa pastda"))}
+function y(){if(!W||!W.request||!D||D.b=="t"||D.b=="e"||Date.now()-Q<5e3)return;Q=Date.now();
+W.request("r:"+D.id).then(function(o){var x=p(o.result);if(!x)return;if(x.x){D.b="e";D.x=1;D.d=Date.now()/1e3}else D=x;r();try{localStorage.setItem("d",JSON.stringify(D))}catch(e){}},function(){})}
+var C=p(W&&W.chatData),L;try{L=p(localStorage.getItem("d"))}catch(e){}D=L&&C&&L.id==C.id?L:C;
+if(D){r();y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});setInterval(function(){if(D.b!="t"&&D.b!="e")r();y()},1000)}
+</script>""")
+
+
+def tadqiqot_html() -> str:
+    return _TADQIQOT_SHABLON
+
+
+def tadqiqot_holati(d: dict) -> str:
+    """Kartaga faqat ochiq kalitlar: `_u` (havolalar to'plami) — ichki."""
+    return _json({k: v for k, v in d.items() if not k.startswith("_")})
+
+
 def turi(tur: str):
     """(html, holat, izoh, zaxira matn) — asbob navbatga qo'ygan vidjet turi
     bo'yicha. Yangi kartani qo'shish — shu yerga bitta qator."""

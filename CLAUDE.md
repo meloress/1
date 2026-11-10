@@ -253,7 +253,9 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   computed in code, and `Nominal` is honoured. Prayer times (`namoz_vaqti`): official
   Uzbek times are the **Tashkent table + a fixed per-city offset** (`namoz.UZ_FARQ`); a
   city in that table never reaches the geocoder, which put Farg‘ona 14 minutes off. A new
-  reminder gets a countdown card in a DM. All cards are sent through
+  reminder gets a countdown card in a DM. `/start`, `/pro`, `/kunlik` and `/research` show
+  brand cards (vector Vexon logo); every one falls back to the old screen, and the Pro
+  card keeps the normal screen's buttons. Asset cards are sent through
   `karta_yubor()`, `/kunlik` included;
   a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know
   `widget_query`, so `profile.vidjet_mw` is an outer middleware and the type is appended

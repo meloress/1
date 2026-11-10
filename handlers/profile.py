@@ -244,6 +244,20 @@ async def vidjet_sorovi(sorov: dict) -> None:
                                                   else {"x": 1})
         except Exception as e:
             logger.info(f"[Vidjet] eslatma holati o'qilmadi ({data!r}): {e}")
+    elif data == vidjet.KUNLIK_SOROVI and uid:
+        # /kunlik kartasi — so'ragan odamning soatlari va mavzulari.
+        try:
+            from handlers.digest import kunlik_holati   # ⚠️ tsiklik import
+            profil = await get_full_user_profile(uid)
+            if profil:
+                javob["data"] = vidjet.kunlik_holati(kunlik_holati(profil))
+        except Exception as e:
+            logger.warning(f"[Vidjet] kunlik holati o'qilmadi (user={uid}): {e}")
+    elif data.startswith(vidjet.TADQIQOT_SOROVI) and uid:
+        # /research kartasi — "r:<id>"; begona yoki RAM'da yo'q id — {x:1}.
+        from handlers.messages import tadqiqot_ol   # ⚠️ og'ir modul
+        j = tadqiqot_ol(uid, data[len(vidjet.TADQIQOT_SOROVI):])
+        javob["data"] = vidjet.tadqiqot_holati(j if j else {"x": 1})
     elif data == vidjet.KARTA_SOROVI and uid:
         try:
             profil = await get_full_user_profile(uid)

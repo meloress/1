@@ -50,7 +50,7 @@ from services.ai import (
     extract_text_from_document,
     clear_chat_history, safe_get_chat_history,
     build_rich_markdown, embed_images, strip_image_tokens, strip_rich_tokens,
-    strip_custom_emoji, code_fences_to_html, strip_internal_names,
+    strip_custom_emoji, code_fences_to_html, strip_internal_names, TADQIQOT,
 )
 from services import vidjet
 
@@ -2161,6 +2161,28 @@ def _greeting_text(*, premium: bool) -> str:
     )
 
 
+async def _start_vidjeti(message: Message, kb: InlineKeyboardMarkup) -> bool:
+    """/start kartasi. Qaytadi: yetdimi (timeout — yetgan bo'lishi mumkin).
+    Har qanday xatoda False: yangi foydalanuvchi salomlashuvsiz qolishi —
+    botdagi eng yomon nosozlik, shuning uchun bezak hech qachon yiqitmaydi."""
+    try:
+        matn = _greeting_text(premium=True)
+        if pro_module._korinadigan(matn) > vidjet.CAPTION_MAX:
+            return False
+        payload = {"chat_id": message.chat.id, "html": vidjet.start_html(),
+                   "caption": matn, "parse_mode": "HTML",
+                   "reply_markup": kb.model_dump(exclude_none=True)}
+        if tid := _thread_key(message):
+            payload["message_thread_id"] = tid
+        outcome: list = []
+        if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
+            return True
+        return OUTCOME_UNKNOWN in outcome
+    except Exception as e:
+        logger.warning(f"[/start] karta yuborilmadi: {e}")
+        return False
+
+
 async def handle_start(message: Message, state: FSMContext, command: CommandObject = None):
     await state.clear()
     user_id = message.from_user.id
@@ -2240,8 +2262,7 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
     # (pro.handle_pro_callback): xarid faqat shaxsiy chatda. Salomlashuv
     # o'rniga darhol Pro ekrani — odam aynan shuni bosib kelgan.
     if start_payload == "pro" and message.chat.type == "private":
-        text, kb = await pro_module._render_pro_screen(user_id)
-        await pro_module.send_rich(message, text, kb)
+        await pro_module.pro_ekranini_yubor(message, user_id)
         return
 
     # Salomlashuv ostidagi tugma imkoniyatlar ekranini ochadi. Ro'yxatni
@@ -2249,6 +2270,11 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
     # tugma aynan shu bo'shliqni yopadi va tayyor misollarga olib boradi.
     from handlers.capabilities import menu_button      # ⚠️ tsiklik import
     kb = InlineKeyboardMarkup(inline_keyboard=[[menu_button()]])
+
+    # Shaxsiy chatda — brend kartasi (logo + imkoniyatlar), salomlashuv
+    # uning izohida. Yetmasa — pastdagi odatdagi yo'l, o'zining zinasi bilan.
+    if message.chat.type == "private" and await _start_vidjeti(message, kb):
+        return
 
     try:
         await message.answer(_greeting_text(premium=True), reply_markup=kb)
@@ -2788,6 +2814,46 @@ def _research_limit_text(quota) -> str:
     )
 
 
+# /research jarayon kartalari: uid → oxirgi tadqiqot. RAM — deploy bo'shatadi
+# (karta "uzildi" deydi; javobning o'zi «Qayta so'rash» oladi). Har odamda
+# bittasi, tugaganlari bir soatdan keyin tozalanadi.
+_TADQIQOTLAR: dict[int, dict] = {}
+
+
+def tadqiqot_ol(uid: int, jid: str) -> dict | None:
+    """Karta so'rovi ("r:<id>"): faqat SO'RAGAN odamning o'z jarayoni."""
+    j = _TADQIQOTLAR.get(uid)
+    return j if j and j.get("id") == jid else None
+
+
+async def _tadqiqot_ochiq(message: Message, topic: str) -> dict | None:
+    """Shaxsiy chatda jarayon kartasi. None — karta yo'q (guruh, rad
+    etildi): tadqiqot baribir odatdagidek davom etadi."""
+    if getattr(getattr(message, "chat", None), "type", None) != "private":
+        return None
+    j = {"id": uuid.uuid4().hex[:10], "m": topic[:200], "b": "q", "q": [], "s": 0,
+         "t0": int(time.time()), "d": 0, "f": 0}
+    try:
+        payload = {"chat_id": message.chat.id, "html": vidjet.tadqiqot_html(),
+                   "chat_data": vidjet.tadqiqot_holati(j), "allow_queries": True,
+                   "caption": f"🔬 <b>Chuqur tadqiqot</b>\n{html_lib.escape(topic[:300])}",
+                   "parse_mode": "HTML"}
+        if tid := _thread_key(message):
+            payload["message_thread_id"] = tid
+        outcome: list = []
+        if (await _telegram_api_request("sendWidget", payload, outcome=outcome) is None
+                and OUTCOME_UNKNOWN not in outcome):
+            return None
+    except Exception as e:
+        logger.warning(f"[Research] karta yuborilmadi: {e}")
+        return None
+    hozir = time.time()
+    for k in [k for k, v in _TADQIQOTLAR.items() if v.get("d") and hozir - v["d"] > 3600]:
+        _TADQIQOTLAR.pop(k, None)
+    _TADQIQOTLAR[message.from_user.id] = j
+    return j
+
+
 @olchov.oqim("tadqiqot")
 async def handle_research(message: Message, state: FSMContext,
                           command: CommandObject = None):
@@ -2824,6 +2890,9 @@ async def handle_research(message: Message, state: FSMContext,
 
     output_files: list = []
     images: list = []
+    jarayon = await _tadqiqot_ochiq(message, topic)
+    belgi = TADQIQOT.set(jarayon)
+    tayyor = False
     try:
         vidjetlar = _vidjet_royxati(message)
         stream_gen = get_gpt_reply(
@@ -2845,6 +2914,7 @@ async def handle_research(message: Message, state: FSMContext,
             await _send_output_files(chat_id, output_files, thread_id)
 
         if full_reply:
+            tayyor = True
             quota.mark_success()
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
             try:
@@ -2862,6 +2932,10 @@ async def handle_research(message: Message, state: FSMContext,
             "birozdan keyin qayta urinib ko'ring."
         )
     finally:
+        TADQIQOT.reset(belgi)
+        if jarayon is not None:
+            # Karta keyingi so'rovda yakuniy holatni oladi va to'xtaydi.
+            jarayon.update(b="t" if tayyor else "e", d=int(time.time()), f=len(output_files))
         # Muvaffaqiyat bo'lmagan bo'lsa sanoqni o'zi qaytaradi.
         await quota.refund_if_unused()
         if await _bosh(state, kalit):

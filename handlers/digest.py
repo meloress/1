@@ -7,6 +7,7 @@ Alohida fayl, chunki handlers/messages.py allaqachon 1400 qatordan oshgan
 va bu feature u bilan `_dm_or_deactivate` dan boshqa hech narsa bo'lishmaydi.
 """
 import asyncio
+import time
 from datetime import datetime, timezone
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
@@ -19,8 +20,10 @@ from core.loader import logger
 from db import database
 from handlers.helpers import _dm_or_deactivate
 from handlers.helpers import _mavzular
-from handlers.messages import _send_rich_message, _thread_key, karta_yubor
+from handlers.messages import (OUTCOME_UNKNOWN, _send_rich_message, _telegram_api_request,
+                               _thread_key, karta_yubor)
 from handlers.pro import btn, send_rich, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
+from services import vidjet
 from services.ai import (get_gpt_reply, build_rich_markdown, strip_image_tokens,
                          strip_internal_names)
 
@@ -171,10 +174,50 @@ async def _profile_or_none(user_id: int):
         return None
 
 
+def kunlik_holati(profile) -> dict:
+    """/kunlik kartasining holati (services/vidjet.py). Bepulda soatlar
+    ko'rsatilmaydi: SQL (`take_due_digests`) ularni baribir yubormaydi.
+    Mavzu 300 belgigacha — `chat_data` 1 KB (kirill matn 2 bayt)."""
+    if not _pro_faol(profile):
+        return {"l": 1, "h": [], "m": "", "t": int(time.time())}
+    return {"l": 0, "h": _user_hours(profile),
+            "m": (profile.get("digest_topics") or "")[:300], "t": int(time.time())}
+
+
+async def _kunlik_vidjeti(target, profile) -> bool:
+    """Shaxsiy chatda /kunlik — jonli karta (siferblat, keyingisigacha sanoq).
+    Izoh QAT'IY matn: soat bosilganda xabar matni o'zgarmaydi, holat esa
+    kartada ("k" so'rovi). Qaytadi: yetdimi; False — oddiy ekran."""
+    if getattr(getattr(target, "chat", None), "type", None) != "private":
+        return False
+    try:
+        pro = _pro_faol(profile)
+        hours = _user_hours(profile) if pro else None
+        izoh = (_PRO_ONLY if not pro else _INTRO + (
+            f"<i>Soatni bosib qo'shasiz, qayta bosib olib tashlaysiz — {_MAX_HOURS} "
+            "tagacha (Toshkent vaqti).</i>"))
+        kb = _hours_keyboard(hours, locked=not pro)
+        payload = {"chat_id": target.chat.id, "html": vidjet.kunlik_html(),
+                   "chat_data": vidjet.kunlik_holati(kunlik_holati(profile)),
+                   "allow_queries": True, "caption": izoh, "parse_mode": "HTML",
+                   "reply_markup": kb.model_dump(exclude_none=True)}
+        if tid := _thread_key(target):
+            payload["message_thread_id"] = tid
+        outcome: list = []
+        if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
+            return True
+        return OUTCOME_UNKNOWN in outcome
+    except Exception as e:
+        logger.warning(f"[Daydjest] karta yuborilmadi: {e}")
+        return False
+
+
 async def _ekran(target, profile) -> None:
     """/kunlik ekrani — `/kunlik` va «⚙️ Soatlar» tugmasi IKKALASI shu yerdan.
     Ilgari tugma o'z qisqa matnini chizardi (mavzusiz, muddati o'tganda ham
     «✅ Faol»)."""
+    if await _kunlik_vidjeti(target, profile):
+        return
     if not _pro_faol(profile):
         # Panjara o'chirilgan holda ko'rsatiladi — foydalanuvchi nimadan
         # mahrumligini KO'RADI, lekin bosa olmaydi.

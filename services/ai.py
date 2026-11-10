@@ -4480,6 +4480,31 @@ async def _biznes_mavzusimi(user_id: int, thread_id: int) -> bool:
 _ESLATMA_VAQT_RE = re.compile(r"qo'yildi: (\d{4}-\d{2}-\d{2} \d{2}:\d{2})")
 
 
+# /research jarayon kartasi (handlers/messages.py::_tadqiqot_ochiq). ContextVar,
+# parametr EMAS: `get_gpt_reply` ning imzosi testlardagi soxtalarda
+# takrorlangan — yangi parametr ularni jimgina eskirtirardi. Generator
+# chaqiruvchining vazifasida aylanadi, ya'ni o'rnatilgan qiymatni ko'radi.
+TADQIQOT: ContextVar[Optional[dict]] = ContextVar("tadqiqot", default=None)
+_HAVOLA_RE = re.compile(r"https?://[^\s<>\"')\]]+")
+
+
+def _tadqiqot_qayd(nom: str, args: dict, natija: str) -> None:
+    """Asbob natijasidan keyin: qidiruv so'rovi va noyob havolalar soni
+    (karta "manba" deydi), PDF bosqichi tugadi — "x" (xulosa yozilmoqda)."""
+    j = TADQIQOT.get()
+    if j is None or not isinstance(args, dict):
+        return
+    if nom == "internet_search":
+        q = str(args.get("primary_query") or args.get("url") or "").strip()
+        if q:
+            j["q"] = (j.get("q") or [])[-7:] + [q[:90]]
+        u = j.setdefault("_u", set())
+        u.update(_HAVOLA_RE.findall(natija or ""))
+        j["s"] = len(u)
+    elif nom == "run_python_sandbox":
+        j["b"] = "x"
+
+
 async def _eslatma_kartasi(user_id: int, vaqt: datetime) -> Optional[dict]:
     """Hozirgina qo'yilgan eslatma — sanoq kartasining holati. id kerak
     (karta "e:<id>" bilan holatini so'raydi), `create_scheduled_task` esa
@@ -5351,6 +5376,8 @@ async def get_openai_reply(
                 )
             elif call_item.name == "run_python_sandbox":
                 file_task_ran = True
+                if (j := TADQIQOT.get()) is not None:
+                    j["b"] = "p"          # /research kartasi: PDF yozilmoqda
                 tool_output = await _run_file_task(
                     args.get("code", ""),
                     quota=file_quota,
@@ -5576,6 +5603,7 @@ async def get_openai_reply(
                 else:
                     tool_output = "Qidiruv so'rovi bo'sh bo'lgani uchun bajarilmadi."
 
+            _tadqiqot_qayd(call_item.name, args, tool_output)
             messages.append({
                 "type": "function_call",
                 "call_id": call_item.call_id,
