@@ -75,8 +75,11 @@ async def joy_top(joy: str) -> dict:
     r = (d.get("results") or [None])[0]
     if not r:
         raise JoyTopilmadi(nom)
+    # tz/cc/viloyat — namoz vaqti uchun (services/namoz.py::joy_ol).
     return {"nom": r.get("name") or nom, "mamlakat": r.get("country") or "",
-            "lat": float(r["latitude"]), "lon": float(r["longitude"])}
+            "lat": float(r["latitude"]), "lon": float(r["longitude"]),
+            "tz": r.get("timezone") or "", "cc": r.get("country_code") or "",
+            "viloyat": r.get("admin1") or ""}
 
 
 async def prognoz(lat: float, lon: float, nom: str = "") -> dict:

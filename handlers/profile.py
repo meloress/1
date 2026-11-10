@@ -1,8 +1,8 @@
 from aiogram import types
 from core.loader import logger
-from services import obhavo, valyuta, vidjet
+from services import namoz, obhavo, valyuta, vidjet
 from datetime import datetime, timezone, timedelta
-from db.database import get_full_user_profile
+from db.database import get_full_user_profile, list_scheduled_tasks
 from core.config import (
     MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO, MESSAGE_COST_VOICE,
     MESSAGE_COST_DOCUMENT, plan_limits, daily_limit,
@@ -225,6 +225,25 @@ async def vidjet_sorovi(sorov: dict) -> None:
                 javob["data"] = vidjet.valyuta_holati(holat)
         except Exception as e:
             logger.info(f"[Vidjet] valyuta yangilanmadi ({data!r}): {e}")
+    elif data.startswith(vidjet.NAMOZ_SOROVI):
+        # Namoz kartasi kun almashganda — "n:r:39" / "n:a:lat,lon,tz".
+        # Qurilmadan keladi: `sorov_oqi` diapazon va mintaqa nomini tekshiradi.
+        try:
+            joy = namoz.sorov_oqi(data[len(vidjet.NAMOZ_SOROVI):])
+            if joy and (d := await namoz.holat(joy, "")):
+                javob["data"] = vidjet.namoz_holati(d)
+        except Exception as e:
+            logger.info(f"[Vidjet] namoz yangilanmadi ({data!r}): {e}")
+    elif data.startswith(vidjet.ESLATMA_SOROVI) and uid:
+        # Eslatma kartasi — "e:<id>". Ro'yxat SO'RAGAN odamniki (`from` ni
+        # Telegram tasdiqlaydi), ya'ni begona id shunchaki "yo'q" bo'ladi.
+        try:
+            tid = int(data[len(vidjet.ESLATMA_SOROVI):])
+            r = next((r for r in await list_scheduled_tasks(uid) if r["id"] == tid), None)
+            javob["data"] = vidjet.eslatma_holati({"at": int(r["run_at"].timestamp())} if r
+                                                  else {"x": 1})
+        except Exception as e:
+            logger.info(f"[Vidjet] eslatma holati o'qilmadi ({data!r}): {e}")
     elif data == vidjet.KARTA_SOROVI and uid:
         try:
             profil = await get_full_user_profile(uid)

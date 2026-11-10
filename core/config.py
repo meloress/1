@@ -511,6 +511,7 @@ INTERNAL_TOOL_NAMES: dict[str, str] = {
     "find_nearby": "yaqin atrofdagi joylarni topish",
     "ob_havo": "ob-havo ma'lumotini olish",
     "valyuta": "valyuta kursini olish",
+    "namoz_vaqti": "namoz vaqtlarini olish",
     # Ikki bosqichli asboblarning "eshik" nomlari — ular ham model
     # ko'radigan haqiqiy nomlar, ya'ni ular ham sirqib chiqishi mumkin.
     "start_file_task": "fayl yaratishni boshlash",

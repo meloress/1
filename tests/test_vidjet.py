@@ -572,6 +572,81 @@ check(64, "daydjest asbobga vidjet ro'yxatini beradi va kartalarni yuboradi",
       "vidjet_out=vidjet_out" in dgk and "await _kartalar(uid, vidjetlar, thread)" in dgk)
 
 # ─────────────────────────────────────────────────────────────
+# 65-70. ESLATMA SANOQ KARTASI
+# ─────────────────────────────────────────────────────────────
+# Shakl — db/database.py::list_scheduled_tasks SELECT'i: id, text, run_at,
+# repeat, vazifa, biznes_kimga (run_at — asyncpg'dagidek UTC'da).
+_UTC = timezone.utc
+_QATORLAR = [
+    {"id": 4, "text": "Eski", "run_at": datetime(2026, 11, 11, 13, 0, tzinfo=_UTC),
+     "repeat": "once", "vazifa": False, "biznes_kimga": 0},
+    {"id": 9, "text": "Onamga qo'ng'iroq", "run_at": datetime(2026, 11, 11, 13, 0, tzinfo=_UTC),
+     "repeat": "daily", "vazifa": False, "biznes_kimga": 0},
+    {"id": 7, "text": "Boshqa", "run_at": datetime(2026, 11, 12, 4, 0, tzinfo=_UTC),
+     "repeat": "once", "vazifa": False, "biznes_kimga": 0},
+]
+
+
+async def _royxat(uid, biznes=False):
+    return [dict(r) for r in _QATORLAR] if uid == 777 else []
+
+
+async def _yarat(uid, text, when, repeat="once", vazifa=False, thread_id=0):
+    return f"qo'yildi: {when}"
+
+asl_royxat, asl_yarat = ai.list_scheduled_tasks, ai.create_scheduled_task
+ai.list_scheduled_tasks, ai.create_scheduled_task = _royxat, _yarat
+k65 = asyncio.run(ai._eslatma_kartasi(777, datetime(2026, 11, 11, 18, 0)))
+check(65, "karta holati: shu vaqtdagi ENG YANGI eslatma (Toshkent vaqti), takror bilan",
+      k65 == {"tur": "eslatma", "d": {"m": "Onamga qo'ng'iroq", "r": "daily", "id": 9,
+                                      "at": int(_QATORLAR[1]["run_at"].timestamp())}}
+      and asyncio.run(ai._eslatma_kartasi(777, datetime(2026, 11, 11, 19, 0))) is None)
+
+
+async def _royxat_yiqiladi(uid, biznes=False):
+    raise ConnectionError("baza")
+
+ai.list_scheduled_tasks = _royxat_yiqiladi
+check(66, "ro'yxat o'qilmasa karta yo'q, xato chiqmaydi (bezak eslatmani yiqitmaydi)",
+      asyncio.run(ai._eslatma_kartasi(777, datetime(2026, 11, 11, 18, 0))) is None)
+ai.list_scheduled_tasks = _royxat
+
+o67 = []
+dm67 = asyncio.run(ai._run_reminder_task(
+    777, {"action": "create", "text": "x", "when": "2026-11-11 18:00"}, vidjet_out=o67))
+gr67 = asyncio.run(ai._run_reminder_task(
+    777, {"action": "create", "text": "x", "when": "2026-11-11 18:00"}))
+check(67, "shaxsiy chat: eslatma qo'yilgach karta navbatda, javob qisqa; guruhda karta yo'q",
+      len(o67) == 1 and o67[0]["d"]["id"] == 9 and "qisqa gap" in dm67
+      and "11.11.2026 18:00" in dm67 and "kartasi" not in gr67)
+ai.list_scheduled_tasks, ai.create_scheduled_task = asl_royxat, asl_yarat
+
+asl_pf_royxat = pf.list_scheduled_tasks
+pf.list_scheduled_tasks = _royxat
+chaqiruvlar.clear()
+msg._telegram_api_request = _api_soxta(True)
+for data in ("e:9", "e:123", "e:abc"):
+    asyncio.run(pf.vidjet_sorovi({"id": data, "from": {"id": 777}, "data": data}))
+asyncio.run(pf.vidjet_sorovi({"id": "begona", "from": {"id": 5}, "data": "e:9"}))
+pf.list_scheduled_tasks = asl_pf_royxat
+je = {p["widget_query_id"]: p for _, p in chaqiruvlar}
+check(68, "\"e:<id>\": faol — keyingi vaqt; yo'q yoki BOSHQA odamniki — {x:1}; buzuq — ma'lumotsiz",
+      json.loads(je["e:9"]["data"]) == {"at": int(_QATORLAR[1]["run_at"].timestamp())}
+      and json.loads(je["e:123"]["data"]) == {"x": 1} and "data" not in je["e:abc"]
+      and json.loads(je["begona"]["data"]) == {"x": 1} and len(je) == 4)
+
+chaqiruvlar.clear()
+msg._telegram_api_request = _api_soxta(None, msg.OUTCOME_REJECTED)
+mm69 = _Msg()
+asyncio.run(msg._vidjet_yubor(mm69, k65, None))
+check(69, "eslatma kartasi rad etilsa — qo'shimcha matn YO'Q (vaqt javobda aytilgan)",
+      chaqiruvlar[-1][0] == "sendWidget" and chaqiruvlar[-1][1]["allow_queries"] is True
+      and mm69.javoblar == [] and "Onamga" in chaqiruvlar[-1][1]["caption"])
+check(70, "eslatma kartasi HTML 4 KB'ga sig'adi; matn faqat textContent orqali",
+      v.sigadimi(v.eslatma_html()) and "D.m)" in v.eslatma_html()
+      and "innerHTML=\"\"" in v.eslatma_html() and v.eslatma_html().count("innerHTML") == 1)
+
+# ─────────────────────────────────────────────────────────────
 print("─" * 55)
 if failures:
     print(f"❌ {len(failures)} ta tekshiruv yiqildi:")

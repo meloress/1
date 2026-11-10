@@ -565,11 +565,138 @@ def valyuta_matni(d: dict) -> str:
                      + [f"1 {x[0]} ({x[1]}) = {son(x[2])} so'm" for x in d["r"]])
 
 
+# ── Namoz vaqtlari kartasi ────────────────────────────────────────
+# Holat — services/namoz.py::holat(): {"j", "d": sana, "v": [6 vaqt],
+# "e": ertangi Bomdod, "u": shahar UTC farqi (daqiqa), "m": manba, "q"}.
+# Sanoq SHAHAR soati bilan (`u`), telefon soati bilan emas: Toshkentdagi
+# odam Makka vaqtini so'rasa ham "Asrgacha" to'g'ri chiqsin. Kun almashsa
+# (shahar sanasi `d` dan boshqa) botdan "n:"+q so'raydi, 5 daqiqada bir.
+NAMOZ_SOROVI = "n:"
+_NAMOZ_SHABLON = """<style>
+body{margin:0;padding:12px 14px 14px;font-family:system-ui,sans-serif}
+.b{border-radius:16px;padding:12px 14px;color:#fff;background:linear-gradient(160deg,#1f7a5a,#0f4a3a)}
+.j{font-weight:600}.n{font-size:.8em;opacity:.85}
+.k{margin-top:10px;font-size:.85em;opacity:.9}
+.s{font-size:2.3em;font-weight:300;line-height:1.1;font-variant-numeric:tabular-nums}
+.r{display:flex;justify-content:space-between;padding:7px 12px;border-radius:12px;margin-top:3px;font-variant-numeric:tabular-nums}
+.o{color:var(--tg-theme-hint-color)}
+.x{background:var(--tg-theme-secondary-bg-color);font-weight:600}
+.u{color:var(--tg-theme-hint-color);font-size:.78em;margin-top:8px;text-align:center}
+</style>
+<div id="a"></div>
+<script>
+var W=window.TelegramWidget,D,N=["🌙 Bomdod","🌅 Quyosh","☀️ Peshin","🌤 Asr","🌇 Shom","🌌 Xufton"],
+M={r:"Rasmiy jadval",t:"Taxminiy: Toshkent jadvali + uzunlik farqi",h:"Hisoblangan (±1 daqiqa)",a:"Astronomik hisob · Asr Hanafiy"},S,I=-1,Q=0;
+function p(s){try{return JSON.parse(s)}catch(e){return null}}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function m(s){var a=s.split(":");return a[0]*60+ +a[1]}
+function z(n){return(n<10?"0":"")+n}
+function sh(){var t=new Date(Date.now()+D.u*6e4);return{d:z(t.getUTCDate())+"."+z(t.getUTCMonth()+1)+"."+t.getUTCFullYear(),n:t.getUTCHours()*60+t.getUTCMinutes()+t.getUTCSeconds()/60}}
+function k(){var h=sh(),i=0;while(i<6&&m(D.v[i])<=h.n)i++;return{i:i,q:(i<6?m(D.v[i]):m(D.e)+1440)-h.n}}
+function r(){var a=document.getElementById("a"),x=k(),b=el("div","b");I=x.i;a.innerHTML="";
+b.appendChild(el("div","j","🕌 "+D.j));b.appendChild(el("div","n",D.d));
+b.appendChild(el("div","k",I==1?"Quyosh chiqishiga":(I<6?N[I].split(" ")[1]:"Bomdod")+" namozigacha"));
+S=el("div","s");b.appendChild(S);a.appendChild(b);
+D.v.forEach(function(v,i){var q=el("div","r"+(i==I||(I==6&&i==0)?" x":i<I?" o":""));q.appendChild(el("span",0,N[i]));q.appendChild(el("b",0,v));a.appendChild(q)});
+a.appendChild(el("div","u",M[D.m]||""));t()}
+function t(){var x=k(),s=Math.max(0,Math.round(x.q*60));if(x.i!=I)return r();
+S.textContent=Math.floor(s/3600)+":"+z(Math.floor(s/60)%60)+":"+z(s%60)}
+var C=p(W&&W.chatData),L;try{L=p(localStorage.getItem("d"))}catch(e){}
+D=L&&C&&L.t>C.t?L:C;if(D&&D.v)r();
+function y(){if(!W||!W.request||!D||sh().d==D.d||Date.now()-Q<3e5)return;Q=Date.now();
+W.request("n:"+D.q).then(function(o){var x=p(o.result);if(x&&x.v){x.j=D.j;D=x;r();try{localStorage.setItem("d",JSON.stringify(x))}catch(e){}}},function(){})}
+y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});
+setInterval(function(){if(D&&D.v){t();y()}},1000);
+</script>"""
+
+
+def namoz_html() -> str:
+    return _NAMOZ_SHABLON
+
+
+def namoz_holati(d: dict) -> str:
+    return _json(d)
+
+
+def namoz_izohi(d: dict) -> str:
+    """Vidjetsiz ilova ko'radigan yagona matn — vaqtlarning hammasi shu yerda."""
+    from services.namoz import NOMLAR
+    return f"🕌 {d['j']}, {d['d']}\n" + " · ".join(
+        f"{n} {t}" for n, t in zip(NOMLAR, d["v"]))
+
+
+def namoz_matni(d: dict) -> str:
+    """Karta rad etilganda. ⚠️ `namoz.matn()` EMAS — u modelga yozilgan
+    (ichida "tekshirishni ayting" kabi ko'rsatma bor)."""
+    from services.namoz import NOMLAR
+    manba = {"t": "\n⚠️ Taxminiy (±2 daqiqa)", "a": "\nAstronomik hisob, Asr Hanafiy"}
+    return (f"🕌 {d['j']} — {d['d']}\n"
+            + "\n".join(f"{n}: {t}" for n, t in zip(NOMLAR, d["v"]))
+            + manba.get(d.get("m"), ""))
+
+
+# ── Eslatma kartasi ───────────────────────────────────────────────
+# Holat: {"m": matn, "at": epoch, "r": takror, "id": eslatma id}.
+# Sanoq telefonda; "e:<id>" so'rovi eslatma hali faolmi va keyingi vaqti
+# qachonligini so'raydi — bekor qilingan eslatma sanalib turmasin, takroriy
+# eslatma esa keyingi vaqtga o'tsin. Javob {"at": …} yoki {"x": 1} (yo'q).
+# Vaqt Toshkentda ko'rsatiladi: eslatma vaqti Toshkent bo'yicha qo'yiladi.
+ESLATMA_SOROVI = "e:"
+_ESLATMA_SHABLON = """<style>
+body{margin:0;padding:12px 14px 14px;font-family:system-ui,sans-serif}
+.b{border-radius:16px;padding:14px;color:#fff;background:linear-gradient(160deg,#6a4fd6,#3d2a8f)}
+.h{font-size:.85em;opacity:.85}
+.m{font-weight:600;font-size:1.1em;margin:6px 0 2px;overflow-wrap:anywhere}
+.s{font-size:2.2em;font-weight:300;line-height:1.15;margin-top:10px;font-variant-numeric:tabular-nums}
+.u{color:var(--tg-theme-hint-color);font-size:.8em;margin-top:8px;text-align:center}
+</style>
+<div id="a"></div>
+<script>
+var W=window.TelegramWidget,D,S,Q=0,R={daily:"🔁 Har kuni",weekly:"🔁 Har hafta",monthly:"🔁 Har oy"};
+function p(s){try{return JSON.parse(s)}catch(e){return null}}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function z(n){return(n<10?"0":"")+n}
+function v(at){var t=new Date((at+18e3)*1e3);return z(t.getUTCDate())+"."+z(t.getUTCMonth()+1)+"."+t.getUTCFullYear()+", "+z(t.getUTCHours())+":"+z(t.getUTCMinutes())}
+function r(){var a=document.getElementById("a"),b=el("div","b");a.innerHTML="";
+b.appendChild(el("div","h","⏰ Eslatma"+(R[D.r]?" · "+R[D.r]:"")));b.appendChild(el("div","m",D.m));
+b.appendChild(el("div","h","📅 "+v(D.at)));S=el("div","s");b.appendChild(S);a.appendChild(b);
+if(!D.x)a.appendChild(el("div","u","Vaqti kelganda shu chatga yozaman"));t()}
+function t(){if(D.x){S.textContent=D.at*1e3<=Date.now()?"✅ Yuborildi":"🚫 Bekor qilingan";return}
+var s=Math.round(D.at-Date.now()/1e3);if(s<=0){S.textContent="⏳ Vaqti keldi";y(30);return}
+var k=Math.floor(s/86400);S.textContent=(k?k+" kun ":"")+Math.floor(s/3600)%24+":"+z(Math.floor(s/60)%60)+":"+z(s%60)}
+function y(n){if(!W||!W.request||!D||Date.now()-Q<(n||300)*1e3)return;Q=Date.now();
+W.request("e:"+D.id).then(function(o){var x=p(o.result);if(x&&(x.at||x.x)){if(x.at){D.at=x.at;D.x=0}else D.x=1;r();try{localStorage.setItem("d",JSON.stringify(D))}catch(e){}}},function(){})}
+var C=p(W&&W.chatData),L;try{L=p(localStorage.getItem("d"))}catch(e){}
+D=L&&C&&L.id==C.id?L:C;if(D&&D.at){r();Q=0;y(1)}
+document.addEventListener("visibilitychange",function(){if(!document.hidden)y(20)});
+setInterval(function(){if(D&&D.at){t();y()}},1000);
+</script>"""
+
+
+def eslatma_html() -> str:
+    return _ESLATMA_SHABLON
+
+
+def eslatma_holati(d: dict) -> str:
+    return _json(d)
+
+
+def eslatma_izohi(d: dict) -> str:
+    return f"⏰ Eslatma: {d['m']}"[:CAPTION_MAX]
+
+
+def _eslatma_zaxirasi(d: dict) -> str:
+    # Karta rad etilsa matn kerak emas: model javobi vaqtni allaqachon aytgan.
+    return ""
+
+
 def turi(tur: str):
     """(html, holat, izoh, zaxira matn) — asbob navbatga qo'ygan vidjet turi
     bo'yicha. Yangi kartani qo'shish — shu yerga bitta qator."""
-    from services import obhavo
+    from services import namoz, obhavo
     return {
         "obhavo": (obhavo_html, obhavo_holati, obhavo_izohi, obhavo.matn),
         "valyuta": (valyuta_html, valyuta_holati, valyuta_izohi, valyuta_matni),
+        "namoz": (namoz_html, namoz_holati, namoz_izohi, namoz_matni),
+        "eslatma": (eslatma_html, eslatma_holati, eslatma_izohi, _eslatma_zaxirasi),
     }.get(tur)

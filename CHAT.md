@@ -17,16 +17,17 @@ Nearly all of it is fixed overhead, not user text. Measured with `tiktoken` (`o2
 | | free | Pro |
 |---|---|---|
 | `instructions` (prompt + concise + image note) | 5 707 | 5 707 |
-| tool schemas (all doors closed) | 2 489 | 2 862 |
-| capability manifest | 499 | 449 |
-| **fixed total per round** | **8 695** | **9 018** |
+| tool schemas (all doors closed) | 2 594 | 2 967 |
+| capability manifest | 505 | 455 |
+| **fixed total per round** | **8 806** | **9 129** |
 
 (+44 on 2026-11-05: the prompt now names the bot Vexon AI. +102 on 2026-11-10: the
 `[test]` quiz rule — the first draft was +202 and was trimmed. +135 the same day: the
 `ob_havo` tool schema, always attached — a weather question used to cost a whole search
 round instead. Later that day: +40 the `[kartochka]` rule, +124 the `valyuta` schema (first
-draft 206, trimmed), −34 `ob_havo` trimmed to 101, +4 manifest. All measured with
-`tiktoken`; the per-row values are the previous measurement plus these deltas.)
+draft 206, trimmed), −34 `ob_havo` trimmed to 101, +4 manifest. Then +105 the
+`namoz_vaqti` schema and +6 manifest. All measured with `tiktoken`; the per-row values
+are the previous measurement plus these deltas.)
 | history | 0 → ~8 200, then capped by the summary (~300) | |
 | median user message | ~10 | |
 | median reply | ~70 | |
@@ -778,6 +779,38 @@ fallback text, which the caller must send. `/kunlik` uses the same function:
 `_build_digest(topics, vidjet_out)` passes the list to the tool loop, so a digest whose
 topics mention weather or currency gets real numbers and the card. Nobody is asked for a
 city: the card shows whatever the topics name.
+
+**Prayer times** (`namoz_vaqti`, `services/namoz.py`) follow the weather pattern, but
+accuracy decides the design, because a wrong minute here is a missed prayer.
+- ⛔️ **Official Uzbek times are not computed per city.** They are the Tashkent table plus
+  a fixed number of minutes per city: Nukus +39, Andijon −12 (namoz-vaqti.uz
+  `offset_min`). Nukus computed from its own coordinates was 2-4 minutes off the official
+  table. So a city in `UZ_FARQ` (47 places) gets Tashkent + its offset.
+- ⚠️ **A city in `UZ_FARQ` never reaches the geocoder.** Open-Meteo put «Farg‘ona» at
+  68.3° longitude (a 14-minute error), and «Yangiyo‘l» and «Zarafshon» in the wrong place
+  too.
+- **A place in Uzbekistan that is not in the table** gets Tashkent + (69.24° − longitude)
+  × 4 minutes. Most of the 47 official offsets follow that rule, but not all
+  (Ohangaron, Xiva), so it is labelled "taxminiy".
+- **Abroad**, the times are computed from the place's own coordinates.
+- **The Tashkent table** is namoz-vaqti.uz's JSON (Din ishlari qo'mitasi). It costs one
+  request per month, kept in RAM. When the site fails, the bot uses its own calculation:
+  PrayTimes, Fajr/Isha at 15.5°, Asr Hanafi, Maghrib = sunset + 3.5 min. That method was
+  fitted against all 2 190 times of the official 2026 table, and every one is within ±1
+  minute. No method reproduced the table exactly; a grid search over angles, offsets and
+  coordinates was tried. The source line tells the model which case applied.
+- **There is no "service down" for the times themselves.** Only geocoding (for a place not
+  in the table) can fail.
+- **The card** counts down to the next prayer in the **city's** clock (`u`, UTC offset),
+  not the phone's. When the city's date changes, it asks for `"n:"` + `q`; that string
+  comes from the device and goes through `sorov_oqi()`.
+
+**Reminder card**: in a DM, a reminder that was just created is queued as a countdown card
+(`ai._eslatma_kartasi`). `create_scheduled_task` returns text, so the id is taken from the
+list as the newest row at that time; if that fails, there is no card and nothing breaks.
+The card asks `"e:<id>"`, and `vidjet_sorovi` answers from the **asking** user's list:
+`{at}` (the next time, so a repeating reminder rolls over) or `{x:1}` (sent or
+cancelled). The fallback text is empty, because the reply already gave the time.
 
 **Flashcards** (`[kartochka] front — back [/kartochka]`) go through the same block
 mechanism as the quiz. `BLOK_TURLARI` holds one row per type and `_BLOK_RE` holds the tag

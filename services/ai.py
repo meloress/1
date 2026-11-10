@@ -30,7 +30,7 @@ from services import avto_tatil
 from services.file_task_quota import FileTaskQuota, DailyQuota
 from services.sandbox import run_in_sandbox
 from services.vidjet import bloklar_matnga
-from services import obhavo, valyuta
+from services import namoz, obhavo, valyuta
 
 try:
     from core.config import (
@@ -3450,7 +3450,7 @@ def _capability_manifest(*, file_task_enabled: bool, image_enabled: bool,
     # internet_search va open_capabilities — ikkalasi ham doim
     # biriktirilgan, shuning uchun manifest ham ikkalasini aytadi.
     bor = [_TOOLS[0]["name"], _IMKONIYAT_TOOL["name"], _OBHAVO_TOOL["name"],
-           _VALYUTA_TOOL["name"]]
+           _VALYUTA_TOOL["name"], _NAMOZ_TOOL["name"]]
     # Faqat egasining «💼 Biznes» mavzusida — boshqa joyda ro'yxatda ham
     # yo'q (pastdagi "Never available" gapi o'sha holat uchun to'g'ri).
     if biznes_enabled:
@@ -4315,6 +4315,55 @@ _VALYUTA_TOOL = {
 }
 
 
+# ─────────────────────────────────────────────────────────────
+# 🕌 NAMOZ VAQTI (services/namoz.py)
+# O'zbekistonda rasmiy jadval (Toshkent + shahar farqi), chet elda hisob.
+# Model vaqtni O'YLAB TOPSA namoz qazo bo'ladi — raqam faqat koddan.
+# ─────────────────────────────────────────────────────────────
+_NAMOZ_TOOL = {
+    "type": "function",
+    "name": "namoz_vaqti",
+    "description": (
+        "Bugungi namoz vaqtlari (O'zbekistonda rasmiy). Namoz/saharlik/iftor "
+        "vaqti savolida shu; joy aytilmasa — so'rang."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "joy": {"type": "string", "description": "Shahar"},
+        },
+        "required": ["joy"],
+        "additionalProperties": False,
+    },
+}
+
+
+async def _run_namoz_task(args: dict, vidjet_out: Optional[list]) -> str:
+    joy = obhavo.toza_joy(args.get("joy"))
+    try:
+        kortej, nom = await namoz.joy_ol(joy)
+        d = await namoz.holat(kortej, nom)
+    except obhavo.JoyTopilmadi:
+        return (f"«{joy}» degan joy topilmadi. Foydalanuvchidan shahar nomini "
+                "aniqlashtirishni so'rang.")
+    except obhavo.XizmatYoq as e:
+        logger.warning(f"[NAMOZ] joy aniqlanmadi ({joy}): {e}")
+        return ("Joyni aniqlash xizmati hozir javob bermadi (texnik nosozlik). "
+                "Shuni AYTING; vaqtlarni O'YLAB TOPMANG.")
+    if d is None:
+        return (f"{nom}: bugun quyosh chiqmaydi yoki botmaydi (qutb kuni) — "
+                "astronomik jadval yo'q. Mahalliy masjid jadvaliga qarashni ayting.")
+    qoida = ("Saharlik (og'iz yopish) — Bomdod vaqti, iftor — Shom vaqti. "
+             "Vaqtlarni AYNAN shu yerdagidek yozing.")
+    if vidjet_out is not None:
+        vidjet_out.append({"tur": "namoz", "d": d})
+        return (namoz.matn(d) + "\n" + qoida + "\nNamoz vaqtlari kartasi (keyingi "
+                "namozgacha sanoq bilan) javobingizdan KEYIN avtomatik chiqadi. "
+                "Javobni 1-2 gap bilan yozing (so'ralgan vaqtni ayting); 6 vaqt "
+                "ro'yxatini, jadvalni YOZMANG.")
+    return namoz.matn(d) + "\n" + qoida
+
+
 async def _run_valyuta_task(args: dict, vidjet_out: Optional[list]) -> str:
     kodlar = valyuta.toza_kodlar(args.get("kodlar"))
     dan = (valyuta.toza_kodlar([args.get("dan")]) or ["UZS"])[0]
@@ -4431,9 +4480,30 @@ async def _biznes_mavzusimi(user_id: int, thread_id: int) -> bool:
 _ESLATMA_VAQT_RE = re.compile(r"qo'yildi: (\d{4}-\d{2}-\d{2} \d{2}:\d{2})")
 
 
+async def _eslatma_kartasi(user_id: int, vaqt: datetime) -> Optional[dict]:
+    """Hozirgina qo'yilgan eslatma — sanoq kartasining holati. id kerak
+    (karta "e:<id>" bilan holatini so'raydi), `create_scheduled_task` esa
+    modelga matn qaytaradi — shuning uchun ro'yxatdan shu vaqtdagi eng
+    yangisi olinadi. Topilmasa karta yo'q, xolos: bezak eslatmani yiqitmaydi."""
+    try:
+        rows = [r for r in await list_scheduled_tasks(user_id)
+                if r["run_at"].astimezone(TASHKENT_TZ).replace(tzinfo=None, second=0,
+                                                              microsecond=0) == vaqt]
+    except Exception as e:
+        logger.info(f"[Eslatma] karta uchun ro'yxat o'qilmadi (user={user_id}): {e}")
+        return None
+    if not rows:
+        return None
+    r = max(rows, key=lambda x: x["id"])
+    return {"tur": "eslatma", "d": {"m": r["text"], "at": int(r["run_at"].timestamp()),
+                                    "r": r["repeat"], "id": r["id"]}}
+
+
 async def _run_reminder_task(user_id: Optional[int], args: dict, *,
-                             is_pro: bool = True, thread_id: int = 0) -> str:
+                             is_pro: bool = True, thread_id: int = 0,
+                             vidjet_out: Optional[list] = None) -> str:
     """manage_reminder chaqiruvi — modelga qisqa MATN natija qaytaradi.
+    `vidjet_out` — shaxsiy chat: qo'yilgan eslatma sanoq kartasi bo'lib chiqadi.
 
     Bepul tarif: faqat BIR MARTALIK eslatma. Takroriy va bajariladigan
     vazifa (qidiruvli, qimmat) — Pro; buni tavsif emas, KOD tekshiradi.
@@ -4471,6 +4541,10 @@ async def _run_reminder_task(user_id: Optional[int], args: dict, *,
                 natija += (f". Javobda vaqtni AYNAN «{vaqt:%d.%m.%Y %H:%M}» shaklida "
                            "yozing («ertaga, …» deb boshlasa ham bo'ladi) — Telegram "
                            "uni foydalanuvchiga o'z vaqtida ko'rsatadi")
+                if vidjet_out is not None and (k := await _eslatma_kartasi(user_id, vaqt)):
+                    vidjet_out.append(k)
+                    natija += (". Javobdan KEYIN sanoq kartasi chiqadi — javobni "
+                               "bitta qisqa gap bilan yozing")
             return natija
 
         rows = await list_scheduled_tasks(user_id)
@@ -5031,6 +5105,9 @@ async def get_openai_reply(
     # 2: kurs + aniqlashtirilgan konvertatsiya.
     MAX_VALYUTA_ROUNDS = 2
     valyuta_rounds = 0
+    # 2: "Toshkent va Makkada" — ikki joy.
+    MAX_NAMOZ_ROUNDS = 2
+    namoz_rounds = 0
 
     # Business topshirig'i — `biznes_enabled` yuqorida, holat bloki bilan
     # birga hisoblangan. 5: qidir + suhbat + yubor, yoki bilim + o'zgartirish,
@@ -5120,6 +5197,8 @@ async def get_openai_reply(
             active_tools.append(_OBHAVO_TOOL)
         if valyuta_rounds < MAX_VALYUTA_ROUNDS:
             active_tools.append(_VALYUTA_TOOL)
+        if namoz_rounds < MAX_NAMOZ_ROUNDS:
+            active_tools.append(_NAMOZ_TOOL)
         if biznes_enabled and biznes_rounds < MAX_BIZNES_ROUNDS:
             active_tools.append(_BIZNES_XABAR_TOOL)
         # Doim biriktiriladi: "sen nima qila olasan" savoli istalgan
@@ -5250,6 +5329,7 @@ async def get_openai_reply(
         nearby_ran = False
         obhavo_ran = False
         valyuta_ran = False
+        namoz_ran = False
 
         for call_item in pending_calls:
             try:
@@ -5318,7 +5398,8 @@ async def get_openai_reply(
                 # chat_id ham user_id, lekin thread_id doim 0.
                 tool_output = await _run_reminder_task(
                     user_id, args, is_pro=is_pro,
-                    thread_id=thread_id if chat_id == user_id else 0)
+                    thread_id=thread_id if chat_id == user_id else 0,
+                    vidjet_out=vidjet_out)
             elif call_item.name == "biznes_xabar":
                 # ⚠️ Bu ham `else` dan OLDIN — aks holda "Xusanga yoz"
                 # veb qidiruvga aylanardi. Asbob faqat `biznes_enabled`
@@ -5370,6 +5451,10 @@ async def get_openai_reply(
                 # ⚠️ `else` dan OLDIN — aks holda veb-qidiruv bo'lardi.
                 valyuta_ran = True
                 tool_output = await _run_valyuta_task(args, vidjet_out)
+            elif call_item.name == "namoz_vaqti":
+                # ⚠️ `else` dan OLDIN — aks holda veb-qidiruv bo'lardi.
+                namoz_ran = True
+                tool_output = await _run_namoz_task(args, vidjet_out)
             else:
                 search_ran = True
                 primary_query = args.get("primary_query", "")
@@ -5519,6 +5604,8 @@ async def get_openai_reply(
             obhavo_rounds += 1
         if valyuta_ran:
             valyuta_rounds += 1
+        if namoz_ran:
+            namoz_rounds += 1
         total_rounds += 1
 
         # Tool'dan OLDIN yozilgan oraliq matn ("Hozir tayyorlab beraman...")

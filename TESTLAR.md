@@ -45,7 +45,24 @@ Some are structural guards rather than feature tests, and they earn their keep o
   45-54 cover currency. The sharpest is 45, where `Nominal` (VND per 10 units) would
   otherwise be a 10x error. 55-59 cover flashcards, 60-62 quotes from a rich message (the
   quote's `text` is empty and the words are in `rich_texts`), and 63-64 cover `/kunlik`
-  sending the card, with text when it is rejected.
+  sending the card, with text when it is rejected. 65-70 are the reminder countdown card.
+  65 picks the newest reminder at that time. 66 shows that a database error means no card
+  and no failure. 68 shows that `"e:<id>"` reads the **asking** user's list, so another
+  person's id answers `{x:1}`. 69 shows that a rejected card sends no extra text, because
+  the reply already gave the time.
+- `test_namoz.py` — prayer times.
+  - Check 1 compares the calculation with the official Tashkent table on 24 dates of 2026
+    and allows ±1 minute. The full year was checked once on 2026-11-10: all 2 190 times
+    were within ±1.
+  - Check 6 is the sharpest: a city in `UZ_FARQ` never reaches the geocoder, which put
+    «Farg‘ona» at 68.3° longitude, a 14-minute error.
+  - Check 10: Nukus is Tashkent + 39 minutes, which is how the official table works.
+  - Checks 9 and 11: when namoz-vaqti.uz is down or returns a malformed table, the bot uses
+    its own calculation, and the source line says so. A failed month is not retried on
+    every request.
+  - Check 12: the card's `"n:"` request comes from the device, so it is range-checked and
+    the time-zone name is validated.
+  - Check 16: suhoor (saharlik) is Fajr and iftar is Maghrib, stated to the model.
 - `test_biznes_ekran.py` — the `/biznes` screens plus the owner-facing premium-emoji
   middleware (a request carrying `business_connection_id` is never touched by it), the
   customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the

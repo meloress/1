@@ -189,7 +189,7 @@ touching its code — the one-liner tells you *that* something breaks silently, 
 
 **`CHAT.md`** — the chat pipeline, one line per section:
 
-- **Token budget** — the free grant counts tokens, cached ones too; ~8 695 (free) / 9 018
+- **Token budget** — the free grant counts tokens, cached ones too; ~8 806 (free) / 9 129
   (Pro) fixed tokens per round. Re-measure with `tiktoken` after any schema/manifest/prompt
   edit. `prompt_cache_key` is per **plan**, never per user; `PROMPT_CACHE_RETENTION` is off on purpose.
 - **Stop button** — `@dp.stopped_message_generation()` observer; in aiogram 3.31
@@ -250,7 +250,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
 - **Widgets** (Bot API 10.4) — DM only in production; the model writes `[test]` /
   `[kartochka]`, never HTML; weather (`ob_havo`) and currency (`valyuta`) are tools that give
   the model real numbers and queue a card via `vidjet_out` in a DM. Currency conversion is
-  computed in code, and `Nominal` is honoured. Both cards are sent through
+  computed in code, and `Nominal` is honoured. Prayer times (`namoz_vaqti`): official
+  Uzbek times are the **Tashkent table + a fixed per-city offset** (`namoz.UZ_FARQ`); a
+  city in that table never reaches the geocoder, which put Farg‘ona 14 minutes off. A new
+  reminder gets a countdown card in a DM. All cards are sent through
   `karta_yubor()`, `/kunlik` included;
   a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know
   `widget_query`, so `profile.vidjet_mw` is an outer middleware and the type is appended

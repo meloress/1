@@ -93,9 +93,9 @@ guest = manifest(file_task_enabled=False, image_enabled=False,
 # — hammasi o'chiq).
 check(5, "guest rejimda qidiruv va imkoniyatlar eshigi qoladi, "
          "fayl tool'i sababi bilan chiqadi",
-      # ob_havo va valyuta ham doim bor: guruhda karta yo'q, raqam matnda.
+      # ob_havo, valyuta, namoz_vaqti ham doim bor: guruhda karta yo'q, raqam matnda.
       guest.split("NOT available")[0].strip().endswith(
-          "internet_search, open_capabilities, ob_havo, valyuta.")
+          "internet_search, open_capabilities, ob_havo, valyuta, namoz_vaqti.")
       and "start_file_task (not available in this chat type)" in guest)
 
 # ── 6. RO'YXAT SXEMADAN OLINADI (qo'lda yozilmagan) ───────────────

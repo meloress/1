@@ -1380,8 +1380,10 @@ async def karta_yubor(chat_id: int, v: dict, thread_id=None) -> str | None:
     if (await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None
             or OUTCOME_UNKNOWN in outcome):
         return None
-    logger.warning(f"[Vidjet] {v.get('tur')} rad etildi (chat={chat_id}) — matn bilan")
-    return zaxira(d)
+    matn = zaxira(d)
+    logger.warning(f"[Vidjet] {v.get('tur')} rad etildi (chat={chat_id})"
+                   + (" — matn bilan" if matn else ""))
+    return matn
 
 
 async def _vidjet_yubor(message: Message, v: dict, thread_id) -> None:
