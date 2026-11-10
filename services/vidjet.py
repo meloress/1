@@ -14,6 +14,7 @@ ekranga FAQAT `textContent` orqali chiqadi — `innerHTML` ga hech qachon.
 hamma joyda — guruh, guest, draft, oddiy zaxira — belgi oddiy matnga
 aylanadi: `test_matnga()`.
 """
+import html
 import json
 import random
 import re
@@ -33,6 +34,105 @@ _SAVOL_UZUN, _VARIANT_UZUN, _IZOH_UZUN = 300, 150, 300
 # yopishni unutsa ham test yo'qolmasin.
 _TEST_RE = re.compile(r"\[\s*test\s*\]\s*\n?(.*?)(?:\[\s*/\s*test\s*\]|\Z)", re.S | re.I)
 _HARF = "ABCDEF"
+
+
+# ── LaTeX va markdown → o'qiladigan matn ─────────────────────────
+# ⛔️ JONLI (2026-11-10): vidjetda «$7 \times 8$ nechaga teng?» chiqdi.
+# Prompt matematikani LaTeX'da yozdiradi va oddiy javobda Telegram uni
+# formula qilib chizadi — vidjetda esa matn faqat textContent, ya'ni xom
+# `\times` o'quvchiga ko'rinadi. Prompt qoidasi kafolat emas, shuning uchun
+# KOD tozalaydi: `\times` → ×, `\frac{1}{2}` → 1/2, `x^2` → x², `**a**` → a.
+# `$` ham formula, ham dollar: Pandoc qoidasi — ochuvchidan keyin va
+# yopuvchidan oldin bo'sh joy yo'q, yopuvchidan keyin raqam yo'q — va ichi
+# formulaga o'xshashi shart. Shunda «$5 va $10» narx bo'lib qoladi.
+_BUYRUQ = {
+    "times": "×", "cdot": "·", "div": "÷", "pm": "±", "mp": "∓",
+    "le": "≤", "leq": "≤", "ge": "≥", "geq": "≥", "ne": "≠", "neq": "≠",
+    "approx": "≈", "equiv": "≡", "sim": "~", "infty": "∞", "circ": "°", "degree": "°",
+    "to": "→", "rightarrow": "→", "Rightarrow": "⇒", "leftarrow": "←", "Leftrightarrow": "⇔",
+    "in": "∈", "notin": "∉", "subset": "⊂", "cup": "∪", "cap": "∩", "emptyset": "∅",
+    "angle": "∠", "perp": "⊥", "parallel": "∥", "triangle": "△", "sum": "Σ", "prod": "∏",
+    "int": "∫", "partial": "∂", "nabla": "∇", "forall": "∀", "exists": "∃", "sqrt": "√",
+    "ldots": "…", "cdots": "⋯", "dots": "…",
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "Delta": "Δ", "epsilon": "ε",
+    "theta": "θ", "lambda": "λ", "mu": "μ", "pi": "π", "rho": "ρ", "sigma": "σ",
+    "Sigma": "Σ", "tau": "τ", "phi": "φ", "omega": "ω", "Omega": "Ω",
+    "quad": " ", "qquad": " ", "left": "", "right": "", "displaystyle": "",
+    "sin": "sin", "cos": "cos", "tan": "tan", "log": "log", "ln": "ln", "lim": "lim",
+}
+_USTKI_HARF = "0123456789+-=()n"
+_USTKI = str.maketrans(_USTKI_HARF, "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
+_OSTKI = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
+_FORMULA_RE = re.compile(
+    r"\$\$(.+?)\$\$|\\\((.+?)\\\)|\\\[(.+?)\\\]|\$(?=\S)([^$\n]*?\S)\$(?!\d)", re.S)
+_FORMULAGA_OXSHAYDI = re.compile(r"\\[A-Za-z%]|[\^_{}=+\-*/<>×÷]")
+
+
+def _daraja(x: str, jadval, belgi: str) -> str:
+    x = x.strip()
+    if x and all(ch in _USTKI_HARF for ch in x) and (belgi == "^" or "n" not in x):
+        return x.translate(jadval)
+    return f"{belgi}{x}" if len(x) == 1 else f"{belgi}({x})"
+
+
+def _qavsla(x: str) -> str:
+    """Kasr surat/maxraji: bitta son yoki so'z — qavssiz, aks holda qavsda
+    (`\\frac{a+b}{2}` → `(a+b)/2`, `a+b/2` emas — ma'nosi o'zgarmasin)."""
+    x = x.strip()
+    return x if re.fullmatch(r"[\w.,°√π⁰¹²³⁴⁵⁶⁷⁸⁹ⁿ₀-₉]+", x) else f"({x})"
+
+
+def _latex(t: str) -> str:
+    t = t.replace("\\\\", " ")
+    t = re.sub(r"\\[,;:! ]", " ", t).replace("\\%", "%")
+    # Gradus — darajaning maxsus holati: `30^{\circ}` → 30°, `30^(°)` emas.
+    t = re.sub(r"\^\s*\{?\s*\\circ\s*\}?", "°", t)
+    for _ in range(10):                      # ichma-ich {} — ichidan tashqariga
+        oldin = t
+        t = re.sub(r"\^\{([^{}]*)\}", lambda m: _daraja(m[1], _USTKI, "^"), t)
+        t = re.sub(r"_\{([^{}]*)\}", lambda m: _daraja(m[1], _OSTKI, "_"), t)
+        t = re.sub(r"\^([0-9n+\-])", lambda m: m[1].translate(_USTKI), t)
+        t = re.sub(r"(?<=[A-Za-z)])_([0-9])", lambda m: m[1].translate(_OSTKI), t)
+        t = re.sub(r"\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}",
+                   lambda m: f"{_qavsla(m[1])}/{_qavsla(m[2])}", t)
+        t = re.sub(r"\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}",
+                   lambda m: f"{m[1].strip().translate(_USTKI)}√{_qavsla(m[2])}", t)
+        t = re.sub(r"\\sqrt\s*\{([^{}]*)\}", lambda m: f"√{_qavsla(m[1])}", t)
+        t = re.sub(r"\\(?:text|textbf|mathrm|mathbf|mathit|operatorname|mbox)\s*\{([^{}]*)\}",
+                   r"\1", t)
+        if t == oldin:
+            break
+    t = re.sub(r"\\([A-Za-z]+)", lambda m: _BUYRUQ.get(m[1], m[1]), t)
+    t = t.replace("{", "").replace("}", "")
+    return re.sub(r"[ \t]{2,}", " ", t).strip()
+
+
+def oddiy_matn(matn: str) -> str:
+    """Vidjetga tushadigan model matni: LaTeX va markdown belgilarisiz."""
+    if not matn:
+        return matn
+
+    def formula(m):
+        ichi = next(g for g in m.groups() if g is not None)
+        # `$56$`, `$x$` — operatorsiz, lekin baribir formula (javob varianti
+        # shunday keladi). Narx esa `$56` — yopuvchi `$` siz, bu yerga tushmaydi.
+        if _FORMULAGA_OXSHAYDI.search(ichi) or re.fullmatch(r"-?[\w.,]+", ichi):
+            return _latex(ichi)
+        return m.group(0)
+
+    t = _FORMULA_RE.sub(formula, matn)
+    # `$` siz yozilgan buyruq ham (model ba'zan delimitersiz yozadi) —
+    # faqat MA'LUM buyruqlar, notanish `\foo` tegilmaydi.
+    t = re.sub(r"\\([A-Za-z]+)", lambda m: _BUYRUQ.get(m[1], m.group(0)), t)
+    t = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m[1] or m[2], t)
+    # Prompt `==belgilash==` ga ruxsat beradi; ~~, || ham uchraydi.
+    t = re.sub(r"==(.+?)==|~~(.+?)~~|\|\|(.+?)\|\|", lambda m: m[1] or m[2] or m[3], t)
+    # Yakka `*kursiv*` — faqat so'z ichida emas: `2*3*4` ko'paytma bo'lib qoladi.
+    t = re.sub(r"(?<![\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])", r"\1", t)
+    t = re.sub(r"`([^`]+)`", r"\1", t).replace("\\%", "%")
+    t = re.sub(r"\[([^\]]+)\]\(https?://[^)\s]+\)", r"\1", t)
+    t = html.unescape(re.sub(r"</?(?:b|i|u|s|em|strong|code|mark|sub|sup)\s*>", "", t, flags=re.I))
+    return re.sub(r"[ \t]{2,}", " ", t).strip()
 
 
 def test_oqi(blok: str) -> list:
@@ -57,7 +157,7 @@ def test_oqi(blok: str) -> list:
         q = qator.strip()
         if len(q) < 2:
             continue
-        belgi, matn = q[0], q[1:].strip()
+        belgi, matn = q[0], oddiy_matn(q[1:].strip())
         if not matn:
             continue
         if belgi == "?":

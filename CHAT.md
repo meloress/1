@@ -721,6 +721,15 @@ model almost always writes the correct one first).
   «tayyorlanmoqda»: the `+` lines would otherwise reveal every answer while streaming.
   `clean_text_for_speech()` runs it too.
 - The quiz sends **no** queries: answers live in the message's `localStorage`.
+- ⛔️ **Every quiz string goes through `vidjet.oddiy_matn()`.** Live, 2026-11-10: the card
+  showed «$7 \times 8$ nechaga teng?». The prompt makes maths LaTeX, and a normal reply
+  turns it into `<tg-math>`, but inside a widget text reaches the screen only via
+  `textContent`, so nothing draws it. A prompt rule is not a guarantee, so code converts
+  it: `\times` → ×, `\frac{a+b}{2}` → (a+b)/2, `x^2` → x², `H_2O` → H₂O, `30^{\circ}` →
+  30°. It also strips markdown/HTML (`**`, `==`, `*kursiv*`, `<b>`, `&amp;`). `$` is also
+  a currency sign, so a span counts as maths only by Pandoc's rule (no space after the
+  opening `$`, none before the closing one, no digit after it), and «$5 va $10» stays a
+  price. `2*3*4` stays a product. `test_vidjet.py` checks 43-44.
 
 **/profile** in a DM is one widget message: the live counters are the widget, the profile
 header is the caption (plus a one-line credit snapshot for apps without widgets), the Pro

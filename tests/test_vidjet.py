@@ -378,6 +378,49 @@ check(42, "\"w:lat,lon\" so'roviga yangi prognoz; buzuq koordinataga ma'lumotsiz
       and "data" not in javoblar["w:999,1"] and "data" not in javoblar["w:abc"])
 
 # ─────────────────────────────────────────────────────────────
+# 43-44. LaTeX/markdown vidjetga XOM tushmaydi
+# ⛔️ JONLI (2026-11-10): vidjetda «$7 \times 8$ nechaga teng?» chiqdi —
+# matn faqat textContent, formulani chizadigan hech narsa yo'q.
+# ─────────────────────────────────────────────────────────────
+_HOLATLAR = [
+    (r"$7 \times 8$ nechaga teng?", "7 × 8 nechaga teng?"),
+    (r"$\frac{1}{2} + \frac{1}{3}$", "1/2 + 1/3"),
+    (r"$\frac{a+b}{2}$", "(a+b)/2"),             # qavs — ma'no o'zgarmasin
+    (r"$\frac{x^2}{4}$", "x²/4"),
+    (r"$x^2 + y^{10}$", "x² + y¹⁰"),
+    (r"$x^{n+1}$", "xⁿ⁺¹"),
+    (r"$a^{2b}$", "a^(2b)"),
+    (r"$\sqrt{x+1}$", "√(x+1)"),
+    (r"$\sqrt[3]{27}$", "³√27"),
+    (r"$H_2O$", "H₂O"),
+    (r"$\sin 30^{\circ} = \frac{1}{2}$", "sin 30° = 1/2"),
+    (r"$90^\circ$", "90°"),
+    (r"$x \leq 5$", "x ≤ 5"),
+    (r"$$2 \cdot 3 = 6$$", "2 · 3 = 6"),
+    (r"\(a \neq b\)", "a ≠ b"),
+    (r"7 \times 8 = ?", "7 × 8 = ?"),            # delimitersiz
+    (r"$\text{tezlik} = \frac{s}{t}$", "tezlik = s/t"),
+    (r"$12\%$ dan", "12% dan"),
+    (r"$5 va $10 narx", "$5 va $10 narx"),        # dollar — formula EMAS
+    (r"Javob: $56$", "Javob: 56"),                # operatorsiz formula
+    (r"$x$ ni toping", "x ni toping"),
+    (r"Narxi $20, chegirma bilan $15", "Narxi $20, chegirma bilan $15"),
+    ("**Qalin** ==muhim== `kod` *kursiv*", "Qalin muhim kod kursiv"),
+    ("2*3*4 = ?", "2*3*4 = ?"),                   # ko'paytma — kursiv EMAS
+    ("<b>Qalin</b> &amp; a &lt; b", "Qalin & a < b"),
+]
+yomonlar = [(k, v.oddiy_matn(k), x) for k, x in _HOLATLAR if v.oddiy_matn(k) != x]
+check(43, f"LaTeX/markdown → o'qiladigan matn ({len(_HOLATLAR)} holat)", not yomonlar)
+for k, r, x in yomonlar:
+    print(f"     {k!r} -> {r!r}, kutilgan {x!r}")
+
+s43 = v.test_oqi("? $7 \\times 8$ nechaga teng?\n+ $56$\n- **54**\n- $\\frac{112}{2}$\n"
+                 "! $7 \\times 8 = 56$")[0]
+check(44, "test blokida savol, variant va izohda xom belgi qolmaydi",
+      s43[0] == "7 × 8 nechaga teng?" and sorted(s43[1]) == ["112/2", "54", "56"]
+      and s43[3] == "7 × 8 = 56" and "\\" not in v.test_html([s43]))
+
+# ─────────────────────────────────────────────────────────────
 print("─" * 55)
 if failures:
     print(f"❌ {len(failures)} ta tekshiruv yiqildi:")
