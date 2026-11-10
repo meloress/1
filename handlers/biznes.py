@@ -2099,7 +2099,30 @@ async def handle_biznes(message: Message, state: FSMContext) -> None:
         await message.answer(_probez_matni(message.from_user.id))
         return
     matn, kb = await _ekran(message.from_user.id)
+    if qator := await _mavzu_tugmasi(message):
+        kb = InlineKeyboardMarkup(inline_keyboard=[*(kb.inline_keyboard if kb else []), qator])
     await message.answer(matn, reply_markup=kb)
+
+
+async def _mavzu_tugmasi(message: Message) -> list | None:
+    """/biznes «💼 Biznes» mavzusidan TASHQARIDA yozilsa — o'sha mavzuga
+    olib boradigan tugma. Qoralama va ogohlantirishlar faqat o'sha yerga
+    tushadi, egasi esa uni mavzular ro'yxatidan qidirib yurardi.
+
+    Havola `t.me/<bot>/<thread_id>` — Bot API 10.4. Ulanmagan egaga mavzu
+    shunchaki tugma uchun OCHILMAYDI: u yerga hali hech narsa tushmaydi.
+    Mavzu ichida yozilsa — tugma shu joyning o'ziga olib borardi, kerak emas."""
+    if message.chat.type != "private":
+        return None
+    topilgan = database.biznes_egasi_ulanishi(message.from_user.id)
+    if not (topilgan and topilgan[1]["yoqilgan"]):
+        return None
+    tid = await biznes_mavzusi(message.chat.id)
+    joriy = message.message_thread_id if message.is_topic_message else 0
+    if not tid or joriy == tid:
+        return None
+    return [pro_module.btn(f"{MAVZU_NOMI} mavzusiga o'tish", "",
+                           url=f"https://t.me/{pro_module.BOT_USERNAME or 'vexonai'}/{tid}")]
 
 
 _BILIM_SOROVI = (

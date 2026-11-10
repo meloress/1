@@ -11,7 +11,7 @@ import html as html_lib
 import aiohttp
 from aiogram import Router
 from aiogram.types import (
-    Message, FSInputFile, BufferedInputFile, InputSticker,
+    Message, CallbackQuery, FSInputFile, BufferedInputFile, InputSticker,
     InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove,
 )
 from aiogram.fsm.context import FSMContext
@@ -568,7 +568,7 @@ async def _send_rich_draft(
     return await _telegram_api_request("sendRichMessageDraft", payload)
 
 
-def ephemeral_params(message: Message) -> dict:
+def ephemeral_params(message: Message, query: CallbackQuery | None = None) -> dict:
     """Guruhda — xabarni FAQAT so'rov egasiga ko'rsatish parametrlari.
 
     Bot API 10.3. Shaxsiy chatda ma'nosi yo'q (u yerda baribir ikki kishi),
@@ -577,8 +577,21 @@ def ephemeral_params(message: Message) -> dict:
     NEGA KERAK: limit tugadi, Pro reklamasi, "iltimos kuting" kabi
     xabarlar SHAXSIY, lekin guruhda hammaga ko'rinadi — bu botni
     guruhdan chiqarib yuborishning eng keng tarqalgan sababi.
+
+    ⚠️ Tugma bosilganda `query` ni bering. `query.message` — BOTNING
+    xabari, uning `from_user` i botning o'zi: ilgari limit xabari botga
+    "ephemeral" qilib yuborilardi, Telegram rad etardi va `send_rich`
+    uni BUTUN GURUHGA ochiq yuborardi. Oluvchi — tugmani bosgan odam,
+    `callback_query_id` esa Telegram'ga bu tugmaga javob ekanini aytadi
+    (Bot API 10.4). aiogram 3.31 `receiver_user_id` ni hali majburiy
+    deb biladi, shuning uchun ikkalasi birga ketadi — API ikkalasini qabul qiladi.
     """
-    if message.chat.type == "private" or message.from_user is None:
+    if message.chat.type == "private":
+        return {}
+    if query is not None:
+        return {"ephemeral_message_parameters": {"receiver_user_id": query.from_user.id,
+                                                 "callback_query_id": query.id}}
+    if message.from_user is None:
         return {}
     return {"ephemeral_message_parameters": {"receiver_user_id": message.from_user.id}}
 
@@ -1857,7 +1870,8 @@ async def _refund_quota(user_id: int, cost: int, quota: dict | None = None) -> N
         logger.error(f"[Kvota] qaytarishda xatolik (user={user_id}): {e}")
 
 
-async def _answer_with_pro_button(message: Message, text: str, offer: bool) -> None:
+async def _answer_with_pro_button(message: Message, text: str, offer: bool,
+                                  query: CallbackQuery | None = None) -> None:
     """Limit xabarini yuboradi; `offer` bo'lsa yoniga "Pro" tugmasini qo'yadi.
 
     Tugma ATAYLAB shu xabarning o'zida: foydalanuvchi limitga urilgan payt —
@@ -1871,7 +1885,7 @@ async def _answer_with_pro_button(message: Message, text: str, offer: bool) -> N
         ])
     # Guruhda limit/tarif xabari — SHAXSIY ma'lumot: qancha ball qolgani
     # va qaysi tarifda ekani hammaga ko'rinmasligi kerak (Bot API 10.3).
-    await pro_module.send_rich(message, text, kb, **ephemeral_params(message))
+    await pro_module.send_rich(message, text, kb, **ephemeral_params(message, query))
 
 
 async def _after_file_task(message: Message, quota_box: list, produced_files: bool) -> None:
@@ -1968,12 +1982,15 @@ _FEATURE_LABELS: dict[str, tuple[str, int]] = {
 }
 
 
-async def _send_limit_reached_message(message: Message, quota: dict, feature: str | None = None):
+async def _send_limit_reached_message(message: Message, quota: dict, feature: str | None = None,
+                                      query: CallbackQuery | None = None):
+    # `query` — tugmadan ("Qayta so'rash") kelganda: `message` u holda
+    # botning xabari, oluvchini faqat query biladi (`ephemeral_params`).
     if quota.get("banned"):
         try:
             # Guruhda bloklanganini butun guruhga e'lon qilish shart emas.
             await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb(),
-                                 **ephemeral_params(message))
+                                 **ephemeral_params(message, query))
         except Exception:
             try:
                 await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb())
@@ -2020,7 +2037,7 @@ async def _send_limit_reached_message(message: Message, quota: dict, feature: st
             f"🕛 Creditlar ertaga soat <b>00:00</b> da avtomatik yangilanadi."
         )
 
-    await _answer_with_pro_button(message, text, offer=is_free)
+    await _answer_with_pro_button(message, text, offer=is_free, query=query)
 
 
 # --------------------------------------------------

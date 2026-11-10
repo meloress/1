@@ -22,6 +22,12 @@ Some are structural guards rather than feature tests, and they earn their keep o
   second one is rejected and the cooldown alert disappears), the retry charges points
   (the original request was refunded on failure, so a free retry would be a free channel),
   Pro gets `user_id`/`is_pro`/`images_out`, and history gets the question *and* the answer.
+- `test_bot_api_104.py` — a reply to a button press in a group goes to the person who
+  pressed it. Check 4 is the sharpest: `query.message.from_user` is the **bot**, so the old
+  `ephemeral_params(query.message)` made the limit message ephemeral *to the bot*, Telegram
+  rejected it, and `send_rich`'s plain round posted it to the whole group. Checks 6-9: the
+  `/biznes` link to the «💼 Biznes» topic (`t.me/<bot>/<thread_id>`). It is not shown inside
+  that topic, and the topic is never opened for an owner who is not connected.
 - `test_biznes_ekran.py` — the `/biznes` screens plus the owner-facing premium-emoji
   middleware (a request carrying `business_connection_id` is never touched by it), the
   customer send path `_mijozga()` and its fallback ladder, and the cancel flow (the

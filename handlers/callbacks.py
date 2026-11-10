@@ -67,7 +67,7 @@ async def handle_retry_callback(query: CallbackQuery):
     quota = await _check_quota(user_id, cost)
     if not quota["allowed"]:
         await query.answer()
-        await _send_limit_reached_message(query.message, quota, feature="text")
+        await _send_limit_reached_message(query.message, quota, feature="text", query=query)
         return
 
     await query.answer()
