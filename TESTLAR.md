@@ -50,7 +50,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   and no failure. 68 shows that `"e:<id>"` reads the **asking** user's list, so another
   person's id answers `{x:1}`. 69 shows that a rejected card sends no extra text, because
   the reply already gave the time.
-- `test_brend_kartalar.py` — the `/start`, `/pro`, `/kunlik` and `/research` cards.
+- `test_brend_kartalar.py` — the `/start`, `/pro`, `/kunlik`, `/research` and `/profile` cards.
+  - Check 23: every non-brand card (weather, currency, prayer times, reminder, quiz,
+    flashcards) still fits 4 KB and carries the logo signature.
+  - Checks 25-27: the full profile state (expired Pro reads as free, join date in Tashkent
+    time) and the `"y"` answer without a name.
   - Check 2: no `opacity`/`filter` (the widget's heavy elements).
   - Check 4: the comparison numbers come from PLAN_LIMITS.
   - Check 6: the Pro card's buttons are exactly the normal screen's, so the payment path is

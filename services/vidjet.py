@@ -305,7 +305,7 @@ def test_html(savollar: list) -> str | None:
     """Tayyor HTML yoki None — 4 KB'ga sig'masa. None bo'lsa chaqiruvchi
     testni matn bilan yuboradi: savollarni jimgina kesib tashlash —
     foydalanuvchidan yarim testni yashirish bo'lardi."""
-    html = _TEST_SHABLON.replace("@@Q@@", _json(savollar))
+    html = _imzoli(_TEST_SHABLON).replace("@@Q@@", _json(savollar))
     return html if sigadimi(html) else None
 
 
@@ -348,7 +348,7 @@ r();
 
 
 def kartochka_html(k: list) -> str | None:
-    html = _KARTOCHKA_SHABLON.replace("@@K@@", _json(k))
+    html = _imzoli(_KARTOCHKA_SHABLON).replace("@@K@@", _json(k))
     return html if sigadimi(html) else None
 
 
@@ -363,61 +363,6 @@ BLOK_TURLARI = {
     "kartochka": (kartochka_oqi, kartochka_matni, kartochka_html, kartochka_izohi,
                   "🗂 _Kartochkalar tayyorlanmoqda…_"),
 }
-
-
-# ── Jonli limit kartasi (/profile) ────────────────────────────────
-# Holat `chat_data` da, birinchi chizish shundan. Keyin vidjet o'zi
-# ekranga chiqqanda va har 15 soniyada botdan "y" so'raydi
-# (`widget_query`, faqat shaxsiy chatda, faqat KO'RINIB turganda) va bot
-# yangi raqamlarni javobda qaytaradi. Shuning uchun ball yechiladigan
-# hech bir joyga "kartani yangila" chaqiruvi kerak emas.
-# Kalitlar: b — ball, f — fayl, r — rasm, t — tadqiqot; [ishlatilgan,
-# chegara], chegara null — cheksiz, kalit yo'q — tarifda yo'q.
-_KARTA_SHABLON = """<style>
-body{margin:0;padding:8px 12px 14px}
-.k{margin:0 0 12px}
-.w{display:flex;justify-content:space-between;gap:8px}
-.l{font-weight:600}
-.t{height:8px;border-radius:4px;background:var(--tg-theme-secondary-bg-color);overflow:hidden;margin:6px 0 3px}
-.f{height:100%;border-radius:4px;background:var(--tg-theme-button-color);transition:width .4s}
-.z{background:#d9534f}
-.u{color:var(--tg-theme-hint-color);font-size:.82em}
-</style>
-<div id="a"></div>
-<script>
-var W=window.TelegramWidget,L=[["b","🔋 AI Creditlar","ball"],["f","📄 Fayllar","ta"],["r","🖼 Rasm chizish","ta"],["t","🔎 Chuqur tadqiqot","ta"]];
-function d(s){try{return JSON.parse(s)}catch(e){return null}}
-function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
-function r(x){
-if(!x)return;var a=document.getElementById("a");a.innerHTML="";
-L.forEach(function(l){
-var v=x[l[0]];if(!v)return;
-var k=el("div","k"),w=el("div","w"),c=v[1]==null;
-w.appendChild(el("span","l",l[1]));
-w.appendChild(el("span",0,c?"cheksiz":Math.max(0,v[1]-v[0])+" "+l[2]+" qoldi"));
-k.appendChild(w);
-if(!c){var t=el("div","t"),f=el("div","f"+(v[0]>=v[1]?" z":""));
-f.style.width=(v[1]>0?Math.min(100,v[0]/v[1]*100):100)+"%";
-t.appendChild(f);k.appendChild(t);k.appendChild(el("div","u",v[0]+" / "+v[1]+" ishlatildi"))}
-a.appendChild(k)});
-a.appendChild(el("div","u","🕛 Har kuni 00:00 da yangilanadi"))}
-r(d(W&&W.chatData));
-function y(){if(W&&W.request)W.request("y").then(function(o){r(d(o.result))},function(){})}
-y();
-document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});
-setInterval(y,15000);
-</script>"""
-
-KARTA_SOROVI = "y"
-
-
-def karta_html() -> str:
-    return _KARTA_SHABLON
-
-
-def karta_holati(raqamlar: dict) -> str:
-    """`chat_data` va so'rov javobi — bitta format (1024 baytdan ancha kichik)."""
-    return _json(raqamlar)
 
 
 # ── Ob-havo kartasi ───────────────────────────────────────────────
@@ -483,7 +428,7 @@ y();document.addEventListener("visibilitychange",function(){if(!document.hidden)
 
 
 def obhavo_html() -> str:
-    return _OBHAVO_SHABLON
+    return _imzoli(_OBHAVO_SHABLON, "#ffffffd9")
 
 
 def obhavo_holati(d: dict) -> str:
@@ -544,7 +489,7 @@ y();document.addEventListener("visibilitychange",function(){if(!document.hidden)
 
 
 def valyuta_html() -> str:
-    return _VALYUTA_SHABLON
+    return _imzoli(_VALYUTA_SHABLON)
 
 
 def valyuta_holati(d: dict) -> str:
@@ -575,8 +520,8 @@ NAMOZ_SOROVI = "n:"
 _NAMOZ_SHABLON = """<style>
 body{margin:0;padding:12px 14px 14px;font-family:system-ui,sans-serif}
 .b{border-radius:16px;padding:12px 14px;color:#fff;background:linear-gradient(160deg,#1f7a5a,#0f4a3a)}
-.j{font-weight:600}.n{font-size:.8em;opacity:.85}
-.k{margin-top:10px;font-size:.85em;opacity:.9}
+.j{font-weight:600}.n{font-size:.8em;color:#ffffffd9}
+.k{margin-top:10px;font-size:.85em;color:#ffffffe6}
 .s{font-size:2.3em;font-weight:300;line-height:1.1;font-variant-numeric:tabular-nums}
 .r{display:flex;justify-content:space-between;padding:7px 12px;border-radius:12px;margin-top:3px;font-variant-numeric:tabular-nums}
 .o{color:var(--tg-theme-hint-color)}
@@ -611,7 +556,7 @@ setInterval(function(){if(D&&D.v){t();y()}},1000);
 
 
 def namoz_html() -> str:
-    return _NAMOZ_SHABLON
+    return _imzoli(_NAMOZ_SHABLON)
 
 
 def namoz_holati(d: dict) -> str:
@@ -645,7 +590,7 @@ ESLATMA_SOROVI = "e:"
 _ESLATMA_SHABLON = """<style>
 body{margin:0;padding:12px 14px 14px;font-family:system-ui,sans-serif}
 .b{border-radius:16px;padding:14px;color:#fff;background:linear-gradient(160deg,#6a4fd6,#3d2a8f)}
-.h{font-size:.85em;opacity:.85}
+.h{font-size:.85em;color:#ffffffd9}
 .m{font-weight:600;font-size:1.1em;margin:6px 0 2px;overflow-wrap:anywhere}
 .s{font-size:2.2em;font-weight:300;line-height:1.15;margin-top:10px;font-variant-numeric:tabular-nums}
 .u{color:var(--tg-theme-hint-color);font-size:.8em;margin-top:8px;text-align:center}
@@ -674,7 +619,7 @@ setInterval(function(){if(D&&D.at){t();y()}},1000);
 
 
 def eslatma_html() -> str:
-    return _ESLATMA_SHABLON
+    return _imzoli(_ESLATMA_SHABLON)
 
 
 def eslatma_holati(d: dict) -> str:
@@ -725,6 +670,7 @@ _BREND_CSS = (
     # Rang — oddiy `color`; "AI" logo rangida (`.ai`).
     ".wm{font-weight:800;letter-spacing:.16em;color:#fff}"
     ".ai{color:#9fb0ff}"
+    ".vk{font-size:.62em;font-weight:800;letter-spacing:.22em;color:#dfe3ff;margin-bottom:3px}"
     ".st{font-size:.82em;color:#aab3d9;margin-top:2px}"
     ".pr{display:inline-block;margin-left:7px;padding:1px 8px;border-radius:9px;font-size:.72em;"
     "letter-spacing:.06em;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff);vertical-align:2px}")
@@ -735,8 +681,31 @@ _JS_ASOS = ("var W=window.TelegramWidget;"
             "function z(n){return(n<10?'0':'')+n}")
 
 
+# Kichik logo + nom — brend sarlavhasi yo'q kartalar (ob-havo, valyuta,
+# namoz, eslatma, test, kartochka) pastida. Gradient id'lari `_LOGO` nikidan
+# boshqa (`va`/`vb`), zaxira rang bilan — gradient chiqmasa ham logo ko'rinsin.
+_MINI_LOGO = (
+    '<svg width="18" height="16" viewBox="4 14 92 78"><defs>'
+    '<linearGradient id="va" x1="0" y1="0" x2=".7" y2="1"><stop offset="0" stop-color="#6a9bff"/>'
+    '<stop offset=".55" stop-color="#3442ff"/><stop offset="1" stop-color="#b07cff"/></linearGradient>'
+    '<linearGradient id="vb" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d792ff"/>'
+    '<stop offset=".4" stop-color="#3fdcff"/><stop offset="1" stop-color="#3d55ff"/></linearGradient></defs>'
+    '<path fill="url(#va) #4a5cff" d="M6 22C22 20 34 26 42 38L60 72C64 80 61 90 52 90C46 90 43 86 41 81L19 38C15 30 11 25 6 22Z"/>'
+    '<path fill="url(#vb) #3fb8ff" d="M95 18C84 19 73 25 66 35L47 65C57 68 64 62 69 54L86 29C89 24 92 20 95 18Z"/></svg>')
+
+
+def _imzoli(shablon: str, rang: str = "var(--tg-theme-hint-color)") -> str:
+    """Kartaning pastiga «logo VEXON AI» imzosi (`<div id="a">` dan keyin)."""
+    imzo = ('<div style="display:flex;align-items:center;justify-content:center;gap:6px;'
+            'margin-top:12px;font:800 .68em/1 system-ui,sans-serif;letter-spacing:.2em;color:'
+            + rang + '">' + _MINI_LOGO + 'VEXON AI</div>')
+    return shablon.replace('<div id="a"></div>', '<div id="a"></div>' + imzo, 1)
+
+
 def _sarlavha(nom: str, izoh_id: str = "st", pro: bool = False) -> str:
-    return ('<div class="hd">' + _LOGO + '<div><div class="wm">' + nom
+    # Nomi «VEXON AI» bo'lmagan kartada brend nomi tepada kichik satr (`.vk`).
+    vk = "" if "VEXON" in nom else '<div class="vk">VEXON <span class="ai">AI</span></div>'
+    return ('<div class="hd">' + _LOGO + '<div>' + vk + '<div class="wm">' + nom
             + ('<span class="pr">PRO</span>' if pro else "") + '</div><div class="st" id="'
             + izoh_id + '"></div></div></div>')
 
@@ -993,6 +962,78 @@ def tadqiqot_html() -> str:
 def tadqiqot_holati(d: dict) -> str:
     """Kartaga faqat ochiq kalitlar: `_u` (havolalar to'plami) — ichki."""
     return _json({k: v for k, v in d.items() if not k.startswith("_")})
+
+
+# ── /profile: shaxsiy kabinet kartasi ─────────────────────────────
+# Holat (handlers/profile.py::profil_holati): "b"/"f"/"r"/"t" — [ishlatilgan,
+# chegara] (chegara null — cheksiz, kalit yo'q — tarifda yo'q), "p": f bepul
+# | p Pro | m muddatsiz, "e"/"k": tugash sanasi va qolgan kun, "i": ID,
+# "u": username, "n": ism, "m": xabarlar, "o": a'zo bo'lgan sana, "g": model,
+# "x": [matn, rasm, ovoz, hujjat] narxi (config'dagi MESSAGE_COST_*).
+# Karta ko'ringanda va har 15 s da "y" so'raydi — ball yechiladigan joyga
+# "kartani yangila" chaqiruvi kerak emas. Javobda ism yo'q (bazada yo'q),
+# shuning uchun eski ism saqlanadi. Ism/username — faqat textContent.
+KARTA_SOROVI = "y"
+_KARTA_SHABLON = ("<style>" + _BREND_CSS + """
+.hi{flex:1;min-width:0}
+.nm{font-weight:700;font-size:1.2em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl{flex:none;align-self:flex-start;padding:3px 10px;border-radius:10px;font-size:.74em;font-weight:800;letter-spacing:.06em;color:#c9d0ff;box-shadow:inset 0 0 0 1px #4a55b0}
+.pl.pp{color:#fff;box-shadow:none;background:linear-gradient(90deg,#3f6bff,#b25cff)}
+.pd{margin:10px 4px 0;font-size:.86em;color:var(--tg-theme-hint-color)}
+.cr{display:flex;align-items:center;gap:14px;margin:12px 2px 2px}
+.cr svg{width:104px;height:104px;flex:none}
+.tr{stroke:var(--tg-theme-secondary-bg-color)}.ht{fill:var(--tg-theme-hint-color)}
+.ar{animation:ar 1.2s ease-out}
+@keyframes ar{from{stroke-dashoffset:263.9}}
+.cl{font-weight:700}
+.u{color:var(--tg-theme-hint-color);font-size:.8em;margin-top:3px}
+.ch{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.ch span{padding:3px 8px;border-radius:9px;font-size:.78em;background:var(--tg-theme-secondary-bg-color)}
+.bk{margin:12px 4px 0}
+.bw{display:flex;justify-content:space-between;font-size:.9em}
+.bw b{font-variant-numeric:tabular-nums}
+.bt{height:6px;border-radius:3px;margin-top:5px;overflow:hidden;background:var(--tg-theme-secondary-bg-color)}
+.bt i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#3f6bff,#29d0ff)}
+.bt .z{background:#e5484d}
+.gr{display:flex;gap:6px;margin-top:14px}
+.gr div{flex:1;min-width:0;padding:9px 6px;border-radius:12px;text-align:center;background:var(--tg-theme-secondary-bg-color)}
+.gr b{display:block;font-size:.94em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gr span{font-size:.72em;color:var(--tg-theme-hint-color)}
+.ft{text-align:center;color:var(--tg-theme-hint-color);font-size:.76em;margin-top:12px}
+</style>
+<div class="hd">""" + _LOGO + """<div class="hi"><div class="vk">VEXON <span class="ai">AI</span></div><div class="nm" id="nm"></div><div class="st" id="st"></div></div><div class="pl" id="pl"></div></div><div id="a"></div>
+<script>""" + _JS_ASOS + """
+var D,F=1,a=document.getElementById("a"),K=["✉️","🖼","🎤","📄"];
+function $(i){return document.getElementById(i)}
+function r(x){if(!x||!x.b)return;if(D&&D.n&&!x.n)x.n=D.n;D=x;
+$("nm").textContent=x.n||(x.u?"@"+x.u:"Foydalanuvchi");$("st").textContent=(x.u?"@"+x.u+" · ":"")+"ID "+x.i;
+var P=$("pl");P.className=x.p=="f"?"pl":"pl pp";P.textContent=x.p=="f"?"FREE":x.p=="m"?"PRO ∞":"PRO";a.innerHTML="";
+if(x.p=="p")a.appendChild(el("div","pd","💎 Pro tarif · "+x.e+" gacha · "+x.k+" kun qoldi"));else if(x.p=="m")a.appendChild(el("div","pd","💎 Muddatsiz tarif"));
+var b=x.b,L=b[1],q=L==null?0:Math.max(0,L-b[0]),C=263.9,o=L==null||L<=0?0:C*(1-q/L),c=el("div","cr"),i=el("div");
+c.innerHTML='<svg viewBox="0 0 100 100"><defs><linearGradient id="pq" gradientUnits="userSpaceOnUse" x1="8" y1="8" x2="92" y2="92"><stop offset="0" stop-color="#4f7bff"/><stop offset=".5" stop-color="#29d0ff"/><stop offset="1" stop-color="#b77dff"/></linearGradient></defs><circle class="tr" cx="50" cy="50" r="42" fill="none" stroke-width="8"/><circle'+(F?' class="ar"':'')+' cx="50" cy="50" r="42" fill="none" stroke="'+(L!=null&&q<=L*.1?'#e5484d':'url(#pq) #4f7bff')+'" stroke-width="8" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="'+o+'" transform="rotate(-90 50 50)"/><text x="50" y="54" text-anchor="middle" font-size="21" font-weight="700" fill="currentColor"></text><text class="ht" x="50" y="68" text-anchor="middle" font-size="9.5"></text></svg>';
+var t=c.getElementsByTagName("text");t[0].textContent=L==null?"∞":q;t[1].textContent=L==null?"cheksiz":"ball qoldi";
+i.appendChild(el("div","cl","🔋 Bugungi AI Creditlar"));i.appendChild(el("div","u",L==null?"Kunlik limit qo'llanilmaydi":b[0]+" / "+L+" ishlatildi"));
+if(L!=null){if(q>0){var h=el("div","ch");K.forEach(function(k,j){var n=Math.floor(q/(x.x||[])[j]);if(n>0)h.appendChild(el("span",0,k+" "+n+" ta"))});
+if(h.childNodes.length){i.appendChild(el("div","u","Shu ball bilan yana:"));i.appendChild(h)}else i.appendChild(el("div","u","⚠️ Birorta amal uchun yetmaydi"))}else i.appendChild(el("div","u","⏳ Bugungi limit tugadi"))}
+c.appendChild(i);a.appendChild(c);
+[["f","📄 Fayl yaratish"],["r","🖼 Rasm chizish"],["t","🔎 Chuqur tadqiqot"]].forEach(function(l){var v=x[l[0]];if(!v)return;
+var k=el("div","bk"),w=el("div","bw");w.appendChild(el("span",0,l[1]));w.appendChild(el("b",0,v[1]==null?"cheksiz":v[0]+" / "+v[1]));k.appendChild(w);
+if(v[1]!=null){var s=el("div","bt"),f=el("i",v[0]>=v[1]?"z":0);f.style.width=(v[1]>0?Math.min(100,v[0]/v[1]*100):100)+"%";s.appendChild(f);k.appendChild(s)}a.appendChild(k)});
+var g=el("div","gr");[[x.m,"Xabarlar"],[x.o,"A'zo bo'lgan"],[x.g,"Model"]].forEach(function(s){var d=el("div");d.appendChild(el("b",0,s[0]));d.appendChild(el("span",0,s[1]));g.appendChild(d)});
+a.appendChild(g);a.appendChild(el("div","ft","🕛 Limitlar har kuni 00:00 da yangilanadi"));F=0}
+r(p(W&&W.chatData));
+function y(){if(W&&W.request)W.request("y").then(function(o){r(p(o.result))},function(){})}
+y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});setInterval(y,15000);
+</script>""")
+
+
+def karta_html() -> str:
+    return _KARTA_SHABLON
+
+
+def karta_holati(raqamlar: dict) -> str:
+    """`chat_data` va so'rov javobi — bitta format (1024 baytdan ancha kichik)."""
+    return _json(raqamlar)
 
 
 def turi(tur: str):

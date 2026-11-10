@@ -195,6 +195,30 @@ def karta_raqamlari(profile: dict) -> dict:
     return out
 
 
+def profil_holati(profile: dict, ism: str | None = None) -> dict:
+    """Profil kartasining to'liq holati (services/vidjet.py: kalitlar) —
+    raqamlar `karta_raqamlari()` dan, tarif `_amaldagi_tarif()` qoidasi bilan
+    (muddati o'tgan Pro — bepul), sanalar Toshkent vaqtida."""
+    plan_type = _amaldagi_tarif(profile)
+    tugash = profile.get('premium_until')
+    d = karta_raqamlari(profile)
+    if plan_type == 'free':
+        d["p"] = "f"
+    elif tugash is None:
+        d["p"] = "m"
+    else:
+        d.update(p="p", e=_beautify_date(tugash).split(" | ")[0],
+                 k=max(0, (tugash - datetime.now(timezone.utc)).days))
+    u = profile.get('username')
+    a = _beautify_date(profile.get('created_at')).split(" | ")[0]
+    d.update(i=profile['user_id'], u=u if u and u != "Mavjud emas" else "",
+             m=profile.get('total_messages') or 0, o="—" if a == "Noma'lum" else a,
+             g=profile.get('current_model') or "", x=[c for _, c in _FEATURE_COSTS])
+    if ism:
+        d["n"] = ism[:64]
+    return d
+
+
 async def vidjet_sorovi(sorov: dict) -> None:
     """Karta vidjetining "y" so'roviga yangi raqamlar (`widget_query`).
 
@@ -262,7 +286,7 @@ async def vidjet_sorovi(sorov: dict) -> None:
         try:
             profil = await get_full_user_profile(uid)
             if profil:
-                javob["data"] = vidjet.karta_holati(karta_raqamlari(profil))
+                javob["data"] = vidjet.karta_holati(profil_holati(profil))
         except Exception as e:
             logger.warning(f"[Vidjet] karta raqamlari o'qilmadi (user={uid}): {e}")
     await _telegram_api_request("answerWidgetQuery", javob)
@@ -284,21 +308,22 @@ async def vidjet_mw(handler, event, data):
     await vidjet_sorovi(sorov)
 
 
-async def _karta_yubor(message: types.Message, profile: dict, sarlavha: str, kb) -> bool:
-    """Shaxsiy chatda profil — jonli karta vidjeti, izohi profil sarlavhasi.
-    Qaytadi: yetib bordimi (yoki timeout — takror yuborilmaydi)."""
+async def _karta_yubor(message: types.Message, profile: dict, tarif: str, kb,
+                       ism: str | None = None) -> bool:
+    """Shaxsiy chatda profil — to'liq karta vidjeti, izohi ixcham (hammasi
+    kartada). Qaytadi: yetib bordimi (yoki timeout — takror yuborilmaydi)."""
     from handlers.messages import (OUTCOME_UNKNOWN, _telegram_api_request,
                                    _thread_key)
-    raqam = karta_raqamlari(profile)
-    b = raqam.get("b")
-    # Vidjetni qo'llamaydigan ilova FAQAT izohni ko'radi — ball o'sha yerda ham tursin.
+    holat = profil_holati(profile, ism)
+    b = holat.get("b")
+    # Vidjetni qo'llamaydigan ilova FAQAT izohni ko'radi — tarif va ball o'sha yerda ham tursin.
+    izoh = f"🪪 <b>SHAXSIY KABINET</b>\n📦 <b>Tarif:</b> {tarif}"
     if b:
-        sarlavha += ("\n\n🔋 <b>AI Creditlar:</b> "
-                     + ("cheksiz" if b[1] is None else f"<code>{b[0]} / {b[1]}</code>"))
+        izoh += ("\n🔋 <b>AI Creditlar:</b> "
+                 + ("cheksiz" if b[1] is None else f"<code>{b[0]} / {b[1]}</code>"))
     payload = {"chat_id": message.chat.id, "html": vidjet.karta_html(),
-               "chat_data": vidjet.karta_holati(raqam), "allow_queries": True,
-               "caption": sarlavha[:vidjet.CAPTION_MAX], "parse_mode": "HTML",
-               "show_caption_above_media": True,
+               "chat_data": vidjet.karta_holati(holat), "allow_queries": True,
+               "caption": izoh[:vidjet.CAPTION_MAX], "parse_mode": "HTML",
                "reply_markup": kb.model_dump(exclude_none=True)}
     if tid := _thread_key(message):
         payload["message_thread_id"] = tid
@@ -370,7 +395,11 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
     # (eski server, buzuq tugma) — oldingi matnli profil, o'zgarishsiz.
     if message.chat.type == "private":
         try:
-            if await _karta_yubor(message, profile_data, sarlavha, kb):
+            # Ism bazada yo'q — faqat xabar egasi SHU foydalanuvchi bo'lsa
+            # (tugmadan chaqirilganda `from_user` — botning o'zi).
+            fu = getattr(message, "from_user", None)
+            ism = getattr(fu, "first_name", None) if getattr(fu, "id", None) == user_id else None
+            if await _karta_yubor(message, profile_data, plan_label, kb, ism):
                 return
         except Exception as e:
             logger.warning(f"[Vidjet] karta yuborilmadi (user={user_id}): {e}")

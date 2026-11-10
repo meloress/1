@@ -66,14 +66,18 @@ class _Msg:
 # 1-3. SHABLONLAR
 # ─────────────────────────────────────────────────────────────
 HTMLLAR = {"start": v.start_html(), "pro": v.pro_html(), "kunlik": v.kunlik_html(),
-           "tadqiqot": v.tadqiqot_html()}
-check(1, "4 karta ham 4 KB (siqilgan) ga sig'adi va hammasida Vexon logosi bor",
+           "tadqiqot": v.tadqiqot_html(), "profil": v.karta_html()}
+check(1, "5 karta ham 4 KB (siqilgan) ga sig'adi va hammasida Vexon logosi bor",
       all(v.sigadimi(h) and 'class="lg"' in h and "url(#la)" in h for h in HTMLLAR.values()))
 # Vidjet `opacity` va `filter` ni "og'ir" element deb sanaydi (16 tadan oshsa
 # to'xtatadi) — logo shaffoflikni faqat fill-/stop-opacity bilan beradi.
 # `background-clip:text` — Telegram vidjeti qo'llamaydi: jonli (2026-11-10)
 # «VEXON AI» o'rnida gradient to'rtburchak chiqdi, matn ko'rinmadi.
-og_ir = [n for n, h in HTMLLAR.items()
+# Brend sarlavhasi yo'q kartalar — pastida kichik logo va «VEXON AI» imzosi.
+IMZOLI = {"obhavo": v.obhavo_html(), "valyuta": v.valyuta_html(), "namoz": v.namoz_html(),
+          "eslatma": v.eslatma_html(), "test": v.test_html([["s", ["a", "b"], 0, ""]]),
+          "kartochka": v.kartochka_html([["a", "b"]])}
+og_ir = [n for n, h in {**HTMLLAR, **IMZOLI}.items()
          if re.search(r"(?<![-\w])opacity\s*[:=]|filter\s*:|background-clip", h)]
 check(2, "kartalarda `opacity`/`filter`/`background-clip` yo'q (vidjet qo'llamaydi yoki og'ir)",
       not og_ir)
@@ -87,6 +91,12 @@ css_url = [n for n, h in {**HTMLLAR, "obhavo": _v.obhavo_html(), "valyuta": _v.v
 check(21, "hech bir kartaning CSS'ida `url(#…)` yo'q (iPhone'da ishlamaydi)", not css_url)
 check(22, "/start ikonkalari gradientni o'z atributida, zaxira rang bilan oladi; logoda animatsiya yo'q",
       "stroke=\"url(#g'+i+') #" in v.start_html() and ".lc .lg{width:108px;height:108px}" in v.start_html())
+check(23, "ob-havo, valyuta, namoz, eslatma, test, kartochka: 4 KB ichida, pastida logo + «VEXON AI»",
+      all(h and v.sigadimi(h) and "VEXON AI</div>" in h and "url(#va) #" in h and 'class="lg"' not in h
+          for h in IMZOLI.values()))
+check(24, "brend sarlavhasida nomi boshqa kartada (kunlik, tadqiqot) «VEXON AI» satri; profil ham",
+      all('class="vk">VEXON' in HTMLLAR[n] for n in ("kunlik", "tadqiqot", "profil"))
+      and 'class="vk"' not in v.pro_html())
 check(3, "/start slaydlari bepul foydalanuvchiga yo'q narsani va'da qilmaydi (rasm chizish)",
       "chiz" not in json.dumps(v.START_SLAYDLAR, ensure_ascii=False).lower()
       and len(v.START_SLAYDLAR) >= 5)
@@ -315,6 +325,60 @@ check(20, "handle_research: ContextVar finally'da tiklanadi, yakunda bosqich t/e
       and 'jarayon.update(b="t" if tayyor else "e", d=int(time.time()), f=len(output_files))' in msk)
 
 pro.database.get_full_user_profile, pro._obuna, pro._karta, pro.database.karta_faol_sorov = asl
+
+# ─────────────────────────────────────────────────────────────
+# 25-27. /profile — to'liq karta
+# ─────────────────────────────────────────────────────────────
+def _kabinet(plan="free", until=None, **kw):
+    # get_full_user_profile() qaytaradigan kalitlar (db/database.py)
+    p = {"user_id": 777, "username": "ali", "is_active": True, "is_banned": False,
+         "plan_type": plan, "premium_until": until, "current_model": "GPT-5.6 Luna",
+         "media_analysis_active": True, "daily_requests_used": 12, "daily_files_used": 1,
+         "daily_images_used": 0, "daily_research_used": 0, "daily_biznes_used": 0,
+         "digest_hour": None, "digest_hours": None, "digest_topics": None,
+         "total_tokens_used": 0, "total_messages": 40,
+         "created_at": datetime(2026, 3, 1, 20, 0, tzinfo=timezone.utc), "last_seen": None}
+    p.update(kw)
+    return p
+
+
+f = pf.profil_holati(_kabinet(username="Mavjud emas"), "Ali")
+kel = pf.profil_holati(_kabinet("pro", _hozir + timedelta(days=5, hours=1)))
+m = pf.profil_holati(_kabinet("pro", None))
+otgan = pf.profil_holati(_kabinet("pro", _hozir - timedelta(days=1)))
+check(25, "holat: bepul / Pro (sana, kun) / muddatsiz / muddati o'tgan → bepul; a'zo sanasi Toshkentda",
+      f["p"] == "f" and f["u"] == "" and f["n"] == "Ali" and f["i"] == 777 and f["m"] == 40
+      and f["o"] == "02.03.2026" and f["x"][0] == MESSAGE_COST_TEXT and f["b"][0] == 12
+      and kel["p"] == "p" and kel["k"] == 5 and kel["u"] == "ali" and "n" not in kel
+      and m["p"] == "m" and otgan["p"] == "f" and {"r", "t"} <= set(kel)
+      and len(v.karta_holati({**f, "n": "Я" * 64}).encode()) < 1024)
+
+PROFILLAR = {777: _kabinet("pro", _hozir + timedelta(days=5))}
+
+
+async def _gfp(uid):
+    return PROFILLAR.get(uid)
+
+asl_gfp = pf.get_full_user_profile
+pf.get_full_user_profile = _gfp
+chaqiruvlar.clear()
+msg._telegram_api_request = _api({"message_id": 9})
+mm = _Msg()
+mm.from_user.first_name = "Ali"
+asyncio.run(pf.handle_profile(mm, user_id=777))
+m_, p_ = chaqiruvlar[-1]
+hl = json.loads(p_["chat_data"])
+check(26, "shaxsiy chat: to'liq holat kartada (ism ham), izoh ixcham — tarif va ball",
+      m_ == "sendWidget" and p_["allow_queries"] is True and hl["n"] == "Ali" and hl["p"] == "p"
+      and "SHAXSIY KABINET" in p_["caption"] and "Tarif:" in p_["caption"]
+      and "Tanlangan Model" not in p_["caption"] and "Barcha xabarlar" not in p_["caption"])
+chaqiruvlar.clear()
+asyncio.run(pf.vidjet_sorovi({"id": "q7", "from": {"id": 777}, "data": "y"}))
+m_, p_ = chaqiruvlar[-1]
+check(27, "\"y\" javobi — o'sha to'liq holat (ismsiz: karta eski ismni saqlaydi)",
+      m_ == "answerWidgetQuery" and json.loads(p_["data"])["p"] == "p" and "n" not in json.loads(p_["data"])
+      and "if(D&&D.n&&!x.n)x.n=D.n" in v.karta_html())
+pf.get_full_user_profile = asl_gfp
 
 # ─────────────────────────────────────────────────────────────
 print("─" * 55)

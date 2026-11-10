@@ -99,7 +99,11 @@ check(12, "model matnidagi </script> skriptni yopmaydi",
       h is not None and h.count("</script>") == 1 and "<b>x" not in h)
 check(13, "model matni faqat textContent orqali (innerHTML faqat tozalash)",
       all(x.replace(" ", "") in ('innerHTML=""',)
-          for x in __import__("re").findall(r"innerHTML\s*=\s*[^;]*", v._TEST_SHABLON + v._KARTA_SHABLON)))
+          for x in __import__("re").findall(r"innerHTML\s*=\s*[^;]*", v._TEST_SHABLON + v._KARTOCHKA_SHABLON))
+      # profil kartasi: halqa SVG'si (raqamlar) — ism/username/model hech qachon innerHTML'da emas
+      and all(x.replace(" ", "") == 'innerHTML=""' or (x.startswith("innerHTML='<svg")
+              and not __import__("re").search(r"x\.[nugo]\b", x))
+              for x in __import__("re").findall(r"innerHTML\s*=\s*[^;]*", v._KARTA_SHABLON)))
 katta = [[f"Juda uzun savol {i} " + "x" * 290, [f"variant {j} {i} " + "y" * 140 for j in range(6)], 0,
           "z" * 300] for i in range(10)]
 import random as _r
