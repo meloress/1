@@ -336,7 +336,7 @@ check(12, "noma'lum rad sababi (yasalgan callback) — bazaga tegilmaydi", not a
 
 
 # ── 13. «Karta» callback: narx serverdan, mijozdan emas ───────────
-async def yarat(uid, kun, narx, karta):
+async def yarat(uid, kun, narx, karta, oluvchi=None):
     q.append(("yarat", uid, kun, narx, karta))
     return {"id": 9, "summa": narx + 47}
 

@@ -64,6 +64,18 @@ Some are structural guards rather than feature tests, and they earn their keep o
     - Checks 36-37: purchase and gift celebration cards, with a text fallback when
       delivery fails.
     - Check 40: a `/kunlik` hour press pushes the new hours at once.
+  - Checks 42-46 cover tappable cards (`vidjet_amali`). Only `pro:`/`dg:` in the DM
+    original are accepted. A tap runs the same handler as the button, the FSM lands in
+    `dp.storage` (so the next photo is the receipt), and a handler's `answer()` text comes
+    back as a toast.
+  - Checks 47-51 cover the karta gift, keyed by the recipient. A forged recipient is
+    refused before a request opens. On approval Pro goes to the recipient (SQL in the same
+    transaction) and the two cards go out. The SQL was also run on pgserver.
+  - Check 52: every callback written in a template exists, and the Pro and celebration
+    cards are sent with `allow_queries`.
+  - Check 53: `/kunlik` has no `var()` inside an SVG attribute (iPhone).
+  - ⚠️ This file must fake `pro._karta` in every section. Unfaked, `database.karta_ol()`
+    reached the production database through the local `.env` (2026-11-11, read only).
   - Check 2: no `opacity`/`filter` (the widget's heavy elements).
   - Check 4: the comparison numbers come from PLAN_LIMITS.
   - Check 6: the Pro card's buttons are exactly the normal screen's, so the payment path is

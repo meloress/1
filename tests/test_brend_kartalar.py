@@ -396,7 +396,9 @@ asl2 = {k: getattr(database, k, None) for k in (
     "get_full_user_profile", "karta_sorov_yarat", "is_banned", "karta_sorov_ol", "karta_bekor",
     "get_user_by_identifier", "set_digest")}
 asl_pro = (pro._obuna, pro._karta, pro.send_rich, pro.bot)
-database.get_full_user_profile, pro._obuna = _profil, _obuna
+# ⚠️ `pro._karta` ham soxta: aks holda `database.karta_ol()` lokal .env dagi
+# PRODUCTION bazasiga boradi (2026-11-11 shu bo'limda shunday bo'lgan edi).
+database.get_full_user_profile, pro._obuna, pro._karta = _profil, _obuna, _karta_yoq
 
 
 class _VMsg(_Msg):
@@ -476,15 +478,15 @@ es = asyncio.run(pro.pro_kartasi(777, "s"))
 OBUNA["v"] = {"holat": "faol", "keyingi": _hozir, "narx": OBUNA_NARX}
 PROFIL.update(plan_type="pro", premium_until=datetime(2026, 12, 11, 20, 0, tzinfo=timezone.utc))
 es_ob = asyncio.run(pro.pro_kartasi(777, "s"))
-ex = asyncio.run(pro.pro_kartasi(777, "x"))
 OBUNA.clear()
 ek = asyncio.run(pro.pro_kartasi(777, "k"))
+asos = asyncio.run(pro.pro_kartasi(777))
 check(29, "ekran holati: Stars — obuna qatori faqat obuna yo'q bo'lsa (tugmalar sharti); karta; "
-          "obunani o'chirish — tugash sanasi; hammasi 1 KB ichida, jadvalsiz",
+          "karta sozlanmagan — «kb» yo'q; hammasi 1 KB ichida, tariflarda jadval yo'q",
       es["e"] == "s" and es["h"] == "f" and es["ob"] == OBUNA_NARX and es["t"] == s_
       and "ob" not in es_ob and es_ob["h"] == "p" and ek["e"] == "k" and ek["t"] == k_
-      and ex == {"e": "x", "h": "p", "n": "12.12.2026"} and "r" not in es
-      and all(len(v.pro_holati(x).encode()) < 1024 for x in (es, es_ob, ek, ex)))
+      and "r" not in es and "kb" not in es and "kb" not in asos and "r" in asos
+      and all(len(v.pro_holati(x).encode()) < 1024 for x in (es, es_ob, ek, asos)))
 
 
 async def _karta_bor():
@@ -494,25 +496,32 @@ pro._karta = _karta_bor
 msg._telegram_api_request = _api(True)
 PROFIL.update(plan_type="free", premium_until=None)
 ekranlar = []
-for data in ("pro:stars", "pro:kartalar", "pro:usul", "pro:obuna_bekor"):
+for data in ("pro:stars", "pro:kartalar", "pro:usul"):
     chaqiruvlar.clear()
     vm = _VMsg()
     asyncio.run(pro.handle_pro_callback(_Bos(data, vm), _Holat()))
     ekranlar.append((_yozuvlar(), vm.tugmalar))
 chaqiruvlar.clear()
+vob = _VMsg()
+asyncio.run(pro.handle_pro_callback(_Bos("pro:obuna_bekor", vob), _Holat()))
+obuna_yozuv = _yozuvlar()
+chaqiruvlar.clear()
 oddiy = _VMsg(karta=False)
 asyncio.run(pro.handle_pro_callback(_Bos("pro:stars", oddiy), _Holat()))
-check(30, "Stars / Karta / Orqaga / obunani o'chirish — tugmalar almashadi VA karta o'sha xabarda "
-          "o'sha ekranga o'tadi; matnli (eski) xabarda karta yozuvi yo'q",
-      [x[0][0].get("e", "") for x in ekranlar] == ["s", "k", "", "x"]
+check(30, "Stars / Karta / Orqaga — tugmalar almashadi VA karta o'sha xabarda o'sha ekranga o'tadi "
+          "(karta bor — «kb»); obunani o'chirish — faqat tugmalar (tasdiq), karta joyida; "
+          "matnli (eski) xabarda karta yozuvi yo'q",
+      [x[0][0].get("e", "") for x in ekranlar] == ["s", "k", ""]
       and all(len(x[0]) == 1 and len(x[1]) == 1 for x in ekranlar)
       and "r" in ekranlar[2][0][0] and ekranlar[1][0][0]["t"] == k_
+      and all(x[0][0].get("kb") == 1 for x in ekranlar)
+      and len(vob.tugmalar) == 1 and not obuna_yozuv
       and oddiy.tugmalar and not _yozuvlar())
 
 KS = {}
 
 
-async def _yarat(uid, kun, narx, karta):
+async def _yarat(uid, kun, narx, karta, oluvchi=None):
     return {"id": 42, "summa": narx + 47}
 
 
@@ -577,14 +586,22 @@ async def _bekor(lid, uid):
     return True
 
 database.karta_bekor = _bekor
+# Bazadagi qator (haqiqiy `SELECT *` kalitlari): holat undan qayta yig'iladi —
+# karta ichidagi tugmadan kelganda xabarning chat_data si qo'lda bo'lmaydi.
+yaratildi = datetime.now(timezone.utc) - timedelta(minutes=20)
+TOLOV[(42, 777)] = {"id": 42, "user_id": 777, "days": 30, "summa": 25_047,
+                    "karta": "8600123412341234", "holat": "bekor", "oluvchi": None,
+                    "yaratilgan": yaratildi, "sabab": None}
 chaqiruvlar.clear()
-vm3 = _VMsg(holat=hk)
+vm3 = _VMsg(holat={})
 asyncio.run(pro.handle_pro_callback(_Bos("pro:kb:42", vm3), _Holat()))
 yz = _yozuvlar()
-check(34, "karta xabarida «Bekor qilish» — karta holati «b» (qolgani o'sha), tugmalar olinadi, "
-          "edit_text urinilmaydi",
-      len(yz) == 1 and yz[0]["h"] == "b" and yz[0]["n"] == hk["n"] and vm3.tugmalar == [None]
-      and not any(x[0] == "edit_text" for x in vm3.javoblar))
+check(34, "karta xabarida «Bekor qilish» — holat bazadan to'liq (karta, summa, oyna yaratilgandan), "
+          "«b»; tugmalar olinadi, edit_text urinilmaydi",
+      len(yz) == 1 and yz[0]["h"] == "b" and yz[0]["n"] == hk["n"] and yz[0]["s"] == 25_047
+      and yz[0]["o"] == "ALI VALIYEV"
+      and yz[0]["x"] == int(yaratildi.timestamp()) + pro.KARTA_CHEK_OYNA
+      and vm3.tugmalar == [None] and not any(x[0] == "edit_text" for x in vm3.javoblar))
 
 tp = pro.tabrik_kartasi("p", title="1 oy", days=30, gacha="12.12.2026")
 tg = pro.tabrik_kartasi("g", title="3 oy", kim="@" + "a" * 60)
@@ -681,7 +698,8 @@ yw = _yuborilgan()
 hs = json.loads(yw[0]["chat_data"]) if yw else {}
 check(39, "sovg'a oluvchisi topildi — tariflar kartasi (oluvchi nomi, obunasiz), tugmalar sovg'a "
           "narxlari (pro:buy:<kun>:888)",
-      len(yw) == 1 and hs == {"e": "s", "gf": "@dost", "t": s_}
+      len(yw) == 1 and hs == {"e": "s", "gf": "@dost", "t": s_, "rid": 888, "kb": 1}
+      and "pro:kartalar:888" in json.dumps(yw[0]["reply_markup"])
       and all(f"pro:buy:{x[0]}:888" in json.dumps(yw[0]["reply_markup"]) for x in PRO_PLANS)
       and "pro:obuna" not in json.dumps(yw[0]["reply_markup"]))
 PROFIL.pop("username", None)
@@ -706,6 +724,206 @@ check(40, "/kunlik: soat bosilganda karta darhol yangi soatlar bilan; matnli xab
 for k_nom in ("digest_hours", "digest_hour", "digest_topics"):
     PROFIL.pop(k_nom, None)
 
+# ─────────────────────────────────────────────────────────────
+# 42-53. Kartadagi tugmalar (`vidjet_amali`) va karta orqali sovg'a
+# ─────────────────────────────────────────────────────────────
+import core.loader as yuklovchi  # noqa: E402
+from aiogram.fsm.context import FSMContext  # noqa: E402
+from aiogram.fsm.storage.base import StorageKey  # noqa: E402
+
+
+class _TgBot:
+    """aiogram usullari (`message.edit_reply_markup` …) shu yerga keladi — tarmoqsiz."""
+    id = 4242
+
+    def __init__(self):
+        self.usullar = []
+
+    async def __call__(self, method, request_timeout=None):
+        self.usullar.append((type(method).__name__, method))
+        return True
+
+    async def send_invoice(self, chat_id, **k):
+        self.usullar.append(("send_invoice", (chat_id, k.get("payload"))))
+
+    async def send_message(self, chat_id, matn, **k):
+        self.usullar.append(("send_message", (chat_id, matn)))
+
+
+tgbot = _TgBot()
+asl_bot = yuklovchi.bot
+yuklovchi.bot, pro.bot = tgbot, tgbot
+pro._karta = _karta_bor
+msg._telegram_api_request = _api(True)
+PROFIL.update(plan_type="free", premium_until=None, username="dost")
+
+
+def _sorov(data, chat_turi="private", chat_id=777, uid=777, mid=9):
+    return {"id": "w1", "from": {"id": uid, "is_bot": False, "first_name": "Ali"},
+            "chat": {"id": chat_id, "type": chat_turi}, "message_id": mid, "data": data}
+
+
+rad_etildi = [asyncio.run(pf.vidjet_amali(_sorov("x"), cb)) for cb in ("bz:ok", "admin:x", "pro:" + "1" * 70)]
+rad_etildi += [asyncio.run(pf.vidjet_amali(_sorov("x", chat_turi="supergroup", chat_id=-5), "pro:stars")),
+               asyncio.run(pf.vidjet_amali(_sorov("x", chat_id=999), "pro:stars")),
+               asyncio.run(pf.vidjet_amali({**_sorov("x"), "message_id": None}, "pro:stars"))]
+check(42, "karta tugmasi: faqat pro:/dg: callback, faqat bot bilan shaxsiy chatdagi asl xabar — "
+          "qolgani {x:1}, handler chaqirilmaydi",
+      all(x == {"x": 1} for x in rad_etildi) and not tgbot.usullar)
+
+chaqiruvlar.clear()
+tgbot.usullar.clear()
+asyncio.run(pf.vidjet_sorovi(_sorov("c:pro:stars")))
+javob = [pl for m, pl in chaqiruvlar if m == "answerWidgetQuery"]
+tug = [m for n, m in tgbot.usullar if n == "EditMessageReplyMarkup"]
+check(43, "\"c:pro:stars\" — xabar ostidagi tugma bosilgandek: o'sha xabarning tugmalari almashadi, "
+          "karta Stars ekraniga o'tadi, javob ok",
+      javob and json.loads(javob[-1]["data"]) == {"ok": 1}
+      and tug and tug[0].chat_id == 777 and tug[0].message_id == 9
+      and any(f"pro:buy:{x[0]}" in json.dumps(tug[0].reply_markup.model_dump()) for x in PRO_PLANS)
+      and _yozuvlar() and _yozuvlar()[-1]["e"] == "s")
+
+chaqiruvlar.clear()
+tgbot.usullar.clear()
+natija = asyncio.run(pf.vidjet_amali(_sorov("x"), "pro:karta:30"))
+holati = asyncio.run(FSMContext(storage=yuklovchi.dp.storage,
+                                key=StorageKey(bot_id=tgbot.id, chat_id=777, user_id=777)).get_state())
+check(44, "kartadan karta to'lovi: to'lov kartasi yuboriladi va chek kutish holati (FSM) O'SHA "
+          "saqlagichda yoqiladi — keyingi rasm chek bo'lib tushadi",
+      natija.get("ok") == 1 and holati == "KartaStates:chek"
+      and any(pl["html"] == v.tolov_html() for pl in _yuborilgan()))
+
+tgbot.usullar.clear()
+natija = asyncio.run(pf.vidjet_amali(_sorov("x"), "pro:buy:30"))
+check(45, "kartadagi plitka — Stars to'lov oynasi (invoice) o'sha chatga, o'ziga",
+      natija.get("ok") == 1 and any(n == "send_invoice" and m[0] == 777 and ":30:777" in m[1]
+                                    for n, m in tgbot.usullar))
+
+natija = asyncio.run(pf.vidjet_amali(_sorov("x"), "dg:h:8"))
+check(46, "handler aytgan xabar (answer) kartaga qaytadi — bepulda soat: «Pro imkoniyati»",
+      natija.get("ok") == 1 and "Pro" in natija.get("t", ""))
+
+# ── Karta orqali sovg'a ───────────────────────────────────────
+YARATILDI = []
+
+
+async def _yarat_s(uid, kun, narx, karta, oluvchi=None):
+    YARATILDI.append((uid, kun, narx, oluvchi))
+    return {"id": 43, "summa": narx + 47}
+
+database.karta_sorov_yarat = _yarat_s
+chaqiruvlar.clear()
+vk2 = _VMsg()
+asyncio.run(pro.handle_pro_callback(_Bos("pro:kartalar:888", vk2), _Holat()))
+kb_k = json.dumps(vk2.tugmalar[-1].model_dump()) if vk2.tugmalar else ""
+yz = _yozuvlar()
+check(47, "sovg'a — «💳 Karta orqali»: muddatlar oluvchi bilan (pro:karta:<kun>:888), «Orqaga» — "
+          "sovg'aning Stars ekrani; karta: oluvchi nomi, rid",
+      all(f"pro:karta:{x[0]}:888" in kb_k for x in PRO_PLANS) and "pro:stars:888" in kb_k
+      and yz and yz[-1]["e"] == "k" and yz[-1]["gf"] == "@dost" and yz[-1]["rid"] == 888)
+
+chaqiruvlar.clear()
+hs2 = _Holat()
+asyncio.run(pro.handle_pro_callback(_Bos("pro:karta:90:888", _VMsg()), hs2))
+yw = [pl for pl in _yuborilgan() if pl["html"] == v.tolov_html()]
+o_zi = _Bos("pro:karta:30:777", _VMsg())
+asyncio.run(pro.handle_pro_callback(o_zi, _Holat()))
+check(48, "sovg'a karta to'lovi: so'rov OLUVCHI bilan yoziladi, kartada va izohda kimga; chek kutish "
+          "to'lovchida; o'ziga «sovg'a» — rad, so'rov ochilmaydi",
+      YARATILDI == [(777, 90, KARTA_NARX[90], 888)] and yw
+      and json.loads(yw[0]["chat_data"])["gf"] == "@dost" and "Sovg'a: @dost" in yw[0]["caption"]
+      and hs2.h == "KartaStates:chek" and o_zi.alert and "O'zingizga" in o_zi.alert[0][0])
+
+chaqiruvlar.clear()
+vs2 = _VMsg()
+asyncio.run(pro.handle_pro_callback(_Bos("pro:stars:888", vs2), _Holat()))
+kb_s = json.dumps(vs2.tugmalar[-1].model_dump()) if vs2.tugmalar else ""
+yz = _yozuvlar()
+check(49, "sovg'aning Stars ekrani: narxlar oluvchi bilan, obunasiz, «💳 Karta orqali» (sovg'a), bekor",
+      all(f"pro:buy:{x[0]}:888" in kb_s for x in PRO_PLANS) and "pro:kartalar:888" in kb_s
+      and "pro:obuna" not in kb_s and "pro:close" in kb_s
+      and yz and yz[-1] == {"e": "s", "gf": "@dost", "t": s_, "rid": 888, "kb": 1})
+
+
+class _AdminXabar(_VMsg):
+    html_text = "💳 <b>Karta to'lovi #43</b>"
+
+    async def edit_caption(self, **k):
+        self.javoblar.append(("caption", k.get("caption")))
+
+
+async def _super(uid):
+    return uid == 900
+
+
+async def _tasdiq(lid, uid):
+    return {"user_id": 777, "days": 90, "summa": 75_047, "oluvchi": 888}
+
+
+async def _audit(*a):
+    pass
+
+
+menyu = []
+
+
+async def _menyu(uid, pro_bormi):
+    menyu.append(uid)
+
+database.is_superadmin, database.karta_tasdiqla = _super, _tasdiq
+asl_audit, asl_menyu = database.log_admin_action, pro.menu_module.sync_commands
+database.log_admin_action, pro.menu_module.sync_commands = _audit, _menyu
+chaqiruvlar.clear()
+tgbot.usullar.clear()
+admin = _Bos("pro:kt:43", _AdminXabar(karta=False), uid=900)
+asyncio.run(pro.handle_pro_callback(admin, _Holat()))
+kartalar_ = [(pl["chat_id"], json.loads(pl["chat_data"])["a"]) for pl in _yuborilgan()]
+check(50, "sovg'a tasdiqlandi: menyu OLUVCHIGA, oluvchiga «Sizga sovg'a», to'lovchiga «yuborildi» — "
+          "to'lovchiga «Pro faollashdi» YO'Q; admin chekida belgi",
+      menyu == [888] and kartalar_ == [(888, "Sizga sovg'a! 🎁"), (777, "Sovg'a yuborildi! 🎁")]
+      and not any(n == "send_message" for n, _ in tgbot.usullar)
+      and any(x[0] == "caption" and "TASDIQLANDI" in x[1] for x in admin.message.javoblar))
+database.log_admin_action, pro.menu_module.sync_commands = asl_audit, asl_menyu
+
+TOLOV[(43, 777)] = {"holat": "tasdiqlandi", "oluvchi": 888, "sabab": None}
+PROFIL.update(premium_until=datetime(2027, 1, 9, 20, 0, tzinfo=timezone.utc))
+oluvchi_sana = asyncio.run(pro.tolov_holati(777, 43))
+db = kod(ILDIZ / "db" / "database.py")
+check(51, "sovg'a: admin matnida oluvchi; «t:» tasdiqda OLUVCHINING sanasi; SQL — ustun, INSERT va "
+          "Pro tranzaksiyada oluvchiga",
+      "Pro shu odamga: <code>888</code>" in pro.karta_admin_matni(
+          {"id": 43, "days": 90, "summa": 75_047, "karta": "8600123412341234", "user_id": 777,
+           "oluvchi": 888}, "Ali", "ali")
+      and "Pro shu odamga" not in pro.karta_admin_matni(
+          {"id": 43, "days": 90, "summa": 75_047, "karta": "8600123412341234", "user_id": 777}, "Ali", None)
+      and oluvchi_sana == {"h": "a", "g": "10.01.2027"}
+      and "ADD COLUMN IF NOT EXISTS oluvchi BIGINT" in db
+      and "INSERT INTO karta_tolov (user_id, days, summa, karta, oluvchi)" in db
+      and "_EXTEND_PLAN_SQL, r['oluvchi'] or r['user_id']" in db
+      and "RETURNING user_id, days, summa, oluvchi" in db)
+
+htmllar = {"pro": v.pro_html(), "sovga": v.sovga_html(), "tolov": v.tolov_html(),
+           "tabrik": v.tabrik_html(), "kunlik": v.kunlik_html(), "profil": v.karta_html()}
+chaqirilgan = set()
+for h in htmllar.values():
+    chaqirilgan |= set(re.findall(r'"((?:pro|dg):[a-z_]+)', h))
+ps = kod(ILDIZ / "handlers" / "pro.py")
+check(52, "kartadagi har tugma callback'i — mavjud handler amali (pro:/dg:), so'rov tap ichida "
+          "(`W.request(\"c:\"+c)` faqat `A` da); Pro va bayram kartasida so'rovlar yoqilgan",
+      chaqirilgan and all(c.split(":")[0] in ("pro", "dg") for c in chaqirilgan)
+      and all(f'action == "{c.split(":")[1]}"' in ps or f'"{c.split(":")[1]}"' in ps
+              or c.startswith("dg:") for c in chaqirilgan)
+      and all(h.count('W.request("c:"+c)') == 1 for h in htmllar.values())
+      and '"html": vidjet.pro_html(), "allow_queries": True' in ps
+      and "izoh, kb, sorov=True,\n" in ps)
+
+htm = v.kunlik_html()
+check(53, "/kunlik iPhone uchun: SVG atributida var() yo'q, gradient zaxira rang bilan; soat bosiladi",
+      not re.search(r'(fill|stroke):"var\(', htm) and 'stroke:"url(#kg)"' not in htm
+      and '"url(#kg) #6b72ff"' in htm and 'A("dg:h:"+i)' in htm)
+
+yuklovchi.bot = asl_bot
+PROFIL.pop("username", None)
 for k_nom, qiymat in asl2.items():
     if qiymat is not None:
         setattr(database, k_nom, qiymat)

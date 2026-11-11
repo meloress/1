@@ -1,3 +1,6 @@
+import asyncio
+import json
+
 from aiogram import types
 from core.loader import logger
 from services import namoz, obhavo, valyuta, vidjet
@@ -219,6 +222,60 @@ def profil_holati(profile: dict, ism: str | None = None) -> dict:
     return d
 
 
+class _KartaTugmasi:
+    """Karta ichidagi tugma — `CallbackQuery` o'rnida (handler faqat shu
+    maydonlarni o'qiydi). `answer` matni kartaga qaytadi (karta o'zi ko'rsatadi)."""
+    def __init__(self, data: str, user, message):
+        self.id, self.data, self.from_user, self.message = "vidjet", data, user, message
+        self.javob: list[str] = []
+
+    async def answer(self, text: str | None = None, show_alert: bool = False, **_):
+        if text:
+            self.javob.append(text)
+
+
+# Karta tugmasi faqat SHU handlerlarga boradi — xabar ostidagi tugmalarning
+# o'zi. Boshqa prefiks (admin, biznes) kartadan chaqirilmaydi.
+_AMAL_PREFIKS = ("pro:", "dg:")
+
+
+async def vidjet_amali(sorov: dict, callback: str) -> dict:
+    """Karta ichidagi tugma (`TelegramWidget.request("c:<callback>")`) — xabar
+    ostidagi tugma bosilgandek: o'sha handler, o'sha tekshiruvlar.
+
+    ⚠️ `callback` mijozdan keladi — oddiy callback_data bilan BIR XIL ishonch:
+    handlerlar kun, oluvchi, superadmin, banni o'zi tekshiradi. `from` ni
+    Telegram tasdiqlaydi; faqat bot bilan shaxsiy chatdagi asl xabar (forward
+    va guruh — yo'q). Handler 10 s da tugamasa ham javob beriladi (15 s
+    chegarasi), ish esa fonda davom etadi."""
+    from aiogram.fsm.context import FSMContext
+    from aiogram.fsm.storage.base import StorageKey
+    from aiogram.types import Message, User
+    from core.loader import bot, dp
+    from handlers import digest, pro
+    chat, uid = sorov.get("chat") or {}, (sorov.get("from") or {}).get("id")
+    if (not callback.startswith(_AMAL_PREFIKS) or len(callback) > 60 or not uid
+            or chat.get("type") != "private" or chat.get("id") != uid
+            or not sorov.get("message_id")):
+        return {"x": 1}
+    message = Message.model_validate({
+        "message_id": sorov["message_id"], "date": int(datetime.now().timestamp()),
+        "chat": {"id": chat["id"], "type": "private"},
+        "from": {"id": bot.id, "is_bot": True, "first_name": "Vexon AI"},
+        # `vidjet_xabari()` uchun: bu xabar — karta (chat_data qo'lda yo'q).
+        "widget": {"html": ""}}, context={"bot": bot})
+    q = _KartaTugmasi(callback, User.model_validate(sorov["from"]), message)
+    state = FSMContext(storage=dp.storage,
+                       key=StorageKey(bot_id=bot.id, chat_id=chat["id"], user_id=uid))
+    handler = pro.handle_pro_callback if callback.startswith("pro:") else digest.handle_digest_callback
+    vazifa = asyncio.ensure_future(handler(q, state))
+    await asyncio.wait({vazifa}, timeout=10)
+    if vazifa.done() and vazifa.exception():
+        logger.warning(f"[Vidjet] karta tugmasi {callback!r} yiqildi: {vazifa.exception()!r}")
+        return {"ok": 0, "t": "⚠️ Bajarilmadi — pastdagi tugmadan urinib ko'ring"}
+    return {"ok": 1, **({"t": q.javob[0][:150]} if q.javob else {})}
+
+
 async def vidjet_sorovi(sorov: dict) -> None:
     """Karta vidjetining "y" so'roviga yangi raqamlar (`widget_query`).
 
@@ -229,7 +286,14 @@ async def vidjet_sorovi(sorov: dict) -> None:
     javob = {"widget_query_id": sorov.get("id")}
     uid = (sorov.get("from") or {}).get("id")
     data = sorov.get("data") or ""
-    if data.startswith(vidjet.OBHAVO_SOROVI):
+    if data.startswith(vidjet.AMAL_SOROVI):
+        # Karta ichidagi tugma — "c:<callback_data>" (`vidjet_amali`).
+        try:
+            javob["data"] = json.dumps(await vidjet_amali(sorov, data[len(vidjet.AMAL_SOROVI):]),
+                                       ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"[Vidjet] karta tugmasi bajarilmadi ({data!r}): {e}")
+    elif data.startswith(vidjet.OBHAVO_SOROVI):
         # Ob-havo kartasi — "w:lat,lon". `data` foydalanuvchi qurilmasidan
         # keladi (callback_data kabi): faqat ikki son, diapazoni tekshirilgan.
         try:

@@ -641,7 +641,8 @@ def pro_qatorlari() -> list:
 
 
 def tarif_plitkalari(tur: str) -> list:
-    """Kartadagi tarif plitkalari: [nom, narx, izoh, chegirma, eng foydali].
+    """Kartadagi tarif plitkalari: [nom, narx, izoh, chegirma, eng foydali, kun].
+    Plitka BOSILADI: kun — `pro:buy:<kun>` / `pro:karta:<kun>` (ostidagi tugmaning o'zi).
     `tur` — "s" Stars yoki "k" karta (so'm). Ostidagi TUGMALAR bilan bitta
     manba: `PRO_PLANS` / `KARTA_NARX`, eng foydalisi `_buy_buttons()` dagi
     qoida (kun boshiga eng arzon) — karta tugmadan boshqa narsa demasin."""
@@ -655,7 +656,7 @@ def tarif_plitkalari(tur: str) -> list:
             # Bo'linmas bo'shliq: tor telefonda «20 / 833 so'm» bo'lib uzilmasin.
             oyiga = f"{som(round(narx * 30 / days))}{birlik}".replace(" ", " ")
             izoh += f" · oyiga ≈ {oyiga}"
-        out.append([title, som(narx) + birlik, izoh, badge, 1 if days == best else 0])
+        out.append([title, som(narx) + birlik, izoh, badge, 1 if days == best else 0, days])
     return out
 
 
@@ -666,25 +667,26 @@ def _sana(dt) -> str:
 async def pro_kartasi(user_id: int, ekran: str = "") -> dict:
     """Pro kartasining holati — `_pro_ekrani()` dagi tarif qoidasining o'zi:
     muddati o'tgan Pro — bepul, muddatsiz — "m", obuna — keyingi to'lov.
-    `ekran`: "" asosiy, "s" Stars / "k" karta tariflari, "x" obunani
-    o'chirish tasdig'i (services/vidjet.py — kalitlar)."""
+    `ekran`: "" asosiy, "s" Stars / "k" karta tariflari (services/vidjet.py —
+    kalitlar). Obunani o'chirish tasdig'i — faqat xabar ostidagi tugmalarda:
+    kartada asosiy ekran qoladi (alohida ekran 4 KB ga sig'madi)."""
     profile = await database.get_full_user_profile(user_id) or {}
     plan_type = profile.get('plan_type') or 'free'
     muddat = profile.get('premium_until')
     if plan_type != 'free' and muddat is not None and muddat < datetime.now(timezone.utc):
         plan_type = 'free'
     h = "f" if plan_type == 'free' else "m" if muddat is None else "p"
+    # "kb" — karta sozlangan: kartada «💳 Karta» tugmasi (xabar ostidagi kabi).
+    kb = {"kb": 1} if await _karta() else {}
     if ekran == "s":
-        d = {"e": "s", "h": h, "t": tarif_plitkalari("s")}
+        d = {"e": "s", "h": h, "t": tarif_plitkalari("s"), **kb}
         # Obuna qatori — `_buy_buttons(obuna=...)` bilan bir xil shart.
         if not _obuna_faol(await _obuna(user_id)):
             d["ob"] = OBUNA_NARX
         return d
     if ekran == "k":
-        return {"e": "k", "h": h, "t": tarif_plitkalari("k")}
-    if ekran == "x":
-        return {"e": "x", "h": h, **({"n": _sana(muddat)} if muddat else {})}
-    d = {"r": pro_qatorlari()}
+        return {"e": "k", "h": h, "t": tarif_plitkalari("k"), **kb}
+    d = {"r": pro_qatorlari(), **kb}
     if h != "p":
         return {**d, "h": h}
     d.update(h="p", k=_days_left(muddat), n=_sana(muddat))
@@ -700,15 +702,24 @@ async def _pro_ekrani_almashtir(query: CallbackQuery, user_id: int, ekran: str) 
     """Tugmalar almashgach — Pro kartasi ham o'sha ekranga (o'sha xabarda).
     Xabar karta bo'lmasa (eski matnli ekran) — hech narsa. Xato tugma
     ishini buzmaydi: tugmalar allaqachon almashgan."""
-    from handlers.messages import vidjet_holatini_yoz, vidjet_xabari
-    from services import vidjet
+    from handlers.messages import vidjet_xabari
     if vidjet_xabari(query.message) is None:
         return
     try:
-        await vidjet_holatini_yoz(query.message, vidjet.pro_holati(
-            await pro_kartasi(user_id, ekran)))
+        await _pro_holatini_yoz(query, await pro_kartasi(user_id, ekran))
     except Exception as e:
         logger.info(f"[Pro] karta ekrani almashmadi (user={user_id}): {e}")
+
+
+async def _pro_holatini_yoz(query: CallbackQuery, holat: dict) -> None:
+    """Berilgan holatni shu xabardagi Pro kartasiga yozadi (karta bo'lmasa —
+    hech narsa). Hech qachon ko'tarilmaydi."""
+    from handlers.messages import vidjet_holatini_yoz
+    from services import vidjet
+    try:
+        await vidjet_holatini_yoz(query.message, vidjet.pro_holati(holat))
+    except Exception as e:
+        logger.info(f"[Pro] karta holati yozilmadi: {e}")
 
 
 def _korinadigan(matn: str) -> int:
@@ -727,7 +738,8 @@ async def _pro_vidjeti(message: Message, user_id: int) -> bool:
     text, kb = await _render_pro_screen(user_id, ixcham=True)
     if _korinadigan(text) > vidjet.CAPTION_MAX:
         return False
-    payload = {"chat_id": message.chat.id, "html": vidjet.pro_html(),
+    # `allow_queries` — kartadagi plitka va tugmalar bosiladi (`profile.vidjet_amali`).
+    payload = {"chat_id": message.chat.id, "html": vidjet.pro_html(), "allow_queries": True,
                "chat_data": vidjet.pro_holati(await pro_kartasi(user_id)),
                "caption": text, "parse_mode": "HTML", "show_caption_above_media": False,
                "reply_markup": kb.model_dump(exclude_none=True)}
@@ -1303,7 +1315,8 @@ async def _safe_send(message: Message, text: str) -> None:
 # Telegram pulni ko'rmaydi — kafolat superadminning O'Z ko'zi: chek
 # rasmi hech qachon o'zi Pro bermaydi (tahrirlangan skrinshot — eng ko'p
 # firibgarlik). Superadmin bank ilovasida noyob summani (25 047) topib,
-# chek ostidagi tugmani bosadi. Faqat o'ziga; sovg'a va promo — Stars'da.
+# chek ostidagi tugmani bosadi. Sovg'a ham (2026-11-11): `oluvchi` ustuni,
+# Pro tasdiqda o'shanga; to'lov, chek va qaror — to'lovchi bilan. Promo — yo'q.
 
 class KartaStates(StatesGroup):
     chek = State()
@@ -1350,13 +1363,53 @@ def karta_tariflar_matni() -> str:
             f"To'lagach chekni shu yerga yuborasiz — Pro <b>{KARTA_VADA}</b> yoqiladi.")
 
 
-def _karta_tariflar_kb() -> InlineKeyboardMarkup:
+def _karta_tariflar_kb(oluvchi: int | None = None) -> InlineKeyboardMarkup:
+    """Karta muddatlari. `oluvchi` — sovg'a: tugmalar `pro:karta:<kun>:<id>`,
+    «Orqaga» esa sovg'aning Stars ekraniga."""
     # Yorliq — Stars jadvalidagi (narx nisbati bir xil, test_karta_tolov.py).
+    suffix = f":{oluvchi}" if oluvchi else ""
+    orqaga = [btn("⬅️ Orqaga", f"pro:stars:{oluvchi}")] if oluvchi else _ORQAGA
     return InlineKeyboardMarkup(inline_keyboard=[
         [btn(f"{title} · {som(KARTA_NARX[days])} so'm" + (f"  {badge}" if badge else ""),
-             f"pro:karta:{days}", style=BTN_PRIMARY)]
+             f"pro:karta:{days}{suffix}", style=BTN_PRIMARY)]
         for days, _, title, badge in PRO_PLANS
-    ] + [_ORQAGA])
+    ] + [orqaga])
+
+
+async def _sovga_kb(oluvchi: int) -> InlineKeyboardMarkup:
+    """Sovg'a muddatlari: Stars narxlari (obunasiz — u to'lovchining o'z
+    balansidan har oy yechilardi) + karta bo'lsa «Karta orqali» + bekor."""
+    karta = ([[btn("💳 Karta orqali (so'mda)", f"pro:kartalar:{oluvchi}", style=BTN_PRIMARY)]]
+             if await _karta() else [])
+    return InlineKeyboardMarkup(inline_keyboard=(
+        _buy_buttons(oluvchi) + karta
+        + [[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="pro:close")]]))
+
+
+async def _oluvchi_nomi(oluvchi: int) -> str:
+    """Kartada ko'rinadigan oddiy nom: @username yoki ID (textContent)."""
+    try:
+        p = await database.get_full_user_profile(oluvchi)
+    except Exception:
+        p = None
+    u = (p or {}).get("username")
+    return f"@{u}" if u and u != "Mavjud emas" else str(oluvchi)
+
+
+async def _sovga_oluvchisi(query: CallbackQuery, parts: list, joy: int) -> int | None:
+    """`pro:<amal>:...:<oluvchi>` dagi oluvchi — TO'LIQ tekshirilgan (`validate_recipient`).
+    ⚠️ callback_data mijozdan keladi: yasalgan id bilan yetkazib bo'lmaydigan
+    sovg'a sotilmasin. None — xato aytilgan (alert)."""
+    try:
+        oluvchi = int(parts[joy])
+    except (IndexError, ValueError):
+        await query.answer("Tugma eskirgan. /gift dan qayta boshlang.", show_alert=True)
+        return None
+    ok, xato = await validate_recipient(query.from_user.id, oluvchi)
+    if not ok:
+        await query.answer(re.sub(r"<[^>]+>", "", xato)[:190], show_alert=True)
+        return None
+    return oluvchi
 
 
 def karta_sorov_matni(days: int, summa: int, raqam: str, egasi: str,
@@ -1404,7 +1457,8 @@ def karta_admin_matni(r: dict, ism: str, username: str | None) -> str:
         f"👤 {html_escape(ism)}" + (f" (@{html_escape(username)})" if username else "")
         + f" · <code>{r['user_id']}</code>\n"
         f"💎 Pro {title}\n"
-        f"💰 Kutilgan summa: <b>{som(r['summa'])} so'm</b>\n"
+        + (f"🎁 Sovg'a — Pro shu odamga: <code>{r['oluvchi']}</code>\n" if r.get("oluvchi") else "")
+        + f"💰 Kutilgan summa: <b>{som(r['summa'])} so'm</b>\n"
         f"💳 Karta: ···· {r['karta'][-4:]}\n"
         + (f"\n⚠️ <b>Bu chek oldin #{r['takror']} so'rovda ham yuborilgan!</b>\n"
            if r.get("takror") else "")
@@ -1458,8 +1512,9 @@ async def process_karta_chek(message: Message, state: FSMContext) -> None:
             "tugma orqali adminga yuboring, tekshirib Pro'ni yoqamiz. Yangi to'lov: /pro",
             reply_markup=admin_kb())
         return
-    await message.answer(f"✅ <b>Chek qabul qilindi</b> (to'lov #{lid}).\n\nTekshirib, Pro'ni "
-                         f"{KARTA_VADA} yoqamiz — natija shu yerga keladi." + ADMIN_IZOH,
+    nima = "sovg'ani yetkazamiz" if r.get("oluvchi") else "Pro'ni yoqamiz"
+    await message.answer(f"✅ <b>Chek qabul qilindi</b> (to'lov #{lid}).\n\nTekshirib, "
+                         f"{KARTA_VADA} {nima} — natija shu yerga keladi." + ADMIN_IZOH,
                          parse_mode="HTML", reply_markup=admin_kb())
     logger.info(f"[Karta] chek #{lid} user={message.from_user.id} summa={r['summa']}")
     u = message.from_user
@@ -1486,12 +1541,22 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
     pro:kt:<id> | kr:<id>:<sabab> — faqat superadmin."""
     action, uid = parts[1], query.from_user.id
     if action == "kartalar":
+        # `pro:kartalar:<oluvchi>` — sovg'a; oluvchi har safar qayta tekshiriladi.
+        oluvchi = None
+        if len(parts) > 2:
+            oluvchi = await _sovga_oluvchisi(query, parts, 2)
+            if oluvchi is None:
+                return
         await query.answer()
         if not await _karta():
             await query.message.answer("Karta orqali to'lov hozircha yo'q — Stars bilan to'lang: /pro")
             return
-        await _tugmalarni_almashtir(query, _karta_tariflar_kb(), karta_tariflar_matni())
-        await _pro_ekrani_almashtir(query, uid, "k")
+        await _tugmalarni_almashtir(query, _karta_tariflar_kb(oluvchi), karta_tariflar_matni())
+        if oluvchi:
+            await _pro_holatini_yoz(query, {"e": "k", "gf": await _oluvchi_nomi(oluvchi),
+                                            "t": tarif_plitkalari("k"), "rid": oluvchi})
+        else:
+            await _pro_ekrani_almashtir(query, uid, "k")
         return
     try:
         son = int(parts[2])
@@ -1500,11 +1565,17 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         return
 
     if action == "karta":
-        # ⚠️ callback_data — mijoz ma'lumoti: kun katalogdan, narx serverdan.
+        # ⚠️ callback_data — mijoz ma'lumoti: kun katalogdan, narx serverdan,
+        # oluvchi (`pro:karta:<kun>:<id>`, sovg'a) — `validate_recipient` dan.
         karta = await _karta()
         if son not in KARTA_NARX or not karta:
             await query.answer("Bu tarif endi mavjud emas. /pro dan qayta boshlang.", show_alert=True)
             return
+        oluvchi = None
+        if len(parts) > 3:
+            oluvchi = await _sovga_oluvchisi(query, parts, 3)
+            if oluvchi is None:
+                return
         raqam, egasi = karta
         try:
             if await database.is_banned(uid):
@@ -1515,13 +1586,15 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         await query.answer()
         # Har so'rov qaysi kartani ko'rganini eslaydi: karta panelda almashsa,
         # eskisiga to'langan chekda superadmin o'sha kartaning oxirini ko'radi.
-        s = await database.karta_sorov_yarat(uid, son, KARTA_NARX[son], raqam)
+        s = await database.karta_sorov_yarat(uid, son, KARTA_NARX[son], raqam, oluvchi)
+        nom = await _oluvchi_nomi(oluvchi) if oluvchi else ""
         # ⚠️ Chek kutish holati kartadan MUSTAQIL: yuborishda nima bo'lsa ham yoqiladi.
         try:
-            await _tolov_ekrani(query.message, son, s["summa"], raqam, egasi, s["id"])
+            await _tolov_ekrani(query.message, son, s["summa"], raqam, egasi, s["id"], nom)
         finally:
             await _chek_kut(state, s["id"])
-        logger.info(f"[Karta] so'rov #{s['id']} user={uid} kun={son} summa={s['summa']}")
+        logger.info(f"[Karta] so'rov #{s['id']} user={uid} kun={son} summa={s['summa']}"
+                    + (f" sovg'a→{oluvchi}" if oluvchi else ""))
         return
 
     if action == "chek":
@@ -1548,12 +1621,12 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
                 if w is None:
                     await query.message.edit_text("✖️ To'lov so'rovi bekor qilindi.", reply_markup=None)
                 else:
-                    # Karta: matni yo'q (edit_text yiqiladi) — holati «bekor», tugmalar olinadi.
-                    import json
+                    # Karta: matni yo'q (edit_text yiqiladi) — holati «bekor», tugmalar
+                    # olinadi. Holat BAZADAN qayta yig'iladi: karta ichidagi tugmadan
+                    # kelganda (`vidjet_amali`) xabarning `chat_data` si qo'lda yo'q.
                     from services import vidjet
-                    d = json.loads(w.get("chat_data") or "{}")
-                    d["h"] = "b"
-                    await vidjet_holatini_yoz(query.message, vidjet.tolov_holati(d))
+                    await vidjet_holatini_yoz(query.message, vidjet.tolov_holati(
+                        await _tolov_holati_bazadan(son, uid, "b")))
                     await query.message.edit_reply_markup(reply_markup=None)
             except Exception:
                 pass
@@ -1591,20 +1664,22 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
         except Exception:
             pass
 
+    oluvchi = r.get("oluvchi")
     if sabab is None:
         try:
-            await menu_module.sync_commands(r["user_id"], True)
+            # Pro kimda bo'lsa (sovg'a — oluvchida), menyu o'shanga.
+            await menu_module.sync_commands(oluvchi or r["user_id"], True)
         except Exception as e:
             logger.warning(f"[Karta] menyu yangilanmadi: {e}")
-        gacha = ""
-        try:
-            p = await database.get_full_user_profile(r["user_id"])
-            if p and p.get("premium_until"):
-                gacha = f" Pro <b>{p['premium_until']:%d.%m.%Y}</b> gacha faol."
-        except Exception:
-            pass
+        if oluvchi:
+            yetdi = await _karta_sovga_xabarlari(r)
+            await query.answer("✅ Tasdiqlandi" if yetdi else
+                               "Bajarildi, lekin to'lovchiga xabar yetmadi.", show_alert=not yetdi)
+            return
+        gacha = await _tugash_sanasi(r["user_id"])
         matn, kb = (f"🎉 <b>Pro faollashdi!</b>\n\nTo'lovingiz ({som(r['summa'])} so'm) "
-                    f"tasdiqlandi.{gacha} Rahmat!"), None
+                    f"tasdiqlandi." + (f" Pro <b>{gacha}</b> gacha faol." if gacha else "")
+                    + " Rahmat!"), None
     else:
         matn = (f"❌ <b>To'lov tasdiqlanmadi</b>\n\nSabab: {sabab}.\n\n"
                 "Pul o'tkazgan bo'lsangiz, to'g'ri chekni yuboring — qayta tekshiramiz."
@@ -1615,8 +1690,7 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
     try:
         # Tasdiq — bayram kartasi (foydalanuvchining shaxsiy chati), yetmasa — matn.
         if not (sabab is None and await _tabrik_yubor(
-                r["user_id"], tabrik_kartasi("k", gacha=await _tugash_sanasi(r["user_id"])),
-                matn, None)):
+                r["user_id"], tabrik_kartasi("k", gacha=gacha), matn, None)):
             await bot.send_message(r["user_id"], matn, parse_mode="HTML", reply_markup=kb)
         await query.answer("✅ Tasdiqlandi" if sabab is None else "Rad etildi")
     except Exception as e:
@@ -1625,25 +1699,69 @@ async def _karta_callback(query: CallbackQuery, state: FSMContext, parts: list) 
                            show_alert=True)
 
 
+async def _karta_sovga_xabarlari(r: dict) -> bool:
+    """Karta orqali sovg'a tasdiqlandi (Pro allaqachon OLUVCHIDA): oluvchiga
+    sovg'a kartasi (yetmasa — matn), to'lovchiga «yetkazildi» kartasi (yetmasa —
+    matn). Stars sovg'asidagi `_notify_purchase` bilan bir xil xabarlar.
+    Qaytadi: to'lovchiga yetdimi."""
+    payer, oluvchi, days = r["user_id"], r["oluvchi"], int(r["days"])
+    _, title, _ = PRO_PLANS_BY_DAYS[days]
+    beruvchi = await _oluvchi_nomi(payer)
+    beruvchi = beruvchi if beruvchi.startswith("@") else "Do'stingiz"
+    nom = await _oluvchi_nomi(oluvchi)
+    yetdi = await _tabrik_yubor(
+        oluvchi, tabrik_kartasi("g", title=title, kim=beruvchi),
+        f"🎁 <b>Sizga Pro sovg'a qilindi!</b>\n{html_escape(beruvchi)} — Pro {title} ({days} kun)",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [btn("👤 Profilimni ko'rish", "pro:profile", style=BTN_PRIMARY)]]))
+    if not yetdi:
+        yetdi = await _sovga_matni(oluvchi, html_escape(beruvchi), title, days)
+    eslatma = "" if yetdi else (
+        "\n\n⚠️ Unga xabar yetkazib bo'lmadi (botni bloklagan bo'lishi mumkin), "
+        "lekin tarif <b>berildi</b>.")
+    matn = (f"🎁 <b>Sovg'a yetkazildi!</b>\n\nTo'lovingiz ({som(r['summa'])} so'm) tasdiqlandi — "
+            f"{html_escape(nom)} ga Pro {title} ({days} kun).{eslatma}")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [btn("🎁 Yana sovg'a qilish", "pro:gift", style=BTN_PRIMARY)]])
+    if await _tabrik_yubor(payer, tabrik_kartasi(
+            "y", title=title, days=days, kim=nom,
+            eslatma="" if yetdi else "⚠️ Unga xabar yetmadi, lekin tarif berildi"), matn, kb):
+        return True
+    try:
+        await bot.send_message(payer, matn, parse_mode="HTML", reply_markup=kb)
+        return True
+    except Exception as e:
+        logger.warning(f"[Karta] sovg'a to'lovchisiga xabar yetmadi (user={payer}): {e}")
+        return False
+
+
 # ── Brend kartalari: to'lov va bayram (Bot API 10.4 vidjeti) ──────
 # Har biri BEZAK: yetmasa (rad, xato) — o'sha eski matnli xabar, tugmalari
 # bilan. Pul yo'li (grant, chek, tasdiq) kartadan OLDIN tugagan bo'ladi.
 
-def tolov_kartasi(days: int, summa: int, raqam: str, egasi: str, lid: int) -> dict:
+def tolov_kartasi(days: int, summa: int, raqam: str, egasi: str, lid: int,
+                  sovga: str = "", yaratilgan: datetime | None = None, holat: str = "k") -> dict:
     """Karta to'lovi kartasining holati (services/vidjet.py — kalitlar).
-    Raqamlar `karta_sorov_matni()` dagining o'zi. Sof — testda."""
+    Raqamlar `karta_sorov_matni()` dagining o'zi. `sovga` — oluvchi nomi
+    (oddiy matn); `yaratilgan` — bazadagi vaqt (oyna undan sanaladi). Sof — testda."""
     _, title, _ = PRO_PLANS_BY_DAYS[days]
-    return {"id": lid, "t": title, "n": raqam, "nf": karta_korinishi(raqam),
-            "o": egasi or "", "s": summa, "sf": som(summa), "w": summa - KARTA_NARX[days],
-            "x": int(time.time()) + KARTA_CHEK_OYNA, "h": "k"}
+    boshi = int(yaratilgan.timestamp()) if yaratilgan else int(time.time())
+    d = {"id": lid, "t": title, "n": raqam, "nf": karta_korinishi(raqam),
+         "o": egasi or "", "s": summa, "sf": som(summa), "w": summa - KARTA_NARX[days],
+         "x": boshi + KARTA_CHEK_OYNA, "h": holat}
+    if sovga:
+        d["gf"] = sovga
+    return d
 
 
-def tolov_izohi(days: int, summa: int, raqam: str, egasi: str, lid: int) -> str:
+def tolov_izohi(days: int, summa: int, raqam: str, egasi: str, lid: int,
+                sovga: str = "") -> str:
     """Kartaning izohi — vidjetni ko'rsatmaydigan ilova FAQAT shuni ko'radi,
     shuning uchun to'lash uchun kerak narsa (karta, summa, chek) shu yerda ham."""
     _, title, _ = PRO_PLANS_BY_DAYS[days]
     return (f"💳 <b>Karta orqali to'lov — Pro {title}</b> · #{lid}\n"
-            f"Karta: <code>{karta_korinishi(raqam)}</code>"
+            + (f"🎁 Sovg'a: {html_escape(sovga)}\n" if sovga else "")
+            + f"Karta: <code>{karta_korinishi(raqam)}</code>"
             + (f" · {html_escape(egasi)}" if egasi else "") + "\n"
             f"Summa: <b><code>{som(summa)}</code> so'm</b> — aynan shu summa\n\n"
             "To'lagach, <b>chek rasmini</b> (skrinshot) yoki PDF'ini shu chatga yuboring.")
@@ -1662,7 +1780,8 @@ async def tolov_holati(user_id: int, lid: int) -> dict:
         d["z"] = r.get("sabab") or ""
     elif d["h"] == "a":
         try:
-            p = await database.get_full_user_profile(user_id)
+            # Sovg'a — Pro OLUVCHIDA, sana ham o'shaniki.
+            p = await database.get_full_user_profile(r.get("oluvchi") or user_id)
             if p and p.get("premium_until"):
                 d["g"] = _sana(p["premium_until"])
         except Exception:
@@ -1670,8 +1789,20 @@ async def tolov_holati(user_id: int, lid: int) -> dict:
     return d
 
 
+async def _tolov_holati_bazadan(lid: int, user_id: int, holat: str) -> dict:
+    """To'lov kartasining to'liq holati bazadagi qatordan (o'z to'lovi)."""
+    r = await database.karta_sorov_ol(lid, user_id)
+    if not r:
+        raise LookupError(f"to'lov #{lid} yo'q")
+    karta = await _karta()
+    egasi = karta[1] if karta and karta[0] == r["karta"] else ""
+    sovga = await _oluvchi_nomi(r["oluvchi"]) if r.get("oluvchi") else ""
+    return tolov_kartasi(r["days"], r["summa"], r["karta"], egasi, lid, sovga,
+                         r.get("yaratilgan"), holat)
+
+
 async def _tolov_ekrani(target, days: int, summa: int, raqam: str, egasi: str,
-                        lid: int) -> None:
+                        lid: int, sovga: str = "") -> None:
     """Karta raqami va summa: shaxsiy chatda — karta, aks holda yoki rad
     etilsa — oldingi matn. Tugmalar IKKALASIDA bir xil (`_karta_sorov_kb`)."""
     kb = _karta_sorov_kb(lid, summa, raqam)
@@ -1681,12 +1812,13 @@ async def _tolov_ekrani(target, days: int, summa: int, raqam: str, egasi: str,
             from services import vidjet
             if await vidjet_yubor(
                     target.chat.id, vidjet.tolov_html(),
-                    vidjet.tolov_holati(tolov_kartasi(days, summa, raqam, egasi, lid)),
-                    tolov_izohi(days, summa, raqam, egasi, lid), kb, sorov=True):
+                    vidjet.tolov_holati(tolov_kartasi(days, summa, raqam, egasi, lid, sovga)),
+                    tolov_izohi(days, summa, raqam, egasi, lid, sovga), kb, sorov=True):
                 return
         except Exception as e:
             logger.warning(f"[Karta] to'lov kartasi yuborilmadi #{lid}: {e}")
-    await target.answer(karta_sorov_matni(days, summa, raqam, egasi, lid),
+    await target.answer((f"🎁 <b>Sovg'a: {html_escape(sovga)}</b>\n" if sovga else "")
+                        + karta_sorov_matni(days, summa, raqam, egasi, lid),
                         parse_mode="HTML", reply_markup=kb)
 
 
@@ -1724,7 +1856,12 @@ def tabrik_kartasi(tur: str, *, title: str = "", days: int = 0, gacha: str = "",
         a = "Pro faollashdi!"
         b = f"{title} ({days} kun)" + (f" · {gacha} gacha" if gacha else "")
         u = "Rahmat! Bemalol foydalanavering 🙌"
-    return {"a": a, "b": b, "l": _pro_imkoniyatlari(), "u": u}
+    # Kartadagi tugmalar — xabar ostidagilar bilan bir xil callback'lar.
+    profil = ["👤 Profilim", "pro:profile", "👤 Profil pastda"]
+    sovga = ["🎁 Yana sovg'a" if tur == "y" else "🎁 Do'stga sovg'a", "pro:gift",
+             "🎁 Pastda — kimga sovg'a qilishni yozing"]
+    k = {"y": [sovga], "g": [profil], "o": [profil]}.get(tur, [profil, sovga])
+    return {"a": a, "b": b, "l": _pro_imkoniyatlari(), "u": u, "k": k}
 
 
 def _shaxsiy(message) -> bool:
@@ -1741,7 +1878,8 @@ async def _tabrik_yubor(chat_id: int, holat: dict, izoh: str, kb,
         from handlers.messages import vidjet_yubor
         from services import vidjet
         return await vidjet_yubor(chat_id, vidjet.tabrik_html(), vidjet.tabrik_holati(holat),
-                                  izoh, kb, effekt=MESSAGE_EFFECTS.get("🎉") if effekt else None)
+                                  izoh, kb, sorov=True,
+                                  effekt=MESSAGE_EFFECTS.get("🎉") if effekt else None)
     except Exception as e:
         logger.warning(f"[Pro] bayram kartasi yuborilmadi (chat={chat_id}): {e}")
         return False
@@ -1871,16 +2009,16 @@ _CANCEL_KB = InlineKeyboardMarkup(
     force_reply=True)
 
 
-async def _pro_vidjet_yubor(target, holat: dict, izoh: str, kb) -> bool:
-    """Shaxsiy chatda Pro kartasini (berilgan ekranda) yangi xabar qilib
+async def _sovga_vidjet_yubor(target, holat: dict, izoh: str, kb) -> bool:
+    """Shaxsiy chatda SOVG'A kartasini (berilgan ekranda) yangi xabar qilib
     yuboradi. False — chaqiruvchi oddiy matnni yuboradi; hech qachon ko'tarilmaydi."""
     if getattr(getattr(target, "chat", None), "type", None) != "private":
         return False
     try:
         from handlers.messages import _thread_key, vidjet_yubor
         from services import vidjet
-        return await vidjet_yubor(target.chat.id, vidjet.pro_html(), vidjet.pro_holati(holat),
-                                  izoh, kb, thread_id=_thread_key(target))
+        return await vidjet_yubor(target.chat.id, vidjet.sovga_html(), vidjet.pro_holati(holat),
+                                  izoh, kb, sorov=True, thread_id=_thread_key(target))
     except Exception as e:
         logger.warning(f"[Pro] karta yuborilmadi ({holat.get('e')}): {e}")
         return False
@@ -1890,7 +2028,7 @@ async def _start_gift(target, state: FSMContext) -> None:
     await state.set_state(GiftStates.waiting_for_recipient)
     # Karta — qadamlar; izohda qisqa savol. `force_reply` (_CANCEL_KB) karta
     # bilan rad etilsa — oldingi matnli so'rov, o'sha klaviatura bilan.
-    if await _pro_vidjet_yubor(target, {"e": "g"}, (
+    if await _sovga_vidjet_yubor(target, {"e": "g"}, (
             "🎁 <b>Kimga sovg'a qilmoqchisiz?</b>\n"
             "@username, ID raqam yoki uning xabarini forward qiling."), _CANCEL_KB):
         return
@@ -2018,14 +2156,14 @@ async def process_gift_recipient(message: Message, state: FSMContext):
     target = await database.get_full_user_profile(recipient_id)
     await state.clear()
     name = _display_name(target or {}, recipient_id)
-    kb = InlineKeyboardMarkup(inline_keyboard=(
-        _buy_buttons(recipient_id)
-        + [[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="pro:close")]]
-    ))
+    # Stars narxlari + (karta sozlangan bo'lsa) «💳 Karta orqali» — sovg'a ham so'mda.
+    kb = await _sovga_kb(recipient_id)
     u = (target or {}).get("username")
     oddiy = f"@{u}" if u and u != "Mavjud emas" else str(recipient_id)
     # Karta — sovg'a tariflari (obunasiz: obuna to'lovchining o'z balansidan).
-    if await _pro_vidjet_yubor(message, {"e": "s", "gf": oddiy, "t": tarif_plitkalari("s")},
+    if await _sovga_vidjet_yubor(message, {"e": "s", "gf": oddiy, "t": tarif_plitkalari("s"),
+                                         "rid": recipient_id,
+                                         **({"kb": 1} if await _karta() else {})},
                                f"🎁 <b>Sovg'a: {name}</b>\n\nMuddatni tanlang:", kb):
         return
     await message.answer(
@@ -2617,6 +2755,18 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
                 "ko'ring." + ADMIN_IZOH, parse_mode="HTML", reply_markup=admin_kb())
         return
 
+    if action == "stars" and len(parts) > 2:
+        # Sovg'aning Stars ekrani (karta muddatlaridan «Orqaga»).
+        oluvchi = await _sovga_oluvchisi(query, parts, 2)
+        if oluvchi is None:
+            return
+        await query.answer()
+        await _tugmalarni_almashtir(query, await _sovga_kb(oluvchi), "🎁 <b>Muddatni tanlang:</b>")
+        await _pro_holatini_yoz(query, {"e": "s", "gf": await _oluvchi_nomi(oluvchi),
+                                        "t": tarif_plitkalari("s"), "rid": oluvchi,
+                                        **({"kb": 1} if await _karta() else {})})
+        return
+
     if action == "stars":
         await query.answer()
         await _tugmalarni_almashtir(query, InlineKeyboardMarkup(
@@ -2638,7 +2788,6 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
                 [btn("🔕 Ha, o'chirilsin", "pro:obuna_bekor:ha", style=BTN_DANGER)],
                 [btn("⬅️ Yo'q, qolsin", "pro:usul")],
             ]), "🔕 Avtomatik to'lov o'chirilsinmi?")
-            await _pro_ekrani_almashtir(query, user_id, "x")
             return
         if await obuna_toxtat(user_id):
             until = ((await database.get_full_user_profile(user_id)) or {}).get("premium_until")

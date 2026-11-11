@@ -855,18 +855,25 @@ cancelled). The fallback text is empty, because the reply already gave the time.
   `chat_data` with `editMessageWidgetData`, and the card redraws on `chatDataChanged`.
   The message is a card only if `messages.vidjet_xabari()` finds `widget`, which aiogram
   3.31 keeps in `model_extra`. An old text screen gets no write.
-  - **Pro card, one template, `"e"` = screen.** `""` is the main screen, `"s"`/`"k"` are
-    the Stars/card plan tiles, `"x"` confirms turning off the subscription, `"g"` is the
-    gift prompt. The gift plans are `"s"` plus `"gf"`. The tiles come from
-    `pro.tarif_plitkalari()`, the same `PRO_PLANS`/`KARTA_NARX` and "cheapest per day"
-    rule as the buttons. ⛔️ The tiles are not tappable. Payment stays on the buttons.
+  - **Pro card and gift card, two templates.** `"e"` is the screen. In
+    `vidjet.pro_html()`, `""` is the main screen and `"s"`/`"k"` are the Stars/card plan
+    tiles. `vidjet.sovga_html()` holds the same tiles plus `"gf"`/`"rid"` (the recipient)
+    and `"g"`, the «kimga?» prompt. One template did not fit in 4 KB compressed. A gift
+    message never shows the main screen, and a Pro message never shows the gift prompt.
+    The subscription-off confirmation is on the buttons only, and the card stays on its
+    main screen. The tiles come from `pro.tarif_plitkalari()`, the same
+    `PRO_PLANS`/`KARTA_NARX` and "cheapest per day" rule as the buttons. `"kb"` means a
+    card number is set, so the card shows «💳».
   - **Card payment** (`pro:karta:<days>`) is a bank-card picture with 📋 copy buttons
     (`TelegramWidget.copyText`), the sum with its marker digits, steps and a 3-hour
     timer. The caption still has the card number and sum for apps without widgets.
     The status changes in the database (receipt, superadmin decision, watcher), so the
     card asks `"t:<id>"` every 15 s while it is `k`/`t`/`r`. The asking user's own row
     only, through `karta_sorov_ol(lid, user_id)`. «Bekor qilish» writes `h: "b"`
-    itself, because `edit_text` fails on a card.
+    itself, because `edit_text` fails on a card. The state is rebuilt **from the
+    database** (`_tolov_holati_bazadan()`): a tap from inside the card has no
+    `chat_data` at hand. A gift payment carries `"gf"` (see ADMIN.md «A karta payment
+    can be a gift»).
   - **Celebration card** (`pro.tabrik_kartasi()`): purchase, the first subscription
     payment, card payment approved, gift received and gift sent. The receipt id stays in
     the caption, since the admin needs it. The confetti plays once per message
@@ -875,6 +882,27 @@ cancelled). The fallback text is empty, because the reply already gave the time.
     raises, and `_shaxsiy()` reads the chat type without raising: a fake without
     `chat.type` crashed `_notify_obuna` and lost the confirmation. The receipt FSM in
     `pro:karta` runs in a `finally`, whatever happens to the card.
+- **Cards are tappable (2026-11-11).** A tile or in-card button calls
+  `TelegramWidget.request("c:<callback_data>")`, synchronously inside the tap; Telegram does
+  not count a timer or promise as a tap. `profile.vidjet_amali()` then runs **the same
+  handler as the button under the message** (`handle_pro_callback` /
+  `handle_digest_callback`). It builds a real aiogram `Message` for that message, marked as
+  a widget so screen writes reach it, a `CallbackQuery`-shaped object whose `answer()` text
+  comes back to the card as a toast, and the FSM context from `dp.storage`, so a receipt or
+  a topic typed next lands where it should.
+  - Only `pro:`/`dg:` are accepted, only the original message in the private chat with the
+    bot (`chat.id == from.id`), and at most 60 characters. Everything else is `{x:1}`.
+  - Trust is the same as callback_data, because the handlers check days, recipient,
+    superadmin and ban themselves.
+  - The handler gets 10 s, then the card is answered and the work continues; the query
+    limit is 15 s.
+  - Every tappable card is sent with `allow_queries`. Without it the request is refused.
+  - Taps: Pro (Stars/Karta/Gift on the main screen, every tile, Back/switch), gift
+    (tiles, «💳 Karta bilan»), card payment (receipt, cancel, new payment, profile),
+    celebration (profile, gift), `/kunlik` (an hour on the dial, topics, off; free → Pro),
+    `/profile` (the FREE/PRO pill, «💎 Pro», «🎁 Sovg'a»).
+  - ⚠️ `/kunlik` polls `"k"` in the background, and only one request may be in flight
+    (`BUSY`). A tap holds the poll off for 4 s.
 - **`/research`.** Progress reaches the card through the `ai.TADQIQOT` ContextVar, not a
   parameter. Fakes in the tests copy the `get_gpt_reply` signature, and a new parameter
   would silently make them stale.

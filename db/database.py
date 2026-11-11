@@ -476,6 +476,9 @@ async def create_users_table():
         # (`karta_eslatmalar`). Doimiy DEFAULT — PG11+ da jadvalni qayta yozmaydi.
         await conn.execute(
             "ALTER TABLE karta_tolov ADD COLUMN IF NOT EXISTS eslatildi BOOLEAN NOT NULL DEFAULT FALSE")
+        # Karta orqali SOVG'A (2026-11-11): Pro shu odamga beriladi; NULL — to'lovchining
+        # o'ziga. To'lov, chek va qaror baribir to'lovchi (`user_id`) bilan.
+        await conn.execute("ALTER TABLE karta_tolov ADD COLUMN IF NOT EXISTS oluvchi BIGINT")
 
         # ── REFERAL ─────────────────────────────────────────────────
         # invited_id PRIMARY KEY — bir odam FAQAT bir marta taklif qilinadi.
@@ -4129,11 +4132,13 @@ async def karta_yoz(raqam: Optional[str], egasi: Optional[str]) -> None:
 
 
 @with_db_retry()
-async def karta_sorov_yarat(user_id: int, days: int, narx: int, karta: str) -> Dict[str, Any]:
+async def karta_sorov_yarat(user_id: int, days: int, narx: int, karta: str,
+                            oluvchi: Optional[int] = None) -> Dict[str, Any]:
     """Yangi karta to'lovi so'rovi — {"id", "summa"}. Shu odamning cheksiz
     eski so'rovi bekor bo'ladi (bitta odamda bitta kutayotgan so'rov);
     chek yuborilgani (`tekshirilmoqda`) tegilmaydi — pul allaqachon ketgan.
 
+    `oluvchi` — sovg'a (Pro o'shanga beriladi); None — o'ziga.
     `summa` = narx + 1..999, oxirgi 7 kundagi faol so'rovlarda takrorlanmaydi.
     ponytail: ikki odam AYNI soniyada bir xil qo'shimchani olishi mumkin
     (1/999) — superadmin baribir ism va chek bilan solishtiradi."""
@@ -4151,8 +4156,9 @@ async def karta_sorov_yarat(user_id: int, days: int, narx: int, karta: str) -> D
             bosh = [narx + q for q in range(1, 1000) if narx + q not in band]
             summa = random.choice(bosh) if bosh else narx + random.randint(1, 999)
             lid = await conn.fetchval(
-                "INSERT INTO karta_tolov (user_id, days, summa, karta) "
-                "VALUES ($1, $2, $3, $4) RETURNING id", user_id, days, summa, karta)
+                "INSERT INTO karta_tolov (user_id, days, summa, karta, oluvchi) "
+                "VALUES ($1, $2, $3, $4, $5) RETURNING id", user_id, days, summa, karta,
+                None if oluvchi in (None, user_id) else int(oluvchi))
     return {"id": lid, "summa": summa}
 
 
@@ -4205,10 +4211,12 @@ async def karta_tasdiqla(lid: int, admin_id: int) -> Optional[Dict[str, Any]]:
             r = await conn.fetchrow(
                 "UPDATE karta_tolov SET holat = 'tasdiqlandi', hal_qildi = $2, hal_vaqti = NOW() "
                 "WHERE id = $1 AND holat IN ('tekshirilmoqda', 'rad') "
-                "RETURNING user_id, days, summa", lid, admin_id)
+                "RETURNING user_id, days, summa, oluvchi", lid, admin_id)
             if not r:
                 return None
-            await conn.execute(_EXTEND_PLAN_SQL, r['user_id'], 'pro', int(r['days']))
+            # Sovg'a — Pro OLUVCHIGA (bir tranzaksiyada); aks holda to'lovchiga.
+            await conn.execute(_EXTEND_PLAN_SQL, r['oluvchi'] or r['user_id'], 'pro',
+                               int(r['days']))
     return dict(r)
 
 
@@ -4220,7 +4228,7 @@ async def karta_rad(lid: int, admin_id: int, sabab: str) -> Optional[Dict[str, A
     async with pool.acquire() as conn:
         r = await conn.fetchrow(
             "UPDATE karta_tolov SET holat = 'rad', sabab = $3, hal_qildi = $2, hal_vaqti = NOW() "
-            "WHERE id = $1 AND holat = 'tekshirilmoqda' RETURNING user_id, days, summa",
+            "WHERE id = $1 AND holat = 'tekshirilmoqda' RETURNING user_id, days, summa, oluvchi",
             lid, admin_id, sabab)
     return dict(r) if r else None
 

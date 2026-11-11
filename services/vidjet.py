@@ -708,6 +708,36 @@ def _imzoli(shablon: str, rang: str = "var(--tg-theme-hint-color)") -> str:
     return shablon.replace('<div id="a"></div>', '<div id="a"></div>' + imzo, 1)
 
 
+# Karta ichidagi tugma: "c:<callback_data>" — bot uni xabar ostidagi o'sha
+# tugma kabi bajaradi (`profile.vidjet_amali`). Javob {"ok", "t": xabar}.
+# ⚠️ `request` tap ichida SINXRON chaqiriladi (Telegram taymer/promise'dan
+# kelganini tap deb sanamaydi). Natija — pastda toast (`tt`), bosilgan
+# tugma kutish paytida ramka oladi (`.bz`; opacity emas — u "og'ir" element).
+AMAL_SOROVI = "c:"
+_AMAL_CSS = (
+    ".ab{display:flex;gap:6px;margin-top:10px}"
+    ".ab button{flex:1;min-width:0;border:0;border-radius:12px;padding:10px 6px;"
+    "font:600 .86em system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+    "color:var(--tg-theme-button-text-color);background:var(--tg-theme-button-color)}"
+    ".ab .ik{color:var(--tg-theme-text-color);background:var(--tg-theme-secondary-bg-color)}"
+    ".ab .xv{color:#fff;background:#e5484d}"
+    ".bz{box-shadow:inset 0 0 0 2px #29d0ff!important}"
+    ".tp:active,.ab button:active{transform:scale(.97)}"
+    ".tt{position:fixed;left:10px;right:10px;bottom:10px;padding:10px 12px;border-radius:12px;"
+    "font-size:.84em;text-align:center;color:#fff;background:#1b2150;box-shadow:0 0 0 1px #3d4aa8;"
+    "transform:translateY(170%);transition:transform .3s}.tt.on{transform:none}")
+_JS_AMAL = """
+function tt(s){var t=document.getElementById("tt");if(!t){t=el("div","tt");t.id="tt";document.body.appendChild(t)}
+t.textContent=s;t.className="tt on";clearTimeout(t.k);t.k=setTimeout(function(){t.className="tt"},3600)}
+function A(c,b,ok){if(!W||!W.request){tt("Pastdagi tugmadan foydalaning");return}
+try{if(W.HapticFeedback)W.HapticFeedback.selectionChanged()}catch(e){}
+if(b)b.classList.add("bz");
+W.request("c:"+c).then(function(o){if(b)b.classList.remove("bz");var x=p(o.result)||{};if(x.t)tt(x.t);else if(ok&&x.ok)tt(ok)},
+function(e){if(b)b.classList.remove("bz");tt(e&&e.code=="BUSY"?"⏳ Bajarilmoqda…":"⚠️ Bo'lmadi — pastdagi tugmadan urinib ko'ring")})}
+function bn(t,c,k,ok){var b=el("button",k||0,t);b.onclick=function(){A(c,b,ok)};return b}
+"""
+
+
 def _sarlavha(nom: str, izoh_id: str = "st", pro: bool = False) -> str:
     # Nomi «VEXON AI» bo'lmagan kartada brend nomi tepada kichik satr (`.vk`).
     vk = "" if "VEXON" in nom else '<div class="vk">VEXON <span class="ai">AI</span></div>'
@@ -814,25 +844,49 @@ def start_html() -> str:
             .replace("@@I@@", _json(_IKONKA)))
 
 
-# ── /pro: tariflar kartasi ────────────────────────────────────────
+# ── /pro: tariflar kartasi (va sovg'a kartasi) ────────────────────
 # Holat (handlers/pro.py::pro_kartasi) — `"e"` qaysi EKRAN:
 #   ""  asosiy: "h" f bepul | p Pro | m muddatsiz, "r": [[belgi, nom, bepul,
 #       pro], ...] (PLAN_LIMITS dan), "k" qolgan kun, "o" obuna, "n" sana;
 #   "s" / "k" Stars / karta tariflari: "t": [[nom, narx, izoh, chegirma,
-#       eng foydali], ...] (`pro.tarif_plitkalari` — tugmalar bilan BIR manba),
-#       "ob" oylik obuna narxi (taklif qilinsa), "gf" sovg'a oluvchisi;
-#   "x" avtomatik to'lovni o'chirish tasdig'i; "g" sovg'a so'rovi.
-# Ostidagi tugma bosilganda bot `editMessageWidgetData` bilan yangi holatni
-# yuboradi — karta `chatDataChanged` da o'sha joyida qayta chiziladi.
-# ⛔️ To'lov tugmalari kartada EMAS — ular xabar ostida (reply_markup), pul
-# yo'li o'zgarmaydi. Plitkalar faqat ko'rsatadi, bosilmaydi.
+#       eng foydali, kun], ...] (`pro.tarif_plitkalari` — tugmalar bilan BIR
+#       manba), "ob" oylik obuna narxi (taklif qilinsa);
+#   "kb" — karta sozlangan (kartada «💳» tugmasi).
+# Sovg'a kartasi (`sovga_html`) — o'sha plitkalar + "gf" oluvchi nomi, "rid"
+# uning id'si (tugmalar `pro:buy:<kun>:<id>`), "e": "g" — «kimga?» so'rovi.
+# Ikki shablon, chunki bittasi 4 KB (siqilgan) ga sig'madi; sovg'a xabari
+# asosiy ekranga hech qachon o'tmaydi, Pro xabari — sovg'a so'roviga.
+# Kartadagi plitka va tugma BOSILADI: "c:<callback>" — xabar ostidagi tugmaning
+# o'zi (`profile.vidjet_amali`), ya'ni pul yo'li va tekshiruvlar o'sha.
+# Ekran almashganda bot `editMessageWidgetData` yuboradi → `chatDataChanged`.
 # ⚠️ «Eng foydali» belgisi plitka ICHIDA, nom yonida: `position:absolute` bilan
 # plitka tepasiga chiqarilgani iPhone Telegram'ida (2026-11-11) ingichka chiziq
 # va ramka ortida xira matn bo'lib chiqdi; kompyuterda joyida edi.
-_PRO_SHABLON = ("<style>" + _BREND_CSS + """
+_PLITKA_CSS = """
 .wm{font-size:1.2em}
+.u{color:var(--tg-theme-hint-color);font-size:.85em;margin-top:8px}
+.pt{display:flex;align-items:center;gap:10px;margin-top:8px;padding:11px 14px;border-radius:14px;background:var(--tg-theme-secondary-bg-color)}
+.pt.bs{box-shadow:inset 0 0 0 2px #6b72ff}
+.pt.ob{color:#fff;background:linear-gradient(110deg,#2c3bc4,#7b3fd6)}
+.pn{flex:1;min-width:0}.pn b{display:block}.pn span{font-size:.78em;color:var(--tg-theme-hint-color)}
+.ob .pn span{color:#dfe3ff}
+.pp{text-align:right;white-space:nowrap}.pp b{font-size:1.08em;font-variant-numeric:tabular-nums}
+.pp i{display:block;font-style:normal;font-size:.72em;font-weight:700;color:#2fbf71}
+.pt em{display:inline-block;margin-left:7px;padding:2px 8px;border-radius:8px;font-size:.66em;font-style:normal;font-weight:700;vertical-align:2px;white-space:nowrap;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff)}
+"""
+_PLITKA_JS = """
+var D,a=document.getElementById("a"),S=document.getElementById("st");
+function pt(x,c,cb,ok){var q=el("div","pt tp"+(x[4]?" bs":"")+(c?" "+c:"")),l=el("div","pn"),r=el("div","pp"),n=el("b",0,x[0]);if(x[4])n.appendChild(el("em",0,"Eng foydali"));l.appendChild(n);l.appendChild(el("span",0,x[2]));q.appendChild(l);
+if(x[3])r.appendChild(el("i",0,x[3]));r.appendChild(el("b",0,x[1]));q.appendChild(r);q.onclick=function(){A(cb,q,ok)};a.appendChild(q)}
+function pl(){var g=D.gf,k=D.e=="k",Z=D.rid?":"+D.rid:"",r=el("div","ab");S.textContent=g?"🎁 Sovg'a: "+g:(k?"💳 Karta orqali · ":"⭐️ Telegram Stars · ")+(D.h=="f"?"muddatni tanlang":"uzaytirish");
+if(D.ob)pt(["♻️ Har oy avtomatik",D.ob+" ⭐/oy","Pro uzilmaydi · istalgan payt o'chirasiz","",0],"ob","pro:obuna","♻️ Obuna havolasi pastda");
+(D.t||[]).forEach(function(x){pt(x,0,(k?"pro:karta:":"pro:buy:")+x[5]+Z,k?"💳 Karta raqami va summa pastda":"⭐️ To'lov oynasi pastda")});
+if(!g)r.appendChild(bn("⬅️ Orqaga","pro:usul","ik"));if(D.kb||k)r.appendChild(k?bn("⭐️ Stars bilan","pro:stars"+Z,"ik"):bn("💳 Karta bilan","pro:kartalar"+Z,"ik"));a.appendChild(r);
+a.appendChild(el("div","u",(k?"Keyingi qadamda karta raqami va aniq summa chiqadi. ":"")+(D.h=="p"&&!g?"Yangi kunlar qolgan muddatga qo'shiladi. ":"")+"👆 Muddatni bosing"))}
+"""
+_PRO_SHABLON = ("<style>" + _BREND_CSS + _AMAL_CSS + _PLITKA_CSS + """
 .tb{margin-top:8px}
-.r{display:flex;align-items:center;padding:7px 4px;border-bottom:1px solid var(--tg-theme-secondary-bg-color)}
+.r{display:flex;align-items:center;padding:5px 4px;border-bottom:1px solid var(--tg-theme-secondary-bg-color)}
 .r:last-child{border:0}
 .n{flex:1;min-width:0}
 .v{width:64px;text-align:center;font-variant-numeric:tabular-nums}
@@ -841,64 +895,55 @@ _PRO_SHABLON = ("<style>" + _BREND_CSS + """
 .hr{border:0;padding-bottom:2px}
 .hr .v{font-size:.78em;font-weight:600}
 .hr .p{color:#fff;border-radius:8px;padding:3px 0;background:linear-gradient(90deg,#3f6bff,#8a5cff)}
-.rn{display:flex;align-items:center;gap:16px;margin-top:10px;padding:4px 6px}
-.rn svg{width:98px;height:98px;flex:none}
+.rn{display:flex;align-items:center;gap:16px;margin-top:8px;padding:2px 6px}
+.rn svg{width:86px;height:86px;flex:none}
 .tr{stroke:var(--tg-theme-secondary-bg-color)}.ht{fill:var(--tg-theme-hint-color)}
-.ar{animation:ar 1.4s ease-out}
-@keyframes ar{from{stroke-dashoffset:251.3}}
 .k{font-size:1.15em;font-weight:700}
 .b{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:10px;font-size:.8em;background:var(--tg-theme-secondary-bg-color)}
-.u{color:var(--tg-theme-hint-color);font-size:.85em;margin-top:8px}
-.pt{position:relative;display:flex;align-items:center;gap:10px;margin-top:8px;padding:11px 14px;border-radius:14px;background:var(--tg-theme-secondary-bg-color)}
-.pt.bs{box-shadow:inset 0 0 0 2px #6b72ff}
-.pt.ob{color:#fff;background:linear-gradient(110deg,#2c3bc4,#7b3fd6)}
-.pn{flex:1;min-width:0}.pn b{display:block}.pn span{font-size:.78em;color:var(--tg-theme-hint-color)}
-.ob .pn span{color:#dfe3ff}
-.pp{text-align:right;white-space:nowrap}.pp b{font-size:1.08em;font-variant-numeric:tabular-nums}
-.pp i{display:block;font-style:normal;font-size:.72em;font-weight:700;color:#2fbf71}
-.pt em{display:inline-block;margin-left:7px;padding:2px 8px;border-radius:8px;font-size:.66em;font-style:normal;font-weight:700;vertical-align:2px;white-space:nowrap;color:#fff;background:linear-gradient(90deg,#3f6bff,#b25cff)}
-.gx{display:block;margin:12px auto 2px}
-.sg{display:flex;align-items:center;gap:10px;margin-top:8px;padding:9px 12px;border-radius:12px;background:var(--tg-theme-secondary-bg-color)}
-.sg i{flex:none;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-style:normal;font-weight:700;font-size:.8em;color:#fff;background:linear-gradient(135deg,#3f6bff,#b25cff)}
-.nt{margin:10px 2px 0;font-size:.85em}
-.cf{font-weight:700;font-size:1.08em;margin:14px 4px 0}
 </style>
 """ + _sarlavha('VEXON <span class="ai">AI</span>', pro=True) + """<div id="a"></div>
-<script>""" + _JS_ASOS + """
-var D,a=document.getElementById("a"),S=document.getElementById("st");
+<script>""" + _JS_ASOS + _JS_AMAL + _PLITKA_JS + """
 function tb(r,b){var t=el("div","tb"),h=el("div","r hr");h.appendChild(el("span","n",""));if(!b)h.appendChild(el("span","v f","Bepul"));h.appendChild(el("span","v p",b?"Sizda":"Pro"));t.appendChild(h);
 r.forEach(function(x){var q=el("div","r");q.appendChild(el("span","n",x[0]+" "+x[1]));if(!b)q.appendChild(el("span","v f",x[2]));q.appendChild(el("span","v p",x[3]));t.appendChild(q)});a.appendChild(t)}
-function mn(){if(D.h=="f"){S.textContent="Ko'proq imkoniyat, kamroq cheklov";tb(D.r||[]);return}
+function ab(){var r=el("div","ab");if(D.h=="f"||(D.h=="p"&&!D.o)){r.appendChild(bn("⭐️ Stars","pro:stars"));if(D.kb)r.appendChild(bn("💳 Karta","pro:kartalar"))}
+if(D.o)r.appendChild(bn("🔕 Avto to'lov","pro:obuna_bekor","ik","👇 Pastda tasdiqlang"));r.appendChild(bn("🎁 Sovg'a","pro:gift","ik","🎁 Pastda — kimga sovg'a qilishni yozing"));a.appendChild(r)}
+function mn(){if(D.h=="f"){S.textContent="Ko'proq imkoniyat, kamroq cheklov";tb(D.r||[]);ab();return}
 S.textContent="Pro tarifingiz faol";
-var m=D.h=="m",k=D.k||0,C=251.3,o=m?0:C*(1-Math.min(k,30)/30),q=el("div","rn"),i=el("div"),c=k<=3&&!m&&!D.o?"#e5484d":"url(#rq) #5b6bff";
-q.innerHTML='<svg viewBox="0 0 100 100"><defs><linearGradient id="rq"><stop offset="0" stop-color="#3f6bff"/><stop offset="1" stop-color="#b25cff"/></linearGradient></defs><circle class="tr" cx="50" cy="50" r="40" fill="none" stroke-width="9"/><circle class="ar" cx="50" cy="50" r="40" fill="none" stroke="'+c+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="'+o+'" transform="rotate(-90 50 50)"/><text x="50" y="50" text-anchor="middle" font-size="22" font-weight="700" fill="currentColor"></text><text class="ht" x="50" y="66" text-anchor="middle" font-size="10"></text></svg>';
+var m=D.h=="m",k=D.k||0,o=m?0:251.3*(1-Math.min(k,30)/30),q=el("div","rn"),i=el("div"),c=k<=3&&!m&&!D.o?"#e5484d":"url(#rq) #5b6bff";
+q.innerHTML='<svg viewBox="0 0 100 100"><defs><linearGradient id="rq"><stop offset="0" stop-color="#3f6bff"/><stop offset="1" stop-color="#b25cff"/></linearGradient></defs><circle class="tr" cx="50" cy="50" r="40" fill="none" stroke-width="9"/><circle cx="50" cy="50" r="40" fill="none" stroke="'+c+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="'+o+'" transform="rotate(-90 50 50)"/><text x="50" y="50" text-anchor="middle" font-size="22" font-weight="700" fill="currentColor"></text><text class="ht" x="50" y="66" text-anchor="middle" font-size="10"></text></svg>';
 var x=q.getElementsByTagName("text");x[0].textContent=m?"∞":k;x[1].textContent=m?"muddatsiz":"kun qoldi";
 i.appendChild(el("div","k",m?"Muddatsiz tarif":"Pro faol"));
 if(D.o)i.appendChild(el("div","b","♻️ Har oy o'zi uzayadi"));
 if(D.n)i.appendChild(el("div","u",(D.o?"Keyingi to'lov: ":"Tugaydi: ")+D.n));
 q.appendChild(i);a.appendChild(q);tb((D.r||[]).filter(function(x){return x[3]!="✓"}),1);
-var h=(D.r||[]).filter(function(x){return x[3]=="✓"}).map(function(x){return x[0]+" "+x[1]});if(h.length)a.appendChild(el("div","u","Yana: "+h.join(" · ")))}
-function pt(x,c){var q=el("div","pt"+(x[4]?" bs":"")+(c?" "+c:"")),l=el("div","pn"),r=el("div","pp"),n=el("b",0,x[0]);if(x[4])n.appendChild(el("em",0,"Eng foydali"));l.appendChild(n);l.appendChild(el("span",0,x[2]));q.appendChild(l);
-if(x[3])r.appendChild(el("i",0,x[3]));r.appendChild(el("b",0,x[1]));q.appendChild(r);a.appendChild(q)}
-function pl(){var g=D.gf,k=D.e=="k";S.textContent=g?"🎁 Sovg'a: "+g:(k?"💳 Karta orqali · ":"⭐️ Telegram Stars · ")+(D.h=="f"?"muddatni tanlang":"uzaytirish");
-if(D.ob)pt(["♻️ Har oy avtomatik",D.ob+" ⭐/oy","Pro uzilmaydi · istalgan payt o'chirasiz","",0],"ob");
-(D.t||[]).forEach(function(x){pt(x)});
-a.appendChild(el("div","u",(k?"Keyingi qadamda karta raqami va aniq summa chiqadi. ":"")+(D.h=="p"&&!g?"Yangi kunlar qolgan muddatga qo'shiladi. ":"")+"👇 Pastdagi tugmadan tanlang"))}
+var h=(D.r||[]).filter(function(x){return x[3]=="✓"}).map(function(x){return x[0]+" "+x[1]});if(h.length)a.appendChild(el("div","u","Yana: "+h.join(" · ")));ab()}
+function R(){D=p(W&&W.chatData)||{};a.innerHTML="";if(D.e=="s"||D.e=="k")pl();else mn()}
+R();if(W&&W.onEvent)W.onEvent("chatDataChanged",R);
+</script>""")
+_SOVGA_SHABLON = ("<style>" + _BREND_CSS + _AMAL_CSS + _PLITKA_CSS + """
+.gx{display:block;margin:12px auto 2px}
+.sg{display:flex;align-items:center;gap:10px;margin-top:8px;padding:9px 12px;border-radius:12px;background:var(--tg-theme-secondary-bg-color)}
+.sg i{flex:none;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-style:normal;font-weight:700;font-size:.8em;color:#fff;background:linear-gradient(135deg,#3f6bff,#b25cff)}
+.nt{margin:10px 2px 0;font-size:.85em}
+</style>
+""" + _sarlavha('VEXON <span class="ai">AI</span>', pro=True) + """<div id="a"></div>
+<script>""" + _JS_ASOS + _JS_AMAL + _PLITKA_JS + """
 function gf(){S.textContent="Do'stingizga Pro sovg'a qiling";var b=el("div");
 b.innerHTML='<svg class="gx" width="76" height="76" viewBox="0 0 64 64"><defs><linearGradient id="gb" gradientUnits="userSpaceOnUse" x1="8" y1="20" x2="56" y2="58"><stop offset="0" stop-color="#4f7bff"/><stop offset="1" stop-color="#b25cff"/></linearGradient></defs><path d="M32 19C27 9 16 8 16 14c0 4 8 5 16 5zm0 0c5-10 16-11 16-5 0 4-8 5-16 5z" fill="none" stroke="#ffcf4a" stroke-width="3" stroke-linejoin="round"/><rect x="9" y="27" width="46" height="30" rx="5" fill="url(#gb) #6a6bff"/><rect x="6" y="19" width="52" height="10" rx="4" fill="#8fa4ff"/><rect x="28.5" y="19" width="7" height="38" fill="#ffcf4a"/></svg>';a.appendChild(b);
 [["1","@username yozing"],["2","yoki ID raqamini yuboring"],["3","yoki uning xabarini forward qiling"]].forEach(function(x){var q=el("div","sg");q.appendChild(el("i",0,x[0]));q.appendChild(el("span",0,x[1]));a.appendChild(q)});
-a.appendChild(el("div","nt","❗️ Oluvchi avval botga /start bergan bo'lishi kerak. To'lovdan keyin unga sovg'a kartasi boradi."));
+a.appendChild(el("div","nt","❗️ Oluvchi avval botga /start bergan bo'lishi kerak. Stars yoki karta bilan to'laysiz — unga sovg'a kartasi boradi."));
 a.appendChild(el("div","u","✍️ Javobni shu chatga yozing"))}
-function ox(){S.textContent="Oylik obuna";a.appendChild(el("div","cf","🔕 Avtomatik to'lov o'chirilsinmi?"));
-a.appendChild(el("div","nt",(D.n?"Pro "+D.n+" gacha ishlaydi":"Pro to'langan muddat oxirigacha ishlaydi")+", keyin o'zi uzaymaydi."));
-a.appendChild(el("div","u","Fikringiz o'zgarsa — /pro dan qayta yoqasiz"))}
-function R(){D=p(W&&W.chatData)||{};a.innerHTML="";var e=D.e;if(e=="s"||e=="k")pl();else if(e=="g")gf();else if(e=="x")ox();else mn()}
+function R(){D=p(W&&W.chatData)||{};a.innerHTML="";if(D.e=="s"||D.e=="k")pl();else gf()}
 R();if(W&&W.onEvent)W.onEvent("chatDataChanged",R);
 </script>""")
 
 
 def pro_html() -> str:
     return _PRO_SHABLON
+
+
+def sovga_html() -> str:
+    return _SOVGA_SHABLON
 
 
 def pro_holati(d: dict) -> str:
@@ -913,16 +958,17 @@ def pro_holati(d: dict) -> str:
 # (`editMessageWidgetData` → `chatDataChanged`); mavzu yozilganda esa xabar
 # noma'lum — karta "k" bilan holatni 6 soniyada bir so'raydi (ko'rinib turganda).
 KUNLIK_SOROVI = "k"
-_KUNLIK_SHABLON = ("<style>" + _BREND_CSS + """
+_KUNLIK_SHABLON = ("<style>" + _BREND_CSS + _AMAL_CSS + """
 .wm{font-size:1.05em;letter-spacing:.1em}
 .dl{display:block;width:230px;height:230px;margin:6px auto 0}
 .m{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:4px 0 2px}
 .m span{padding:4px 10px;border-radius:12px;font-size:.82em;background:var(--tg-theme-secondary-bg-color)}
 .u{color:var(--tg-theme-hint-color);font-size:.8em;text-align:center;margin-top:6px}
 .x{color:#e5484d;font-weight:600}
+.hz{cursor:pointer}
 </style>
 """ + _sarlavha("KUNLIK DAYDJEST") + """<div id="a"></div>
-<script>""" + _JS_ASOS + """
+<script>""" + _JS_ASOS + _JS_AMAL + """
 var D,NS="http://www.w3.org/2000/svg",a=document.getElementById("a"),SV,Q=0;
 function s(t,o,x){var e=document.createElementNS(NS,t);for(var k in o)e.setAttribute(k,o[k]);if(x!=null)e.textContent=x;return e}
 function hz(){var t=new Date(Date.now()+18e6);return{h:t.getUTCHours(),m:t.getUTCMinutes(),s:t.getUTCSeconds()}}
@@ -931,19 +977,23 @@ function r(){if(!D)return;a.innerHTML="";var e=D.l,h=D.h||[],n=hz(),T=nx();
 document.getElementById("st").textContent=e?"💎 Pro imkoniyati":h.length?(D.m?"✅ Faol · har kuni "+h.length+" marta":"❗ Mavzu yozilmagan"):"🔕 O'chirilgan";
 SV=s("svg",{viewBox:"0 0 200 200","class":"dl"});
 SV.appendChild(s("defs")).innerHTML='<linearGradient id="kg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3f6bff"/><stop offset="1" stop-color="#b25cff"/></linearGradient>';
-SV.appendChild(s("circle",{cx:100,cy:100,r:84,fill:"none",stroke:"var(--tg-theme-secondary-bg-color)","stroke-width":2}));
-var f=(n.h+n.m/60)/24,w=(f*360-90)*Math.PI/180;SV.appendChild(s("path",{d:"M100 16A84 84 0 "+(f>.5?1:0)+" 1 "+(100+84*Math.cos(w))+" "+(100+84*Math.sin(w)),fill:"none",stroke:"url(#kg)","stroke-width":3,"stroke-linecap":"round"}));
+SV.appendChild(s("circle",{cx:100,cy:100,r:84,fill:"none",style:"stroke:var(--tg-theme-secondary-bg-color)","stroke-width":2}));
+var f=(n.h+n.m/60)/24,w=(f*360-90)*Math.PI/180;SV.appendChild(s("path",{d:"M100 16A84 84 0 "+(f>.5?1:0)+" 1 "+(100+84*Math.cos(w))+" "+(100+84*Math.sin(w)),fill:"none",stroke:"url(#kg) #6b72ff","stroke-width":3,"stroke-linecap":"round"}));
 for(var i=0;i<24;i++){var g=(i/24*360-90)*Math.PI/180,on=h.indexOf(i)>=0,X=100+84*Math.cos(g),Y=100+84*Math.sin(g);
-SV.appendChild(s("circle",{cx:X,cy:Y,r:on?8:2.6,fill:on?(e?"var(--tg-theme-hint-color)":"url(#kg)"):"var(--tg-theme-hint-color)"}));
+SV.appendChild(s("circle",on&&!e?{cx:X,cy:Y,r:8,fill:"url(#kg) #6b72ff"}:{cx:X,cy:Y,r:on?8:2.6,style:"fill:var(--tg-theme-hint-color)"}));
 if(on)SV.appendChild(s("text",{x:X,y:Y+3.2,"text-anchor":"middle","font-size":8,"font-weight":700,fill:"#fff"},z(i)));
-else if(i%6==0)SV.appendChild(s("text",{x:100+68*Math.cos(g),y:100+68*Math.sin(g)+3,"text-anchor":"middle","font-size":9,fill:"var(--tg-theme-hint-color)"},z(i)))}
-SV.appendChild(s("circle",{cx:100+84*Math.cos(w),cy:100+84*Math.sin(w),r:4.5,fill:"#fff",stroke:"url(#kg)","stroke-width":2.5}));
-var ok=!e&&T&&D.m;SV.appendChild(s("text",{x:100,y:88,"text-anchor":"middle","font-size":10,fill:"var(--tg-theme-hint-color)"},e?"Pro tarif":ok?"Keyingisi":T?"Mavzu kerak":"Soat tanlang"));
+else if(i%6==0)SV.appendChild(s("text",{x:100+68*Math.cos(g),y:100+68*Math.sin(g)+3,"text-anchor":"middle","font-size":9,style:"fill:var(--tg-theme-hint-color)"},z(i)));
+var H=s("circle",{cx:X,cy:Y,r:11,fill:"#000","fill-opacity":0,"class":"hz"});H.onclick=tp(i);SV.appendChild(H)}
+SV.appendChild(s("circle",{cx:100+84*Math.cos(w),cy:100+84*Math.sin(w),r:4.5,fill:"#fff",stroke:"url(#kg) #6b72ff","stroke-width":2.5}));
+var ok=!e&&T&&D.m;SV.appendChild(s("text",{x:100,y:88,"text-anchor":"middle","font-size":10,style:"fill:var(--tg-theme-hint-color)"},e?"Pro tarif":ok?"Keyingisi":T?"Mavzu kerak":"Soat tanlang"));
 SV.appendChild(s("text",{x:100,y:114,"text-anchor":"middle","font-size":24,"font-weight":700,fill:"currentColor"},ok?z(T.h)+":00":"—"));
-SV.appendChild(s("text",{id:"cd",x:100,y:132,"text-anchor":"middle","font-size":10,fill:"var(--tg-theme-hint-color)"}));
+SV.appendChild(s("text",{id:"cd",x:100,y:132,"text-anchor":"middle","font-size":10,style:"fill:var(--tg-theme-hint-color)"}));
 a.appendChild(SV);var m=el("div","m");(D.m||"").split(/[,;\\n]+/).forEach(function(x){x=x.trim();if(x&&m.childNodes.length<8)m.appendChild(el("span",0,x.length>28?x.slice(0,27)+"…":x))});
 if(D.m)a.appendChild(m);else if(h.length&&!e)a.appendChild(el("div","u x","Mavzu yozilmaguncha daydjest kelmaydi"));
-a.appendChild(el("div","u",e?"Har kuni tanlagan soatingizda tayyor xulosa":"Soatni pastdagi tugmadan tanlaysiz · Toshkent vaqti"));c()}
+var B=el("div","ab");if(e)B.appendChild(bn("💎 Pro'ga o'tish","pro:open",0,"💎 Pro kartasi pastda"));
+else{B.appendChild(bn("✏️ Mavzular","dg:topics","ik","✏️ Pastda mavzularni yozing"));if(h.length)B.appendChild(bn("🔕 O'chirish","dg:off","ik"))}a.appendChild(B);
+a.appendChild(el("div","u",e?"Har kuni tanlagan soatingizda tayyor xulosa":"👆 Soatni siferblatda bosing · Toshkent vaqti"));c()}
+function tp(i){return function(){if(D.l){A("pro:open",0,"💎 Pro kartasi pastda");return}Q=Date.now()+4e3;A("dg:h:"+i)}}
 function c(){var T=nx(),k=document.getElementById("cd");if(!k||!T||D.l||!D.m)return;var q=T.q;k.textContent=Math.floor(q/3600)+":"+z(Math.floor(q/60)%60)+":"+z(q%60)+" qoldi";if(q<=0)r()}
 function y(){if(!W||!W.request||Date.now()-Q<5500)return;Q=Date.now();W.request("k").then(function(o){var x=p(o.result);if(x&&x.h){D=x;r()}},function(){})}
 D=p(W&&W.chatData);r();y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});
@@ -1024,7 +1074,7 @@ def tadqiqot_holati(d: dict) -> str:
 # `TelegramWidget.copyText` (tap ichida). ⛔️ Pul tugmalari xabar ostida, karta
 # faqat ko'rsatadi; egasi ismi — textContent.
 TOLOV_SOROVI = "t:"
-_TOLOV_SHABLON = ("<style>" + _BREND_CSS + """
+_TOLOV_SHABLON = ("<style>" + _BREND_CSS + _AMAL_CSS + """
 .wm{font-size:1.05em;letter-spacing:.1em}
 .bc{margin-top:10px;padding:14px 16px 12px;border-radius:18px;color:#fff;background:linear-gradient(135deg,#2335a8,#5b2fc0 58%,#141a5c)}
 .bt{display:flex;justify-content:space-between;align-items:center;font-size:.66em;font-weight:800;letter-spacing:.2em;color:#dfe3ff}
@@ -1052,15 +1102,15 @@ _TOLOV_SHABLON = ("<style>" + _BREND_CSS + """
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 """ + _sarlavha("KARTA TO'LOVI") + """<div id="a"></div>
-<script>""" + _JS_ASOS + """
+<script>""" + _JS_ASOS + _JS_AMAL + """
 var D,Q=0,Z,a=document.getElementById("a");
 function cp(x,b){try{W.copyText(String(x));b.textContent="✓ Nusxalandi";if(W.HapticFeedback)W.HapticFeedback.notificationOccurred("success")}catch(e){}}
 function bt(x,c){var b=el("button","cp"+(c?" "+c:""),"📋 Nusxa");b.onclick=function(){cp(x,b)};return b}
 function ql(){var k=D.h,s=Math.round(D.x-Date.now()/1e3);if(k=="k"&&s<=0)k="e";
 if(k=="k")return"⏱ "+Math.floor(s/3600)+":"+z(Math.floor(s/60)%60)+":"+z(s%60)+" ichida to'lang va chekni yuboring";
-return{t:"⏳ Chek tekshirilmoqda — odatda bir necha soat, eng ko'pi 24 soat",a:"🎉 Pro faollashdi"+(D.g?" · "+D.g+" gacha":""),r:"❌ Tasdiqlanmadi: "+(D.z||"")+". To'g'ri chekni yuboring",b:"✖️ To'lov so'rovi bekor qilindi",e:"⌛️ Vaqt tugadi. To'lagan bo'lsangiz — adminga chek bilan yozing"}[k]||""}
+return{t:"⏳ Chek tekshirilmoqda — odatda bir necha soat, eng ko'pi 24 soat",a:D.gf?"🎁 Sovg'a yetkazildi"+(D.g?" · "+D.g+" gacha":""):"🎉 Pro faollashdi"+(D.g?" · "+D.g+" gacha":""),r:"❌ Tasdiqlanmadi: "+(D.z||"")+". To'g'ri chekni yuboring",b:"✖️ To'lov so'rovi bekor qilindi",e:"⌛️ Vaqt tugadi. To'lagan bo'lsangiz — adminga chek bilan yozing"}[k]||""}
 function r(){a.innerHTML="";var h=D.h,f=h=="k"||h=="r",c=el("div","bc"),t=el("div","bt"),o=el("div","bo");
-document.getElementById("st").textContent="Pro "+D.t+" · to'lov #"+D.id;
+document.getElementById("st").textContent=(D.gf?"🎁 "+D.gf+" · ":"")+"Pro "+D.t+" · #"+D.id;
 t.appendChild(el("span",0,"BANK KARTASI"));t.appendChild(el("span",0,"VEXON AI"));c.appendChild(t);c.appendChild(el("div","bn",D.nf));
 o.appendChild(el("span",0,D.o||""));if(f)o.appendChild(bt(D.n));c.appendChild(o);a.appendChild(c);
 var m=el("div","sm"),d=el("div"),b=el("b");d.appendChild(el("small",0,"Aynan shu summani o'tkazing"));
@@ -1068,13 +1118,19 @@ b.appendChild(document.createTextNode(D.sf.slice(0,-3)));b.appendChild(el("i",0,
 if(D.w)a.appendChild(el("div","w","Oxiridagi "+D.w+" so'm — to'lovingizni tanib olishimiz uchun"));
 var i={k:0,r:1,t:2,a:4}[h],p=el("div","sp");if(i==null)i=-1;
 ["O'tkazing","Chek yuboring","Tekshiruv","Pro ✓"].forEach(function(x,j){var q=el("div",j<i?"ok":j==i?(h=="r"?"er":"on"):"");q.appendChild(el("u"));q.appendChild(document.createTextNode(x));p.appendChild(q)});
-a.appendChild(p);Z=el("div","zt",ql());a.appendChild(Z)}
+a.appendChild(p);Z=el("div","zt",ql());a.appendChild(Z);
+var r=el("div","ab"),E=h=="k"&&D.x<=Date.now()/1e3;
+if((h=="k"&&!E)||h=="r")r.appendChild(bn("📎 Chek yuborish","pro:chek:"+D.id,0,"📎 Endi chek rasmini shu chatga yuboring"));
+if(h=="k"&&!E)r.appendChild(bn("✖️ Bekor qilish","pro:kb:"+D.id,"ik"));
+if(h=="b"||h=="e"||E)r.appendChild(D.gf?bn("🎁 Qaytadan","pro:gift"):bn("💳 Yangi to'lov","pro:kartalar",0,"💳 Muddatni pastdan tanlang"));
+if(h=="a")r.appendChild(bn(D.gf?"🎁 Yana sovg'a":"👤 Profilim",D.gf?"pro:gift":"pro:profile"));
+if(r.childNodes.length)a.appendChild(r)}
 function y(){if(!W||!W.request||!D||"ktr".indexOf(D.h)<0||Date.now()-Q<15e3)return;Q=Date.now();
 W.request("t:"+D.id).then(function(o){var x=p(o.result);if(x&&x.h&&x.h!="x"){var u=x.h!=D.h;D.h=x.h;D.z=x.z;D.g=x.g;if(u)r()}},function(){})}
 function R(){var x=p(W&&W.chatData);if(x&&x.id){D=x;r();y()}}
 R();if(W&&W.onEvent)W.onEvent("chatDataChanged",R);
 document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});
-setInterval(function(){if(D){if(Z)Z.textContent=ql();y()}},1000);
+setInterval(function(){if(D){if(D.h=="k"&&D.x<=Date.now()/1e3&&!D.E){D.E=1;r()}else if(Z)Z.textContent=ql();y()}},1000);
 </script>""")
 
 
@@ -1088,12 +1144,13 @@ def tolov_holati(d: dict) -> str:
 
 # ── Bayram kartasi: Pro yoqildi / sovg'a ──────────────────────────
 # Holat (handlers/pro.py::tabrik_kartasi): {"a": sarlavha, "b": izoh satri,
-# "l": [[belgi, imkoniyat], ...] — PLAN_LIMITS dan, "u": pastki satr}.
+# "l": [[belgi, imkoniyat], ...] — PLAN_LIMITS dan, "u": pastki satr,
+# "k": [[yozuv, callback, toast], ...] — kartadagi tugmalar (`vidjet_amali`)}.
 # Matnlar Python'da yig'iladi (testda tekshiriladi), karta faqat chizadi;
 # hammasi textContent. Konfetti — faqat transform, 3 marta, faqat BIRINCHI
 # ochilishda (xabarning localStorage'i), qayta ko'rilganda yo'q;
 # logoda animatsiya yo'q (iOS animatsiyadagi elementni xira chizadi).
-_TABRIK_SHABLON = ("<style>" + _BREND_CSS + """
+_TABRIK_SHABLON = ("<style>" + _BREND_CSS + _AMAL_CSS + """
 .cb{position:relative;overflow:hidden;padding:18px 16px 20px;border-radius:22px;text-align:center;color:#eef1ff;background:radial-gradient(90% 70% at 50% 30%,#2a3aa8 0,#101650 52%,#070b24 100%)}
 .cb .lg{width:96px;height:96px}
 .cb .rg{display:none}
@@ -1107,11 +1164,12 @@ _TABRIK_SHABLON = ("<style>" + _BREND_CSS + """
 .u{color:var(--tg-theme-hint-color);font-size:.84em;text-align:center;margin-top:12px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
-<div class="cb"><div id="cf"></div>""" + _LOGO + """<div class="wm">VEXON <span class="ai">AI</span><span class="pr">PRO</span></div><div class="h1" id="h"></div><div class="sb" id="s"></div></div><div class="pk" id="k"></div><div class="u" id="u"></div>
-<script>""" + _JS_ASOS + """
+<div class="cb"><div id="cf"></div>""" + _LOGO + """<div class="wm">VEXON <span class="ai">AI</span><span class="pr">PRO</span></div><div class="h1" id="h"></div><div class="sb" id="s"></div></div><div class="pk" id="k"></div><div class="ab" id="b"></div><div class="u" id="u"></div>
+<script>""" + _JS_ASOS + _JS_AMAL + """
 var D=p(W&&W.chatData)||{},C=["#ffcf4a","#5b8cff","#29d0ff","#c77dff","#ff6fa8","#7dffb2"],f=document.getElementById("cf"),Y=1;
 document.getElementById("h").textContent=D.a||"";document.getElementById("s").textContent=D.b||"";document.getElementById("u").textContent=D.u||"";
 (D.l||[]).forEach(function(x){document.getElementById("k").appendChild(el("div",0,x[0]+" "+x[1]))});
+(D.k||[]).forEach(function(x,j){document.getElementById("b").appendChild(bn(x[0],x[1],j?"ik":0,x[2]))});
 try{Y=!localStorage.getItem("c");localStorage.setItem("c","1")}catch(e){}
 if(Y)for(var i=0;i<14;i++){var c=el("i");c.style.left=(4+i*6.8)+"%";c.style.background=C[i%6];c.style.animationDelay=(i%5)*.35+(i%3)*.2+"s";f.appendChild(c)}
 </script>""")
@@ -1135,14 +1193,14 @@ def tabrik_holati(d: dict) -> str:
 # "kartani yangila" chaqiruvi kerak emas. Javobda ism yo'q (bazada yo'q),
 # shuning uchun eski ism saqlanadi. Ism/username — faqat textContent.
 KARTA_SOROVI = "y"
-_KARTA_SHABLON = ("<style>" + _BREND_CSS + """
+_KARTA_SHABLON = ("<style>" + _BREND_CSS + _AMAL_CSS + """
 .hi{flex:1;min-width:0}
 .nm{font-weight:700;font-size:1.2em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pl{flex:none;align-self:flex-start;padding:3px 10px;border-radius:10px;font-size:.74em;font-weight:800;letter-spacing:.06em;color:#c9d0ff;box-shadow:inset 0 0 0 1px #4a55b0}
 .pl.pp{color:#fff;box-shadow:none;background:linear-gradient(90deg,#3f6bff,#b25cff)}
 .pd{margin:10px 4px 0;font-size:.86em;color:var(--tg-theme-hint-color)}
-.cr{display:flex;align-items:center;gap:14px;margin:12px 2px 2px}
-.cr svg{width:104px;height:104px;flex:none}
+.cr{display:flex;align-items:center;gap:14px;margin:10px 2px 0}
+.cr svg{width:96px;height:96px;flex:none}
 .tr{stroke:var(--tg-theme-secondary-bg-color)}.ht{fill:var(--tg-theme-hint-color)}
 .ar{animation:ar 1.2s ease-out}
 @keyframes ar{from{stroke-dashoffset:263.9}}
@@ -1150,39 +1208,40 @@ _KARTA_SHABLON = ("<style>" + _BREND_CSS + """
 .u{color:var(--tg-theme-hint-color);font-size:.8em;margin-top:3px}
 .ch{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .ch span{padding:3px 8px;border-radius:9px;font-size:.78em;background:var(--tg-theme-secondary-bg-color)}
-.bk{margin:12px 4px 0}
+.bk{margin:9px 4px 0}
 .bw{display:flex;justify-content:space-between;font-size:.9em}
 .bw b{font-variant-numeric:tabular-nums}
 .bt{height:6px;border-radius:3px;margin-top:5px;overflow:hidden;background:var(--tg-theme-secondary-bg-color)}
 .bt i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#3f6bff,#29d0ff)}
 .bt .z{background:#e5484d}
-.gr{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.gr{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .gr div{flex:1 1 28%;min-width:0;padding:9px 6px;border-radius:12px;text-align:center;background:var(--tg-theme-secondary-bg-color)}
 .gr b{display:block;font-size:.94em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gr span{font-size:.72em;color:var(--tg-theme-hint-color)}
-.ft{text-align:center;color:var(--tg-theme-hint-color);font-size:.76em;margin-top:12px}
-@media (max-width:340px){.gr div{flex-basis:40%}.cr{gap:10px}.cr svg{width:92px;height:92px}}
+.pl{cursor:pointer}
+@media (max-width:340px){.gr div{padding:8px 4px}.gr b{font-size:.82em;white-space:normal}.cr{gap:10px}.cr svg{width:86px;height:86px}}
 </style>
 <div class="hd">""" + _LOGO + """<div class="hi"><div class="vk">VEXON <span class="ai">AI</span></div><div class="nm" id="nm"></div><div class="st" id="st"></div></div><div class="pl" id="pl"></div></div><div id="a"></div>
-<script>""" + _JS_ASOS + """
+<script>""" + _JS_ASOS + _JS_AMAL + """
 var D,F=1,a=document.getElementById("a"),K=["✉️","🖼","🎤","📄"];
 function $(i){return document.getElementById(i)}
 function r(x){if(!x||!x.b)return;if(D&&D.n&&!x.n)x.n=D.n;D=x;
 $("nm").textContent=x.n||(x.u?"@"+x.u:"Foydalanuvchi");$("st").textContent=(x.u?"@"+x.u+" · ":"")+"ID "+x.i;
-var P=$("pl");P.className=x.p=="f"?"pl":"pl pp";P.textContent=x.p=="f"?"FREE":x.p=="m"?"PRO ∞":"PRO";a.innerHTML="";
+var P=$("pl");P.className=x.p=="f"?"pl":"pl pp";P.textContent=x.p=="f"?"FREE":x.p=="m"?"PRO ∞":"PRO";P.onclick=function(){A("pro:open",P,"💎 Pro kartasi pastda")};a.innerHTML="";
 if(x.p=="p")a.appendChild(el("div","pd","💎 Pro tarif · "+x.e+" gacha · "+x.k+" kun qoldi"));else if(x.p=="m")a.appendChild(el("div","pd","💎 Muddatsiz tarif"));
 var b=x.b,L=b[1],q=L==null?0:Math.max(0,L-b[0]),C=263.9,o=L==null||L<=0?0:C*(1-q/L),c=el("div","cr"),i=el("div");
 c.innerHTML='<svg viewBox="0 0 100 100"><defs><linearGradient id="pq" gradientUnits="userSpaceOnUse" x1="8" y1="8" x2="92" y2="92"><stop offset="0" stop-color="#4f7bff"/><stop offset=".5" stop-color="#29d0ff"/><stop offset="1" stop-color="#b77dff"/></linearGradient></defs><circle class="tr" cx="50" cy="50" r="42" fill="none" stroke-width="8"/><circle'+(F?' class="ar"':'')+' cx="50" cy="50" r="42" fill="none" stroke="'+(L!=null&&q<=L*.1?'#e5484d':'url(#pq) #4f7bff')+'" stroke-width="8" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="'+o+'" transform="rotate(-90 50 50)"/><text x="50" y="54" text-anchor="middle" font-size="21" font-weight="700" fill="currentColor"></text><text class="ht" x="50" y="68" text-anchor="middle" font-size="9.5"></text></svg>';
 var t=c.getElementsByTagName("text");t[0].textContent=L==null?"∞":q;t[1].textContent=L==null?"cheksiz":"ball qoldi";
 i.appendChild(el("div","cl","🔋 Bugungi AI Creditlar"));i.appendChild(el("div","u",L==null?"Kunlik limit qo'llanilmaydi":b[0]+" / "+L+" ishlatildi"));
 if(L!=null){if(q>0){var h=el("div","ch");K.forEach(function(k,j){var n=Math.floor(q/(x.x||[])[j]);if(n>0)h.appendChild(el("span",0,k+" "+n+" ta"))});
-if(h.childNodes.length){i.appendChild(el("div","u","Shu ball bilan yana:"));i.appendChild(h)}else i.appendChild(el("div","u","⚠️ Birorta amal uchun yetmaydi"))}else i.appendChild(el("div","u","⏳ Bugungi limit tugadi"))}
+if(h.childNodes.length){i.appendChild(el("div","u","00:00 gacha yana:"));i.appendChild(h)}else i.appendChild(el("div","u","⚠️ Birorta amal uchun yetmaydi"))}else i.appendChild(el("div","u","⏳ Limit tugadi — 00:00 da yangilanadi"))}
 c.appendChild(i);a.appendChild(c);
 [["f","📄 Fayl yaratish"],["r","🖼 Rasm chizish"],["t","🔎 Chuqur tadqiqot"]].forEach(function(l){var v=x[l[0]];if(!v)return;
 var k=el("div","bk"),w=el("div","bw");w.appendChild(el("span",0,l[1]));w.appendChild(el("b",0,v[1]==null?"cheksiz":v[0]+" / "+v[1]));k.appendChild(w);
 if(v[1]!=null){var s=el("div","bt"),f=el("i",v[0]>=v[1]?"z":0);f.style.width=(v[1]>0?Math.min(100,v[0]/v[1]*100):100)+"%";s.appendChild(f);k.appendChild(s)}a.appendChild(k)});
 var g=el("div","gr");[[x.m,"Xabarlar"],[x.o,"A'zo bo'lgan"],[x.g,"Model"]].forEach(function(s){var d=el("div");d.appendChild(el("b",0,s[0]));d.appendChild(el("span",0,s[1]));g.appendChild(d)});
-a.appendChild(g);a.appendChild(el("div","ft","🕛 Limitlar har kuni 00:00 da yangilanadi"));F=0}
+a.appendChild(g);var B=el("div","ab");if(x.p!="m")B.appendChild(bn(x.p=="f"?"💎 Pro'ga o'tish":"➕ Uzaytirish","pro:open",0,"💎 Pro kartasi pastda"));
+B.appendChild(bn("🎁 Sovg'a qilish","pro:gift","ik","🎁 Pastda — kimga sovg'a qilishni yozing"));a.appendChild(B);F=0}
 r(p(W&&W.chatData));
 function y(){if(W&&W.request)W.request("y").then(function(o){r(p(o.result))},function(){})}
 y();document.addEventListener("visibilitychange",function(){if(!document.hidden)y()});setInterval(y,15000);

@@ -257,6 +257,22 @@ so two instances never send twice, and requests that closed long ago (first run 
 are closed silently. `eskirdi` is not in `_KARTA_FAOL`: the amount is free again and no receipt
 can land on it. `tests/test_karta_eslatma.py`; the SQL was run on pgserver.
 
+### A karta payment can be a gift (2026-11-11)
+
+Until 2026-11-11 a card payment was self-only, so a gift could be paid only in Stars. Now
+`karta_tolov.oluvchi` holds the recipient, and NULL means the payer. The payment, the
+receipt, the reminders and the decision all stay with the **payer** (`user_id`).
+`karta_tasdiqla()` extends Pro for `oluvchi or user_id` in the **same transaction** as the
+status change.
+- The gift path is `pro:kartalar:<id>` → `pro:karta:<days>:<id>`. The recipient is checked
+  again by `validate_recipient()` on every press, because callback_data comes from the
+  client. A forged id must never sell a gift that cannot be delivered.
+- The superadmin's receipt text names the recipient.
+- On approval the recipient gets the gift card and the payer gets the "delivered" card
+  (`_karta_sovga_xabarlari()`). Menus sync for the recipient.
+- `tests/test_brend_kartalar.py` checks 47-51 cover this. The SQL was run on pgserver:
+  Pro reaches the recipient, the payer is unchanged, and a second approval returns None.
+
 ### Maintenance turns itself on when OpenAI stops serving everyone (2026-11-05)
 
 `services/avto_tatil.py`. When credit runs out or the key dies, every user got "Xatolik yuz

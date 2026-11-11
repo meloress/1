@@ -257,8 +257,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   `/profile` show brand cards (vector Vexon logo), every other card is signed with a small
   logo and «VEXON AI» (`_imzoli()`); the screens behind the Pro/gift/card-payment/
   `/kunlik` buttons change the card in place (`editMessageWidgetData`), and payment and
-  gift confirmations are a celebration card. Payment stays on the buttons, and the old
-  text is the fallback; every one falls back to the old screen, and the Pro
+  gift confirmations are a celebration card. Cards are **tappable**: `request("c:<callback>")`
+  → `profile.vidjet_amali()` runs the same handler as the button under the message (only
+  `pro:`/`dg:`, DM original only, `allow_queries` required). A gift can be paid by card
+  (`karta_tolov.oluvchi`). The old text is the fallback; every one falls back to the old screen, and the Pro
   card keeps the normal screen's buttons. Asset cards are sent through
   `karta_yubor()`, `/kunlik` included;
   a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know
