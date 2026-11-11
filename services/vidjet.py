@@ -1122,7 +1122,7 @@ a.appendChild(p);Z=el("div","zt",ql());a.appendChild(Z);
 var r=el("div","ab"),E=h=="k"&&D.x<=Date.now()/1e3;
 if((h=="k"&&!E)||h=="r")r.appendChild(bn("📎 Chek yuborish","pro:chek:"+D.id,0,"📎 Endi chek rasmini shu chatga yuboring"));
 if(h=="k"&&!E)r.appendChild(bn("✖️ Bekor qilish","pro:kb:"+D.id,"ik"));
-if(h=="b"||h=="e"||E)r.appendChild(D.gf?bn("🎁 Qaytadan","pro:gift"):bn("💳 Yangi to'lov","pro:kartalar",0,"💳 Muddatni pastdan tanlang"));
+if(h=="b"||h=="e"||E)r.appendChild(bn(D.gf?"🎁 Qaytadan":"💳 Yangi to'lov","pro:qayta:"+D.id));
 if(h=="a")r.appendChild(bn(D.gf?"🎁 Yana sovg'a":"👤 Profilim",D.gf?"pro:gift":"pro:profile"));
 if(r.childNodes.length)a.appendChild(r)}
 function y(){if(!W||!W.request||!D||"ktr".indexOf(D.h)<0||Date.now()-Q<15e3)return;Q=Date.now();

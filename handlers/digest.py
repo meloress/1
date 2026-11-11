@@ -21,7 +21,8 @@ from db import database
 from handlers.helpers import _dm_or_deactivate
 from handlers.helpers import _mavzular
 from handlers.messages import (OUTCOME_UNKNOWN, _send_rich_message, _telegram_api_request,
-                               _thread_key, karta_yubor)
+                               _thread_key, ekran_almashtir, karta_yubor, xabar_id,
+                               xabarni_ochir)
 from handlers.pro import btn, send_rich, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
 from services import vidjet
 from services.ai import (get_gpt_reply, build_rich_markdown, strip_image_tokens,
@@ -204,8 +205,8 @@ async def _kunlik_vidjeti(target, profile) -> bool:
         if tid := _thread_key(target):
             payload["message_thread_id"] = tid
         outcome: list = []
-        if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
-            return True
+        if (r := await _telegram_api_request("sendWidget", payload, outcome=outcome)) is not None:
+            return xabar_id(r) or True
         return OUTCOME_UNKNOWN in outcome
     except Exception as e:
         logger.warning(f"[Daydjest] karta yuborilmadi: {e}")
@@ -231,12 +232,16 @@ async def _ekran(target, profile) -> None:
     """/kunlik ekrani — `/kunlik` va «⚙️ Soatlar» tugmasi IKKALASI shu yerdan.
     Ilgari tugma o'z qisqa matnini chizardi (mavzusiz, muddati o'tganda ham
     «✅ Faol»)."""
-    if await _kunlik_vidjeti(target, profile):
+    # Chatda bitta ekran: eski /kunlik (yoki Pro, profil) kartasi o'chadi.
+    chat_id = getattr(getattr(target, "chat", None), "id", 0) or 0
+    if (n := await _kunlik_vidjeti(target, profile)):
+        await ekran_almashtir(chat_id, n)
         return
     if not _pro_faol(profile):
         # Panjara o'chirilgan holda ko'rsatiladi — foydalanuvchi nimadan
         # mahrumligini KO'RADI, lekin bosa olmaydi.
-        await send_rich(target, _PRO_ONLY, _hours_keyboard(None, locked=True))
+        await ekran_almashtir(chat_id, await send_rich(
+            target, _PRO_ONLY, _hours_keyboard(None, locked=True)))
         return
 
     hours = _user_hours(profile)
@@ -250,7 +255,7 @@ async def _ekran(target, profile) -> None:
         status = ("🔕 Hozircha o'chirilgan.\n\n"
                   f"<i>Kerakli soatlarni bosing — {_MAX_HOURS} tagacha "
                   "(Toshkent vaqti).</i>")
-    await send_rich(target, _INTRO + status, _hours_keyboard(hours))
+    await ekran_almashtir(chat_id, await send_rich(target, _INTRO + status, _hours_keyboard(hours)))
 
 
 async def handle_digest(message: Message, state: FSMContext):
@@ -376,7 +381,7 @@ async def handle_digest_callback(query: CallbackQuery, state: FSMContext):
 
 async def _ask_topics(target, state: FSMContext) -> None:
     await state.set_state(DigestStates.waiting_for_topics)
-    await send_rich(target, (
+    m = await send_rich(target, (
         f"📌 <b>{_SOROV_SARLAVHA}</b>\n\n"
         "Bitta xabarda yozing.\n\n"
         "<blockquote>Masalan: <i>O'zbekistondagi yangiliklar, dollar kursi, "
@@ -387,6 +392,8 @@ async def _ask_topics(target, state: FSMContext) -> None:
     ), InlineKeyboardMarkup(
         inline_keyboard=[[btn("✖️ Bekor qilish", "dg:close", style=BTN_DANGER)]],
         force_reply=True))
+    # Javob kelgach so'rov o'chadi (chat to'lib ketmasin) — id'si shu yerda.
+    await state.update_data(sorov_id=xabar_id(m))
 
 
 async def process_digest_topics(message: Message, state: FSMContext):
@@ -404,6 +411,9 @@ async def process_digest_topics(message: Message, state: FSMContext):
         await message.answer("❗️ Mavzularni matn bilan yozing.")
         return
 
+    sorov_id = (await state.get_data()).get("sorov_id")
+    if mavzu_javobimi(message):
+        sorov_id = message.reply_to_message.message_id
     await state.clear()
     topics = text[:_MAX_TOPICS_LEN]
     try:
@@ -416,14 +426,22 @@ async def process_digest_topics(message: Message, state: FSMContext):
         await message.answer("⚠️ Texnik nosozlik. Birozdan keyin urinib ko'ring.")
         return
 
-    await send_rich(message, (
+    # So'rov va javob o'chadi — ikkalasi ham «sozlandi» xabarida turibdi; u esa
+    # eski /kunlik kartasining o'rniga (eskisida mavzular eskirgan bo'lardi).
+    if getattr(message.chat, "type", None) == "private":
+        await xabarni_ochir(message.chat.id, sorov_id)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+    await ekran_almashtir(message.chat.id, await send_rich(message, (
         f"✅ <b>Daydjest sozlandi!</b>\n\n"
         f"<blockquote>⏰ Har kuni: <b>{_hours_label(hours)}</b>\n"
         f"📌 Mavzular: {html_escape(topics)}</blockquote>\n\n"
         f"📨 Birinchisi: <b>{keyingi_vaqt(hours, _hozir())}</b> (Toshkent vaqti)"
     ), InlineKeyboardMarkup(inline_keyboard=[
         [btn("⚙️ Soatlarni o'zgartirish", "dg:menu", style=BTN_PRIMARY)],
-        [btn("🔕 Daydjestni to'xtatish", "dg:off", style=BTN_DANGER)]]))
+        [btn("🔕 Daydjestni to'xtatish", "dg:off", style=BTN_DANGER)]])))
 
 
 _DIGEST_HEADER = "⏰ <b>KUNLIK DAYDJEST</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"

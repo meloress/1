@@ -113,9 +113,10 @@ asyncio.run(p.karta_tekshir())
 check(5, "eslatma: o'sha odamga, #raqam, summa, qachongacha; «Chekni yuborish» + «Bekor qilish»",
       u1 == 11 and "#7" in m1 and "25 011" in m1 and "17:00</tg-time> gacha" in m1
       and tugmalar(kb1) == ["pro:chek:7", "pro:kb:7"])
-check(6, "vaqt tugadi: #raqam, «to'lagan bo'lsangiz — adminga», ADMIN tugmasi va «Yangi to'lov»",
+check(6, "vaqt tugadi: #raqam, «to'lagan bo'lsangiz — adminga», ADMIN tugmasi va «Yangi to'lov» "
+          "(pro:qayta:<id> — eski xabarlar o'chib, muddatlar yangi ekranda)",
       u2 == 12 and "To'lov vaqti tugadi" in m2 and "#8" in m2 and "adminga" in m2
-      and tugmalar(kb2) == [ADMIN_URL, "pro:kartalar"])
+      and tugmalar(kb2) == [ADMIN_URL, "pro:qayta:8"])
 
 
 async def bloklagan(uid, matn, **kw):

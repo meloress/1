@@ -74,6 +74,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   - Check 52: every callback written in a template exists, and the Pro and celebration
     cards are sent with `allow_queries`.
   - Check 53: `/kunlik` has no `var()` inside an SVG attribute (iPhone).
+  - Checks 34, 54-58 cover one live screen per chat (`ekran_almashtir`). A new screen
+    deletes the old one; a payment card deletes the tariffs and its id is stored; cancel
+    and `pro:qayta` delete the payment messages and resend the tariffs; the invoice has the
+    pay button first plus «⬅️ Orqaga». Deletions go to a fake `msg.bot`. Without it they
+    reach Telegram with the local token.
   - ⚠️ This file must fake `pro._karta` in every section. Unfaked, `database.karta_ol()`
     reached the production database through the local `.env` (2026-11-11, read only).
   - Check 2: no `opacity`/`filter` (the widget's heavy elements).

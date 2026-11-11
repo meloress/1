@@ -32,6 +32,8 @@ class FakeMsg:
     def __init__(self):
         self.sent = []
         self.from_user = type("U", (), {"id": 42, "username": "test"})()
+        # Guruh: ekran tozalash (faqat shaxsiy chat) tarmoqqa chiqmaydi.
+        self.chat = type("C", (), {"id": -42, "type": "group"})()
 
     async def answer(self, text, **kw):
         self.sent.append(text)
@@ -52,6 +54,9 @@ class FakeState:
 
     async def clear(self):
         self.state = None
+
+    async def get_data(self):
+        return {}
 
 
 async def _fake_gen(chunks):

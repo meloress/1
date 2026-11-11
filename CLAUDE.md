@@ -260,7 +260,9 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   gift confirmations are a celebration card. Cards are **tappable**: `request("c:<callback>")`
   → `profile.vidjet_amali()` runs the same handler as the button under the message (only
   `pro:`/`dg:`, DM original only, `allow_queries` required). A gift can be paid by card
-  (`karta_tolov.oluvchi`). The old text is the fallback; every one falls back to the old screen, and the Pro
+  (`karta_tolov.oluvchi`). A private chat keeps **one live menu screen**
+  (`messages.ekran_almashtir`): a new one deletes the old; payment-flow messages are in
+  `karta_tolov.xabarlar` and go on approval/cancel/expiry. The old text is the fallback; every one falls back to the old screen, and the Pro
   card keeps the normal screen's buttons. Asset cards are sent through
   `karta_yubor()`, `/kunlik` included;
   a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know

@@ -1397,13 +1397,70 @@ def vidjet_xabari(message) -> dict | None:
     return w if isinstance(w, dict) else None
 
 
+def xabar_id(natija) -> int | None:
+    """Yuborilgan xabarning id'si: sendWidget natijasi (dict), `Message`,
+    `vidjet_yubor` ning raqami. True (timeout) / None / False — None."""
+    if isinstance(natija, dict):
+        natija = natija.get("message_id")
+    elif not isinstance(natija, int):
+        natija = getattr(natija, "message_id", None)
+    return natija if type(natija) is int and natija > 0 else None
+
+
+# ── Chatda bitta jonli ekran ─────────────────────────────────────
+# Menyu ekranlari (Pro, sovg'a, profil, /kunlik, Stars invoice) har bosishda
+# YANGI xabar bo'lib chiqib, chat to'lib ketardi (2026-11-11, egasi). Endi
+# shaxsiy chatda bittasi turadi: yangisi chiqqach eskisi o'chadi. AI javobi,
+# limit xabari, bayram kartasi, rad etilgan to'lov sababi bu yerga
+# YOZILMAYDI — ular yozuv, o'chmaydi.
+# ponytail: RAM — deploy'dan keyin eski ekran shunchaki qoladi (zarari yo'q).
+_EKRAN: dict[int, tuple[int, str]] = {}
+
+
+async def xabarni_ochir(chat_id: int, mid) -> None:
+    """Botning xabarini o'chiradi; bo'lmasa (allaqachon o'chgan) — jim."""
+    if not mid:
+        return
+    try:
+        await bot.delete_message(chat_id, mid)
+    except Exception as e:
+        logger.debug(f"[Ekran] xabar o'chmadi {chat_id}/{mid}: {e}")
+
+
+async def ekran_almashtir(chat_id: int, natija, tur: str = "") -> None:
+    """Yangi ekran chiqdi (`natija` — uning xabari, `xabar_id` tushunadigan
+    har qanday shakl): oldingisi o'chadi. Faqat shaxsiy chat (id > 0) —
+    guruhda «ekran» boshqa odamniki bo'lishi mumkin."""
+    if chat_id <= 0:
+        return
+    mid = xabar_id(natija)
+    eski = _EKRAN.pop(chat_id, None)
+    if mid:
+        _EKRAN[chat_id] = (mid, tur)
+    if eski and eski[0] != mid:
+        await xabarni_ochir(chat_id, eski[0])
+
+
+async def ekranni_ochir(chat_id: int, mid: int | None = None) -> None:
+    """`mid` (yoki u berilmasa — joriy ekran) o'chadi va ro'yxatdan chiqadi.
+    Faqat shaxsiy chat: guruhdagi xabar boshqalarniki ham."""
+    if chat_id <= 0:
+        return
+    joriy = _EKRAN.get(chat_id)
+    if mid is None:
+        mid = joriy[0] if joriy else None
+    if joriy and joriy[0] == mid:
+        _EKRAN.pop(chat_id, None)
+    await xabarni_ochir(chat_id, mid)
+
+
 async def vidjet_yubor(chat_id: int, html: str, holat: str, izoh: str, kb=None, *,
                        sorov: bool = False, effekt: str | None = None,
-                       thread_id=None) -> bool:
-    """Brend kartasini yuboradi. Qaytadi: yetdimi — timeout ham True (yetgan
-    bo'lishi mumkin, takror yuborilmaydi); False — chaqiruvchi oddiy matnli
-    ekranni yuboradi. Izoh HTML, unda premium emoji YO'Q (Premium tugasa
-    butun xabar rad etilardi)."""
+                       thread_id=None) -> int | bool:
+    """Brend kartasini yuboradi. Qaytadi: xabar id'si; True — timeout (yetgan
+    bo'lishi mumkin, takror yuborilmaydi; id noma'lum); False — chaqiruvchi
+    oddiy matnli ekranni yuboradi. Izoh HTML, unda premium emoji YO'Q
+    (Premium tugasa butun xabar rad etilardi)."""
     payload = {"chat_id": chat_id, "html": html, "chat_data": holat,
                "caption": izoh, "parse_mode": "HTML"}
     if sorov:
@@ -1414,9 +1471,14 @@ async def vidjet_yubor(chat_id: int, html: str, holat: str, izoh: str, kb=None, 
         payload["message_effect_id"] = effekt
     if thread_id:
         payload["message_thread_id"] = thread_id
+    return await widget_yubor(payload)
+
+
+async def widget_yubor(payload: dict) -> int | bool:
+    """sendWidget — `vidjet_yubor` qaytarishi bilan (id / True / False)."""
     outcome: list = []
-    if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
-        return True
+    if (r := await _telegram_api_request("sendWidget", payload, outcome=outcome)) is not None:
+        return xabar_id(r) or True
     return OUTCOME_UNKNOWN in outcome
 
 

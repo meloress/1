@@ -479,6 +479,10 @@ async def create_users_table():
         # Karta orqali SOVG'A (2026-11-11): Pro shu odamga beriladi; NULL — to'lovchining
         # o'ziga. To'lov, chek va qaror baribir to'lovchi (`user_id`) bilan.
         await conn.execute("ALTER TABLE karta_tolov ADD COLUMN IF NOT EXISTS oluvchi BIGINT")
+        # To'lov oqimidagi bot xabarlari (karta, «chek qabul qilindi», eslatma) —
+        # natija kelganda o'chiriladi, chat to'lib ketmasin (`karta_xabar_qosh`).
+        await conn.execute(
+            "ALTER TABLE karta_tolov ADD COLUMN IF NOT EXISTS xabarlar BIGINT[] NOT NULL DEFAULT '{}'")
 
         # ── REFERAL ─────────────────────────────────────────────────
         # invited_id PRIMARY KEY — bir odam FAQAT bir marta taklif qilinadi.
@@ -4291,7 +4295,7 @@ async def karta_eslatmalar(eslat_soniya: int, oyna_soniya: int) -> Dict[str, Lis
         tugadi = await conn.fetch(
             "UPDATE karta_tolov SET holat = 'eskirdi', hal_vaqti = NOW() WHERE holat = 'kutmoqda' "
             "AND yaratilgan <= NOW() - make_interval(secs => $1::int) "
-            "RETURNING id, user_id, days, summa, yaratilgan", int(oyna_soniya))
+            "RETURNING id, user_id, days, summa, yaratilgan, xabarlar", int(oyna_soniya))
     yaqin = datetime.now(timezone.utc) - timedelta(seconds=int(oyna_soniya) + 6 * 3600)
     return {"eslat": [dict(r) for r in eslat],
             "tugadi": [dict(r) for r in tugadi if r["yaratilgan"] > yaqin]}
@@ -4327,6 +4331,19 @@ async def star_payments_bor(charge_ids: List[str]) -> set:
         return {r['charge_id'] for r in await conn.fetch(
             'SELECT charge_id FROM star_payments WHERE charge_id = ANY($1::text[])',
             list(charge_ids))}
+
+
+@with_db_retry()
+async def karta_xabar_qosh(lid: int, message_id: int) -> None:
+    """To'lov oqimidagi bot xabari (karta, «chek qabul qilindi», eslatma) —
+    tasdiq / bekor / vaqt tugaganda o'chiriladi. Bezak: pul yo'liga tegmaydi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE karta_tolov SET xabarlar = array_append(xabarlar, $2::bigint) WHERE id = $1",
+            int(lid), int(message_id))
 
 
 @with_db_retry()

@@ -903,6 +903,27 @@ cancelled). The fallback text is empty, because the reply already gave the time.
     `/profile` (the FREE/PRO pill, «💎 Pro», «🎁 Sovg'a»).
   - ⚠️ `/kunlik` polls `"k"` in the background, and only one request may be in flight
     (`BUSY`). A tap holds the poll off for 4 s.
+- **One live screen per chat (2026-11-11).** Every tap that opened a new screen added a
+  message, so the chat filled up (owner's complaint). `messages.ekran_almashtir(chat_id,
+  sent)` remembers the current menu screen of a private chat (Pro, gift, profile,
+  `/kunlik`, the Stars invoice, «Daydjest sozlandi») and deletes the previous one when a
+  new one goes out. `vidjet_yubor` and the card senders return the message id for this.
+  - **Never registered:** AI answers, the limit message, celebration cards, a rejected
+    payment's reason, the "payment window expired" text. They are records, not menus.
+  - RAM only (`_EKRAN`). After a deploy the old screen simply stays.
+  - Private chats only (`chat_id > 0`). In a group the "screen" may be someone else's.
+  - Moving forward deletes the screen it came from: a Stars tile → invoice (with
+    «⬅️ Orqaga» = `pro:orqa[:<id>]`; the pay button must stay **first**); a card tile → the
+    payment card; the gift recipient's answer → the gift tariffs (the user's own @username
+    message is deleted too); `/kunlik` topics → the prompt and the answer go.
+  - The card payment's own messages (payment card, «chek qabul qilindi», reminder) are
+    stored in `karta_tolov.xabarlar`, because approval can come hours and deploys later.
+    They are deleted on approval (after the celebration card has gone out), on cancel and
+    when the window expires. A rejection keeps them: the user resends the receipt.
+  - Cancel and «💳 Yangi to'lov» (`pro:qayta:<id>`) send the card tariffs again as a new
+    screen (the gift one for a gift). ⚠️ The expired card used to call `pro:kartalar`, which
+    wrote a Pro state **into the payment card** and broke it.
+  - «📎 Chek yuborish» is an alert, not a message.
 - **`/research`.** Progress reaches the card through the `ai.TADQIQOT` ContextVar, not a
   parameter. Fakes in the tests copy the `get_gpt_reply` signature, and a new parameter
   would silently make them stale.

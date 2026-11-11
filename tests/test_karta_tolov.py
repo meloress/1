@@ -91,6 +91,10 @@ async def obunasiz(uid):
     return None
 database.pro_obuna_ol = obunasiz
 database.karta_faol_sorov = lambda uid, oyna: obunasiz(uid)
+# To'lov xabarlarini tozalash (2026-11-11) — bu fayl uni tekshirmaydi
+# (test_brend_kartalar.py tekshiradi), lekin chaqiruv bazaga yetmasin.
+database.karta_sorov_ol = lambda lid, uid: obunasiz(uid)
+database.karta_xabar_qosh = lambda lid, mid: obunasiz(lid)
 
 _, bez = asyncio.run(p._render_pro_screen(1))
 KARTA["v"] = "xato"
@@ -219,7 +223,9 @@ check(7, "PDF chek — hujjat sifatida superadminga", any(x[0] == "admin_fayl" f
 class So:
     def __init__(self, data, uid=900):
         self.data, self.from_user = data, NS(id=uid)
+        # Guruh chati: ekran tozalash (faqat shaxsiy chat) tarmoqqa chiqmaydi.
         self.message = NS(html_text="💳 <b>Karta to'lovi #7</b>",
+                          chat=NS(id=-100, type="group"), message_id=1,
                           edit_caption=self._ec, edit_reply_markup=self._erm,
                           answer=self._a, edit_text=self._et)
         self.alert = None

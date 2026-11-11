@@ -386,7 +386,7 @@ async def _karta_yubor(message: types.Message, profile: dict, tarif: str, kb,
     """Shaxsiy chatda profil — to'liq karta vidjeti, izohi ixcham (hammasi
     kartada). Qaytadi: yetib bordimi (yoki timeout — takror yuborilmaydi)."""
     from handlers.messages import (OUTCOME_UNKNOWN, _telegram_api_request,
-                                   _thread_key)
+                                   _thread_key, xabar_id)
     holat = profil_holati(profile, ism)
     b = holat.get("b")
     # Vidjetni qo'llamaydigan ilova FAQAT izohni ko'radi — tarif va ball o'sha yerda ham tursin.
@@ -401,8 +401,8 @@ async def _karta_yubor(message: types.Message, profile: dict, tarif: str, kb,
     if tid := _thread_key(message):
         payload["message_thread_id"] = tid
     outcome: list = []
-    if await _telegram_api_request("sendWidget", payload, outcome=outcome) is not None:
-        return True
+    if (r := await _telegram_api_request("sendWidget", payload, outcome=outcome)) is not None:
+        return xabar_id(r) or True
     return OUTCOME_UNKNOWN in outcome
 
 
@@ -463,6 +463,7 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
     # Klaviatura quruvchisi pro.py'da yashaydi (pro.py profile.py'ni
     # import qilmaydi — sikl bo'lmasligi uchun shu yo'nalish).
     from handlers.pro import pro_keyboard_for
+    from handlers.messages import ekran_almashtir
     kb = pro_keyboard_for(plan_type)
     # Bot API 10.4: shaxsiy chatda raqamlar — jonli karta. Rad etilsa
     # (eski server, buzuq tugma) — oldingi matnli profil, o'zgarishsiz.
@@ -472,8 +473,11 @@ async def handle_profile(message: types.Message, user_id: int | None = None):
             # (tugmadan chaqirilganda `from_user` — botning o'zi).
             fu = getattr(message, "from_user", None)
             ism = getattr(fu, "first_name", None) if getattr(fu, "id", None) == user_id else None
-            if await _karta_yubor(message, profile_data, plan_label, kb, ism):
+            if (n := await _karta_yubor(message, profile_data, plan_label, kb, ism)):
+                # Chatda bitta ekran: eski profil / Pro kartasi o'chadi.
+                await ekran_almashtir(message.chat.id, n)
                 return
         except Exception as e:
             logger.warning(f"[Vidjet] karta yuborilmadi (user={user_id}): {e}")
-    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await ekran_almashtir(message.chat.id,
+                          await message.answer(text, parse_mode="HTML", reply_markup=kb))

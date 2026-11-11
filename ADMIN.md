@@ -272,6 +272,10 @@ status change.
   (`_karta_sovga_xabarlari()`). Menus sync for the recipient.
 - `tests/test_brend_kartalar.py` checks 47-51 cover this. The SQL was run on pgserver:
   Pro reaches the recipient, the payer is unchanged, and a second approval returns None.
+- `karta_tolov.xabarlar BIGINT[]` (2026-11-11) holds the payment flow's bot messages
+  (`karta_xabar_qosh()`), which are deleted on approval, cancel or expiry
+  (`karta_eslatmalar()` returns them for expired rows). It is cosmetic and never on the
+  money path: a failed write only leaves a message in the chat. Checked on pgserver.
 
 ### Maintenance turns itself on when OpenAI stops serving everyone (2026-11-05)
 
