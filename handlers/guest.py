@@ -936,6 +936,7 @@ else:
                         caller_user_id,
                         message.from_user.username if message.from_user else None,
                         f"guest_{content_type}_message",
+                        tg_ism=message.from_user.full_name if message.from_user else None,
                     )
                 else:
                     skip_ai = True

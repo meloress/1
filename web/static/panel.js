@@ -1222,9 +1222,10 @@
   function nomi(u) {
     // ⚠️ Ilgari bu yerda «ID:6739642698» qaytardi va qatorning
     // ikkinchi satrida YANA o'sha raqam turardi — bitta ID ikki
-    // marta (§4). Endi username bo'lmasa nom «Foydalanuvchi»,
-    // raqam esa faqat pastki satrda.
-    return u.username ? "@" + u.username : S.user.nomsiz;
+    // marta (§4). Endi Telegram ismi (tg_ism) birinchi, bo'lmasa
+    // @username, u ham bo'lmasa «Foydalanuvchi»; raqam faqat pastki
+    // satrda. Ko'pchilikning username'i yo'q — ism esa deyarli doim bor.
+    return u.tg_ism || (u.username ? "@" + u.username : S.user.nomsiz);
   }
 
   function chiplarniChiz() {
@@ -1291,8 +1292,7 @@
           var vaqt = uTartib === "yangi" ? u.created_at : u.last_seen;
           return '<div class="row bosiladi" data-uid="' + u.user_id + '">' +
             '<div class="person">' +
-            avatar(u.username ? "@" + u.username : "ID:" + u.user_id,
-                   u.tarif === "pro" || u.tarif === "premium") +
+            avatar(nomi(u), u.tarif === "pro" || u.tarif === "premium") +
             "<div><b>" + xavfsiz(nomi(u)) + '</b><span>' + xavfsiz(u.user_id) +
             "</span></div></div>" + yorliq(u.tarif) +
             '<span class="hint num">' + xavfsiz(vaqt ? nisbiy(vaqt) : S.yoq) + "</span></div>";
@@ -1319,12 +1319,15 @@
   async function kartochka(uid) {
     var d = await ol("/api/users/" + uid);
     uOchiq = d;
-    var nom = d.username ? "@" + d.username : S.user.nomsiz;
+    // Sarlavha — Telegram ismi (tg_ism), bo'lmasa @username, u ham
+    // bo'lmasa «Foydalanuvchi». @username va ID esa pastki metada:
+    // ism ko'rinadigan bo'lgach, ular alohida ko'rsatiladi.
+    var nom = nomi(d);
 
-    var shaxs = d.username ? "@" + d.username : "ID:" + d.user_id;
-    $("u-av").innerHTML = bosh(shaxs) === null ? ODAM_SVG : xavfsiz(bosh(shaxs));
+    $("u-av").innerHTML = bosh(nom) === null ? ODAM_SVG : xavfsiz(bosh(nom));
     $("u-ism").textContent = nom;
-    $("u-meta").textContent = "ID " + d.user_id +
+    $("u-meta").textContent = (d.username ? "@" + d.username + " · " : "") +
+      "ID " + d.user_id +
       (d.last_seen ? " · " + S.user.oxirgi + " " + nisbiy(d.last_seen) : "");
     // Username — t.me (hamma joyda ochiladi). Usernamesiz odam uchun
     // havola yo'q: bot sizga mention yuboradi (`/api/users/<id>/tglink`).

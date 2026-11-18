@@ -127,9 +127,13 @@ def _fire_and_forget(coro, *, label: str = "background_task") -> asyncio.Task:
     return asyncio.create_task(_runner())
 
 
-def track_user_activity(user_id: int, username: str | None, event: str) -> None:
-    """save_user + log_user_activity'ni parallel, bloklamaydigan tarzda bajaradi."""
-    _fire_and_forget(save_user(user_id, username), label="save_user")
+def track_user_activity(user_id: int, username: str | None, event: str,
+                        tg_ism: str | None = None) -> None:
+    """save_user + log_user_activity'ni parallel, bloklamaydigan tarzda bajaradi.
+
+    `tg_ism` — Telegram ismi (`from_user.full_name`): panelda @username
+    o'rniga ko'rsatiladi. None bo'lsa bazadagi eskisi saqlanadi."""
+    _fire_and_forget(save_user(user_id, username, tg_ism), label="save_user")
     _fire_and_forget(log_user_activity(user_id, username, event), label="log_user_activity")
     # Referal bonusi aynan shu yerda hisobga olinadi — /start da emas.
     # Sabab: /start bosish soxta akkaunt uchun bepul, HAQIQIY savol berish
@@ -2106,7 +2110,8 @@ async def _after_file_task(message: Message, quota_box: list, produced_files: bo
     # lekin ilgari hech qanday faollik turi sifatida yozilmasdi.
     if produced_files and quota.kind == "files":
         track_user_activity(
-            message.from_user.id, message.from_user.username, "file_task"
+            message.from_user.id, message.from_user.username, "file_task",
+            tg_ism=message.from_user.full_name
         )
 
     # Pro foydalanuvchiga Pro sotib olishni taklif qilmaymiz — uning limiti
@@ -2309,7 +2314,8 @@ async def handle_start(message: Message, state: FSMContext, command: CommandObje
     except Exception:
         pass
 
-    track_user_activity(user_id, message.from_user.username, "start")
+    track_user_activity(user_id, message.from_user.username, "start",
+                        tg_ism=message.from_user.full_name)
 
     # Referal deep-link: t.me/<bot>?start=ref_<taklif_qilgan_id>
     # Mukofot bu yerda EMAS, foydalanuvchi birinchi haqiqiy savolini
@@ -2594,7 +2600,8 @@ async def handle_text(message: Message, state: FSMContext):
             "🧹 Xotira tozalandi! Mutlaqo yangi mavzuda suhbatlashishimiz mumkin.")
         return
 
-    track_user_activity(user_id, message.from_user.username, "text_message")
+    track_user_activity(user_id, message.from_user.username, "text_message",
+                        tg_ism=message.from_user.full_name)
 
     # Hozirgina izohsiz fayl kelgan bo'lsa, bu xabar — o'sha fayl uchun
     # ko'rsatma. Uni handle_document kutib turibdi, shu yerda to'xtaymiz.
@@ -2992,7 +2999,8 @@ async def handle_research(message: Message, state: FSMContext,
             await message.answer(pro_module.BAN_MATNI, reply_markup=pro_module.admin_kb())
         return
 
-    track_user_activity(user_id, message.from_user.username, "research")
+    track_user_activity(user_id, message.from_user.username, "research",
+                        tg_ism=message.from_user.full_name)
     notify_watchers(user_id, message.from_user.username, "in", text=f"/research {topic}")
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
@@ -3084,7 +3092,8 @@ async def handle_photo(message: Message, state: FSMContext):
             _albomlar.pop(kalit, None)
         albom.sort(key=lambda m: m.message_id)
 
-    track_user_activity(user_id, message.from_user.username, "photo_message")
+    track_user_activity(user_id, message.from_user.username, "photo_message",
+                        tg_ism=message.from_user.full_name)
     for m in albom:
         notify_watchers(user_id, message.from_user.username, "in",
                         copy_chat_id=chat_id, copy_message_id=m.message_id)
@@ -3197,7 +3206,8 @@ async def handle_document(message: Message, state: FSMContext):
     document = message.document
     file_name = document.file_name if document.file_name else "fayl"
 
-    track_user_activity(user_id, message.from_user.username, "document_message")
+    track_user_activity(user_id, message.from_user.username, "document_message",
+                        tg_ism=message.from_user.full_name)
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
 
     thread_id = _thread_key(message)
@@ -3393,7 +3403,8 @@ async def handle_location(message: Message, state: FSMContext):
     if loc is None:
         return
     track_user_activity(message.from_user.id,
-                        message.from_user.username, "location_message")
+                        message.from_user.username, "location_message",
+                        tg_ism=message.from_user.full_name)
     thread_id = _thread_key(message)
     await check_and_clear_session(chat_id, thread_id)
     remember_location(chat_id, loc.latitude, loc.longitude, thread_id)
@@ -3417,7 +3428,8 @@ async def handle_voice(message: Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    track_user_activity(user_id, message.from_user.username, "voice_message")
+    track_user_activity(user_id, message.from_user.username, "voice_message",
+                        tg_ism=message.from_user.full_name)
     notify_watchers(user_id, message.from_user.username, "in", copy_chat_id=chat_id, copy_message_id=message.message_id)
 
     thread_id = _thread_key(message)

@@ -459,6 +459,7 @@ def _qator(u: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "user_id": u["user_id"],
         "username": u.get("username"),
+        "tg_ism": u.get("tg_ism"),
         "tarif": _tarif_kaliti(u),
         "plan_type": u.get("plan_type") or "free",
         "premium_until": _sana(u.get("premium_until")),
@@ -549,6 +550,7 @@ async def user(request: web.Request):
     return web.json_response({
         "user_id": uid,
         "username": profil.get("username"),
+        "tg_ism": profil.get("tg_ism"),
         "tarif": _tarif_kaliti(profil),
         "plan_type": tarif_nomi,
         "bloklangan": bool(profil.get("is_banned")),

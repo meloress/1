@@ -806,9 +806,11 @@ async def create_users_table():
 
 
 @with_db_retry()
-async def save_user(user_id: int, username: Optional[str] = None) -> None:
+async def save_user(user_id: int, username: Optional[str] = None,
+                    tg_ism: Optional[str] = None) -> None:
     """
     Save or update user. If username is None, keep existing username.
+    `tg_ism` (Telegram ismi) ham shunday: None bo'lsa eskisi qoladi.
     Always update last_seen to NOW() and set is_active = TRUE.
     """
     global pool
@@ -816,11 +818,12 @@ async def save_user(user_id: int, username: Optional[str] = None) -> None:
         await create_db_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO users (user_id, username, last_seen)
-            VALUES ($1, $2, NOW())
+            INSERT INTO users (user_id, username, tg_ism, last_seen)
+            VALUES ($1, $2, $3, NOW())
             ON CONFLICT (user_id)
             DO UPDATE SET
                 username = COALESCE(EXCLUDED.username, users.username),
+                tg_ism = COALESCE(EXCLUDED.tg_ism, users.tg_ism),
                 last_seen = NOW(),
                 is_active = TRUE,
                 -- Foydalanuvchi QAYTDI: "sog'indik" bosqichi noldan
@@ -828,7 +831,7 @@ async def save_user(user_id: int, username: Optional[str] = None) -> None:
                 -- kunlik eslatmalar ketaverardi.
                 inactive_stage = 0,
                 inactive_notified_at = NULL
-        ''', user_id, username)
+        ''', user_id, username, (tg_ism or None) and tg_ism.strip()[:100] or None)
 
 
 @with_db_retry()
@@ -2981,6 +2984,10 @@ async def ensure_profile_columns():
             # Muddat o'tsa, check_and_consume_quota() foydalanuvchini avtomatik
             # free'ga tushiradi (kunlik limit auto-reset qanday ishlasa, shunday).
             "ADD COLUMN IF NOT EXISTS premium_until TIMESTAMPTZ",
+            # Telegram ismi (first+last). Panelda @username o'rniga shu
+            # ko'rsatiladi — ko'pchilikning username'i yo'q, ism esa doim bor.
+            # Har xabarda save_user() yangilaydi (username bilan bir qatorda).
+            "ADD COLUMN IF NOT EXISTS tg_ism TEXT",
             # Fayl yaratish/tahrirlash uchun ALOHIDA kunlik sanoq — ball
             # byudjetidan mustaqil, shuning uchun fayl limiti tugagach ham
             # oddiy suhbat ishlashda davom etadi. daily_usage_date bilan
@@ -5734,7 +5741,7 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(f'''
-            SELECT user_id, username, plan_type, is_banned, premium_until,
+            SELECT user_id, username, tg_ism, plan_type, is_banned, premium_until,
                    created_at, last_seen
             FROM users
             WHERE {faollik} {_ODDIY_USER} {qidiruv}

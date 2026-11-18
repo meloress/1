@@ -41,8 +41,11 @@ def written_activity_types() -> set:
     for rel in (("handlers", "messages.py"), ("handlers", "guest.py"),
                 ("handlers", "biznes.py")):
         src = read(*rel)
-        # "def track_user_activity(" — bu ta'rif, chaqiruv emas
-        for raw in re.findall(r'(?<!def )track_user_activity\(.*?f?"([^"]+)"\s*,?\s*\)',
+        # "def track_user_activity(" — bu ta'rif, chaqiruv emas.
+        # Event — 3-argument (birinchi satrli literal); undan keyin
+        # `tg_ism=...` kabi kwarg kelishi mumkin, shuning uchun oxirida
+        # `)` gacha qavssiz har narsaga ruxsat beramiz.
+        for raw in re.findall(r'(?<!def )track_user_activity\([^)]*?f?"([^"]+)"[^)]*\)',
                               src, re.S):
             if "{" in raw:
                 # f"guest_{content_type}_message"
@@ -127,7 +130,7 @@ def main():
     # 5) Fayl vazifasi faqat fayl CHIQQANDA yoziladi
     logged = []
     real = hm.track_user_activity
-    hm.track_user_activity = lambda uid, un, ev: logged.append(ev)
+    hm.track_user_activity = lambda uid, un, ev, tg_ism=None: logged.append(ev)
     try:
         asyncio.run(hm._after_file_task(FakeMsg(), [FakeQuota()], True))
         assert logged == ["file_task"], logged
@@ -188,6 +191,7 @@ class FakeUnchargedQuota(FakeQuota):
 class FakeUser:
     id = 42
     username = "test"
+    full_name = "Test Foydalanuvchi"
 
 
 class FakeMsg:

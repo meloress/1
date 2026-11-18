@@ -44,7 +44,8 @@ TELEGRAM = []    # refund_star_payment chaqiruvlari
 BAZA = []        # mark_payment_refunded chaqiruvlari
 
 PROFIL = {
-    "user_id": 641382905, "username": "dilshod_a", "is_banned": False,
+    "user_id": 641382905, "username": "dilshod_a", "tg_ism": "Dilshod A.",
+    "is_banned": False,
     "plan_type": "premium", "premium_until": datetime.datetime(2026, 10, 8, tzinfo=UTC),
     "created_at": datetime.datetime(2026, 3, 12, tzinfo=UTC),
     "last_seen": datetime.datetime(2026, 9, 15, tzinfo=UTC),
