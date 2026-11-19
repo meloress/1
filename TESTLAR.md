@@ -320,7 +320,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   luminance and fails if one drifts more than 2% from its hex (contrast must not change);
   **9** — on the phone the profile is a sheet and opening/closing it never scrolls the list
   back to the top; **10** — pull-to-refresh never runs on the form sections and never
-  leaves a `transform` on `.wrap` (it would capture the fixed sheet).
+  leaves a `transform` on `.wrap` (it would capture the fixed sheet). **13** fakes
+  `faollik_xaritasi` raising and still expects `/api/stats` to answer 200 with
+  `xarita: null`.
   It reuses `test_web_stats.py`'s fake database by importing it — do not copy it. Offline.
 - `test_eski_bot.py` — the old `@uzchatgptaibot` redirect (`DEPLOY.md` «The bot moved to
   @vexonai»). Its sharpest check is **2**: an old-bot Business customer gets nothing and

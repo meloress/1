@@ -6,13 +6,9 @@
 <title>Vexon AI Panel</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="icon" href="/static/logo.jpg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- ⚠️ BITTA shrift oilasi. Ilgari uchtasi yuklanardi (Sora,
-     IBM Plex Sans, IBM Plex Mono) — uchta so'rov va telefonda
-     aralash ko'rinish. Raqamlar `font-variant-numeric:tabular-nums`
-     bilan tekislanadi, buning uchun monospace oila kerak emas. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<!-- ⚠️ TASHQI SHRIFT YO'Q (2026-11-19): tizim shrifti — iPhone'da SF Pro.
+     Ilgari Google Fonts'dan IBM Plex Sans yuklanardi; CSP ham endi
+     shrift uchun faqat 'self' ga ruxsat beradi. -->
 <link rel="stylesheet" href="/static/panel.css">
 </head>
 <body>
@@ -582,6 +578,16 @@
               <div class="bars" id="s-turlar"></div>
             </div>
           </div>
+
+          <!-- Hafta kuni × soat (Toshkent). Qancha to'q — shuncha ko'p
+               so'rov. Katakni bosing — pastda aniq soni. `/api/stats`
+               → `xarita`; so'rov yiqilsa karta yashirin qoladi. -->
+          <div class="card" id="x-karta" hidden>
+            <header><h2>Faollik xaritasi · 30 kun</h2><div class="spacer"></div>
+              <span class="hint">Toshkent vaqti</span></header>
+            <div class="xarita" id="x-jadval" role="grid" aria-label="Faollik xaritasi"></div>
+            <p class="hint num" id="x-izoh" style="margin-top:var(--s-3)">&nbsp;</p>
+          </div>
         </div>
 
         <div class="pane" data-pane="audit">
@@ -780,6 +786,13 @@
               <div class="row" style="padding-top:0" id="face-qator">
                 <div class="t"><b id="face-nom">Face ID qulfi</b><span id="face-izoh">panel har ochilganda va 1 daqiqadan ko'p chetda turgandan keyin so'raladi</span></div>
                 <button class="switch" id="faceSw" aria-pressed="false" aria-label="Face ID qulfi"></button>
+              </div>
+              <!-- Telegram (Bot API 8.0) panelni telefonning asosiy ekraniga
+                   ikonka qilib qo'yadi. Mijoz qo'llamasa qator yashirin. -->
+              <div class="row" id="uy-qator" hidden>
+                <div class="t"><b>Asosiy ekranda ikonka</b><span>panel bir bosishda, botni qidirmasdan ochiladi</span></div>
+                <button class="btn sm" id="uy-qosh">Qo'shish</button>
+                <span class="tag ok" id="uy-bor" hidden>Qo'shilgan</span>
               </div>
             </div>
             <button class="btn sm" id="q-sozlama" hidden>Sozlamalarni ochish</button>

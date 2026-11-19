@@ -5936,6 +5936,38 @@ async def activity_stats(kunlar: int = 7) -> Dict[str, Any]:
 
 
 @with_db_retry()
+async def faollik_xaritasi(kunlar: int = 30) -> List[Dict[str, int]]:
+    """Faollik xaritasi: hafta kuni (1=Dush … 7=Yak) × soat, oxirgi `kunlar` kun.
+
+    Panel 7×24 katak chizadi — «tarqatmani qachon yuborish kerak» degan
+    savolning javobi. Bo'sh kataklar qaytmaydi (to'ldirish `web/api.py` da).
+
+    ⚠️ SOAT TOSHKENT BO'YICHA va bu sessiya mintaqasiga bog'liq EMAS:
+    `activity_time` — `timestamptz`, `AT TIME ZONE 'Asia/Tashkent'` uni
+    Toshkent devor soatiga o'giradi. Server UTC'da ishlaydi; lokal stendda
+    `SET TimeZone TO 'UTC'` bilan ham natija bir xil chiqdi (2026-11-19).
+    Adminlar sanalmaydi (`_ODDIY_USER`) — boshqa hamma statistikadagidek.
+    """
+    kunlar = max(1, min(int(kunlar), 90))
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(f'''
+            SELECT EXTRACT(ISODOW FROM activity_time AT TIME ZONE 'Asia/Tashkent')::int
+                       AS hafta_kuni,
+                   EXTRACT(HOUR FROM activity_time AT TIME ZONE 'Asia/Tashkent')::int
+                       AS soat,
+                   COUNT(*)::int AS soni
+            FROM user_activity
+            WHERE activity_time >= NOW() - make_interval(days => $1::int)
+              {_ODDIY_USER}
+            GROUP BY 1, 2
+        ''', kunlar)
+        return [dict(r) for r in rows]
+
+
+@with_db_retry()
 async def daily_report_stats() -> Dict[str, Any]:
     """Kunlik avtomatik hisobot va panel KPI'lari — bitta so'rovda.
 

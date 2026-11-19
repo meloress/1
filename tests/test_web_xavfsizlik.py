@@ -20,6 +20,7 @@ Offline: baza ham, Telegram ham yo'q.
 """
 import asyncio
 import os
+import pathlib
 import re
 import sys
 
@@ -134,10 +135,16 @@ async def main():
         # Ikkalasi birga yuborilmaydi — qaysi amalda ekani aniq bo'lsin.
         check("6b", "CSP majburiy rejimda, report-only nusxasi yo'q",
               "Content-Security-Policy-Report-Only" not in r.headers)
-        check("6c", "telegram.org skripti va Google Fonts ruxsat etilgan",
+        # 2026-11-19: Google Fonts olib tashlandi (tizim shrifti — SF Pro).
+        # Ruxsat ham olib tashlanadi: ishlatilmaydigan ruxsat — bekorga
+        # ochiq qolgan eshik.
+        html = (pathlib.Path(__file__).resolve().parent.parent
+                / "web" / "static" / "panel.html").read_text(encoding="utf-8")
+        check("6c", "telegram.org skripti ruxsat etilgan; tashqi shrift YO'Q (CSP ham, HTML ham)",
               "script-src 'self' https://telegram.org" in csp
-              and "https://fonts.gstatic.com" in csp
-              and "https://fonts.googleapis.com" in csp)
+              and "font-src 'self';" in csp
+              and "fonts.googleapis.com" not in csp and "fonts.gstatic.com" not in csp
+              and "fonts.googleapis.com" not in html and "fonts.gstatic.com" not in html)
         check("6d", "buzilish hisoboti yo'naltirilgan",
               "report-uri /csp-report" in csp)
 

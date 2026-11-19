@@ -313,18 +313,23 @@ async def main():
     #     ICHMA-ICH emas, faol ichki tab ko'rinishga aylantiriladi.
     faollik = html[html.index('<div class="pane on" data-pane="activity">'):
                    html.index('<div class="pane" data-pane="audit">')]
-    # Har bir kartochka qaysi CHUQURLIKDA ochiladi — hammasi bir xil
-    # bo'lishi shart (grid2 ning bolalari). Ilgari birinchisi yopilmagan
-    # edi va ikkinchisi bir daraja ichkarida ochilardi.
-    chuqurlik, kartalar = 0, []
+    # Hech bir kartochka BOSHQA kartochkaning ICHIDA ochilmasin. Ilgari
+    # birinchisi yopilmagan edi va ikkinchisi uning ichida ochilardi.
+    # ⚠️ 2026-11-19 gacha bu «hammasi bir chuqurlikda, aynan 4 ta» deb
+    # tekshirilardi — bu qoidaning taxminiy belgisi edi va panelga
+    # to'g'ridan-to'g'ri qo'yilgan 5-kartochka (faollik xaritasi) uni
+    # yiqitdi. Endi qoidaning o'zi: ochiq `div`lar zanjirida kartochka bor-yo'q.
+    zanjir, kartalar, ichma_ich = [], 0, False
     for t in re.finditer(r'<(/?)div\b([^>]*)>', faollik):
         if t.group(1):
-            chuqurlik -= 1
+            zanjir.pop()
         else:
-            if 'class="card"' in t.group(2):
-                kartalar.append(chuqurlik)
-            chuqurlik += 1
-    ichma_ich = len(set(kartalar)) != 1 or len(kartalar) != 4
+            karta = re.search(r'class="card"', t.group(2)) is not None
+            if karta:
+                kartalar += 1
+                ichma_ich = ichma_ich or any(zanjir)
+            zanjir.append(karta)
+    ichma_ich = ichma_ich or kartalar < 4
     check(14, "5 bo'lim, ichma-ich kartochka yo'q, faol tab scrollIntoView",
           "faqat-tel" not in html and "faqat-tel" not in css and not ichma_ich
           and "scrollIntoView" in js[js.index("function showPane("): js.index("function navigatsiya(")]

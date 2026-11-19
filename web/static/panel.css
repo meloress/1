@@ -206,12 +206,14 @@ body{
   margin:0;
   background:var(--void);
   color:var(--ink);
-  /* ⚠️ BITTA SHRIFT OILASI. Ilgari uchtasi aralash edi (Sora —
-     sarlavha, IBM Plex Sans — matn, IBM Plex Mono — raqam) va
-     telefonda bu shunchaki chalkash ko'rinardi. Raqamlar bir xil
-     kenglikda turishi uchun `tabular-nums` yetarli — buning uchun
-     alohida monospace oila kerak emas. */
-  font:400 var(--f-l)/1.5 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* ⚠️ TIZIM SHRIFTI (2026-11-19). iPhone'da `-apple-system` — SF Pro: panel
+     telefondagi boshqa ilovalar bilan bir xil ko'rinadi va Google'dan
+     shrift yuklanmaydi (bitta tashqi so'rov va «shrift kelguncha boshqa
+     shrift» sakrashi yo'q). Kompyuterda o'sha tizimning shrifti (Segoe UI,
+     Roboto). Ilgari IBM Plex Sans edi — undan oldin uchta oila aralash.
+     Raqamlar bir xil kenglikda turishi uchun `tabular-nums` yetarli. */
+  font:400 var(--f-l)/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
+       "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing:antialiased;
   overflow-x:hidden;       /* §2.1: gorizontal siljish hech qayerda yo'q */
   /* Ro'yxat oxiriga yetganda siljish Telegram OYNASIGA o'tmaydi —
@@ -280,7 +282,7 @@ img{max-width:100%}
 .nav .count{margin-left:auto;font-size:var(--f-xs);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);padding:3px 6px;border-radius:5px}
 
 .who{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:var(--r-m);background:var(--panel);border:1px solid var(--line)}
-.who .av{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font:600 12px/1 inherit;color:var(--ink-teskari);flex:none}
+.who .av{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font-weight:600;font-size:12px;line-height:1;color:var(--ink-teskari);flex:none}
 .who .t{min-width:0}
 .who b{display:block;font-size:var(--f-m);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who span{font-size:var(--f-xs);color:var(--ok)}
@@ -407,7 +409,7 @@ section[data-screen].on{display:flex;animation:rise .2s ease-out}
    (audit, 2026-11-19; ro'yxatlar ism ko'rsata boshlagach). */
 .person > div{min-width:0;flex:1 1 auto}
 .person .av{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
-  font:600 11px/1 inherit;flex:none;background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line)}
+  font-weight:600;font-size:11px;line-height:1;flex:none;background:var(--panel-2);color:var(--ink-2);border:1px solid var(--line)}
 .person .av.pro{background:var(--grad);color:var(--ink-teskari);border:0}
 .person b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;font-size:var(--f-m)}
 .person span{display:block;font-size:var(--f-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}
@@ -542,7 +544,7 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 .fact .v{font-size:var(--f-l);margin-top:4px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 
 .uhead{display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap}
-.uhead .av{width:48px;height:48px;border-radius:14px;background:var(--grad);display:grid;place-items:center;font:600 18px/1 inherit;color:var(--ink-teskari);flex:none}
+.uhead .av{width:48px;height:48px;border-radius:14px;background:var(--grad);display:grid;place-items:center;font-weight:600;font-size:18px;line-height:1;color:var(--ink-teskari);flex:none}
 .uhead h2{font-size:var(--f-xl);overflow-wrap:anywhere}
 
 /* ══ SUB-TABLAR ════════════════════════════════════════════════════ */
@@ -775,3 +777,31 @@ textarea.kiritish{resize:vertical;line-height:1.6}
   .ptr.aylanadi i{animation:aylan .7s linear infinite}
 }
 @keyframes varaq-kir{from{transform:translateY(100%)}to{transform:none}}
+
+/* ⚠️ AVATAR HARFLARI (`.who .av`, `.person .av`, `.uhead .av`) endi
+   `font-weight` / `font-size` / `line-height` alohida. Ilgari
+   `font:600 12px/1 inherit` edi — qisqa yozuv ichida `inherit` YAROQSIZ,
+   brauzer butun qatorni tashlab yuborardi va harflar 11–18px qalin
+   o'rniga oddiy 15px chiqardi (2026-11-19 tekshiruvida topildi). */
+
+/* ══ FAOLLIK XARITASI (Hisobot → Faollik) ═══════════════════════════
+   Panjara: kun nomi ustuni + 24 soat. Katak rangi — `--o` (0..1) shaffof
+   binafsha qatlam fon ustida: token rangi ikkala temada ham to'g'ri. */
+.xarita{display:grid;grid-template-columns:30px repeat(24,minmax(0,1fr));gap:2px;
+  align-items:center;min-width:0}
+.xarita i{display:block;aspect-ratio:1;border-radius:3px;background:var(--panel-2);
+  position:relative;cursor:pointer;min-width:0}
+.xarita i::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:var(--violet);opacity:var(--o,0)}
+.xarita i[aria-pressed="true"]{outline:2px solid var(--azure);outline-offset:1px;z-index:1}
+.xarita .x-kun{font-size:10px;font-weight:600;color:var(--ink-3);letter-spacing:.02em}
+.xarita .x-soat{font-size:10px;font-weight:500;color:var(--ink-3);
+  font-variant-numeric:tabular-nums;padding-bottom:2px}
+/* «Shu telefon» kartasi: birinchi qator yashirin bo'lsa ikkinchisi
+   chiziqsiz va tepasiz boshlansin. */
+.row[hidden] + .row{border-top:0;padding-top:0}
+/* Kompyuterda katak kvadrat bo'lsa 37px gacha o'sib, xarita ekranning
+   yarmini egallardi — u yerda balandlik qotiriladi, kenglik cho'ziladi. */
+@media (min-width:901px){
+  .xarita i{aspect-ratio:auto;height:20px}
+}

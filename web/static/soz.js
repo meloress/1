@@ -63,6 +63,13 @@ window.SOZ = {
   oylar: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
           "avgust", "sentabr", "oktabr", "noyabr", "dekabr"],
   hafta: ["Dush", "Sesh", "Chor", "Pay", "Jum", "Shan", "Yak"],
+  haftaTola: ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"],
+
+  /* Faollik xaritasi (Hisobot → Faollik). */
+  xarita: {
+    eng:  "Eng faol payt:",
+    bosh: "30 kunda faollik qayd etilmagan."
+  },
   bugun: "Bugun",
   kecha: "Kecha",
   hozirgina: "hozirgina",
@@ -268,6 +275,12 @@ window.SOZ = {
     tg:    "Telegram'da ochish",
     kuzat: "Kuzatuvga qo'shish",
     tglinkKetdi: "Botdagi chatingizga yuborildi — ismni bosing"
+  },
+
+  /* ── Asosiy ekranda ikonka ─────────────────────────────────── */
+  uy: {
+    qoshildi: "Panel asosiy ekranga qo'shildi.",
+    bolmadi:  "Telegram ikonkani qo'sha olmadi — Telegram'ni yangilab ko'ring."
   },
 
   /* ── Face ID qulfi ────────────────────────────────────────── */

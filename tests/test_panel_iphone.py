@@ -22,6 +22,11 @@ hech narsa yiqilmaydi, panel shunchaki himoyasiz yoki noqulay bo'lib qoladi.
     [10] pastga tortib yangilash: faqat o'qiladigan bo'limlarda, .wrap'da transform qolmaydi
     [11] bosib turish menyusi: faqat xavfsiz amallar, barmoq uzilishi profilni ochmaydi
     [12] tebranish: tab, chip va grafikda selectionChanged
+
+  3-to'plam:
+    [13] faollik xaritasi: Toshkent soati, 7×24, so'rov yiqilsa ekran yashaydi
+    [14] asosiy ekran ikonkasi: faqat qo'llaydigan mijozda
+    [15] tizim shrifti (SF Pro), tashqi shrift yo'q, yaroqsiz `font:` qisqa yozuvi yo'q
 """
 
 import os
@@ -324,6 +329,70 @@ def menyu_va_titroq():
           and JS.count('titroq("tanlov")') >= 7)
 
 
+async def xarita_api():
+    """13: faollik xaritasi — SQL qoidasi, 7×24 jadval, yiqilsa ekran yashaydi."""
+    from _manba import kod
+    db = kod(ROOT / "db" / "database.py")
+    i = db.index("async def faollik_xaritasi(")
+    sql = db[i:db.index("\nasync def ", i + 10)]
+    # ⚠️ Soat Toshkent bo'yicha (server UTC), adminlar sanalmaydi, oyna parametr.
+    check(13, "SQL: Toshkent soati, ISODOW, adminlarsiz, oyna parametr bilan",
+          sql.count("AT TIME ZONE 'Asia/Tashkent'") == 2 and "ISODOW" in sql
+          and "{_ODDIY_USER}" in sql and "make_interval(days => $1::int)" in sql)
+
+    x = tws.api._xarita([{"hafta_kuni": 3, "soat": 5, "soni": 7},
+                         {"hafta_kuni": 1, "soat": 23, "soni": 7},
+                         {"hafta_kuni": 9, "soat": 1, "soni": 99},     # yaroqsiz — tashlanadi
+                         {"hafta_kuni": 2, "soat": 24, "soni": 99}])
+    check(13, "7×24 jadval, bo'sh katak 0, yaroqsiz qator tashlanadi, tenglikda eng erta kun",
+          len(x["kataklar"]) == 7 and all(len(q) == 24 for q in x["kataklar"])
+          and x["kataklar"][2][5] == 7 and x["jami"] == 14 and x["eng"] == 7
+          and x["eng_payt"] == {"kun": 0, "soat": 23}
+          and tws.api._xarita([])["eng_payt"] is None and tws.api._xarita(None) is None)
+
+    async def yiqiladi(kunlar=30):
+        raise RuntimeError("baza uzildi")
+
+    tws.soxta_bazani_qoy(tws.api)
+    async with TestClient(TestServer(tws.web.build_app())) as c:
+        h = await tws.kir(c)
+        bor = await (await c.get("/api/stats", headers=h)).json()
+        tws.soxta_bazani_qoy(tws.api, faollik_xaritasi=yiqiladi)
+        r = await c.get("/api/stats", headers=h)
+        yoq = await r.json()
+        tws.soxta_bazani_qoy(tws.api)
+    check(13, "/api/stats xaritani beradi; xarita so'rovi yiqilsa — 200 va `xarita: null`",
+          bor["xarita"]["kataklar"][1][21] == 34 and bor["xarita"]["eng_payt"] == {"kun": 1, "soat": 21}
+          and r.status == 200 and yoq["xarita"] is None and yoq["kpi"]["jami"] == bor["kpi"]["jami"])
+    xc = funksiya(JS, "xaritaChiz")
+    check(13, "panel: √ shkala, karta `null` da yashirin, kun nomlari lug'atda (7 ta)",
+          "Math.sqrt(v / x.eng)" in xc and "karta.hidden = !x;" in xc
+          and len(re.findall(r'"\w+"', SOZ.split("haftaTola:", 1)[1].split("]", 1)[0])) == 7)
+
+
+def uy_va_shrift():
+    """14-15: asosiy ekran ikonkasi va tizim shrifti."""
+    u = funksiya(JS, "uyTekshir")
+    q = funksiya(JS, "qurilmaKartasi")
+    check(14, "ikonka: Bot API 8.0, avval holat so'raladi, «unsupported»da qator yo'q",
+          'isVersionAtLeast("8.0")' in u and "tg.checkHomeScreenStatus(" in u
+          and 'uyHolati !== "unsupported"' in q and '$("uy-qosh").hidden = uyHolati === "added"' in q
+          and "k.hidden = !face && !uy;" in q)
+    check(14, "qo'shilgani Telegram hodisasidan (`homeScreenAdded`), tugma — `addToHomeScreen()`",
+          'tg.onEvent("homeScreenAdded"' in JS and "tg.addToHomeScreen()" in funksiya(JS, "uyHodisalari"))
+
+    # ⚠️ `blok(CSS, "body{")` emas: birinchi «body{» — `html,body{touch-action…}`.
+    body = blok(CSS, "\nbody{")
+    check(15, "tizim shrifti (iPhone'da SF Pro), tashqi shrift yo'q",
+          re.search(r"font:400 var\(--f-l\)/1\.5 -apple-system,", body) is not None
+          and "IBM Plex" not in CSS and "googleapis" not in HTML)
+    # `font:600 12px/1 inherit` — yaroqsiz qisqa yozuv, butun qator tashlanardi.
+    check(15, "shrift qisqa yozuvida `inherit` yo'q (brauzer butun qatorni tashlardi)",
+          # `font:inherit` YOLG'IZ — to'g'ri; boshqa qiymat bilan aralashi — yo'q.
+          not re.search(r"font:\s*(?!inherit\s*[;}])[^;}]*\binherit\b", CSS)
+          and "font:inherit;" in CSS)
+
+
 def main():
     p3_va_asl()
     asyncio.run(kpi_api())
@@ -332,6 +401,8 @@ def main():
     otish_va_sarlavha()
     varaq_va_tortish()
     menyu_va_titroq()
+    asyncio.run(xarita_api())
+    uy_va_shrift()
     print(f"\npanel iPhone: barcha tekshiruvlar o'tdi ({OK}/{OK}).")
 
 

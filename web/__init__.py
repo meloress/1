@@ -51,9 +51,11 @@ _CSP = "; ".join([
     # telegram.org/js/telegram-web-app.js). Panelda inline `<script>`
     # YO'Q — tekshirildi — ya'ni `unsafe-inline` skriptlarga kerak emas.
     "script-src 'self' https://telegram.org",
-    # Google Fonts uslub fayli + inline `style=` atributlari.
-    "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'",
-    "font-src 'self' https://fonts.gstatic.com",
+    # Inline `style=` atributlari. Google Fonts 2026-11-19 dan YO'Q — panel
+    # tizim shriftida (iPhone'da SF Pro), ya'ni tashqi uslub ham, shrift
+    # ham kerak emas: ruxsat qanchalik tor bo'lsa, shuncha yaxshi.
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     # `data:` — ichki SVG uchun; tashqi rasm yuklanmaydi.
     "img-src 'self' data:",
     # Panel FAQAT o'z serveriga murojaat qiladi.

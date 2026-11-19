@@ -629,3 +629,24 @@ Testing note: the Chrome extension's tab stops rendering when its window is not 
 animations stay at `currentTime: 0`, `resize` never fires and view transitions never end
 (their overlay then shows up as a 15 px «overflow»). Logic was tested there; anything
 visual was checked with headless Chrome screenshots of the stand.
+
+Third part (checks 13-15):
+
+- **Activity heatmap** (Hisobot → Faollik) [13]: weekday × hour over 30 days, from
+  `database.faollik_xaritasi()`. Hours are **Tashkent** via `AT TIME ZONE` on the
+  `timestamptz` column, so the result does not depend on the session zone (the server is
+  UTC; checked on pgserver with `SET TimeZone TO 'UTC'`). Admins are excluded like
+  everywhere else. `api._xarita()` fills the empty cells with 0 and picks the busiest slot
+  deterministically. The heatmap is decoration: if its query fails, `/api/stats` still
+  answers 200 with `xarita: null` and the card hides. Shading is √-scaled — on a linear
+  scale one peak washed out every other cell.
+- **Home-screen icon** [14] (Sozlamalar → Adminlar → «Shu telefon»): Bot API 8.0
+  `addToHomeScreen()`. The status is asked first (`checkHomeScreenStatus`); on
+  `unsupported`, or a client older than 8.0, the row does not exist. «Qo'shilgan» comes
+  from Telegram's own `homeScreenAdded` event, not from the tap.
+- **System font** [15]: `-apple-system` first, which is SF Pro on the iPhone. Google Fonts
+  is gone from the HTML **and** from the CSP (`font-src 'self'`, `style-src` without
+  `fonts.googleapis.com`) — an allowance nothing uses is just an open door
+  (`test_web_xavfsizlik.py` 6c). ⚠️ The avatar letters used `font:600 12px/1 inherit`:
+  `inherit` is invalid inside the shorthand, so browsers dropped the whole declaration and
+  every avatar letter was a plain 15 px. They are three separate properties now.

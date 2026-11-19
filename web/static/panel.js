@@ -377,12 +377,65 @@
   function qurilmaKartasi() {
     var k = $("qurilma");
     if (!k) return;
-    k.hidden = !(BM && (BM.isBiometricAvailable || qulfHolati === "1"));
-    if (k.hidden) return;
-    var nom = bioNomi();
-    $("face-nom").textContent = S.qulf.nomi(nom);
-    $("faceSw").setAttribute("aria-label", S.qulf.nomi(nom));
-    $("faceSw").setAttribute("aria-pressed", qulfFaol ? "true" : "false");
+    var face = !!(BM && (BM.isBiometricAvailable || qulfHolati === "1"));
+    // Ikonka: mijoz «qo'llamayman» desa yoki javob bermasa — qator yo'q.
+    var uy = !!uyHolati && uyHolati !== "unsupported";
+    $("face-qator").hidden = !face;
+    $("uy-qator").hidden = !uy;
+    k.hidden = !face && !uy;
+    if (face) {
+      var nom = bioNomi();
+      $("face-nom").textContent = S.qulf.nomi(nom);
+      $("faceSw").setAttribute("aria-label", S.qulf.nomi(nom));
+      $("faceSw").setAttribute("aria-pressed", qulfFaol ? "true" : "false");
+    }
+    if (uy) {
+      $("uy-qosh").hidden = uyHolati === "added";
+      $("uy-bor").hidden = uyHolati !== "added";
+    }
+  }
+
+  /* ══ ASOSIY EKRANDA IKONKA (Bot API 8.0) ═══════════════════════
+     Telegram panelni telefonning asosiy ekraniga alohida ilova kabi
+     qo'yadi. ⚠️ Har mijoz qo'llamaydi — holat avval SO'RALADI
+     («unsupported» / «unknown» / «added» / «missed»), tugma faqat
+     qo'shsa bo'ladigan joyda chiqadi. Qo'shilganini Telegram o'zi
+     `homeScreenAdded` bilan aytadi; «missed» qayta tekshiruvda keladi. */
+  var uyHolati = null;
+
+  function uyTekshir() {
+    return new Promise(function (hal) {
+      if (!tg || typeof tg.checkHomeScreenStatus !== "function") return hal(null);
+      if (typeof tg.isVersionAtLeast !== "function" || !tg.isVersionAtLeast("8.0")) return hal(null);
+      var t = setTimeout(function () { hal(null); }, 3000);
+      try {
+        tg.checkHomeScreenStatus(function (holat) { clearTimeout(t); hal(holat || null); });
+      } catch (e) { clearTimeout(t); hal(null); }
+    });
+  }
+
+  function uyHodisalari() {
+    $("uy-qosh").addEventListener("click", function () {
+      if (!tg || typeof tg.addToHomeScreen !== "function") return;
+      titroq("light");
+      try { tg.addToHomeScreen(); } catch (e) { natijaChiz("q-natija", S.uy.bolmadi, true); }
+    });
+    if (!tg) return;
+    try {
+      tg.onEvent("homeScreenAdded", function () {
+        uyHolati = "added";
+        qism("qurilma", qurilmaKartasi);
+        titroq("ok");
+        toast(S.uy.qoshildi);
+      });
+      tg.onEvent("homeScreenFailed", function (e) {
+        // Admin tizim oynasida «Bekor» bossa ham shu keladi — xato emas.
+        if (e && e.error === "UNSUPPORTED") {
+          uyHolati = "unsupported";
+          qism("qurilma", qurilmaKartasi);
+        }
+      });
+    } catch (e) {}
   }
 
   function qulfHodisalari() {
@@ -505,6 +558,7 @@
     // 5 daqiqada eskiradi, qulf ekranida ko'proq turilsa kirish yo'qolardi.
     await qulfKut(qulfBoshla);
     qism("qurilma", qurilmaKartasi);
+    uyTekshir().then(function (h) { uyHolati = h; qism("qurilma", qurilmaKartasi); });
     var ism = (ma && ma.ism) || "Admin";
     var n = $("who-ism"), a = $("who-av"), r = $("who-rol");
     if (n) n.textContent = ism;
@@ -1433,7 +1487,56 @@
       : boshHolat(S.bosh.token || "Hali token sarfi yozilmagan");
 
     ustunlarChiz("s-turlar", d.turlar);
+    qism("xarita", function () { xaritaChiz(d.xarita); });
     yangilandiBelgisi();
+  }
+
+  /* ══ FAOLLIK XARITASI ══════════════════════════════════════════
+     7 qator (Dush..Yak) × 24 ustun (soat, Toshkent). Rang to'qligi —
+     ildiz shkalasi (√): chiziqli shkalada bitta cho'qqi qolgan hamma
+     katakni deyarli oq qilib qo'yardi va «qachon faol» ko'rinmasdi.
+     Bo'sh katak — fon rangi, ya'ni 0 va «oz» farqlanadi. */
+  var xaritaD = null;
+
+  function xaritaIzoh(k, s) {
+    var v = xaritaD.kataklar[k][s];
+    return S.haftaTola[k] + ", " + ikki(s) + ":00–" + ikki((s + 1) % 24) + ":00 · " +
+           son(v) + " so'rov";
+  }
+
+  function xaritaChiz(x) {
+    var karta = $("x-karta"), joy = $("x-jadval");
+    if (!karta || !joy) return;
+    xaritaD = x || null;
+    karta.hidden = !x;
+    if (!x) return;
+    var h = '<span></span>';
+    for (var s = 0; s < 24; s += 3) h += '<b class="x-soat" style="grid-column:span 3">' + ikki(s) + "</b>";
+    // Soat yorliqlari TEPADA: pastda bo'lsa telefonda barmoq ostida qolardi.
+    x.kataklar.forEach(function (qator, k) {
+      h += '<b class="x-kun">' + xavfsiz(S.hafta[k]) + "</b>";
+      qator.forEach(function (v, s) {
+        var o = v && x.eng ? (0.14 + 0.86 * Math.sqrt(v / x.eng)).toFixed(2) : 0;
+        h += '<i role="gridcell" data-x="' + k + ":" + s + '" style="--o:' + o + '" title="' +
+             xavfsiz(xaritaIzoh(k, s)) + '"></i>';
+      });
+    });
+    joy.innerHTML = h;
+    var p = x.eng_payt;
+    $("x-izoh").textContent = p
+      ? S.xarita.eng + " " + xaritaIzoh(p.kun, p.soat)
+      : S.xarita.bosh;
+  }
+
+  function xaritaHodisalari() {
+    delegat("x-jadval", "data-x", function (q, el) {
+      if (!xaritaD) return;
+      var p = q.split(":");
+      $("x-jadval").querySelectorAll("i[aria-pressed]").forEach(function (i) { i.removeAttribute("aria-pressed"); });
+      el.setAttribute("aria-pressed", "true");
+      titroq("tanlov");
+      $("x-izoh").textContent = xaritaIzoh(Number(p[0]), Number(p[1]));
+    });
   }
 
   /* ══ JURNAL ═════════════════════════════════════════════════════ */
@@ -3189,6 +3292,8 @@
   qism("varaq", varaqSurish);
   qism("tortib-yangilash", tortibYangilash);
   qism("bosib-turish", bosibTurish);
+  qism("xarita", xaritaHodisalari);
+  qism("uy-ekran", uyHodisalari);
   qism("chiqish", chiqish);
   kir();
 })();

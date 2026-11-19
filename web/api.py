@@ -285,14 +285,53 @@ async def overview(request: web.Request):
     })
 
 
+XARITA_KUN = 30
+
+
+async def _xarita_qatorlari() -> Optional[List[Dict[str, int]]]:
+    """Faollik xaritasi — BEZAK: so'rov yiqilsa butun Hisobot ekrani
+    yiqilmasin (`_kim()` bilan bir xil qoida, WEB_PANEL.md). `None` — panel
+    kartani yashiradi."""
+    try:
+        return await database_module.faollik_xaritasi(XARITA_KUN)
+    except Exception:
+        logger.warning("[web] faollik xaritasi o'qilmadi", exc_info=True)
+        return None
+
+
+def _xarita(rows: Optional[List[Dict[str, int]]]) -> Optional[Dict[str, Any]]:
+    """7×24 jadval (Dushanba..Yakshanba × 00..23, Toshkent) va eng faol payt.
+
+    Bazada faqat faollik bo'lgan kataklar bor — qolgani 0 bilan to'ldiriladi
+    (`_kun_qatori` bilan bir xil sabab: jim soat ko'rinsin). Tenglikda eng
+    erta kun va soat «eng faol» bo'ladi — natija har safar bir xil.
+    """
+    if rows is None:
+        return None
+    kataklar = [[0] * 24 for _ in range(7)]
+    for r in rows:
+        hk, soat = int(r["hafta_kuni"]), int(r["soat"])
+        if 1 <= hk <= 7 and 0 <= soat <= 23:
+            kataklar[hk - 1][soat] += int(r["soni"] or 0)
+    eng = max(max(q) for q in kataklar)
+    payt = None
+    if eng:
+        k, s = max(((k, s) for k in range(7) for s in range(24)),
+                   key=lambda p: (kataklar[p[0]][p[1]], -p[0], -p[1]))
+        payt = {"kun": k, "soat": s}
+    return {"kunlar": XARITA_KUN, "kataklar": kataklar, "eng": eng,
+            "eng_payt": payt, "jami": sum(map(sum, kataklar))}
+
+
 @admin_only
 async def stats(request: web.Request):
     """Statistika ekrani (REJA 6.3)."""
-    st, top, kunlik, token = await asyncio.gather(   # parallel — overview'dagi izohga qarang
+    st, top, kunlik, token, xarita = await asyncio.gather(   # parallel — overview'dagi izohga qarang
         database_module.activity_stats(),
         database_module.top_users(7, 10),
         database_module.daily_report_stats(),
         database_module.token_stats(7),
+        _xarita_qatorlari(),
     )
 
     kesim = st["type_breakdown"]
@@ -346,6 +385,8 @@ async def stats(request: web.Request):
             "token": r["jami"],
             "raund": r["raund"],
         } for r in (token.get("eng_qimmat") or [])],
+        # Hafta kuni × soat — «tarqatmani qachon yuborish» savoliga.
+        "xarita": _xarita(xarita),
     })
 
 

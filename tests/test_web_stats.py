@@ -128,6 +128,14 @@ def soxta_bazani_qoy(modul, **ustidan):
         return {"ulanishlar": 3, "sorovlar": 41, "token": 460_000,
                 "token_jami": 1_840_000}
 
+    # ⚠️ `/api/stats` buni chaqiradi — soxtasi bo'lmasa test `.env` dagi
+    # (ishlab chiqarish) bazaga ulanardi. Shakli haqiqiy SELECT'dan:
+    # `hafta_kuni` (ISODOW 1..7), `soat` (0..23), `soni`.
+    async def faollik_xaritasi(kunlar=30):
+        return [{"hafta_kuni": 2, "soat": 21, "soni": 34},
+                {"hafta_kuni": 1, "soat": 9, "soni": 5},
+                {"hafta_kuni": 7, "soat": 0, "soni": 1}]
+
     joy = modul.database_module
     for nom, fn in list(locals().items()):
         if nom in ("modul", "ustidan", "joy", "nom", "fn"):
