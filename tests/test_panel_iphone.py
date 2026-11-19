@@ -14,6 +14,14 @@ hech narsa yiqilmaydi, panel shunchaki himoyasiz yoki noqulay bo'lib qoladi.
     [5]  Face ID: faqat telefonda; ma'lumot qulfdan KEYIN; o'rnatilgan qulfni
          chetlab o'tib bo'lmaydi; birinchi rad etish panelni yopib qo'ymaydi
     [6]  Face ID: o'chirish ham biometriya bilan; 1 daqiqadan keyin qayta qulf
+
+  2-to'plam:
+    [7]  bo'lim almashishi View Transitions bilan; rad etilgan va'da ushlanadi
+    [8]  katta sarlavha: yashirin paytda o'lchanmaydi, ikkala nusxa bitta funksiyadan
+    [9]  profil telefonda — varaq: ro'yxat joyi saqlanadi, tortib yopish, burilish
+    [10] pastga tortib yangilash: faqat o'qiladigan bo'limlarda, .wrap'da transform qolmaydi
+    [11] bosib turish menyusi: faqat xavfsiz amallar, barmoq uzilishi profilni ochmaydi
+    [12] tebranish: tab, chip va grafikda selectionChanged
 """
 
 import os
@@ -234,11 +242,96 @@ def face_id():
           and '["yuklash", "xato", "qulf", "shell"]' in JS)
 
 
+def otish_va_sarlavha():
+    """7-8: silliq o'tish va katta sarlavha."""
+    o = funksiya(JS, "otish")
+    check(7, "View Transitions: «kamroq harakat»da va eski brauzerda darhol; rad etilgan va'da ushlanadi",
+          "document.startViewTransition(fn)" in o and "prefers-reduced-motion: reduce" in o
+          and "|| !kirdi) return fn();" in o
+          and '"finished"' in o and ".catch(function () {})" in o)
+    check(7, "o'tish bor joyda eski `rise` o'chadi; tab-panel va sarlavha joyida turadi",
+          re.search(r"@supports \(view-transition-name:none\)\{section\[data-screen\]\.on\{animation:none\}\}", CSS)
+          and ".tabbar{view-transition-name:tabbar}" in CSS)
+
+    s = funksiya(JS, "sarlavhaHolati")
+    ich = funksiya(JS, "ichkariga")
+    # ⚠️ Panel yashirin paytda o'lcham 0 — ikkala sarlavha birga ko'rinardi.
+    check(8, "katta sarlavha: o'lchami 0 bo'lsa ixcham emas; panel ko'ringach qayta hisoblanadi",
+          "k.offsetHeight > 0" in s and ich.index('korsat("shell")') < ich.index("sarlavhaHolati()")
+          and "sarlavhaHolati()" in funksiya(JS, "qulfQaytdi"))
+    check(8, "sarlavha yagona funksiyadan ikkala joyga yoziladi, katta sarlavha faqat telefonda",
+          '"katta-sarlavha"' in funksiya(JS, "sarlavhaYoz") and ".katta{display:none}" in CSS
+          and 'id="katta" aria-hidden="true"' in HTML
+          and 'ttl.textContent' not in JS)
+
+
+def varaq_va_tortish():
+    """9-10: profil varag'i va pastga tortib yangilash."""
+    g = funksiya(JS, "go")
+    gi = funksiya(JS, "goIchki")
+    # Varaq ochiq turib boshqa bo'limga — avval varaq pastga tushadi.
+    check(9, "varaq ochiq bo'lsa go() avval uni yopadi; ostida o'z ro'yxati qoladi",
+          "if (varaq && name !== \"profil\")" in g and "varaqYop(" in g
+          and "(varaqqa && s.dataset.screen === orqa)" in gi)
+    # ⭐ Ro'yxat joyi saqlanadi — ilgari «Orqaga» uni tepaga qaytarardi.
+    check(9, "varaqni ochish/yopish ro'yxatni tepaga qaytarmaydi; varaqda sarlavha o'zgarmaydi",
+          "if (!varaqqa && !varaqdan) window.scrollTo" in gi and "if (!varaqqa) {" in gi)
+    v = funksiya(JS, "varaqSurish")
+    check(9, "tortib yopish: faqat varaq tepada bo'lsa, kiritish maydonida emas, `passive:false`",
+          "sec.scrollTop > 0) return" in v and 'closest("input, textarea, select")' in v
+          and "{ passive: false }" in v and "e.preventDefault()" in v)
+    m = funksiya(JS, "maketAlmashdi")
+    check(9, "burilishda varaq ↔ ichki sahifa almashadi (resize va media-so'rov)",
+          "!tel && varaq" in m and "tel && !varaq" in m
+          and 'addEventListener("resize", maketAlmashdi)' in JS
+          and 'addEventListener("change", maketAlmashdi)' in JS)
+
+    t = funksiya(JS, "tortibYangilash")
+    # ⛔️ Formali bo'limlarda yo'q — yozilgan qiymat o'chib ketardi.
+    check(10, "tortib yangilash faqat `YANGILANADI` bo'limlarida, varaq/menyu/qulf ostida emas",
+          "!YANGILANADI[hozir]" in t and "varaq ||" in t and "menyuOchiq" in t and "qulfYopiq" in t)
+    check(10, "`.wrap` da transform qolmaydi (ichidagi fixed varaqni sindirardi); belgi yuklash tugashini kutadi",
+          'wrap.style.transform = "";' in funksiya(JS, "joyiga") if "function joyiga(" in JS else False)
+    check(10, "ekranYukla() va'da qaytaradi (yuklanmasa ham)",
+          "return fn().catch(" in funksiya(JS, "ekranYukla")
+          and funksiya(JS, "ekranYukla").count("return Promise.resolve();") == 2)
+
+
+def menyu_va_titroq():
+    """11-12: bosib turish menyusi va tebranish."""
+    keys = re.findall(r"^\s{4}(\w+):\s+'<", JS.split("var MENYU_IKON = {", 1)[1].split("};", 1)[0], re.M)
+    # ⛔️ Bloklash / Pro bu yerda YO'Q — bitta noto'g'ri barmoq harakati.
+    check(11, "menyuda faqat xavfsiz amallar: profil, ID, Telegram, kuzatuv (tasdiq bilan)",
+          keys == ["och", "id", "tg", "kuzat"]
+          and "await tasdiq(S.savol.kuzat(nom))" in funksiya(JS, "menyuAmal"))
+    b = funksiya(JS, "bosibTurish")
+    check(11, "bosib turish 480 ms; 8px siljish — aylantirish; barmoq uzilishi profilni ochmaydi",
+          "}, 480);" in b and "> 8" in b
+          and "if (uzoq && e.cancelable) e.preventDefault();" in b
+          and JS.count("Date.now() - menyuVaqt < 700") == 2)
+    check(11, "o'ng tugma / Android: menyu ikki marta ochilmaydi; Escape va parda yopadi",
+          '"contextmenu"' in b and "menyuQator === row) return" in b
+          and '"Escape"' in b and "menyuYop()" in b)
+    check(11, "qatorlarda `data-un` (xavfsiz()dan o'tgan); matnlar lug'atda",
+          JS.count('data-un="\' +') == 2 and JS.count('xavfsiz(u.username || "")') == 2
+          and all(k in SOZ for k in ("och:", "kuzat:", "tglinkKetdi:")))
+
+    t = funksiya(JS, "titroq")
+    check(12, "«tanlov» = selectionChanged: tablarda, filtr chiplarida, grafikda kun almashganda",
+          '"tanlov") return tg.HapticFeedback.selectionChanged()' in t
+          and 'titroq("tanlov");\n        showPane(bar.dataset.tabs' in JS
+          and "if (e.touches && i !== oldingi) titroq(\"tanlov\")" in JS
+          and JS.count('titroq("tanlov")') >= 7)
+
+
 def main():
     p3_va_asl()
     asyncio.run(kpi_api())
     mini_grafik()
     face_id()
+    otish_va_sarlavha()
+    varaq_va_tortish()
+    menyu_va_titroq()
     print(f"\npanel iPhone: barcha tekshiruvlar o'tdi ({OK}/{OK}).")
 
 

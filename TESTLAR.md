@@ -317,7 +317,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
   broken line put back, the check watched to fail). Sharpest: **5** — panel data loads
   only *after* the lock opens, and an enrolled lock (`faceid = "1"`) cannot be bypassed
   by switching Face ID off in the phone's settings; **1** computes the Display P3 tokens'
-  luminance and fails if one drifts more than 2% from its hex (contrast must not change).
+  luminance and fails if one drifts more than 2% from its hex (contrast must not change);
+  **9** — on the phone the profile is a sheet and opening/closing it never scrolls the list
+  back to the top; **10** — pull-to-refresh never runs on the form sections and never
+  leaves a `transform` on `.wrap` (it would capture the fixed sheet).
   It reuses `test_web_stats.py`'s fake database by importing it — do not copy it. Offline.
 - `test_eski_bot.py` — the old `@uzchatgptaibot` redirect (`DEPLOY.md` «The bot moved to
   @vexonai»). Its sharpest check is **2**: an old-bot Business customer gets nothing and

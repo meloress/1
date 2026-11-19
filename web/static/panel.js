@@ -124,9 +124,12 @@
     if (past) d.setProperty("--past", past + "px");
   }
 
+  /* Tebranish. «tanlov» — iOS'dagi vaqt g'ildiragi «chiq»i (selectionChanged):
+     tab, filtr chipi, grafik bo'ylab barmoq. Tugma bosilishi — «light». */
   function titroq(turi) {
     if (!tg || !tg.HapticFeedback) return;
     try {
+      if (turi === "tanlov") return tg.HapticFeedback.selectionChanged();
       if (turi === "ok") return tg.HapticFeedback.notificationOccurred("success");
       if (turi === "xato") return tg.HapticFeedback.notificationOccurred("error");
       tg.HapticFeedback.impactOccurred(turi || "light");
@@ -362,6 +365,7 @@
     if (tg && tg.BackButton) { try { tg.BackButton.hide(); } catch (e) {} }
     qulfKut(qulfUrin).then(function () {
       korsat("shell");
+      sarlavhaHolati();
       orqaTugma();
       limitTugmasi();
       ekranYukla(hozir);
@@ -508,6 +512,7 @@
     if (r && ma && ma.rol) r.textContent = ma.rol;
     korsat("shell");
     olcham();
+    sarlavhaHolati();          // panel endi ko'rinadi — o'lchamlar haqiqiy
     if (qulfVozKechildi) toast(S.qulf.vozKechildi(bioNomi()));
 
     // ⚠️ Lug'at ekranlardan OLDIN. Tarif nomlari undan olinadi va
@@ -562,28 +567,129 @@
     } catch (e) { return null; }
   }
 
-  function go(name, pane) {
-    document.querySelectorAll("section[data-screen]").forEach(function (s) {
-      s.classList.toggle("on", s.dataset.screen === name);
+  /* Sarlavha ikki joyda: tepadagi kichik (`#title`) va telefondagi katta
+     (`#katta-…`). Bitta funksiya — ikkalasi hech qachon farq qilmasin. */
+  function sarlavhaYoz(sarlavha, izoh) {
+    [["title", "katta-sarlavha", sarlavha], ["crumb", "katta-crumb", izoh]].forEach(function (q) {
+      if (q[2] === undefined) return;
+      [q[0], q[1]].forEach(function (id) { var el = $(id); if (el) el.textContent = q[2]; });
     });
+  }
+
+  function telefonmi() {
+    return !!(window.matchMedia && window.matchMedia("(max-width:900px)").matches);
+  }
+
+  /* Bo'limni almashtirish — View Transitions bor joyda silliq. Brauzer
+     eskisini suratga oladi, `fn` DOM'ni o'zgartiradi, keyin ikkalasi
+     orasida o'tadi. Yo'q joyda (yoki «kamroq harakat» tanlanganda) —
+     darhol, hozirgidek. */
+  function otish(fn) {
+    var kam = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Kirishdan oldin panel yashirin — suratga olinadigan narsa yo'q.
+    if (!document.startViewTransition || kam || !kirdi) return fn();
+    var vt;
+    try { vt = document.startViewTransition(fn); } catch (e) { return fn(); }
+    // Tez ketma-ket bosishda brauzer oldingi o'tishni BEKOR qiladi (`fn`
+    // baribir bajariladi) va uning va'dalari rad etiladi — ushlanmasa
+    // konsolda «Transition was skipped» istisnosi qoladi.
+    ["ready", "finished", "updateCallbackDone"].forEach(function (k) {
+      if (vt && vt[k] && vt[k].catch) vt[k].catch(function () {});
+    });
+  }
+
+  /* ══ PROFIL VARAG'I (telefon) ══════════════════════════════════
+     ⚠️ Telefonda profil ALOHIDA EKRAN EMAS, ro'yxat USTIDAN chiqadigan
+     varaq: ro'yxat orqada turadi va o'sha joyida qoladi. Ilgari profil
+     butun ekranni almashtirardi va «Orqaga» ro'yxatni TEPASIGA qaytarardi
+     — 3-sahifaning o'rtasidagi odamni ko'rib qaytgan admin joyini
+     yo'qotardi. Kompyuterda profil avvalgidek ichki sahifa (§3.1). */
+  var varaq = false;
+
+  function pardaKorsat(yengil) {
+    var p = $("parda");
+    if (!p) return;
+    p.classList.toggle("yengil", !!yengil);
+    p.style.opacity = "";
+    p.hidden = false;
+  }
+
+  function varaqYop(keyin) {
+    var sec = document.querySelector('section[data-screen="profil"]');
+    var p = $("parda");
+    var tugadi = false;
+    function tamom() {
+      if (tugadi) return;
+      tugadi = true;
+      varaq = false;
+      sec.classList.remove("on");
+      sec.style.transition = sec.style.transform = "";
+      if (p) { p.hidden = true; p.style.transition = p.style.opacity = ""; }
+      document.documentElement.classList.remove("varaqli");
+      keyin();
+    }
+    // Barmoq qoldirgan joydan (yoki 0 dan) pastga — iOS varag'idek.
+    sec.style.transition = "transform .28s cubic-bezier(.32,.72,0,1)";
+    sec.style.transform = "translateY(100%)";
+    if (p) { p.style.transition = "opacity .28s"; p.style.opacity = "0"; }
+    var kam = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (kam) return tamom();
+    sec.addEventListener("transitionend", tamom, { once: true });
+    setTimeout(tamom, 360);          // transitionend kelmasa ham
+  }
+
+  function go(name, pane) {
+    // Varaq ochiq — avval u pastga tushadi, keyin haqiqiy o'tish.
+    if (varaq && name !== "profil") {
+      return varaqYop(function () { goIchki(name, pane, true); });
+    }
+    goIchki(name, pane, false);
+  }
+
+  function goIchki(name, pane, varaqdan) {
     // ⚠️ Profil — ICHKI sahifa, ya'ni u ochilganda pastdagi tab
     // «Foydalanuvchilar» bo'lib yonib turishi kerak: odam o'sha
     // bo'limning ichida.
     var faol = name === "profil" ? "users" : name;
-    document.querySelectorAll("#nav button, #tabbar button").forEach(function (b) {
-      if (b.dataset.go) b.setAttribute("aria-current", b.dataset.go === faol ? "true" : "false");
-    });
-    var t = S.ekran[name] || ["", ""];
-    var ttl = $("title"), crumb = $("crumb");
-    if (ttl) ttl.textContent = t[0];
-    if (crumb) crumb.textContent = t[1] === null ? bugunMatn() : t[1];
-    if (pane) showPane(name, pane);
+    var varaqqa = name === "profil" && telefonmi();
+    var qayta = varaqqa && varaq;               // varaq allaqachon ochiq
+    var orqa = oxirgiRoyxat;
     if (name !== "profil") oxirgiRoyxat = name;
     hozir = name;
+
+    function chiz() {
+      document.querySelectorAll("section[data-screen]").forEach(function (s) {
+        // Varaq ostida o'zi ochilgan ro'yxat ko'rinib turadi.
+        s.classList.toggle("on", s.dataset.screen === name ||
+                                 (varaqqa && s.dataset.screen === orqa));
+      });
+      document.querySelectorAll("#nav button, #tabbar button").forEach(function (b) {
+        if (b.dataset.go) b.setAttribute("aria-current", b.dataset.go === faol ? "true" : "false");
+      });
+      // Varaqda sarlavha O'ZGARMAYDI — orqadagi bo'lim nomi qoladi.
+      if (!varaqqa) {
+        var t = S.ekran[name] || ["", ""];
+        sarlavhaYoz(t[0], t[1] === null ? bugunMatn() : t[1]);
+      }
+      if (pane) showPane(name, pane);
+      // Varaqni ochish/yopish ro'yxatni TEPAGA qaytarmaydi — joyi saqlanadi.
+      if (!varaqqa && !varaqdan) window.scrollTo({ top: 0, behavior: "instant" });
+      if (varaqqa && !qayta) {
+        var sec = document.querySelector('section[data-screen="profil"]');
+        sec.scrollTop = 0;
+        varaq = true;
+        pardaKorsat(false);
+        document.documentElement.classList.add("varaqli");
+      }
+      sarlavhaHolati();
+    }
+    // Varaq o'zining animatsiyasi bilan chiqadi — View Transition faqat
+    // bo'limdan bo'limga (va kompyuterdagi profilga).
+    if (varaqqa || varaqdan) chiz();
+    else otish(chiz);
     orqaTugma();
     limitTugmasi();
     ekranYukla(name);
-    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   /* ⚠️ «Orqaga» FAQAT ICHKI SAHIFADA (§3.1). Ilgari u bosh ekrandan
@@ -646,7 +752,7 @@
       bar.addEventListener("click", function (e) {
         var b = e.target.closest("button");
         if (!b) return;
-        titroq("light");
+        titroq("tanlov");
         showPane(bar.dataset.tabs, b.dataset.pane);
       });
     });
@@ -816,12 +922,37 @@
   /* «Yangilandi: HH:MM» — §5. Ekran ma'lumoti bir marta yuklanadi,
      ya'ni admin ko'rayotgan raqam qachonlik ekanini bilishi kerak. */
   function yangilandiBelgisi() {
-    var crumb = $("crumb");
-    if (!crumb) return;
+    // Profil varag'i ochiq bo'lsa sarlavha orqadagi bo'limniki — tegilmaydi.
+    if (hozir === "profil" && varaq) return;
     var t = S.ekran[hozir] || ["", ""];
     var asos = t[1] === null ? bugunMatn() : (t[1] || "");
-    crumb.textContent = asos + (asos ? " · " : "") +
-      S.yangilandi.toLowerCase() + " " + soat(new Date().toISOString());
+    sarlavhaYoz(undefined, asos + (asos ? " · " : "") +
+      S.yangilandi.toLowerCase() + " " + soat(new Date().toISOString()));
+  }
+
+  /* ══ KATTA SARLAVHA (telefon) ══════════════════════════════════
+     iOS'dagidek: ekran tepasida katta nom; pastga aylantirilib u
+     tepadagi panel ostiga kirganda — panelda kichik nom paydo bo'ladi. */
+  function sarlavhaHolati() {
+    var tb = $("topbar"), k = $("katta");
+    if (!tb || !k) return;
+    // ⚠️ Panel hali yashirin (kirishdan oldin) yoki kompyuter maketi —
+    // katta sarlavhaning o'lchami 0, ya'ni «ekrandan chiqib ketgan»
+    // ko'rinadi. Ilgari aynan shu holatda ochilishda ikkala sarlavha
+    // birga ko'rinardi.
+    var ixcham = telefonmi() && k.offsetHeight > 0 &&
+      k.getBoundingClientRect().bottom <= tb.getBoundingClientRect().bottom + 2;
+    tb.classList.toggle("ixcham", ixcham);
+  }
+
+  function kattaSarlavha() {
+    var kutuv = false;
+    window.addEventListener("scroll", function () {
+      if (kutuv) return;
+      kutuv = true;
+      requestAnimationFrame(function () { kutuv = false; sarlavhaHolati(); });
+    }, { passive: true });
+    window.addEventListener("resize", sarlavhaHolati);
   }
 
   function ustunlarChiz(joy, royxat) {
@@ -1065,10 +1196,14 @@
         DAYS.forEach(function (p, i) { var d = Math.abs(x(i) - vx); if (d < bd) { bd = d; best = i; } });
         return best;
       }
+      var oldingi = -1;
       function move(e) {
         if (!DAYS.length) return;
         var cx = e.touches ? e.touches[0].clientX : e.clientX;
         var i = nearest(cx), r = box.getBoundingClientRect();
+        // Barmoq yangi kunga o'tdi — iOS g'ildiragidek bitta «chiq».
+        if (e.touches && i !== oldingi) titroq("tanlov");
+        oldingi = i;
         cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", ".55");
         tip.innerHTML = xavfsiz(kunNomi(DAYS[i].kun + "T12:00:00+05:00")) +
                         " · " + izoh(DAYS[i]);
@@ -1081,7 +1216,7 @@
         tip.style.left = Math.max(yarim, Math.min(r.width - yarim, chap)) + "px";
         tip.style.top = (y(DAYS[i].soni) / BALAND * r.height) + "px";
       }
-      function leave() { tip.style.opacity = "0"; cross.setAttribute("opacity", "0"); }
+      function leave() { oldingi = -1; tip.style.opacity = "0"; cross.setAttribute("opacity", "0"); }
       hit.addEventListener("mousemove", move);
       hit.addEventListener("mouseleave", leave);
       hit.addEventListener("touchstart", move, { passive: true });
@@ -1246,7 +1381,7 @@
       var b = e.target.closest("[data-kun]");
       if (!b) return;
       kunOynasi = Number(b.dataset.kun);
-      titroq("light");
+      titroq("tanlov");
       yuklangan.dash = false;
       ekranYukla("dash");
     });
@@ -1269,7 +1404,8 @@
         d.top.map(function (u, i) {
           // Ism ro'yxatdagidek: «ID:123» + ostida yana «123» — bitta ID
           // ikki marta (§4) — endi yo'q; avatar shaxsiy nomdan.
-          return '<div class="row bosiladi" data-uid="' + xavfsiz(u.user_id) + '"><div class="person">' +
+          return '<div class="row bosiladi" data-uid="' + xavfsiz(u.user_id) + '" data-un="' +
+            xavfsiz(u.username || "") + '"><div class="person">' +
             avatar(shaxs(u), i === 0) +
             "<div><b>" + xavfsiz(nomi(u)) + "</b><span>" + xavfsiz(u.user_id) +
             '</span></div></div><b class="num ong">' + son(u.soni) + "</b>" +
@@ -1393,7 +1529,7 @@
     jFiltr[qaysi].kun = kun;
     jSahifa[qaysi] = 0;              // ⚠️ yangi filtr — birinchi sahifadan
     jKunChiplari(qaysi, qaysi === "audit" ? "j-audit-kun" : "j-xato-kun");
-    titroq("light");
+    titroq("tanlov");
     jurnalQayta(qaysi);
   }
 
@@ -1449,7 +1585,7 @@
         chips.querySelectorAll(".chip").forEach(function (o) {
           o.setAttribute("aria-pressed", o === b ? "true" : "false");
         });
-        titroq("light");
+        titroq("tanlov");
         jurnalQayta("audit");
       });
     }
@@ -1577,11 +1713,12 @@
     var fn = { dash: boshqaruv, users: odamlarEkran, report: hisobotEkran,
                promo: promoEkran, system: sozlamalar }[nom];
     // Qulf ostida hech narsa yuklanmaydi — ochilgach `qulfQaytdi` chaqiradi.
-    if (!kirdi || !fn || qulfYopiq) return;
+    // Va'da qaytadi — «pastga tortib yangilash» belgisi tugashini kutadi.
+    if (!kirdi || !fn || qulfYopiq) return Promise.resolve();
     var t = yuklangan[nom];
-    if (t && !(YANGILANADI[nom] && Date.now() - t > ESKIRISH_MS)) return;
+    if (t && !(YANGILANADI[nom] && Date.now() - t > ESKIRISH_MS)) return Promise.resolve();
     yuklangan[nom] = Date.now();
-    fn().catch(function (e) {
+    return fn().catch(function (e) {
       yuklangan[nom] = false;
       console.error("[panel] " + nom + " yuklanmadi:", e);
       xatoQatori(nom);
@@ -1646,7 +1783,7 @@
         f.querySelectorAll(".chip").forEach(function (o) {
           o.setAttribute("aria-pressed", o === b ? "true" : "false");
         });
-        titroq("light");
+        titroq("tanlov");
         jadvalQayta();
       });
     }
@@ -1665,7 +1802,7 @@
         t.querySelectorAll(".chip").forEach(function (o) {
           o.setAttribute("aria-pressed", o === b ? "true" : "false");
         });
-        titroq("light");
+        titroq("tanlov");
         jadvalQayta();
       });
     }
@@ -1691,7 +1828,9 @@
         xavfsiz(S.user.tartib[uTartib]) + "</span></div>" +
         d.rows.map(function (u) {
           var vaqt = uTartib === "yangi" ? u.created_at : u.last_seen;
-          return '<div class="row bosiladi" data-uid="' + u.user_id + '">' +
+          // `data-un` — bosib turish menyusidagi «Telegram'da ochish» uchun.
+          return '<div class="row bosiladi" data-uid="' + u.user_id + '" data-un="' +
+            xavfsiz(u.username || "") + '">' +
             '<div class="person">' +
             avatar(shaxs(u), u.tarif === "pro" || u.tarif === "premium") +
             "<div><b>" + xavfsiz(nomi(u)) + '</b><span>' + xavfsiz(u.user_id) +
@@ -1980,6 +2119,7 @@
     // Odam ko'rinadigan har ro'yxatdan — profilga (`kartochka` o'zi `go("profil")`).
     ["s-token", "s-top", "xatolar", "j-xatolar"].forEach(function (id) {
       delegat(id, "data-uid", function (uid) {
+        if (Date.now() - menyuVaqt < 700) return;      // `urows` dagi izoh
         titroq("light");
         kartochka(Number(uid)).catch(function (e) {
           console.error("[panel] profil:", e);
@@ -1988,20 +2128,17 @@
       });
     });
     // Mini App ichida oddiy <a> Telegram'ni ochmaydi (WebView ichida
-    // t.me sahifasi ochiladi) — Telegram'ning o'z usuli. Brauzerda — <a>.
-    $("u-tg").addEventListener("click", async function (e) {
-      if (uOchiq && !uOchiq.username) {
-        e.preventDefault();
-        var j = await so_rov("/api/users/" + uOchiq.user_id + "/tglink");
-        toast(j.ok ? "Botdagi chatingizga yuborildi — ismni bosing" : j.xato);
-        return;
-      }
-      if (tg && tg.openTelegramLink && this.href.indexOf("https://t.me/") === 0) {
-        e.preventDefault();
-        tg.openTelegramLink(this.href);
-      }
+    // t.me sahifasi ochiladi) — Telegram'ning o'z usuli. Brauzerda
+    // username bor bo'lsa — oddiy <a> o'zi ochadi.
+    $("u-tg").addEventListener("click", function (e) {
+      if (!uOchiq || (uOchiq.username && !tg)) return;
+      e.preventDefault();
+      telegramdaOch(uOchiq.user_id, uOchiq.username);
     });
     delegat("urows", "data-uid", function (uid) {
+      // Bosib turish menyusi hozirgina ochilgan — barmoq uzilishidagi
+      // «click» profilni ham ochib yubormasin.
+      if (Date.now() - menyuVaqt < 700) return;
       titroq("light");
       kartochka(Number(uid)).catch(function (e) {
         console.error("[panel] kartochka:", e);
@@ -2719,6 +2856,324 @@
     if (q) q.addEventListener("click", function () { korsat("yuklash"); kir(); });
   }
 
+  /* ══ TELEGRAM'DA OCHISH / NUSXALASH — profil va menyu uchun bitta ══ */
+  async function telegramdaOch(uid, un) {
+    // Username'siz odamning ochiq havolasi yo'q — bot adminga mention
+    // yuboradi (`/api/users/<id>/tglink`, WEB_PANEL.md).
+    if (!un) {
+      var j = await so_rov("/api/users/" + uid + "/tglink");
+      toast(j.ok ? S.menyu.tglinkKetdi : j.xato);
+      return;
+    }
+    var url = "https://t.me/" + encodeURIComponent(un);
+    if (tg && tg.openTelegramLink) { try { return tg.openTelegramLink(url); } catch (e) {} }
+    window.open(url, "_blank", "noopener");
+  }
+
+  function nusxala(matn) {
+    // ⚠️ `navigator.clipboard` rad etilishi mumkin — o'shanda matn
+    // toast'da ko'rinadi, ya'ni qo'lda ko'chirsa bo'ladi.
+    try {
+      navigator.clipboard.writeText(matn).then(function () {
+        titroq("light"); toast(S.nusxa + " · " + matn);
+      }, function () { toast(matn); });
+    } catch (e) { toast(matn); }
+  }
+
+  /* ══ VARAQNI TORTIB YOPISH ═════════════════════════════════════
+     iOS varag'idek: varaq TEPADA turganda pastga tortilsa barmoqqa
+     ergashadi; yetarlicha (130px) yoki tez tortilsa yopiladi, aks holda
+     joyiga qaytadi. Varaq ichida aylantirilgan bo'lsa — bu oddiy
+     aylantirish, yopish emas. Kiritish maydoni ustida — ham. */
+  function varaqSurish() {
+    var sec = document.querySelector('section[data-screen="profil"]');
+    var p = $("parda");
+    if (!sec) return;
+    var y0 = null, dy = 0, t0 = 0, sur = false;
+    sec.addEventListener("touchstart", function (e) {
+      y0 = null;
+      if (!varaq || e.touches.length !== 1 || sec.scrollTop > 0) return;
+      if (e.target.closest && e.target.closest("input, textarea, select")) return;
+      y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; sur = false;
+    }, { passive: true });
+    sec.addEventListener("touchmove", function (e) {
+      if (y0 === null) return;
+      dy = e.touches[0].clientY - y0;
+      if (!sur) {
+        if (dy < -4) { y0 = null; return; }     // yuqoriga — aylantirish
+        if (dy < 8) return;
+        sur = true;
+        sec.style.transition = "none";
+        if (p) p.style.transition = "none";
+      }
+      e.preventDefault();
+      var d = dy - 8;
+      sec.style.transform = "translateY(" + Math.max(0, d) + "px)";
+      if (p) p.style.opacity = String(Math.max(0, 1 - d / (sec.offsetHeight || 600)));
+    }, { passive: false });
+    function tugat() {
+      if (y0 === null) return;
+      y0 = null;
+      if (!sur) return;
+      sur = false;
+      var tezlik = dy / Math.max(1, Date.now() - t0);          // px/ms
+      if (dy > 130 || (dy > 40 && tezlik > 0.5)) {
+        titroq("light");
+        go(oxirgiRoyxat);
+        return;
+      }
+      sec.style.transition = "transform .25s cubic-bezier(.32,.72,0,1)";
+      sec.style.transform = "";
+      if (p) { p.style.transition = "opacity .25s"; p.style.opacity = ""; }
+    }
+    sec.addEventListener("touchend", tugat);
+    sec.addEventListener("touchcancel", tugat);
+  }
+
+  /* Telefon burildi (iPhone yonboshida 932px — kompyuter maketi) yoki
+     oyna o'zgardi: varaq va ichki sahifa bir-biriga almashadi. Aks holda
+     kompyuter maketida ikkita bo'lim ustma-ust chizilardi. */
+  function maketAlmashdi() {
+    menyuYop();
+    sarlavhaHolati();
+    if (hozir !== "profil") return;
+    var sec = document.querySelector('section[data-screen="profil"]');
+    var tel = telefonmi(), t;
+    if (!tel && varaq) {
+      varaq = false;
+      $("parda").hidden = true;
+      document.documentElement.classList.remove("varaqli");
+      document.querySelectorAll("section[data-screen]").forEach(function (s) {
+        s.classList.toggle("on", s === sec);
+      });
+      t = S.ekran.profil;
+    } else if (tel && !varaq) {
+      varaq = true;
+      document.querySelectorAll("section[data-screen]").forEach(function (s) {
+        s.classList.toggle("on", s === sec || s.dataset.screen === oxirgiRoyxat);
+      });
+      pardaKorsat(false);
+      document.documentElement.classList.add("varaqli");
+      t = S.ekran[oxirgiRoyxat] || ["", ""];
+    } else return;
+    sarlavhaYoz(t[0], t[1] === null ? bugunMatn() : t[1]);
+    sarlavhaHolati();
+  }
+
+  /* ══ PASTGA TORTIB YANGILASH (telefon) ═════════════════════════
+     Faqat O'QILADIGAN bo'limlarda (`YANGILANADI`: Boshqaruv, Odamlar,
+     Hisobot). ⛔️ Sozlamalar va O'sish'da YO'Q — xuddi avtomatik
+     yangilanishdagi sabab: qayta chizish yozilgan, hali saqlanmagan
+     limit va promo qiymatlarini o'chirib yuborardi.
+     Telegram'ning o'z «pastga tortib yopish»i o'chirilgan
+     (`disableVerticalSwipes`), ya'ni bu harakat bilan to'qnashmaydi. */
+  function tortibYangilash() {
+    var wrap = $("wrap"), ptr = $("ptr");
+    if (!wrap || !ptr) return;
+    var CHEGARA = 64, y0 = null, d = 0, faol = false, oshdi = false, band = false;
+    function joyiga() {
+      wrap.style.transition = ptr.style.transition =
+        "transform .3s cubic-bezier(.32,.72,0,1), opacity .3s";
+      wrap.style.transform = "";
+      ptr.style.transform = "";
+      ptr.style.opacity = "0";
+      ptr.classList.remove("aylanadi");
+      // ⚠️ `transform` .wrap'da QOLMASIN: u ichidagi `position:fixed`
+      // (profil varag'i) uchun yangi asos bo'lib, varaqni sindirardi.
+      setTimeout(function () { wrap.style.transition = ptr.style.transition = ""; }, 320);
+    }
+    document.addEventListener("touchstart", function (e) {
+      y0 = null;
+      if (band || varaq || menyuOchiq || qulfYopiq || !telefonmi() || !YANGILANADI[hozir]) return;
+      if (e.touches.length !== 1 || window.scrollY > 0 || !e.target.closest) return;
+      if (!e.target.closest("#wrap") ||
+          e.target.closest(".chart, .xarita, input, textarea, .subtabs, .chips")) return;
+      y0 = e.touches[0].clientY; d = 0; faol = false; oshdi = false;
+    }, { passive: true });
+    document.addEventListener("touchmove", function (e) {
+      if (y0 === null) return;
+      var dy = e.touches[0].clientY - y0;
+      if (!faol) {
+        if (dy < -4 || window.scrollY > 0) { y0 = null; return; }
+        if (dy < 10) return;
+        faol = true;
+        wrap.style.transition = ptr.style.transition = "none";
+      }
+      e.preventDefault();
+      d = Math.min(120, (dy - 10) * 0.5);          // qarshilik: barmoqning yarmi
+      wrap.style.transform = "translateY(" + d + "px)";
+      ptr.style.opacity = String(Math.min(1, d / CHEGARA));
+      ptr.style.transform = "translateY(" + (d - 44) + "px) rotate(" + Math.round(d * 5) + "deg)";
+      var endi = d >= CHEGARA;
+      if (endi !== oshdi) { oshdi = endi; if (endi) titroq("light"); }
+    }, { passive: false });
+    function tugat() {
+      if (y0 === null) return;
+      y0 = null;
+      if (!faol) return;
+      faol = false;
+      if (!oshdi) return joyiga();
+      band = true;
+      wrap.style.transition = ptr.style.transition = "transform .2s cubic-bezier(.32,.72,0,1)";
+      wrap.style.transform = "translateY(" + (CHEGARA - 8) + "px)";
+      ptr.style.transform = "translateY(" + (CHEGARA - 52) + "px)";
+      ptr.classList.add("aylanadi");
+      yuklangan[hozir] = false;
+      // Kamida yarim soniya — aks holda tez tarmoqda belgi «miltillab» o'tadi.
+      Promise.all([ekranYukla(hozir), new Promise(function (r) { setTimeout(r, 500); })])
+        .then(function () { band = false; joyiga(); titroq("tanlov"); });
+    }
+    document.addEventListener("touchend", tugat);
+    document.addEventListener("touchcancel", tugat);
+  }
+
+  /* ══ BOSIB TURISH MENYUSI ══════════════════════════════════════
+     Odam qatorini ~0,5 s bosib turish (kompyuterda — o'ng tugma):
+     profilni ochmasdan tez amallar. ⚠️ Faqat QAYTARILADIGAN yoki tasdiq
+     so'raydigan amallar — bloklash, Pro berish bu yerda YO'Q: bitta
+     noto'g'ri barmoq harakati odamni bloklab qo'ymasin. */
+  var menyuOchiq = false, menyuQator = null, menyuVaqt = 0;
+  var MENYU_IKON = {
+    och:   '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    id:    '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+    tg:    '<path d="M21.5 4.5 2.5 11l6 2.2L18 7l-7 8.3V21l3-4 4.5 2z"/>',
+    kuzat: '<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/>'
+  };
+
+  function menyuOch(row, x, y) {
+    var m = $("menyu");
+    if (!m || !row) return;
+    menyuYop();
+    var uid = row.getAttribute("data-uid");
+    var nomEl = row.querySelector("b");
+    var nom = nomEl ? nomEl.textContent.trim() : "ID " + uid;
+    m.dataset.uid = uid;
+    m.dataset.un = row.getAttribute("data-un") || "";
+    m.dataset.nom = nom;
+    m.innerHTML = "<b>" + xavfsiz(nom) + "</b>" +
+      [["och", S.menyu.och], ["id", S.menyu.id(uid)], ["tg", S.menyu.tg], ["kuzat", S.menyu.kuzat]]
+        .map(function (q) {
+          return '<button role="menuitem" data-m="' + q[0] + '"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+                 MENYU_IKON[q[0]] + "</svg>" + xavfsiz(q[1]) + "</button>";
+        }).join("");
+    menyuQator = row;
+    row.classList.add("menyuda");
+    pardaKorsat(true);
+    m.hidden = false;
+    menyuOchiq = true;
+    menyuVaqt = Date.now();
+
+    // Joylash: qator ostida; joy bo'lmasa — ustida. Ekrandan chiqmasin
+    // (telefonda pastki tab-panel ham hisobga olinadi).
+    var r = row.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    var past = telefonmi() && $("tabbar") ? $("tabbar").offsetHeight : 0;
+    var mw = m.offsetWidth, mh = m.offsetHeight;
+    var chap = Math.max(12, Math.min(vw - mw - 12, x !== undefined ? x : r.left + 8));
+    var tepa = y !== undefined ? y : r.bottom + 8;
+    var ustida = tepa + mh > vh - past - 12;
+    if (ustida) tepa = (y !== undefined ? y : r.top - 8) - mh;
+    m.classList.toggle("tepada", ustida);
+    m.style.left = chap + "px";
+    m.style.top = Math.max(12, tepa) + "px";
+  }
+
+  function menyuYop() {
+    if (!menyuOchiq) return;
+    menyuOchiq = false;
+    $("menyu").hidden = true;
+    if (menyuQator) menyuQator.classList.remove("menyuda");
+    menyuQator = null;
+    if (!varaq) $("parda").hidden = true;
+  }
+
+  async function menyuAmal(amal) {
+    var m = $("menyu");
+    var uid = Number(m.dataset.uid), un = m.dataset.un, nom = m.dataset.nom;
+    menyuYop();
+    if (amal === "och") {
+      titroq("light");
+      return kartochka(uid).catch(function (e) {
+        console.error("[panel] menyu → profil:", e);
+        toast(S.yuklanmadi);
+      });
+    }
+    if (amal === "id") return nusxala(String(uid));
+    if (amal === "tg") return telegramdaOch(uid, un);
+    if (amal === "kuzat") {
+      // Profildagi tugma bilan AYNAN bir xil tasdiq va so'rov.
+      if (!await tasdiq(S.savol.kuzat(nom))) return;
+      var j = await so_rov("/api/watch", { amal: "add", kim: String(uid) });
+      toast(j.ok ? S.natija.kuzatuvQosh : j.xato);
+      if (j.ok) yuklangan.users = false;
+    }
+  }
+
+  function bosibTurish() {
+    var vaqtlagich = null, x0 = 0, y0 = 0, uzoq = false;
+    ["urows", "s-top"].forEach(function (id) {
+      var joy = $(id);
+      if (!joy) return;
+      joy.addEventListener("touchstart", function (e) {
+        var row = e.target.closest && e.target.closest("[data-uid]");
+        uzoq = false;
+        clearTimeout(vaqtlagich);
+        if (!row || e.touches.length !== 1) return;
+        x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+        vaqtlagich = setTimeout(function () {
+          vaqtlagich = null;
+          uzoq = true;
+          titroq("medium");
+          menyuOch(row);
+        }, 480);
+      }, { passive: true });
+      joy.addEventListener("touchmove", function (e) {
+        if (!vaqtlagich) return;
+        var t = e.touches[0];
+        // Barmoq siljidi — bu aylantirish, bosib turish emas.
+        if (Math.abs(t.clientX - x0) > 8 || Math.abs(t.clientY - y0) > 8) {
+          clearTimeout(vaqtlagich); vaqtlagich = null;
+        }
+      }, { passive: true });
+      joy.addEventListener("touchend", function (e) {
+        clearTimeout(vaqtlagich); vaqtlagich = null;
+        // Menyu ochildi — barmoq uzilishidagi «click» profilni ochmasin.
+        if (uzoq && e.cancelable) e.preventDefault();
+      }, { passive: false });
+      joy.addEventListener("touchcancel", function () { clearTimeout(vaqtlagich); vaqtlagich = null; });
+      // Kompyuterda o'ng tugma; Android bosib turishda ham shuni yuboradi —
+      // menyu allaqachon ochiq bo'lsa ikkinchi marta ochilmaydi.
+      joy.addEventListener("contextmenu", function (e) {
+        var row = e.target.closest && e.target.closest("[data-uid]");
+        if (!row) return;
+        e.preventDefault();
+        if (menyuOchiq && menyuQator === row) return;
+        menyuOch(row, e.touches ? undefined : e.clientX, e.touches ? undefined : e.clientY);
+      });
+    });
+    delegat("menyu", "data-m", function (amal) { menyuAmal(amal); });
+    $("parda").addEventListener("click", function () {
+      if (menyuOchiq) return menyuYop();
+      if (varaq) { titroq("light"); go(oxirgiRoyxat); }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      if (menyuOchiq) menyuYop();
+      else if (varaq) go(oxirgiRoyxat);
+    });
+    // Sahifa siljisa menyu yopiladi (qatoridan ajralib qolmasin). Ochilgandan
+    // keyingi 300 ms hisobga olinmaydi — iOS inersiyasi uni darhol yopardi.
+    window.addEventListener("scroll", function () {
+      if (Date.now() - menyuVaqt > 300) menyuYop();
+    }, { passive: true });
+    window.addEventListener("resize", maketAlmashdi);
+    // Maket chegarasi (900px) kesib o'tilganda — ba'zi WebView'larda
+    // burilishda `resize` kechikadi, media-so'rov hodisasi esa aniq.
+    var mq = window.matchMedia && window.matchMedia("(max-width:900px)");
+    if (mq && mq.addEventListener) mq.addEventListener("change", maketAlmashdi);
+    else if (mq && mq.addListener) mq.addListener(maketAlmashdi);
+  }
+
   /* ══ ISHGA TUSHIRISH ════════════════════════════════════════════ */
   qism("telegram", telegram);
   qism("navigatsiya", navigatsiya);
@@ -2730,6 +3185,10 @@
   qism("tarqatma", tarqatmaHodisalari);
   qism("toast", toastHodisalari);
   qism("qulf", qulfHodisalari);
+  qism("katta-sarlavha", kattaSarlavha);
+  qism("varaq", varaqSurish);
+  qism("tortib-yangilash", tortibYangilash);
+  qism("bosib-turish", bosibTurish);
   qism("chiqish", chiqish);
   kir();
 })();

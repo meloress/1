@@ -114,8 +114,8 @@
          turardi — telefonda uch qator, ekranning oltidan biri. Holat
          endi kichik rangli nuqta (tor ekranda matnsiz), sana esa
          sarlavha tagidagi mayda yozuv. -->
-    <header class="topbar">
-      <div style="min-width:0">
+    <header class="topbar" id="topbar">
+      <div class="sarlavha-blok">
         <h1 id="title">Boshqaruv</h1>
         <p class="crumb" id="crumb">—</p>
       </div>
@@ -123,7 +123,18 @@
       <span class="holat" id="holat" title="Bot holati"><i></i><span class="matn">Bot ishlayapti</span></span>
     </header>
 
-    <div class="wrap">
+    <!-- «Pastga tortib yangilash» belgisi — faqat telefonda, tortilganda. -->
+    <div class="ptr" id="ptr" aria-hidden="true"><i></i></div>
+
+    <div class="wrap" id="wrap">
+      <!-- ⚠️ KATTA SARLAVHA — faqat telefonda (iOS uslubi). Pastga
+           aylantirilganda u yuqoriga ketadi va tepadagi kichik sarlavha
+           paydo bo'ladi. Haqiqiy sarlavha `#title` (ekran o'quvchi uchun),
+           bu esa uning ko'rinadigan nusxasi. -->
+      <div class="katta" id="katta" aria-hidden="true">
+        <h2 id="katta-sarlavha">Boshqaruv</h2>
+        <p class="crumb" id="katta-crumb">—</p>
+      </div>
 
       <!-- ══ BOSHQARUV ══════════════════════════════════════════ -->
       <section data-screen="dash" class="on">
@@ -342,6 +353,9 @@
            tabda ko'rinib turardi — ya'ni Promo va Jurnal go'yo
            Boshqaruvning ichida joylashgandek tuyulardi. -->
       <section data-screen="profil">
+        <!-- Telefonda profil PASTDAN chiqadigan varaq: tutqichdan (yoki
+             varaq tepada turganda istalgan joyidan) pastga tortib yopiladi. -->
+        <div class="tutqich" aria-hidden="true"></div>
         <div class="card" id="ucard">
           <div class="uhead">
             <div class="av" id="u-av">—</div>
@@ -793,6 +807,12 @@
     </div>
   </div>
 </div>
+
+<!-- Qorong'i parda: profil varag'i yoki bosib turish menyusi ostida.
+     Bosilsa — ustidagi narsa yopiladi. -->
+<div class="parda" id="parda" hidden></div>
+<!-- Qatorni bosib turganda (kompyuterda — o'ng tugma) chiqadigan menyu. -->
+<div class="menyu" id="menyu" role="menu" hidden></div>
 
 <!-- Amal natijasi haqidagi qisqa xabar + «Bekor qilish» (§3.4). -->
 <div class="toast" id="toast" role="status" aria-live="polite">

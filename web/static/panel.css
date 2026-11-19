@@ -682,3 +682,96 @@ textarea.kiritish{resize:vertical;line-height:1.6}
             width:0;transition:width .4s ease}
 .progress i.warn{background:var(--warn)}
 .progress i.over{background:var(--t-ban)}
+
+/* ══ iPHONE: SILLIQ O'TISH, KATTA SARLAVHA, VARAQ, MENYU (2026-11-19) ══
+   Hammasi faqat TELEFON maketida (≤900px) — kompyuter ko'rinishi o'zgarmaydi.
+   Animatsiyalar `prefers-reduced-motion` da yuqoridagi umumiy qoida bilan
+   o'chadi. Shisha (blur) effekti ATAYLAB yo'q: Telegram ichidagi WebView'da
+   u aylantirishni sekinlashtiradi. */
+
+/* Bo'limlar orasida o'tish — brauzerning View Transitions'i. Tab-panel va
+   sarlavha alohida suratga olinadi: ular «oqib» ketmaydi, joyida turadi.
+   ⚠️ U bor joyda eski `rise` animatsiyasi o'chadi — ikkalasi ustma-ust
+   ekranni ikki marta «silkitardi». */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.2s}
+.tabbar{view-transition-name:tabbar}
+.topbar{view-transition-name:topbar}
+@supports (view-transition-name:none){section[data-screen].on{animation:none}}
+
+.katta{display:none}
+.tutqich{display:none}
+
+/* Parda va menyu — ikkala maketda ham (kompyuterda o'ng tugma menyusi). */
+.parda{position:fixed;inset:0;z-index:45;background:rgba(0,0,0,.45);
+  animation:parda-kir .25s ease-out;touch-action:none;-webkit-tap-highlight-color:transparent}
+.parda.yengil{background:rgba(0,0,0,.28)}
+@keyframes parda-kir{from{opacity:0}to{opacity:1}}
+.menyu{position:fixed;z-index:50;min-width:220px;max-width:calc(100vw - 24px);
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r-m);
+  box-shadow:var(--soya);padding:5px;display:flex;flex-direction:column;
+  transform-origin:top center;animation:menyu-kir .18s cubic-bezier(.32,.72,0,1)}
+.menyu.tepada{transform-origin:bottom center}
+@keyframes menyu-kir{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+.menyu b{display:block;padding:8px 11px 6px;font-size:var(--f-xs);color:var(--ink-3);
+  font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menyu button{display:flex;align-items:center;gap:11px;width:100%;text-align:left;
+  padding:11px;border-radius:var(--r-s);font-size:var(--f-m);color:var(--ink)}
+.menyu button svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;
+  stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:var(--ink-3)}
+.menyu button:active{background:var(--panel-2)}
+/* Menyu ochilgan qator parda USTIDA turadi — qaysi odam ekani ko'rinsin. */
+.row.menyuda{position:relative;z-index:46;background:var(--panel);border-radius:var(--r-s);
+  box-shadow:0 0 0 6px var(--panel)}
+@media (hover:hover) and (pointer:fine){
+  .menyu button:hover{background:var(--panel-2)}
+}
+/* Sensorli ekranda bosib turish matnni belgilamasin va iOS'ning o'z
+   menyusini chiqarmasin — o'rniga bizning menyu. */
+@media (pointer:coarse){
+  .row.bosiladi{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+}
+
+.ptr{display:none}
+
+@media (max-width:900px){
+  /* ── Katta sarlavha ─────────────────────────────────────────── */
+  .katta{display:block;padding:2px 0 0;min-width:0}
+  .katta h2{font-size:30px;font-weight:700;letter-spacing:-.025em;line-height:1.15;
+    overflow-wrap:anywhere}
+  .katta .crumb{margin-top:3px;font-size:var(--f-s)}
+  /* Tepadagi kichik sarlavha faqat katta sarlavha ekrandan chiqqanda. */
+  .topbar{justify-content:center;border-bottom-color:transparent;
+    transition:border-color .2s}
+  .topbar .sarlavha-blok{position:absolute;left:56px;right:56px;text-align:center;
+    opacity:0;transition:opacity .2s;pointer-events:none}
+  .topbar .sarlavha-blok h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar .sarlavha-blok .crumb{display:none}
+  .topbar .holat{margin-left:auto}
+  .topbar.ixcham{border-bottom-color:var(--line)}
+  .topbar.ixcham .sarlavha-blok{opacity:1}
+
+  /* ── Profil — pastdan chiqadigan varaq ──────────────────────── */
+  section[data-screen="profil"].on{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    top:calc(var(--tepa) + 40px);
+    background:var(--panel);border-radius:16px 16px 0 0;
+    box-shadow:0 -12px 40px rgba(0,0,0,.4);
+    overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+    padding:6px var(--s-4) calc(var(--past) + var(--s-5));
+    animation:varaq-kir .4s cubic-bezier(.32,.72,0,1);
+  }
+  section[data-screen="profil"] #ucard{border:0;background:none;padding:0}
+  section[data-screen="profil"] .tutqich{display:block;width:38px;height:5px;
+    border-radius:3px;background:var(--line);margin:2px auto 12px;flex:none}
+  html.varaqli{overflow:hidden}
+
+  /* ── Pastga tortib yangilash ────────────────────────────────── */
+  .ptr{display:grid;place-items:center;position:fixed;left:50%;z-index:15;
+    width:34px;height:34px;margin-left:-17px;border-radius:50%;
+    background:var(--panel);border:1px solid var(--line);box-shadow:var(--soya);
+    top:calc(var(--tepa) + 48px);opacity:0;pointer-events:none}
+  .ptr i{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);
+    border-top-color:var(--violet)}
+  .ptr.aylanadi i{animation:aylan .7s linear infinite}
+}
+@keyframes varaq-kir{from{transform:translateY(100%)}to{transform:none}}

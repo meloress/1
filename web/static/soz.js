@@ -261,6 +261,15 @@ window.SOZ = {
                  "Xavfsizlik uchun 12 soatdan keyin chiqiladi. Panelni yoping va Telegramdagi «Panel» tugmasi orqali qayta oching."]
   },
 
+  /* ── Bosib turish menyusi ──────────────────────────────────── */
+  menyu: {
+    och:   "Profilni ochish",
+    id:    function (uid) { return "ID'ni nusxalash · " + uid; },
+    tg:    "Telegram'da ochish",
+    kuzat: "Kuzatuvga qo'shish",
+    tglinkKetdi: "Botdagi chatingizga yuborildi — ismni bosing"
+  },
+
   /* ── Face ID qulfi ────────────────────────────────────────── */
   /* `nom` — qurilmadagi biometriya nomi: «Face ID», «Touch ID»,
      Android'da «Barmoq izi» / «Yuz». Panel o'zi tanlaydi (`bioNomi()`). */

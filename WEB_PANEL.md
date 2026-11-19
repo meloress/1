@@ -590,3 +590,42 @@ the local stand with a fake `Telegram.WebApp` whose `initData` is really signed.
   shows **yesterday's sum, not a percentage** — comparing an unfinished day with a whole one
   said «−90%» every morning. The series comes from the 30-day query `revenue_stats()`
   already runs (no new SQL).
+
+Second part of the pass — how the panel moves on the phone (checks 7-12):
+
+- **Section switches use View Transitions** [7] — the browser snapshots the old state and
+  cross-fades. The tab bar and the top bar are named (`view-transition-name`), so they stay
+  put instead of fading. Where VT exists the old `rise` animation is off (both together
+  shook the screen twice). ⚠️ A skipped transition rejects its promises — fast taps did
+  that and left «Transition was skipped» in the console, so `otish()` catches them. No VT
+  before login (`!kirdi`): there is nothing visible to snapshot.
+- **Large title on the phone** [8]: the screen name is big at the top of the page and moves
+  into the top bar once it scrolls under it. `sarlavhaYoz()` writes both copies; the
+  check that decides «compact» ignores a zero-size title — measured while the shell was
+  still hidden, it said «scrolled away» and both titles showed on open.
+- ⭐ **On the phone the profile is a sheet over the list, not a separate screen** [9]. The
+  list stays underneath and keeps its scroll position — before, «Back» returned to the top
+  of the list and an admin three pages down lost their place. The sheet closes by Back,
+  by tapping the dimmed backdrop, or by dragging it down (only when its own content is at
+  the top, never from an input; 130 px or a fast flick). Rotating past 900 px turns the
+  sheet into the desktop inner page and back (`resize` *and* the media-query `change`
+  event). The desktop profile is unchanged.
+- **Pull to refresh** [10] only on the read-only sections (`YANGILANADI`), for the same
+  reason those are the only ones that auto-refresh: redrawing Sozlamalar/O'sish would erase
+  typed, unsaved values. ⚠️ `.wrap` is moved with `transform` while pulling and the inline
+  transform is removed afterwards — a transform left on `.wrap` becomes the containing
+  block for the `position:fixed` sheet inside it and breaks it. `ekranYukla()` now returns
+  its promise so the spinner waits for the data.
+- **Long-press menu on a person row** [11] (users list and «Faol foydalanuvchilar»;
+  right-click on desktop): open profile, copy ID, open in Telegram, add to watch (with the
+  same confirmation as the profile button). ⛔️ Nothing irreversible — no ban, no Pro: one
+  wrong long-press must not block someone. The finger lifting after a long press must not
+  also open the profile, so both the `touchend` is cancelled and the row click handlers
+  ignore clicks within 700 ms of the menu opening.
+- **Haptics follow iOS** [12]: `selectionChanged` for tabs, filter chips and each new day
+  under a finger on a chart; impacts for buttons; success/error for results.
+
+Testing note: the Chrome extension's tab stops rendering when its window is not visible —
+animations stay at `currentTime: 0`, `resize` never fires and view transitions never end
+(their overlay then shows up as a 15 px «overflow»). Logic was tested there; anything
+visual was checked with headless Chrome screenshots of the stand.
