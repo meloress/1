@@ -217,7 +217,11 @@ async def main():
         return {"maintenance_notice": notice} if notice else False
 
     async def handle_maintenance_notice(message: types.Message, maintenance_notice: str):
-        await message.answer(maintenance_notice)
+        # ⚠️ `parse_mode=None` — matnni admin panelda YOZADI, bot esa
+        # standart HTML rejimida. «Bot < 1 soat ichida qaytadi» kabi matn
+        # HTML sifatida rad etilardi va ta'til paytida HECH KIM javob
+        # olmasdi. Panel ham buni aytadi: matn formatlashsiz yuboriladi.
+        await message.answer(maintenance_notice, parse_mode=None)
 
     general_router.message.register(handle_start, CommandStart())
     general_router.message.register(handle_profile, Command("profile"))

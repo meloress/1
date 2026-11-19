@@ -295,6 +295,14 @@ Some are structural guards rather than feature tests, and they earn their keep o
   is every hint on every screen failing AA. It also pins that each `fetch` carries the
   Telegram signature.
 
+- `test_panel_tuzatish.py` — guards for what the 2026-11-19 panel audit found by clicking
+  through the real panel in a browser (real `web/`, local pgserver, fake bot). Every check
+  maps to one defect, and each was verified by putting the old code back in memory and
+  watching the check fail. Sharpest: **3** (`top_users()` groups by `user_id` alone — the
+  per-row `user_activity.username` split one person into three rows), **5** (an admin can
+  only be someone the bot knows: `0`, `-5` and an unknown ID used to become full admins)
+  and **1** (`get_full_user_profile()` is a hand-built dict, so a new column does **not**
+  arrive by itself — the panel never showed the name). Runs offline.
 - `test_eski_bot.py` — the old `@uzchatgptaibot` redirect (`DEPLOY.md` «The bot moved to
   @vexonai»). Its sharpest check is **2**: an old-bot Business customer gets nothing and
   the owner is told once — "this bot has stopped" must never land in the owner's name.

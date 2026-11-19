@@ -3513,7 +3513,15 @@ async def get_full_user_profile(user_id: int) -> Optional[Dict[str, Any]]:
         return {
             **counters,
             'user_id': user_row['user_id'],
-            'username': user_row.get('username') or "Mavjud emas",
+            # ⚠️ Username yo'q bo'lsa — None, «Mavjud emas» EMAS. Bu satr
+            # rost qiymat edi: panel uni haqiqiy username deb «@Mavjud emas»
+            # chizardi va «Telegram'da ochish» t.me/Mavjud%20emas ga olib
+            # borardi (username'siz odamga mention yo'li hech ishlamasdi).
+            # Matn kerak bo'lgan joy (/profile) uni o'zi qo'yadi.
+            'username': user_row.get('username'),
+            # Telegram ismi — panel sarlavhasi shundan. Bu lug'at qo'lda
+            # yig'iladi, ya'ni `SELECT *` dagi ustun O'Z-O'ZIDAN kelmaydi.
+            'tg_ism': user_row.get('tg_ism'),
             'is_active': user_row.get('is_active', True),
             'is_banned': user_row.get('is_banned', False),
             'plan_type': user_row.get('plan_type', 'free'),
@@ -5648,14 +5656,23 @@ async def top_users(days: int, limit: int) -> List[Dict[str, Any]]:
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
+        # ⚠️ GURUH FAQAT `user_id` BO'YICHA. `user_activity.username` —
+        # yozilgan PAYTDAGI qiymat: odam username'ini almashtirsa, yoki
+        # Business yozuvlari (ataylab `None` bilan yoziladi) aralashsa, bitta
+        # odam ro'yxatda 2-3 qatorga bo'linib, hisobi tarqalib ketardi —
+        # 17 so'rovli odam 1-o'rin o'rniga 3-, 4- va 6-o'rinda turardi.
+        # Nom esa `users` jadvalidan — hozirgisi.
         rows = await conn.fetch(f'''
-            SELECT user_id, username, COUNT(*) AS activity_count
-            FROM user_activity
-            WHERE activity_time >= NOW() - make_interval(days => $1::int)
-              {_ODDIY_USER}
-            GROUP BY user_id, username
-            ORDER BY activity_count DESC
-            LIMIT $2
+            SELECT a.user_id, u.username, u.tg_ism, a.activity_count
+            FROM (SELECT user_id, COUNT(*) AS activity_count
+                  FROM user_activity
+                  WHERE activity_time >= NOW() - make_interval(days => $1::int)
+                    {_ODDIY_USER}
+                  GROUP BY user_id
+                  ORDER BY activity_count DESC, user_id
+                  LIMIT $2) a
+            LEFT JOIN users u ON u.user_id = a.user_id
+            ORDER BY a.activity_count DESC, a.user_id
         ''', int(days), int(limit))
         return [dict(r) for r in rows]
 
@@ -5692,6 +5709,19 @@ _TARTIB = {
     "faollik": "last_seen DESC NULLS LAST, user_id",
     "yangi":   "created_at DESC NULLS LAST, user_id",
 }
+
+
+def like_ekranla(matn: Optional[str]) -> Optional[str]:
+    r"""`ILIKE … ESCAPE '\'` uchun: `%`, `_` va `\` oddiy belgi bo'lsin.
+
+    ⚠️ Ekranlanmasa `_` HAR QANDAY bitta belgiga mos keladi: «dilshod_a»
+    qidirilsa «dilshodXa» ham chiqardi, bitta `_` esa username'i bor
+    HAMMANI qaytarardi. Parametr baribir SQL'ga matn bo'lib boradi —
+    bu in'ektsiya emas, faqat noto'g'ri natija.
+    """
+    if matn is None:
+        return None
+    return matn.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @with_db_retry()
@@ -5734,11 +5764,15 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
     if frag and frag.isdigit() and len(frag) <= 18:
         uid = int(frag)
 
-    qidiruv = """
+    # ⚠️ Ism (`tg_ism`) bo'yicha ham: ro'yxat odamni ISMI bilan ko'rsatadi,
+    # ya'ni admin aynan shu ismni yozadi — ilgari «Шерзод» 0 natija berardi.
+    qidiruv = r"""
         AND ($1::text IS NULL
-             OR username ILIKE '%' || $1 || '%'
+             OR username ILIKE '%' || $1 || '%' ESCAPE '\'
+             OR tg_ism   ILIKE '%' || $1 || '%' ESCAPE '\'
              OR ($2::bigint IS NOT NULL AND user_id = $2))
     """
+    frag = like_ekranla(frag)
     async with pool.acquire() as conn:
         rows = await conn.fetch(f'''
             SELECT user_id, username, tg_ism, plan_type, is_banned, premium_until,
@@ -5782,8 +5816,8 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
 async def activity_stats(kunlar: int = 7) -> Dict[str, Any]:
     """Statistika ekranining hamma raqami — bitta ulanishda.
 
-    Qaytaradi: `total_users`, tarif sanoqlari, eng faollar, oxirgi
-    foydalanuvchi, `kunlar` kunlik faollik va 30 kunlik turlar kesimi.
+    Qaytaradi: `total_users`, tarif sanoqlari, `kunlar` kunlik faollik va
+    30 kunlik turlar kesimi.
 
     `kunlar` — grafik oynasi (7 / 30 / 90). Panelda tanlanadi, shuning
     uchun u ISHONCHSIZ qiymat: SQL ga parametr bo'lib ketadi va bu yerda
@@ -5816,25 +5850,12 @@ async def activity_stats(kunlar: int = 7) -> Dict[str, Any]:
             WHERE is_active = TRUE {_ODDIY_USER}
         ''')
 
-        most_active_30days = await conn.fetchrow(f'''
-            SELECT user_id, username, COUNT(*) AS activity_count
-            FROM user_activity
-            WHERE activity_time >= NOW() - INTERVAL '30 days' {_ODDIY_USER}
-            GROUP BY user_id, username ORDER BY activity_count DESC LIMIT 1
-        ''')
-
-        most_active_today = await conn.fetchrow(f'''
-            SELECT user_id, username, COUNT(*) AS activity_count
-            FROM user_activity
-            WHERE activity_time >= CURRENT_DATE {_ODDIY_USER}
-            GROUP BY user_id, username ORDER BY activity_count DESC LIMIT 1
-        ''')
-
-        last_user = await conn.fetchrow(f'''
-            SELECT user_id, username, created_at FROM users
-            WHERE TRUE {_ODDIY_USER}
-            ORDER BY created_at DESC LIMIT 1
-        ''')
+        # ⚠️ «Eng faol (30 kun / bugun)» va «oxirgi foydalanuvchi» bu yerda
+        # YO'Q: ularni o'qigan Telegram statistika ekrani o'chirilgan va
+        # uchta so'rov har ochilishda bekorga yurardi. Ikkalasida xato ham
+        # bor edi — `GROUP BY user_id, username` bitta odamni bo'lardi,
+        # «bugun» esa `CURRENT_DATE` (UTC) bilan 05:00 da boshlanardi. Eng
+        # faollar kerak bo'lsa — `top_users()`.
 
         # Kun chegarasi Toshkent bo'yicha — server UTC da ishlaydi, ya'ni
         # aks holda "bugun" soat 05:00 da boshlanardi.
@@ -5878,9 +5899,6 @@ async def activity_stats(kunlar: int = 7) -> Dict[str, Any]:
             'premium_count': (plan_counts or {}).get('premium_count', 0) or 0,
             'ban_count': (plan_counts or {}).get('ban_count', 0) or 0,
             'kunlar': kunlar,
-            'most_active_30days': dict(most_active_30days) if most_active_30days else None,
-            'most_active_today': dict(most_active_today) if most_active_today else None,
-            'last_user': dict(last_user) if last_user else None,
             'daily_activity': [dict(r) for r in daily_activity],
             'type_breakdown': [(r['activity_type'], r['cnt']) for r in type_breakdown],
         }

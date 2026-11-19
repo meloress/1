@@ -851,7 +851,9 @@ async def _bajar(message: Message, ul: dict, nom: str, arg: str) -> None:
 
     notice = await database.get_maintenance_notice_for(egasi)
     if notice:
-        await _egasiga(dm, notice)
+        # Matn — admin panelda yozilgan oddiy matn, HTML emas (main.py
+        # dagi ta'til darvozasi bilan bir xil sabab).
+        await _egasiga(dm, notice, html=False)
         return
     # Bepul egada ball ham yechilmaydi — tekshiruv kvotadan OLDIN.
     if not await _pro(egasi):

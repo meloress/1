@@ -316,6 +316,7 @@ async def stats(request: web.Request):
         "top": [{
             "user_id": u["user_id"],
             "username": u.get("username"),
+            "tg_ism": u.get("tg_ism"),
             "soni": u["activity_count"],
             "ulush": _foiz(u["activity_count"], eng_kop) or 0,
         } for u in top],
@@ -389,13 +390,31 @@ XABAR_MAX = 3500                      # Telegram chegarasi 4096, zaxira bilan
 SANOQ_NOMI = LIMIT_NOMI
 
 
+BIGINT_MAX = 2 ** 63 - 1
+
+
+def _user_id(qiymat: Any) -> Optional[int]:
+    """Telegram foydalanuvchi ID si: musbat va BIGINT ichida. Aks holda None.
+
+    ⚠️ Faqat `int()` yetmaydi: 21 xonali son Python'da bemalol son, lekin
+    Postgres BIGINT'iga sig'maydi va so'rov 500 «server xatosi» bilan
+    yiqilardi. `0` va manfiy son esa foydalanuvchi emas — ular admin
+    qilib qo'yilgan edi (audit, 2026-11-19).
+    """
+    try:
+        v = int(str(qiymat).strip())
+    except (TypeError, ValueError):
+        return None
+    return v if 0 < v <= BIGINT_MAX else None
+
+
 def _target(request: web.Request) -> int:
     """URL dagi foydalanuvchi ID si. Noto'g'ri bo'lsa — 400."""
-    try:
-        return int(request.match_info["user_id"])
-    except (KeyError, ValueError):
+    uid = _user_id(request.match_info.get("user_id"))
+    if uid is None:
         raise web.HTTPBadRequest(text='{"error": "ID noto\'g\'ri"}',
                                  content_type="application/json")
+    return uid
 
 
 async def _tana(request: web.Request) -> Dict[str, Any]:
@@ -1628,28 +1647,36 @@ async def admins_set(request: web.Request):
 
     tana = await _tana(request)
     amal = tana.get("amal")
-    try:
-        uid = int(str(tana.get("kim") or "").strip())
-    except (TypeError, ValueError):
+    xom = str(tana.get("kim") or "").strip()
+    if not xom.lstrip("-").isdigit():
         # ⚠️ Telegram ekrani ham FAQAT sonli ID qabul qiladi, va bu
         # ataylab: @username egasi uni o'zgartirsa nom boshqa odamga
         # o'tib ketadi — admin huquqini bunday manzilga bog'lab bo'lmaydi.
         return web.json_response(
             {"error": "Faqat sonli ID. @username o'zgarib, boshqa odamga o'tishi mumkin."},
             status=400)
+    uid = _user_id(xom)
+    if uid is None:
+        return web.json_response({"error": "Bunday Telegram ID bo'lmaydi."}, status=400)
 
     if amal == "add":
-        if await database_module.is_admin(uid):
+        # Ikkala jadval ham — superadmin `admins` da bo'lmasligi mumkin
+        # (WEB_PANEL.md «"Admin" is two tables»).
+        if (await database_module.is_admin(uid)
+                or await database_module.is_superadmin(uid)):
             return web.json_response({"error": "Bu odam allaqachon admin."}, status=400)
-        # Username bazadan olinadi (bo'lmasa `None`) — ro'yxatda odam
-        # quruq raqam emas, nomi bilan ko'rinishi uchun.
-        try:
-            prof = await database_module.get_full_user_profile(uid)
-        except Exception:
-            prof = None
-        nom = (prof or {}).get("username")
-        await database_module.add_admin(
-            uid, username=(nom if nom and nom != "Mavjud emas" else None))
+        # ⛔️ FAQAT BOTGA YOZGAN ODAM. Ilgari har qanday son o'tardi —
+        # `0`, `-5` va botni hech ochmagan ID ham «Admin qo'shildi» bo'ldi,
+        # ya'ni bitta raqam xatosi BEGONA odamga to'liq panel huquqini
+        # berardi. `users` qatori bo'lsa — bu ID ning egasi bizni biladi va
+        # panel tasdiqda uning ismini ko'rsata oladi. Xato YUTILMAYDI: baza
+        # javob bermasa admin qo'shilmaydi.
+        prof = await database_module.get_full_user_profile(uid)
+        if not prof:
+            return web.json_response(
+                {"error": "Bu ID botda topilmadi — odam avval botga /start yozsin."},
+                status=404)
+        await database_module.add_admin(uid, username=prof.get("username"))
         await _yoz(request, "add_admin", uid)
         # Ko'k «Panel» tugmasi darhol paydo bo'lsin — aks holda yangi
         # admin panelga faqat keyingi `/start` dan keyin kira olardi.

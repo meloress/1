@@ -184,9 +184,16 @@
   function bosh(ism) {
     var s = String(ism || "").replace(/^@/, "");
     if (/^ID:/.test(s) || /^\d+$/.test(s)) return null;
-    var w = s.replace(/[^A-Za-zЀ-ӿ' ]/g, " ").trim().split(/\s+/);
-    var t = ((w[0] || "?")[0] || "?") + ((w[1] || "")[0] || "");
-    return t.toUpperCase();
+    // Har qanday yozuvdagi HARF (`\p{L}`): ism endi Telegram'dan keladi —
+    // arabcha, emoji, xitoycha ham bo'ladi. Ilgari faqat lotin/kirill
+    // tanilardi va «🌸🌸🌸» yoki «محمد» avatari «?» bo'lib chiqardi.
+    // Harf umuman bo'lmasa — `null`, ya'ni odam belgisi.
+    var w = s.split(/[^\p{L}']+/u).map(function (x) {
+      var m = x.match(/\p{L}/u);
+      return m ? m[0] : "";
+    }).filter(Boolean);
+    if (!w.length) return null;
+    return (w[0] + (w[1] || "")).toUpperCase();
   }
 
   var ODAM_SVG = '<svg class="ikon" viewBox="0 0 24 24" aria-hidden="true">' +
@@ -1228,6 +1235,15 @@
     return u.tg_ism || (u.username ? "@" + u.username : S.user.nomsiz);
   }
 
+  /* Avatar uchun SHAXSIY nom (`avatar()` izohiga qarang): ism yoki
+     @username, ikkalasi ham bo'lmasa «ID:…» — `bosh()` undan harf olmaydi
+     va odam belgisini chizadi. ⚠️ `nomi()` bu yerga YARAMAYDI: u nomsiz
+     odamga «Foydalanuvchi» qaytaradi va hamma nomsiz odam bir xil «F»
+     bo'lib qolardi (2026-11-19 regressiyasi). */
+  function shaxs(u) {
+    return u.tg_ism || (u.username ? "@" + u.username : "ID:" + u.user_id);
+  }
+
   function chiplarniChiz() {
     var f = $("u-chiplar");
     if (f && !f.dataset.tayyor) {
@@ -1292,7 +1308,7 @@
           var vaqt = uTartib === "yangi" ? u.created_at : u.last_seen;
           return '<div class="row bosiladi" data-uid="' + u.user_id + '">' +
             '<div class="person">' +
-            avatar(nomi(u), u.tarif === "pro" || u.tarif === "premium") +
+            avatar(shaxs(u), u.tarif === "pro" || u.tarif === "premium") +
             "<div><b>" + xavfsiz(nomi(u)) + '</b><span>' + xavfsiz(u.user_id) +
             "</span></div></div>" + yorliq(u.tarif) +
             '<span class="hint num">' + xavfsiz(vaqt ? nisbiy(vaqt) : S.yoq) + "</span></div>";
@@ -1324,7 +1340,7 @@
     // ism ko'rinadigan bo'lgach, ular alohida ko'rsatiladi.
     var nom = nomi(d);
 
-    $("u-av").innerHTML = bosh(nom) === null ? ODAM_SVG : xavfsiz(bosh(nom));
+    $("u-av").innerHTML = bosh(shaxs(d)) === null ? ODAM_SVG : xavfsiz(bosh(shaxs(d)));
     $("u-ism").textContent = nom;
     $("u-meta").textContent = (d.username ? "@" + d.username + " · " : "") +
       "ID " + d.user_id +
@@ -2131,8 +2147,19 @@
 
     $("ad-qosh").addEventListener("click", async function () {
       var kim = $("ad-kim").value.trim();
-      if (!kim) return natijaChiz("ad-natija", "Sonli ID yozing.", true);
-      if (!await tasdiq(S.savol.adminQosh)) return;
+      if (!/^\d{1,19}$/.test(kim)) return natijaChiz("ad-natija", "Sonli ID yozing.", true);
+      // ⛔️ Tasdiqda KIM ekanligi. Avval odam topiladi: bot uni bilmasa —
+      // umuman so'ralmaydi (server ham rad etadi, bu faqat aniqroq xabar).
+      var r;
+      try { r = await fetch("/api/users/" + kim, { headers: imzo() }); }
+      catch (e) { return natijaChiz("ad-natija", S.kirish.ulanmadi[1], true); }
+      sessiyaTugadimi(r);
+      if (r.status === 404 || r.status === 400) return natijaChiz("ad-natija", S.savol.adminTopilmadi, true);
+      if (!r.ok) return natijaChiz("ad-natija", S.yuklanmadi, true);
+      var odam = await r.json();
+      var kimligi = nomi(odam) + (odam.tg_ism && odam.username ? " (@" + odam.username + ")" : "") +
+                    " · ID " + odam.user_id;
+      if (!await tasdiq(S.savol.adminQosh + "\n\n" + kimligi)) return;
       var j = await so_rov("/api/admins", { amal: "add", kim: kim }, null, this);
       if (!j.ok) return natijaChiz("ad-natija", j.xato, true);
       $("ad-kim").value = "";

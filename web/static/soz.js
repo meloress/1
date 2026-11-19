@@ -50,7 +50,7 @@ window.SOZ = {
     tolov:     "To'lov yo'q.",
     tarqatma:  "Rejalashtirilgan tarqatma yo'q.",
     user:      "Bu toifada foydalanuvchi yo'q.",
-    qidiruv:   "Bunday foydalanuvchi topilmadi. Boshqa ID yoki @username bilan qidiring.",
+    qidiruv:   "Bunday foydalanuvchi topilmadi. Boshqa ism, ID yoki @username bilan qidiring.",
     top:       "So'nggi 7 kunda faollik qayd etilmagan."
   },
 
@@ -128,7 +128,10 @@ window.SOZ = {
     unban:   "Blok olib tashlansinmi?",
     free:    "Tarif bepulga tushirilsinmi? Qolgan kunlar bekor bo'ladi.",
     refund:  "To'lov qaytarilsinmi? Pul Telegram orqali qaytariladi va tarif olib tashlanadi.",
-    adminQosh: "Bu odamga to'liq admin huquqi berilsinmi?",
+    // Oxiriga kimligi qo'shiladi (panel.js): «Bu odamga» deb so'ralganda
+    // admin raqam xatosini tasdiqlab yuborardi — kimga ekanini ko'rmasdan.
+    adminQosh: "To'liq admin huquqi berilsinmi?",
+    adminTopilmadi: "Bu ID botda topilmadi — odam avval botga /start yozsin.",
     adminOl: "Admin huquqi olib tashlansinmi?",
     kuzatuvOl: "Kuzatuvdan olib tashlansinmi?",
     karta:   "Karta almashtirilsinmi? Endi foydalanuvchilarga shu karta ko'rsatiladi va to'lovlar unga tushadi.",

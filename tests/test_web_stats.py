@@ -44,9 +44,6 @@ SOXTA_ACTIVITY = {
     "premium_count": 3,
     "ban_count": 0,
     "kunlar": 7,
-    "most_active_30days": {"user_id": 641382905, "username": "dilshod_a", "activity_count": 312},
-    "most_active_today": {"user_id": 641382905, "username": "dilshod_a", "activity_count": 42},
-    "last_user": {"user_id": 5, "username": "yangi", "created_at": None},
     "daily_activity": [
         {"day": BUGUN - datetime.timedelta(days=4), "total": 100, "uniq_users": 10},
         {"day": BUGUN - datetime.timedelta(days=1), "total": 200, "uniq_users": 20},
@@ -103,8 +100,8 @@ def soxta_bazani_qoy(modul, **ustidan):
 
     async def top_users(days, limit):
         return [
-            {"user_id": 641382905, "username": "dilshod_a", "activity_count": 312},
-            {"user_id": 512004119, "username": None, "activity_count": 241},
+            {"user_id": 641382905, "username": "dilshod_a", "tg_ism": "Dilshod", "activity_count": 312},
+            {"user_id": 512004119, "username": None, "tg_ism": None, "activity_count": 241},
         ][:limit]
 
     async def recent_errors(limit=15, offset=0):

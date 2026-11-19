@@ -465,3 +465,30 @@ nothing, so it writes no audit row. It sends through `_xabar`, so it carries `@b
 - Error rows with a user ID, on the dashboard and in the journal, open that user's profile.
 
 `tests/test_panel_korinish.py` 17.
+
+### The browser audit (2026-11-19)
+
+The panel was clicked through in a real browser — real `web/`, a local pgserver seeded with
+hostile data (64-letter names, emoji/Arabic/RTL names, `<img onerror>`, `=HYPERLINK(…)`),
+a fake bot — at 360 / 390 / 600 / 1536 px. Every fix below is guarded by
+`tests/test_panel_tuzatish.py`; the numbers in brackets are its checks.
+
+- **A row shows the visible name, an avatar the personal one** [8]. `nomi(u)` returns
+  «Foydalanuvchi» for someone with neither name nor username — fine as a label, wrong as an
+  avatar seed: every such person became the same «F». Avatars take `shaxs(u)`
+  (`tg_ism` → `@username` → `ID:…`), and `bosh()` reads any script's letters (`\p{L}`), so an
+  emoji-only name draws the person icon instead of «?».
+- **`get_full_user_profile()` is hand-built** [1]. A new `users` column does not reach the
+  panel through it by itself. Its `username` is `None` when there is none — it used to be the
+  string «Mavjud emas», which the panel drew as «@Mavjud emas» and linked to
+  `t.me/Mavjud%20emas`, so the tglink mention for username-less users never ran.
+- **Search covers the name, and `%` / `_` are literal** [2] (`database.like_ekranla()`,
+  `ESCAPE '\'`). A lone `_` used to match every user with a username.
+- **An admin must be someone the bot knows** [5]: a positive BIGINT that has a `users` row.
+  The confirmation names the person (the panel looks them up first). Every user ID taken from
+  a URL or body goes through `api._user_id()`, so a 21-digit number is a 400, not a 500 [4, 6].
+- **The maintenance text is plain text** [7]: `parse_mode=None` in `main.py`, `html=False` to
+  the Business owner. The bot's default is HTML, and «Bot < 1 soat» would have been rejected
+  for every user for the whole outage.
+- **«Eng faol» groups by `user_id` only** [3]; the name comes from `users`. The dead
+  `most_active_*` / `last_user` queries in `activity_stats()` are gone.

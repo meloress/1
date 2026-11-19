@@ -348,7 +348,7 @@ def _kabinet(plan="free", until=None, **kw):
     return p
 
 
-f = pf.profil_holati(_kabinet(username="Mavjud emas"), "Ali")
+f = pf.profil_holati(_kabinet(username=None), "Ali")   # haqiqiy shakl: username'siz — None
 kel = pf.profil_holati(_kabinet("pro", _hozir + timedelta(days=5, hours=1)))
 m = pf.profil_holati(_kabinet("pro", None))
 otgan = pf.profil_holati(_kabinet("pro", _hozir - timedelta(days=1)))
