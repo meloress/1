@@ -218,6 +218,11 @@ async def overview(request: web.Request):
 
     kunlar = _kun_qatori(st["daily_activity"], kun_oynasi,
                          kalit="day", soni="total", kishi="uniq_users")
+    # Daromad kartasining mini-grafigi: 7 kun, Toshkent kunlari — «Bugun»
+    # KPI si bilan bir xil kesim (`revenue_stats` izohi). Yangi so'rov
+    # yo'q: 30 kunlik qator allaqachon keladi.
+    pul_kunlar = _kun_qatori(daromad.get("daily") or [], 7,
+                             soni="stars", kishi="soni")
 
     amallar = kunlik.get("actions") or 0
     oldingi = kunlik.get("prev_actions") or 0
@@ -242,6 +247,10 @@ async def overview(request: web.Request):
             "daromad": {
                 "bugun": daromad.get("stars_today") or 0,
                 "oy": daromad.get("stars_30d") or 0,
+                # ⚠️ Foiz EMAS, kechagi summa: bugun hali TUGAMAGAN kun,
+                # ertalab «−90% kechagidan» deyish yolg'on bo'lardi.
+                "kecha": pul_kunlar[-2]["soni"],
+                "kunlar": pul_kunlar,
             },
         },
         "kunlar": kunlar,

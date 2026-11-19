@@ -549,3 +549,44 @@ Third pass, same day — small things an admin is misled by:
   that compares `scrollWidth` with the viewport. It found two the eye missed: a 128-letter
   name in `.person` (needs `.person > div{min-width:0}`) widened the page to 870 px, and an
   unbroken audit detail (`.tag` is `nowrap`) to 1210 px — the detail is now `.tag.tafsilot`.
+
+### The iPhone pass (2026-11-19)
+
+The panel has one admin, on an iPhone 15 Pro Max, inside Telegram. This pass adds what
+that device can do and a desktop cannot. `tests/test_panel_iphone.py` pins every rule
+below (numbers in brackets are its checks). The Telegram-only parts were clicked through on
+the local stand with a fake `Telegram.WebApp` whose `initData` is really signed.
+
+- ⛔️ **Face ID is a lock on the phone, not a server gate** [5, 6]. Who may enter is still
+  decided by `initData` and `@admin_only`. The lock closes one hole the server cannot see:
+  an unlocked phone in someone else's hand, where the signature is genuinely the admin's.
+  It runs only on `ios` / `android` with Bot API 7.2+ (`BiometricManager`); desktop and the
+  plain browser have no biometrics and no lock. The state lives in Telegram **CloudStorage**
+  (`faceid`: `"1"` enrolled, `"0"` switched off by the admin, empty = never set), not in
+  `localStorage`, which can be wiped with the WebView. Three rules hold it together:
+  - nothing is drawn or fetched before the lock opens — `ichkariga()` awaits it before the
+    name, `korsat("shell")` and `/api/meta`, and `ekranYukla()` is a no-op while locked;
+  - an **enrolled** lock does not open when biometrics become unavailable (switched off in
+    iOS Settings) or Telegram's permission is revoked — otherwise that *is* the bypass;
+  - a lock that was **never** enrolled (`""`) treats a denied permission as «not wanted»:
+    it writes `"0"` and opens. The first version locked the phone panel for good after one
+    accidental «Don't allow», with no way to turn it off. `""` and `null` (CloudStorage
+    read failed) are kept apart on purpose.
+  Turning it off (Sozlamalar → Adminlar → «Shu telefon») needs a confirmation *and* Face ID
+  first. After more than 60 s away (`deactivated` / `visibilitychange`) it locks again and
+  hides the MainButton/BackButton while locked.
+- **Display P3 colours** [1, 2]. Accent tokens are redefined for wide-gamut screens inside
+  `@media (color-gamut:p3)` **and** `@supports (color: color(display-p3 …))` — without the
+  second, an old browser stores `--ok: color(...)` anyway (custom properties accept any
+  text) and every `var(--ok)` loses its colour. Each P3 value keeps the hex token's hue and
+  WCAG luminance (the test computes it, <2% drift), so contrast does not change; only
+  saturation goes up. Blue/violet barely move — they already sit on the sRGB edge. SVG
+  gradient stops (`g1/g2/g3`) and chart dots get the same values from CSS, over their
+  attributes.
+- **KPI cards have a 7-day sparkline** [3, 4] (requests, daily active people, revenue). The
+  last segment is **dashed**: today is not over, and a solid line read every morning as a
+  crash. The stroke gradient is `userSpaceOnUse` (`sparkLine`) because an
+  `objectBoundingBox` gradient does not render on a perfectly flat (all-zero) line. Revenue
+  shows **yesterday's sum, not a percentage** — comparing an unfinished day with a whole one
+  said «−90%» every morning. The series comes from the 30-day query `revenue_stats()`
+  already runs (no new SQL).

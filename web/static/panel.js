@@ -72,7 +72,17 @@
     if (typeof tg.onEvent === "function") {
       try { tg.onEvent("safeAreaChanged", olcham); } catch (e) {}
       try { tg.onEvent("contentSafeAreaChanged", olcham); } catch (e) {}
+      // Face ID qulfi: Mini App yig'ilib qayta ochilganda (Bot API 8.0).
+      try { tg.onEvent("deactivated", qulfChetda); } catch (e) {}
+      try { tg.onEvent("activated", qulfQaytdi); } catch (e) {}
     }
+    // Eski mijozda yuqoridagi hodisalar yo'q — ilovadan chiqish ham shu.
+    // ⚠️ Bu tinglovchi `navigatsiya()` dagisidan OLDIN: qaytganda avval
+    // qulf yopiladi, keyin ekran yuklash (qulf ostida) hech narsa qilmaydi.
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") qulfChetda();
+      else qulfQaytdi();
+    });
   }
 
   /* ══ KOMPYUTERDA TO'LIQ EKRAN ═══════════════════════════
@@ -168,9 +178,252 @@
     bekorFn = null;
   }
 
+  /* ══ FACE ID QULFI ══════════════════════════════════════════════
+     ⚠️ BU TELEFONDAGI QULF, SERVER DARVOZASI EMAS. Kirish huquqini hamon
+     `initData` imzosi va `@admin_only` hal qiladi (WEB_PANEL.md). Qulf
+     bitta xavfni yopadi: ochiq telefon BOSHQA ODAMNING qo'lida — Telegram
+     ochiq, «Panel» tugmasi bir bosishda. Server buni ajrata olmaydi (imzo
+     o'sha akkauntniki), shuning uchun tekshiruv telefonda, Telegram'ning
+     BiometricManager'i orqali.
+
+       • Faqat `ios` / `android` va Bot API 7.2+. Kompyuterda va brauzerda
+         biometriya yo'q — u yerda qulf ham yo'q.
+       • Holat Telegram CloudStorage'ida: `faceid` = "1" (yoqilgan), "0"
+         (admin o'zi o'chirgan), yo'q — hali o'rnatilmagan, birinchi
+         ochilishda so'raladi. ⚠️ localStorage EMAS: uni WebView bilan
+         birga tozalab yuborish mumkin, CloudStorage esa Telegram serverida
+         va unga faqat shu bot'ning Mini App kodi yoza oladi.
+       • ⛔️ "1" bo'lsa-yu biometriya endi ishlamasa (telefon sozlamasida
+         o'chirilgan) — panel OCHILMAYDI. Aks holda qulfni chetlab o'tish
+         yo'li «Sozlamalar → Telegram → Face ID: o'chiq» bo'lardi.
+       • Panel 1 daqiqadan ko'p chetda tursa — qaytganda yana qulflanadi.
+       • Ma'lumot qulf ochilgandan KEYIN yuklanadi (`ichkariga`). */
+  var TELEFON = ["ios", "android"];
+  var QULF_KALIT = "faceid";
+  var QULF_MUDDAT = 60000;
+  var BM = null;              // tg.BiometricManager, init qilingan bo'lsa
+  var qulfHolati = null;      // CloudStorage: "1" / "0" / null
+  var qulfFaol = false;       // shu sessiyada qulf ishlayaptimi
+  var qulfYopiq = false;      // hozir qulf ekrani turibdimi
+  var qulfKutuvchi = null;    // qulf ochilganda chaqiriladi
+  var chetdaVaqt = 0;         // panel qachon fonga ketgan
+
+  function bmTayyor() {
+    return new Promise(function (hal) {
+      if (!tg || TELEFON.indexOf(tg.platform) < 0) return hal(null);
+      if (typeof tg.isVersionAtLeast !== "function" || !tg.isVersionAtLeast("7.2")) return hal(null);
+      var bm = tg.BiometricManager;
+      if (!bm || typeof bm.init !== "function") return hal(null);
+      // Javob kelmasa (eski yoki buzuq mijoz) — biometriyasiz telefon
+      // bilan bir xil holat: qulf yo'q.
+      var t = setTimeout(function () { hal(null); }, 4000);
+      try {
+        bm.init(function () { clearTimeout(t); hal(bm.isInited ? bm : null); });
+      } catch (e) { clearTimeout(t); hal(null); }
+    });
+  }
+
+  /* CloudStorage: `ol` → satr ("" — kalit yo'q) yoki null (o'qilmadi),
+     `yoz` → true/false (xatoda null). ⚠️ "" va null FARQLI: "" — qulf hech
+     qachon o'rnatilmagan, null — tarmoq xatosi (o'shanda ehtiyotkor yo'l). */
+  function bulut(amal, kalit, qiymat) {
+    return new Promise(function (hal) {
+      var cs = tg && tg.CloudStorage;
+      if (!cs || typeof tg.isVersionAtLeast !== "function" || !tg.isVersionAtLeast("6.9")) return hal(null);
+      var t = setTimeout(function () { hal(null); }, 4000);
+      function tamom(xato, javob) {
+        clearTimeout(t);
+        hal(xato ? null : (amal === "ol" ? (javob || "") : !!javob));
+      }
+      try {
+        if (amal === "ol") cs.getItem(kalit, tamom);
+        else cs.setItem(kalit, qiymat, tamom);
+      } catch (e) { clearTimeout(t); hal(null); }
+    });
+  }
+
+  function bioNomi() {
+    var tur = BM && BM.biometricType;
+    var ios = tg && tg.platform === "ios";
+    if (tur === "face") return ios ? "Face ID" : "Yuz";
+    if (tur === "finger") return ios ? "Touch ID" : "Barmoq izi";
+    return "Biometriya";
+  }
+
+  function qulfKorsat(holat) {
+    var nom = bioNomi(), t = S.qulf[holat](nom);
+    $("qulf-sarlavha").textContent = t[0];
+    $("qulf-matn").textContent = t[1];
+    var och = $("qulf-och");
+    och.textContent = (holat === "ruxsat" || holat === "yoq") ? S.qulf.qayta : S.qulf.och(nom);
+    och.disabled = holat === "kut";
+    // Telegram'ning shu bot uchun biometriya sozlamasi — faqat ruxsat
+    // berilmaganda foydali; telefonning o'z sozlamasini u ochmaydi.
+    $("qulf-sozlama").hidden = holat !== "ruxsat";
+    korsat("qulf");
+  }
+
+  function bmSora() {
+    return new Promise(function (hal) {
+      try { BM.requestAccess({ reason: S.qulf.sabab }, function (ok) { hal(!!ok); }); }
+      catch (e) { hal(false); }
+    });
+  }
+
+  function bmTasdiqla() {
+    return new Promise(function (hal) {
+      try { BM.authenticate({ reason: S.qulf.sabab }, function (ok) { hal(!!ok); }); }
+      catch (e) { hal(false); }
+    });
+  }
+
+  async function qulfUrin() {
+    if (!BM.isBiometricAvailable) return qulfKorsat("yoq");
+    if (!BM.isAccessGranted) {
+      // Bir marta rad etilgan ruxsatni Telegram qayta so'ramaydi —
+      // faqat sozlamadan yoqiladi.
+      var rad = BM.isAccessRequested;
+      if (!rad) { qulfKorsat("kut"); rad = !await bmSora(); }
+      if (rad) {
+        // ⚠️ Qulf HECH QACHON o'rnatilmagan ("") — bu admin «kerak emas»
+        // degani: panel ochiladi va "0" yoziladi (Sozlamalardan yoqiladi).
+        // Aks holda birinchi ochilishdagi bitta «Ruxsat bermayman» panelni
+        // telefonda butunlay yopib qo'yardi, o'chirish yo'li ham yo'q edi.
+        // O'rnatilgan ("1") qulfda esa rad etish — chetlab o'tish urinishi.
+        if (qulfHolati === "") return qulfVoz();
+        return qulfKorsat("ruxsat");
+      }
+    }
+    qulfKorsat("kut");
+    // Tizim oynasi javobsiz qolsa tugma abadiy o'chiq turmasin.
+    var t = setTimeout(function () { $("qulf-och").disabled = false; }, 15000);
+    var ok = await bmTasdiqla();
+    clearTimeout(t);
+    if (!ok) return qulfKorsat("rad");
+    titroq("ok");
+    // Birinchi muvaffaqiyat — qulf «o'rnatildi»: endi biometriya o'chsa
+    // ham panel ochilmaydi (yuqoridagi ⛔️).
+    if (qulfHolati !== "1") { qulfHolati = "1"; bulut("yoz", QULF_KALIT, "1"); }
+    qulfFaol = true;
+    qulfOchildi();
+  }
+
+  var qulfVozKechildi = false;
+  function qulfVoz() {
+    qulfHolati = "0";
+    qulfFaol = false;
+    qulfVozKechildi = true;
+    bulut("yoz", QULF_KALIT, "0");
+    qulfOchildi();
+  }
+
+  function qulfOchildi() {
+    qulfYopiq = false;
+    var h = qulfKutuvchi;
+    qulfKutuvchi = null;
+    if (h) h();
+  }
+
+  /* Qulf ochilganda tugaydigan va'da. Kutilmagan xatoda — qulf yopiq
+     qoladi (qayta urinish tugmasi bilan), o'zidan ochilib ketmaydi. */
+  function qulfKut(ishgaTushir) {
+    return new Promise(function (hal) {
+      qulfKutuvchi = hal;
+      qulfYopiq = true;
+      Promise.resolve().then(ishgaTushir).catch(function (e) {
+        console.error("[panel] qulf:", e);
+        if (BM) qulfKorsat("rad");
+        else qulfOchildi();
+      });
+    });
+  }
+
+  async function qulfBoshla() {
+    BM = await bmTayyor();
+    if (!BM) return qulfOchildi();
+    qulfHolati = await bulut("ol", QULF_KALIT);
+    if (qulfHolati === "0") return qulfOchildi();
+    if (!BM.isBiometricAvailable && qulfHolati !== "1") return qulfOchildi();
+    qulfFaol = true;
+    await qulfUrin();
+  }
+
+  function qulfChetda() {
+    if (qulfFaol && !qulfYopiq) chetdaVaqt = Date.now();
+  }
+
+  function qulfQaytdi() {
+    if (!qulfFaol || qulfYopiq || !chetdaVaqt) return;
+    var uzoq = Date.now() - chetdaVaqt > QULF_MUDDAT;
+    chetdaVaqt = 0;
+    if (!uzoq) return;
+    // Qulf ostida Telegram tugmalari bosilmasin.
+    asosiyTugma(null);
+    if (tg && tg.BackButton) { try { tg.BackButton.hide(); } catch (e) {} }
+    qulfKut(qulfUrin).then(function () {
+      korsat("shell");
+      orqaTugma();
+      limitTugmasi();
+      ekranYukla(hozir);
+    });
+  }
+
+  /* Sozlamalar → Adminlar → «Shu telefon». Biometriya bor telefonda
+     (yoki qulf allaqachon o'rnatilgan bo'lsa) ko'rinadi. */
+  function qurilmaKartasi() {
+    var k = $("qurilma");
+    if (!k) return;
+    k.hidden = !(BM && (BM.isBiometricAvailable || qulfHolati === "1"));
+    if (k.hidden) return;
+    var nom = bioNomi();
+    $("face-nom").textContent = S.qulf.nomi(nom);
+    $("faceSw").setAttribute("aria-label", S.qulf.nomi(nom));
+    $("faceSw").setAttribute("aria-pressed", qulfFaol ? "true" : "false");
+  }
+
+  function qulfHodisalari() {
+    $("qulf-och").addEventListener("click", function () {
+      titroq("light");
+      qulfUrin().catch(function (e) { console.error("[panel] qulf:", e); qulfKorsat("rad"); });
+    });
+    $("qulf-sozlama").addEventListener("click", function () {
+      try { BM.openSettings(); } catch (e) {}
+    });
+    $("q-sozlama").addEventListener("click", function () {
+      try { BM.openSettings(); } catch (e) {}
+    });
+    $("faceSw").addEventListener("click", async function () {
+      if (!BM) return;
+      var sw = this, nom = bioNomi();
+      var yoqilsin = sw.getAttribute("aria-pressed") !== "true";
+      $("q-sozlama").hidden = true;
+      if (!yoqilsin && !await tasdiq(S.qulf.ochirSavol(nom))) return;
+      if (!BM.isBiometricAvailable) return natijaChiz("q-natija", S.qulf.yoq(nom)[1], true);
+      if (!BM.isAccessGranted) {
+        if (BM.isAccessRequested || !await bmSora()) {
+          $("q-sozlama").hidden = false;
+          return natijaChiz("q-natija", S.qulf.ruxsat(nom)[1], true);
+        }
+      }
+      // IKKALA yo'nalishda ham avval biometriya: o'chirishni faqat egasi
+      // qila olsin, yoqishda esa u haqiqatan ishlashini ko'raylik.
+      sw.disabled = true;
+      var ok = await bmTasdiqla();
+      sw.disabled = false;
+      if (!ok) return natijaChiz("q-natija", S.qulf.rad(nom)[1], true);
+      var yozildi = await bulut("yoz", QULF_KALIT, yoqilsin ? "1" : "0");
+      if (!yozildi) return natijaChiz("q-natija", S.qulf.yozilmadi, true);
+      qulfHolati = yoqilsin ? "1" : "0";
+      qulfFaol = yoqilsin;
+      sw.setAttribute("aria-pressed", yoqilsin ? "true" : "false");
+      natijaChiz("q-natija", yoqilsin ? S.qulf.yoqildi(nom) : S.qulf.ochirildi(nom));
+      toast(S.saqlandi);
+    });
+  }
+
   /* ══ DARVOZA ════════════════════════════════════════════════════ */
   function korsat(kim) {
-    ["yuklash", "xato", "shell"].forEach(function (id) {
+    ["yuklash", "xato", "qulf", "shell"].forEach(function (id) {
       var el = $(id);
       if (el) el.hidden = id !== kim;
     });
@@ -243,6 +496,11 @@
   }
 
   async function ichkariga(ma) {
+    // ⛔️ Face ID — HAMMA NARSADAN OLDIN: na ism, na raqam qulfdan oldin
+    // chizilmaydi. Sessiya (cookie) esa allaqachon ochilgan — `initData`
+    // 5 daqiqada eskiradi, qulf ekranida ko'proq turilsa kirish yo'qolardi.
+    await qulfKut(qulfBoshla);
+    qism("qurilma", qurilmaKartasi);
     var ism = (ma && ma.ism) || "Admin";
     var n = $("who-ism"), a = $("who-av"), r = $("who-rol");
     if (n) n.textContent = ism;
@@ -250,6 +508,7 @@
     if (r && ma && ma.rol) r.textContent = ma.rol;
     korsat("shell");
     olcham();
+    if (qulfVozKechildi) toast(S.qulf.vozKechildi(bioNomi()));
 
     // ⚠️ Lug'at ekranlardan OLDIN. Tarif nomlari undan olinadi va
     // ular bo'lmasa jadval «undefined» bilan chiziladi.
@@ -647,6 +906,45 @@
     $("ko-ulamagan").textContent = son(k.ega_ulamagan);
   }
 
+  /* «▲ 12%» / «▼ 5%» — o'zgarish yorlig'i. Nol — neytral, strelkasiz:
+     «▲ 0%» o'sish bo'lmagan joyda o'sish deydi. */
+  function trend(foizi) {
+    var v = Number(foizi) || 0;
+    var sinf = v > 0 ? "up" : (v < 0 ? "down" : "teng");
+    var belgi = v > 0 ? "▲ " : (v < 0 ? "▼ " : "");
+    return '<b class="trend ' + sinf + '">' + belgi + Math.abs(v) + "%</b>";
+  }
+
+  /* ══ MINI-GRAFIK (KPI kartasi) ══════════════════════════════════
+     7 kunlik ingichka chiziq — raqamning YO'NALISHINI ko'rsatadi, katta
+     grafik o'rnini bosmaydi (shuning uchun o'qsiz va yorliqsiz).
+     ⚠️ OXIRGI BO'LAK UZUQ: oxirgi nuqta — BUGUN, u hali tugamagan. Ertalab
+     ochilgan panelda u har doim pastda turadi va bir xil chiziq «qulash»
+     bo'lib ko'rinardi. Uzuq chiziq «bu hali sanalyapti» deydi.
+     ⚠️ Chiziq gradiyenti `userSpaceOnUse` (`sparkLine`): `objectBoundingBox`
+     bilan tekis chiziq (hamma kun 0) balandligi nol bo'lib, CHIZILMASDI. */
+  function mini(id, qiymatlar, izoh) {
+    var el = $(id);
+    if (!el) return;
+    var n = qiymatlar.length;
+    if (n < 2) { el.innerHTML = ""; return; }
+    var eng = Math.max.apply(null, qiymatlar) || 1;
+    var p = qiymatlar.map(function (v, i) {
+      // 3px tepada va pastda bo'sh joy — chiziq qalinligi kesilmasin.
+      return [i / (n - 1) * 100, 27 - (Number(v) || 0) / eng * 24];
+    });
+    function yol(a) {
+      return a.map(function (q, i) {
+        return (i ? "L" : "M") + q[0].toFixed(2) + " " + q[1].toFixed(2);
+      }).join(" ");
+    }
+    el.innerHTML =
+      '<path class="m-maydon" d="' + yol(p) + ' L100 30 L0 30 Z"/>' +
+      '<path class="m-chiziq" d="' + yol(p.slice(0, n - 1)) + '"/>' +
+      '<path class="m-chiziq m-bugun" d="' + yol(p.slice(n - 2)) + '"/>';
+    el.setAttribute("aria-label", izoh + ": " + qiymatlar.map(son).join(", "));
+  }
+
   /* 1 840 000 -> «1.84M». Uzun raqam telefonda kartochkadan chiqib
      ketardi va uni bir qarashda o'qib ham bo'lmasdi. */
   function million(n) {
@@ -721,7 +1019,8 @@
         // Uzun oynada har bir nuqtaga doira chizilsa chiziq ko'rinmay
         // qoladi — faqat oxirgisi belgilanadi.
         if (DAYS.length <= 14 || i === DAYS.length - 1) {
-          dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.soni).toFixed(1) + '" r="' +
+          dots += '<circle class="nuqta' + (i === DAYS.length - 1 ? " oxirgi" : "") +
+                  '" cx="' + x(i).toFixed(1) + '" cy="' + y(p.soni).toFixed(1) + '" r="' +
                   (i === DAYS.length - 1 ? 4.5 : 3) + '" fill="' +
                   (i === DAYS.length - 1 ? "#2BB3FF" : "var(--panel)") + '" stroke="#7B5CFF" stroke-width="2"/>';
         }
@@ -824,12 +1123,15 @@
     $("k-sorov").textContent = son(k.sorovlar.qiymat);
     $("k-sorov-d").innerHTML = k.sorovlar.ozgarish === null
       ? "kecha taqqoslash uchun ma'lumot yo'q"
-      : '<b class="' + (k.sorovlar.ozgarish >= 0 ? "up" : "down") + '">' +
-        (k.sorovlar.ozgarish >= 0 ? "+" : "") + k.sorovlar.ozgarish + "%</b> oldingi 24 soatga nisbatan";
+      : trend(k.sorovlar.ozgarish) + " oldingi 24 soatga nisbatan";
+    // Grafik oynasi 7/30/90 kun — mini-grafik doim OXIRGI 7 kun.
+    var hafta = (d.kunlar || []).slice(-7);
+    mini("k-sorov-sp", hafta.map(function (p) { return p.soni; }), S.mini.sorov);
 
     $("k-faol").textContent = son(k.faol.qiymat);
     $("k-faol-d").innerHTML = son(k.faol.jami) + ' dan · <b class="up">+' +
                               son(k.faol.yangi) + "</b> bugun yangi";
+    mini("k-faol-sp", hafta.map(function (p) { return p.kishi; }), S.mini.faol);
 
     $("k-pro").textContent = son(k.pro.qiymat);
     // ⚠️ Muddatsiz Pro bu sanoqqa kirmaydi (`premium_until IS NULL`),
@@ -839,7 +1141,11 @@
       : "7 kun ichida tugaydigani yo'q";
 
     $("k-pul").textContent = son(k.daromad.bugun) + " ⭐";
-    $("k-pul-d").textContent = "30 kunda " + son(k.daromad.oy) + " ⭐";
+    // Kecha — FOIZ EMAS, summa: bugun tugamagan kun (api.py izohi).
+    // ` ⭐` — yulduz raqamdan ajralib yolg'iz qatorga tushmasin.
+    $("k-pul-d").textContent = "kecha " + son(k.daromad.kecha) + " ⭐ · 30 kunda " +
+                               son(k.daromad.oy) + " ⭐";
+    mini("k-pul-sp", (k.daromad.kunlar || []).map(function (p) { return p.soni; }), S.mini.pul);
 
     tokenChiz(k.token);
     biznesChiz(d.biznes);
@@ -1270,7 +1576,8 @@
   function ekranYukla(nom) {
     var fn = { dash: boshqaruv, users: odamlarEkran, report: hisobotEkran,
                promo: promoEkran, system: sozlamalar }[nom];
-    if (!kirdi || !fn) return;
+    // Qulf ostida hech narsa yuklanmaydi — ochilgach `qulfQaytdi` chaqiradi.
+    if (!kirdi || !fn || qulfYopiq) return;
     var t = yuklangan[nom];
     if (t && !(YANGILANADI[nom] && Date.now() - t > ESKIRISH_MS)) return;
     yuklangan[nom] = Date.now();
@@ -2422,6 +2729,7 @@
   qism("promo", promoHodisalari);
   qism("tarqatma", tarqatmaHodisalari);
   qism("toast", toastHodisalari);
+  qism("qulf", qulfHodisalari);
   qism("chiqish", chiqish);
   kir();
 })();

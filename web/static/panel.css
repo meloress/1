@@ -123,6 +123,72 @@
   }
 }
 
+/* ══ KENG RANG GAMMASI (Display P3) ═══════════════════════════════
+   iPhone (va ko'p yangi ekran) sRGB dan kengroq ranglarni ko'rsatadi.
+   Urg'u ranglari shu yerda P3 ga o'tadi: TUSI va YORQINLIGI asl hex bilan
+   bir xil (kontrast o'zgarmaydi — `test_panel_iphone.py` hisoblaydi),
+   faqat to'yinganligi oshadi: yashil, sariq va qizil ekranda «tirikroq».
+   Ko'k-binafsha deyarli o'zgarmaydi — u sRGB chegarasining o'zida turibdi.
+
+   ⚠️ IKKI SHART, ikkalasi ham kerak. `color-gamut:p3` — ekran buni
+   ko'rsata oladimi; `@supports` — brauzer `color()` ni tushunadimi.
+   Ikkinchisisiz eski brauzerda `--ok: color(...)` baribir YOZILADI (CSS
+   o'zgaruvchisi har qanday matnni qabul qiladi) va `color:var(--ok)`
+   ishlatilgan joyda rang butunlay yo'qolardi.
+
+   Tartib ham muhim: bu bloklar asosiy tokenlardan KEYIN va o'sha uchta
+   selektor bilan — yorug' tema yorug' P3 ni, qorong'i esa qorong'ini oladi. */
+@media (color-gamut:p3){
+  @supports (color:color(display-p3 1 1 1)){
+    :root{
+      --violet:color(display-p3 .459 .354 .999);
+      --azure:color(display-p3 .307 .687 1);
+      --ok:color(display-p3 .316 .886 .62);
+      --warn:color(display-p3 1 .681 .201);
+      --bad:color(display-p3 1 .388 .482);
+      --pro-ink:color(display-p3 .776 .731 1);
+      --t-pro:color(display-p3 .562 .262 1);
+      --t-premium:color(display-p3 .307 .687 1);
+      --t-ban:color(display-p3 1 .252 .346);
+      --grad:linear-gradient(135deg,color(display-p3 .724 .157 1) 0%,
+             color(display-p3 .459 .354 .999) 48%,color(display-p3 .307 .687 1) 100%);
+    }
+    :root[data-tema="light"]{
+      --violet:color(display-p3 .277 .139 1);
+      --azure:color(display-p3 .026 .419 .841);
+      --ok:color(display-p3 .17 .625 .396);
+      --warn:color(display-p3 .719 .396 0);
+      --bad:color(display-p3 .849 .072 .171);
+      --pro-ink:color(display-p3 .277 .139 1);
+      --t-pro:color(display-p3 .478 .031 1);
+      --t-premium:color(display-p3 .026 .419 .841);
+      --t-ban:color(display-p3 .849 .072 .171);
+    }
+    /* SVG gradiyentlari (`panel.html` <defs>) — atributdagi hex ustidan. */
+    stop.g1{stop-color:color(display-p3 .724 .157 1)}
+    stop.g2{stop-color:color(display-p3 .459 .354 .999)}
+    stop.g3{stop-color:color(display-p3 .307 .687 1)}
+    /* Grafik nuqtalari va kesim chizig'i — JS yozgan atribut ustidan. */
+    .chart .nuqta,.chart .kesim{stroke:color(display-p3 .459 .354 .999)}
+    .chart .nuqta.oxirgi{fill:color(display-p3 .307 .687 1)}
+  }
+}
+@media (color-gamut:p3) and (prefers-color-scheme:light){
+  @supports (color:color(display-p3 1 1 1)){
+    :root:not([data-tema="dark"]){
+      --violet:color(display-p3 .277 .139 1);
+      --azure:color(display-p3 .026 .419 .841);
+      --ok:color(display-p3 .17 .625 .396);
+      --warn:color(display-p3 .719 .396 0);
+      --bad:color(display-p3 .849 .072 .171);
+      --pro-ink:color(display-p3 .277 .139 1);
+      --t-pro:color(display-p3 .478 .031 1);
+      --t-premium:color(display-p3 .026 .419 .841);
+      --t-ban:color(display-p3 .849 .072 .171);
+    }
+  }
+}
+
 *{box-sizing:border-box}
 /* ⚠️ `touch-action:manipulation` — ikki marta bosishda ZOOM bo'lmasin.
    U TUGMAGA emas, `html`/`body` ga qo'yiladi: shikoyat aynan MATN va
@@ -277,6 +343,23 @@ section[data-screen].on{display:flex;animation:rise .2s ease-out}
 .kpi .d{font-size:var(--f-s);margin-top:3px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .up{color:var(--ok)} .down{color:var(--bad)}
 .kpi.hero{background:var(--tanlangan);border-color:var(--line)}
+/* «▲ 12%» yorlig'i — rangli fon bilan, matndan ajralib tursin. */
+.trend{display:inline-block;padding:1px 7px;border-radius:var(--r-full);font-weight:600;
+  font-size:var(--f-xs);line-height:1.6;white-space:nowrap}
+.trend.up{background:var(--ok-yuza)}
+.trend.down{background:var(--bad-yuza)}
+.trend.teng{background:var(--panel-2);color:var(--ink-2)}
+/* KPI mini-grafigi. Bo'sh paytda ham JOYI saqlanadi (balandlik qotirilgan) —
+   ma'lumot kelganda karta balandligi sakramasin (`.skelet-kpi` bilan bir xil sabab). */
+/* Karta pastiga tekislanadi: izohi ikki qatorga o'ralgan karta yonida
+   grafik bir chiziqda tursin (qatordagi kartalar balandligi teng). */
+.kpi{display:flex;flex-direction:column}
+.spark{display:block;width:100%;height:38px;padding-top:10px;margin-top:auto;
+  box-sizing:border-box;overflow:visible;flex:none}
+.spark .m-chiziq{fill:none;stroke:url(#sparkLine);stroke-width:2;stroke-linecap:round;
+  stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.spark .m-bugun{stroke-dasharray:2 4;opacity:.75}
+.spark .m-maydon{fill:url(#areaFill);opacity:.7}
 
 .grid2{display:grid;grid-template-columns:1.55fr 1fr;gap:var(--s-4)}
 .grid2.even{grid-template-columns:1fr 1fr}
@@ -544,6 +627,12 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 .gate p{margin:0;color:var(--ink-3);max-width:34ch;font-size:var(--f-m);line-height:1.55}
 .gate .spin{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--violet);animation:aylan .7s linear infinite}
 @keyframes aylan{to{transform:rotate(360deg)}}
+/* Face ID qulfi ekranidagi belgi — brend gradiyentida qulf. */
+.qulf-belgi{width:76px;height:76px;border-radius:24px;background:var(--grad);display:grid;
+  place-items:center;box-shadow:0 10px 30px rgba(123,92,255,.35)}
+.qulf-belgi svg{width:36px;height:36px;stroke:#FFFFFF;fill:none;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
+.gate .btn{min-width:220px}
 
 /* ══ TELEFON ═══════════════════════════════════════════════════════ */
 .tabbar{display:none}

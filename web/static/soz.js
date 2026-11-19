@@ -52,6 +52,13 @@ window.SOZ = {
     top:       "So'nggi 7 kunda faollik qayd etilmagan."
   },
 
+  /* KPI mini-grafiklarining ekran o'quvchi uchun nomi (aria-label). */
+  mini: {
+    sorov: "So'rovlar, oxirgi 7 kun",
+    faol:  "Kunlik faol odamlar, oxirgi 7 kun",
+    pul:   "Daromad (⭐), oxirgi 7 kun"
+  },
+
   /* ── Sana ──────────────────────────────────────────────────── */
   oylar: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
           "avgust", "sentabr", "oktabr", "noyabr", "dekabr"],
@@ -252,6 +259,40 @@ window.SOZ = {
     yopildi:    ["Sessiya yopildi", "Panelni qayta ochish uchun Telegramdagi «Panel» tugmasini bosing."],
     tugadi:     ["Sessiya tugadi",
                  "Xavfsizlik uchun 12 soatdan keyin chiqiladi. Panelni yoping va Telegramdagi «Panel» tugmasi orqali qayta oching."]
+  },
+
+  /* ── Face ID qulfi ────────────────────────────────────────── */
+  /* `nom` — qurilmadagi biometriya nomi: «Face ID», «Touch ID»,
+     Android'da «Barmoq izi» / «Yuz». Panel o'zi tanlaydi (`bioNomi()`). */
+  qulf: {
+    // Telegram'ning Face ID oynasida chiqadigan sabab.
+    sabab: "Vexon AI panelini ochish",
+    kut:    function (nom) { return ["Panel qulflangan", nom + " bilan tasdiqlang."]; },
+    rad:    function (nom) { return ["Panel qulflangan", nom + " tasdiqlanmadi. Qayta urinib ko'ring."]; },
+    ruxsat: function (nom) {
+      return [nom + " uchun ruxsat yo'q",
+              "Panel " + nom + " bilan qulflangan, lekin Telegram'ga ruxsat berilmagan. " +
+              "«Sozlamalarni ochish» → ruxsatni yoqing va qayta urining."];
+    },
+    yoq:    function (nom) {
+      return [nom + " ishlamayapti",
+              "Panel " + nom + " bilan qulflangan, lekin telefonda u hozir o'chiq. " +
+              "Telefon sozlamalarida Telegram uchun " + nom + " ni yoqing, keyin «Qayta tekshirish»."];
+    },
+    och:    function (nom) { return nom + " bilan ochish"; },
+    qayta:  "Qayta tekshirish",
+    // Sozlamalar → Adminlar → «Shu telefon»
+    nomi:   function (nom) { return nom + " qulfi"; },
+    yoqildi:  function (nom) { return nom + " qulfi yoqildi — panel har ochilganda so'raladi."; },
+    ochirildi: function (nom) { return nom + " qulfi o'chirildi."; },
+    ochirSavol: function (nom) {
+      return nom + " qulfi o'chirilsinmi? Telefon qo'lingizda bo'lmaganda panelni " +
+             "Telegram'ni ochgan odam ko'radi. O'chirish uchun " + nom + " bilan tasdiqlaysiz.";
+    },
+    yozilmadi: "Telegram sozlamani saqlamadi — internetni tekshirib, qayta urinib ko'ring.",
+    vozKechildi: function (nom) {
+      return nom + " qulfisiz ochildi. Yoqish: Sozlamalar → Adminlar.";
+    }
   },
 
   /* ── Karta to'lovi (Sozlamalar → Karta) ────────────────────── */

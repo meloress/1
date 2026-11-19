@@ -21,15 +21,21 @@
      (stroke:url(#gradStroke)), grafik esa maydon va chiziq ranglarini. -->
 <svg width="0" height="0" aria-hidden="true" style="position:absolute">
   <defs>
+    <!-- `g1/g2/g3` — P3 ekranda shu ranglarning kengroq nusxasi (panel.css). -->
     <linearGradient id="gradStroke" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#C724FF"/><stop offset="50%" stop-color="#7B5CFF"/><stop offset="100%" stop-color="#2BB3FF"/>
+      <stop class="g1" offset="0%" stop-color="#C724FF"/><stop class="g2" offset="50%" stop-color="#7B5CFF"/><stop class="g3" offset="100%" stop-color="#2BB3FF"/>
     </linearGradient>
     <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#7B5CFF" stop-opacity=".38"/>
-      <stop offset="100%" stop-color="#7B5CFF" stop-opacity="0"/>
+      <stop class="g2" offset="0%" stop-color="#7B5CFF" stop-opacity=".38"/>
+      <stop class="g2" offset="100%" stop-color="#7B5CFF" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="areaLine" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#C724FF"/><stop offset="100%" stop-color="#2BB3FF"/>
+      <stop class="g1" offset="0%" stop-color="#C724FF"/><stop class="g3" offset="100%" stop-color="#2BB3FF"/>
+    </linearGradient>
+    <!-- KPI mini-grafigi: `userSpaceOnUse` (0..100 — mini-grafik viewBox'i).
+         `objectBoundingBox` tekis (hammasi 0) chiziqni umuman chizmaydi. -->
+    <linearGradient id="sparkLine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+      <stop class="g1" offset="0%" stop-color="#C724FF"/><stop class="g3" offset="100%" stop-color="#2BB3FF"/>
     </linearGradient>
   </defs>
 </svg>
@@ -48,6 +54,19 @@
   <h1 id="xato-sarlavha">Ruxsat yo'q</h1>
   <p id="xato-matn">Bu panel faqat adminlar uchun. Agar bu xato deb hisoblasangiz, superadminga murojaat qiling.</p>
   <button class="btn" id="qayta">Qayta urinish</button>
+</div>
+
+<!-- ══ FACE ID QULFI ══════════════════════════════════════════════
+     Faqat telefonda, Telegram ichida (BiometricManager). Panel ma'lumoti
+     shu ekran ochilmaguncha YUKLANMAYDI. Matnlar `soz.js` → `qulf`. -->
+<div class="gate" id="qulf" hidden>
+  <div class="qulf-belgi" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+  </div>
+  <h1 id="qulf-sarlavha">Panel qulflangan</h1>
+  <p id="qulf-matn">&nbsp;</p>
+  <button class="btn primary" id="qulf-och">Ochish</button>
+  <button class="btn" id="qulf-sozlama" hidden>Sozlamalarni ochish</button>
 </div>
 
 <!-- ══ PANEL ═════════════════════════════════════════════════════ -->
@@ -113,11 +132,15 @@
             <p class="k">24 soatdagi so'rovlar</p>
             <p class="v" id="k-sorov">—</p>
             <p class="d" id="k-sorov-d">&nbsp;</p>
+            <!-- Mini-grafik: oxirgi 7 kun. Oxirgi bo'lak UZUQ — bugun hali
+                 tugamagan, ertalab u har doim «tushgan» ko'rinadi. -->
+            <svg class="spark" id="k-sorov-sp" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label=""></svg>
           </div>
           <div class="kpi">
             <p class="k">Faol (7 kun)</p>
             <p class="v" id="k-faol">—</p>
             <p class="d" id="k-faol-d">&nbsp;</p>
+            <svg class="spark" id="k-faol-sp" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label=""></svg>
           </div>
           <div class="kpi">
             <p class="k">Pro obunachilar</p>
@@ -128,6 +151,7 @@
             <p class="k">Bugungi daromad</p>
             <p class="v" id="k-pul">—</p>
             <p class="d" id="k-pul-d">&nbsp;</p>
+            <svg class="spark" id="k-pul-sp" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label=""></svg>
           </div>
           <div class="kpi">
             <p class="k">Token sarfi</p>
@@ -163,7 +187,7 @@
                 <path id="chart-area" fill="url(#areaFill)" d=""/>
                 <path id="chart-line" fill="none" stroke="url(#areaLine)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d=""/>
                 <g id="chart-dots"></g>
-                <line id="chart-cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
+                <line class="kesim" id="chart-cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
                 <g id="chart-xlab"></g>
                 <rect id="chart-hit" x="0" y="0" width="640" height="180" fill="transparent"/>
               </svg>
@@ -611,7 +635,7 @@
                 <path id="dchart-area" fill="url(#areaFill)" d=""/>
                 <path id="dchart-line" fill="none" stroke="url(#areaLine)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d=""/>
                 <g id="dchart-dots"></g>
-                <line id="dchart-cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
+                <line class="kesim" id="dchart-cross" x1="0" y1="8" x2="0" y2="160" stroke="#7B5CFF" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
                 <g id="dchart-xlab"></g>
                 <rect id="dchart-hit" x="0" y="0" width="640" height="180" fill="transparent"/>
               </svg>
@@ -734,6 +758,19 @@
         </div>
 
         <div class="pane" data-pane="admins">
+          <!-- Shu telefonning o'zi: Face ID qulfi. Faqat Telegram'ning
+               telefon ilovasida ko'rinadi (kompyuterda biometriya yo'q). -->
+          <div class="card" id="qurilma" hidden>
+            <header><h2>Shu telefon</h2></header>
+            <div class="rows">
+              <div class="row" style="padding-top:0" id="face-qator">
+                <div class="t"><b id="face-nom">Face ID qulfi</b><span id="face-izoh">panel har ochilganda va 1 daqiqadan ko'p chetda turgandan keyin so'raladi</span></div>
+                <button class="switch" id="faceSw" aria-pressed="false" aria-label="Face ID qulfi"></button>
+              </div>
+            </div>
+            <button class="btn sm" id="q-sozlama" hidden>Sozlamalarni ochish</button>
+            <p class="natija" id="q-natija">&nbsp;</p>
+          </div>
           <div class="card">
             <header><h2>Adminlar</h2></header>
             <div class="rows" id="ad-rows"></div>

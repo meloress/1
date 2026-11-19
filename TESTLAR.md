@@ -310,6 +310,15 @@ Some are structural guards rather than feature tests, and they earn their keep o
   production — the range check is read from source instead. Checks 17-22 are the third
   pass; **21** carries the two overflow fixes the final width sweep found (a long name and
   an unbroken audit detail widened the page to 870 / 1210 px). Runs offline.
+- `test_panel_iphone.py` — the panel's iPhone pass (`WEB_PANEL.md` «The iPhone pass»).
+  The Telegram-only flows (Face ID, CloudStorage, haptics) were clicked through on the
+  local stand with a fake `Telegram.WebApp` whose `initData` is really signed with the
+  stand token; this file pins their rules, and every check was mutation-tested (the old or
+  broken line put back, the check watched to fail). Sharpest: **5** — panel data loads
+  only *after* the lock opens, and an enrolled lock (`faceid = "1"`) cannot be bypassed
+  by switching Face ID off in the phone's settings; **1** computes the Display P3 tokens'
+  luminance and fails if one drifts more than 2% from its hex (contrast must not change).
+  It reuses `test_web_stats.py`'s fake database by importing it — do not copy it. Offline.
 - `test_eski_bot.py` — the old `@uzchatgptaibot` redirect (`DEPLOY.md` «The bot moved to
   @vexonai»). Its sharpest check is **2**: an old-bot Business customer gets nothing and
   the owner is told once — "this bot has stopped" must never land in the owner's name.
