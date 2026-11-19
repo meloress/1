@@ -263,11 +263,7 @@ async def overview(request: web.Request):
         # ogohlantirishlar hech qayerga bormaydi va buni ilgari faqat
         # Railway logi bilardi. Matnlar `soz.js` da; bu yerdan faqat
         # holat ketadi.
-        "kuzatuv": {
-            "guruh": bool(kuzatuv.get("guruh")),
-            "sabab": kuzatuv.get("sabab"),
-            "vaqt": _sana(kuzatuv.get("vaqt")),
-        },
+        "kuzatuv": _kuzatuv_holati(kuzatuv),
         "tatil": bool(tatil.get("active")),
         "biznes": _biznes_kpi(biznes),
         "kochish": kochish,
@@ -1143,8 +1139,8 @@ EKSPORT_MAX = 5000          # bitta faylga sig'adigan qator soni
 # tushib, `Content-Disposition` sarlavhasini buzardi.
 EKSPORT_TURLARI = {
     "users": ("foydalanuvchilar",
-              ("user_id", "username", "tarif", "muddat", "bloklangan",
-               "ro'yxatdan", "oxirgi_faollik")),
+              ("user_id", "ism", "username", "tarif", "muddat", "bloklangan",
+               "botni_bloklagan", "ro'yxatdan", "oxirgi_faollik")),
     "payments": ("tolovlar",
                  ("id", "sana", "tolovchi", "oluvchi", "yulduz", "kun",
                   "qaytarilgan")),
@@ -1177,13 +1173,19 @@ async def eksport(request: web.Request):
     nom, sarlavhalar = EKSPORT_TURLARI[tur]
 
     if tur == "users":
-        d = await database_module.list_users(limit=EKSPORT_MAX, offset=0)
+        # ⚠️ `nofaollar_ham` — botni bloklaganlar ham; ism esa formula
+        # himoyasidan (`_csv_katak`) o'tadi: u foydalanuvchi o'zi yozgan
+        # matn, `=HYPERLINK(…)` bo'lishi mumkin.
+        d = await database_module.list_users(limit=EKSPORT_MAX, offset=0,
+                                             nofaollar_ham=True)
         qatorlar = [(
             u.get("user_id"),
+            u.get("tg_ism") or "",
             f"@{u['username']}" if u.get("username") else "",
             TARIF_NOMI.get(u.get("plan_type") or "free", u.get("plan_type")),
             _sana(u.get("premium_until")),
             "ha" if u.get("is_banned") else "",
+            "ha" if u.get("is_active") is False else "",
             _sana(u.get("created_at")),
             _sana(u.get("last_seen")),
         ) for u in d["rows"]]
@@ -1472,19 +1474,36 @@ async def maintenance_set(request: web.Request):
 
 @admin_only
 async def watch(request: web.Request):
-    """Kuzatuv guruhi va ro'yxati."""
-    guruh, ruyxat = await asyncio.gather(
+    """Kuzatuv guruhi va ro'yxati.
+
+    `holat` — Boshqaruvdagi «guruhga xabar yetmayapti» banneri bilan
+    AYNAN bir manba (`get_watch_health()`). Banner guruhni TUZATADIGAN
+    joyda ham ko'rinishi kerak — ilgari u faqat Boshqaruvda edi.
+    """
+    guruh, ruyxat, holat = await asyncio.gather(
         database_module.get_watch_group_id(),
         database_module.get_watchlist(),
+        database_module.get_watch_health(),
     )
     return web.json_response({
         "guruh": guruh,
+        "holat": _kuzatuv_holati(holat),
         "rows": [{
             "user_id": r.get("user_id"),
             "username": r.get("username"),
+            "tg_ism": r.get("tg_ism"),
             "added_at": _sana(r.get("added_at")),
         } for r in ruyxat],
     })
+
+
+def _kuzatuv_holati(k: Dict[str, Any]) -> Dict[str, Any]:
+    """Banner shakli — overview va watch uchun bitta."""
+    return {
+        "guruh": bool(k.get("guruh")),
+        "sabab": k.get("sabab"),
+        "vaqt": _sana(k.get("vaqt")),
+    }
 
 
 # Telegram xatosini ADMIN TUSHUNADIGAN sababga o'giradi. Telegram'ning
@@ -1565,6 +1584,14 @@ async def watch_set(request: web.Request):
         except (TypeError, ValueError):
             return web.json_response(
                 {"error": "Guruh ID butun son bo'lsin (masalan -1002481…)"}, status=400)
+        # ⛔️ FAQAT MANFIY — guruh va kanal ID'si doim manfiy. Musbat son
+        # SHAXSIY chat: botga yozgan odamning ID'si kiritilsa sinov xabari
+        # o'tib ketardi va kuzatilayotgan HAMMA yozishma o'sha bitta odamga
+        # nusxalanardi. BIGINT chegarasi — 500 o'rniga aniq xabar.
+        if not -BIGINT_MAX <= guruh < 0:
+            return web.json_response(
+                {"error": "Guruh ID manfiy son bo'ladi (masalan -1002481…). "
+                          "Musbat son — shaxsiy chat, guruh emas."}, status=400)
 
         # ⭐ AVVAL SINOV XABARI, KEYIN SAQLASH. Ilgari bu yerda faqat
         # `int()` tekshirilardi: noto'g'ri ID kiritilsa panel «Saqlandi»
@@ -1836,9 +1863,16 @@ async def giveaway_set(request: web.Request):
             status=400)
 
     xom = str(tana.get("kimlar") or "")
-    tokenlar = [t for t in re.split(r"[\s,]+", xom) if t][:SOVGA_MAX]
+    tokenlar = [t for t in re.split(r"[\s,]+", xom) if t]
     if not tokenlar:
         return web.json_response({"error": "Kimga? ID yoki @username yozing."}, status=400)
+    # ⛔️ JIMGINA KESILMAYDI. Ilgari `[:SOVGA_MAX]` 21-chi odamni tashlab
+    # yuborardi, javob esa «20 tasiga berildi» derdi — admin hammaga
+    # berildi deb o'ylardi. Endi hech kimga berilmaydi va sababi aytiladi.
+    if len(tokenlar) > SOVGA_MAX:
+        return web.json_response(
+            {"error": f"Bir martada eng ko'pi {SOVGA_MAX} kishi — siz {len(tokenlar)} ta yozdingiz. "
+                      "Ikki marta yuboring."}, status=400)
 
     berildi, topilmadi, yetmadi = [], [], []
     korilgan = set()
@@ -2016,6 +2050,10 @@ async def meta(request: web.Request):
         # Tasdiq oynasida «eng ko'pi bilan N qator» deyiladi. Panel bu
         # sonni O'YLAB TOPMASLIGI kerak — u shu faylda, bitta joyda.
         "eksport_max": EKSPORT_MAX,
+        # Sovg'a formasi: «eng ko'pi N kishi» va kun chegarasi — tasdiqdan
+        # OLDIN aytish uchun (server baribir o'zi tekshiradi).
+        "sovga_max": SOVGA_MAX,
+        "kun_max": database_module.PROMO_KUN_MAX,
     })
 
 

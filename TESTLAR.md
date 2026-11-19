@@ -302,7 +302,12 @@ Some are structural guards rather than feature tests, and they earn their keep o
   per-row `user_activity.username` split one person into three rows), **5** (an admin can
   only be someone the bot knows: `0`, `-5` and an unknown ID used to become full admins)
   and **1** (`get_full_user_profile()` is a hand-built dict, so a new column does **not**
-  arrive by itself — the panel never showed the name). Runs offline.
+  arrive by itself — the panel never showed the name). Checks 9-16 are the second pass:
+  **9** (21 gift recipients is a 400 that touches nothing), **10** (`tg` only with
+  `initData`), **14** (no card nested in another — measured by `div` depth, because the
+  original bug had a closing `</div>` *between* the two cards). It never calls
+  `database.get_user_by_identifier()`: that would open a pool to the `.env` database, i.e.
+  production — the range check is read from source instead. Runs offline.
 - `test_eski_bot.py` — the old `@uzchatgptaibot` redirect (`DEPLOY.md` «The bot moved to
   @vexonai»). Its sharpest check is **2**: an old-bot Business customer gets nothing and
   the owner is told once — "this bot has stopped" must never land in the owner's name.

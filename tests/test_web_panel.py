@@ -49,16 +49,20 @@ def test_ekranlar():
 
 def test_telefonda_qamrov():
     """⚠️ ENG MUHIMI: Mini App TELEFONDA ochiladi, chap menyu esa u yerda
-    yashiringan. Ya'ni ekranga yo'l faqat pastki tab-panel va bosh ekran
-    ichidagi tugmalardan qoladi. Maketda tab-panelda 5 ta joy bor,
-    ekran esa 7 ta — qolgan ikkitasi bosh ekrandagi «Boshqa bo'limlar»
-    kartochkasidan ochiladi. Shu kartochka o'chsa, Statistika va
-    Tarqatma telefonda BUTUNLAY yo'qoladi va buni hech narsa aytmaydi.
+    yashiringan. Ya'ni ekranga yo'l faqat pastki tab-panelda qoladi.
+
+    2026-11-19 gacha ekran 7 ta, tab-panelda esa 5 ta joy bor edi —
+    Statistika va Tarqatmaga telefonda faqat Boshqaruvning ENG PASTIDAGI
+    «Boshqa bo'limlar» kartochkasidan yetib borilardi (audit). Endi bo'lim
+    BESHTA, har biri ichki tablarga bo'lingan, va qoida qattiqroq: HAR
+    bir bo'lim pastki panelda bor va chap menyu bilan AYNAN bir xil —
+    «boshqa yo'l» degan zaxira yo'q, ya'ni u o'chib qolishi ham mumkin emas.
     """
     tabbar = re.search(r'<nav class="tabbar".*?</nav>', HTML, re.S)
     assert tabbar, "pastki tab-panel yo'q"
     telefonda = set(re.findall(r'data-go="(\w+)"', tabbar.group(0)))
-    telefonda |= set(re.findall(r'data-go="(\w+)"', SECTIONS["dash"]))
+    assert len(re.findall(r'data-go="', tabbar.group(0))) <= 5, \
+        "pastki panelda 5 tadan ko'p tugma — telefonda sig'maydi"
 
     # ⚠️ `profil` — ICHKI sahifa: unga tugma emas, ro'yxatdagi qator
     # olib boradi, va Telegramning «Orqaga» tugmasi FAQAT o'sha yerda
@@ -74,16 +78,14 @@ def test_telefonda_qamrov():
     # «Orqaga» faqat shu yerda.
     assert 'if (hozir === "profil") tg.BackButton.show();' in JS,         "«Orqaga» tugmasi ichki sahifaga bog'lanmagan"
 
-    # Kompyuterda esa chap menyuda HAMMASI turishi kerak.
+    # Kompyuterda esa chap menyuda HAMMASI turishi kerak — va aynan o'sha
+    # beshta: ikki xil tuzilma bo'lsa telefon va kompyuter boshqa-boshqa
+    # panelga o'xshab qolardi.
     nav = re.search(r'<nav class="nav" id="nav">.*?</nav>', HTML, re.S)
     assert nav, "chap menyu yo'q"
     railda = set(re.findall(r'data-go="(\w+)"', nav.group(0)))
     assert railda == set(SECTIONS) - ICHKI,         f"chap menyu to'liq emas: {set(SECTIONS) - ICHKI - railda}"
-
-    # «Boshqa bo'limlar» kartochkasi faqat tor ekranda ko'rinadi.
-    assert ".faqat-tel{display:none}" in CSS.replace(" ", "")
-    assert ".faqat-tel{display:block}" in CSS.replace(" ", ""), \
-        "faqat-tel telefon media-so'rovida yoqilmagan"
+    assert railda == telefonda, f"chap menyu va pastki panel farq qiladi: {railda ^ telefonda}"
     print("[2] har bir ekran telefonda ham, kompyuterda ham ochiladi OK")
 
 
@@ -98,6 +100,9 @@ def test_sub_tablar():
         tugmalar = re.findall(r'data-pane="([\w-]+)"', bar.group(1))
         panellar = re.findall(r'<div class="pane[^"]*" data-pane="([\w-]+)"', ichi)
         assert tugmalar, f"{nom}: sub-tab tugmalari yo'q"
+        # ⚠️ 4 tadan ko'p emas: Sozlamalarda 5 ta edi va 360px'da
+        # «Adminlar» umuman ko'rinmasdi (aylantirish ishorasi yo'q).
+        assert len(tugmalar) <= 4, f"{nom}: {len(tugmalar)} ta tab — 360px'ga sig'maydi"
         assert set(tugmalar) == set(panellar), \
             f"{nom}: tugma va panel mos emas — {set(tugmalar) ^ set(panellar)}"
 
@@ -105,7 +110,8 @@ def test_sub_tablar():
         assert len(ochiq) == 1, f"{nom}: ochiq panel aniq bitta bo'lsin — {ochiq}"
         joriy = re.findall(r'aria-current="true" data-pane="([\w-]+)"', bar.group(1))
         assert joriy == ochiq, f"{nom}: belgilangan tab ochiq panelga mos emas"
-    assert topildi == 3, f"sub-tabli ekranlar soni kutilgandan boshqa: {topildi}"
+    # Odamlar, O'sish, Hisobot, Sozlamalar (Boshqaruvda ichki tab yo'q).
+    assert topildi == 4, f"sub-tabli ekranlar soni kutilgandan boshqa: {topildi}"
 
     # Boshqa ekrandan sub-tab bilan chaqirish: data-go + data-pane juftligi.
     for ekran, pane in re.findall(r'data-go="(\w+)" data-pane="([\w-]+)"', HTML):

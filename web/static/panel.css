@@ -394,6 +394,10 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 .kiritish.tor{width:100%;max-width:120px;text-align:right;font-variant-numeric:tabular-nums}
 .forma{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:var(--s-3);min-width:0}
 .forma .kiritish{width:auto;flex:1 1 130px;min-width:0}
+/* Karta: 16-19 xonali raqam yonma-yon tor maydonga sig'masdi (360px'da
+   «8600 1234 5678…» kesilardi) — pul tushadigan raqamni admin TO'LIQ
+   ko'rib yozsin. Maydonlar ustma-ust, tugmalar ostida. */
+.forma.ustma .kiritish{flex-basis:100%;font-variant-numeric:tabular-nums}
 .natija{margin-top:10px;font-size:var(--f-s);min-height:17px;color:var(--ok)}
 .natija.yomon{color:var(--bad)}
 
@@ -449,7 +453,10 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 .subtabs::-webkit-scrollbar{display:none}
 .subtabs button{padding:9px 13px;font-size:var(--f-m);color:var(--ink-3);border-bottom:2px solid transparent;white-space:nowrap}
 .subtabs button[aria-current="true"]{color:var(--ink);border-bottom-color:var(--violet);font-weight:600}
-.pane{display:none}.pane.on{display:block}
+/* Panel — `section` bilan bir xil ustun va oraliq: ichidagi kartochkalar
+   yopishib qolmasin (Daromad panelida ikki kartochka oraliqsiz turardi). */
+.pane{display:none}.pane.on{display:flex;flex-direction:column;gap:var(--s-4)}
+.pane.on > *{min-width:0}
 
 .note{display:flex;gap:11px;padding:13px 15px;border-radius:var(--r-m);
   background:var(--panel-2);border:1px solid var(--line)}
@@ -525,7 +532,6 @@ textarea.kiritish{resize:vertical;line-height:1.6}
 
 /* ══ TELEFON ═══════════════════════════════════════════════════════ */
 .tabbar{display:none}
-.faqat-tel{display:none}
 
 @media (max-width:900px){
   .shell{grid-template-columns:1fr}
@@ -548,7 +554,6 @@ textarea.kiritish{resize:vertical;line-height:1.6}
   .tabbar button span{overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .tabbar button[aria-current="true"]{color:var(--ink);font-weight:600}
   .tabbar button[aria-current="true"] svg{stroke:url(#gradStroke)}
-  .faqat-tel{display:block}
   .kpi .v{font-size:var(--f-2xl)}
 }
 

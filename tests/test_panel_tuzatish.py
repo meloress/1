@@ -18,6 +18,16 @@ yiqiladi:
     [6]  profil: username'siz odam — `username: null`, ism keladi
     [7]  ta'til matni HTML sifatida emas, oddiy matn bo'lib ketadi
     [8]  panel: avatar shaxsiy nomdan, admin tasdig'ida kimligi
+
+  2-to'plam (o'rta):
+    [9]  sovg'a: 20 tadan ko'p — rad (jimgina kesilmaydi), tasdiqda soni va kuni
+    [10] brauzer: `tg` faqat `initData` bo'lsa — zaxira Saqlash va chiqish ishlaydi
+    [11] karta: tasdiqda yangi raqam to'liq, uzun ism — to'g'ri xato, maydonlar ustma-ust
+    [12] bugungi daromad — ikkala tomon Toshkent sanasi (UTC sessiyada 05:00 emas)
+    [13] grafik: kenglik haqiqiy, ResizeObserver, tooltip kartada qisiladi
+    [14] navigatsiya: 5 bo'lim, ichma-ich kartochka yo'q, faol tab ko'rinadi
+    [15] kuzatuv guruhi faqat manfiy ID; ulkan ID — 400; banner Kuzatuv tabida ham
+    [16] CSV: botni bloklaganlar ham, ism ustuni ham (formula himoyasi bilan)
 """
 
 import os
@@ -83,6 +93,22 @@ def soxta_baza():
 
     async def get_referral_progress(uid):
         return {"invited": 0, "qualified": 0, "rewarded": 0}
+
+    async def get_user_by_identifier(token):
+        CHAQIRUV.append(("topish", token))
+        return 5000000002 if token == "5000000002" else None
+
+    async def set_user_premium(uid, days, **kw):
+        CHAQIRUV.append(("premium", uid, days))
+
+    async def list_users(**kw):
+        CHAQIRUV.append(("list_users", kw))
+        return {"rows": [
+            {"user_id": 1, "username": "faol", "tg_ism": '=HYPERLINK("http://x","bos")',
+             "plan_type": "free", "is_banned": False, "is_active": True},
+            {"user_id": 2, "username": None, "tg_ism": "Ketgan", "plan_type": "free",
+             "is_banned": False, "is_active": False},
+        ], "jami": 2, "sanoq": {}}
 
     for nom, fn in list(locals().items()):
         if callable(fn) and nom != "db":
@@ -174,6 +200,48 @@ async def main():
             assert r.status == 400, (yomon, r.status)
         check(6, "profil: username null + ism; yaroqsiz ID — 400 (500 emas)", True)
 
+        # 9) Sovg'a: 21 kishi — HECH KIMGA berilmaydi va sababi aytiladi.
+        #    Ilgari `[:SOVGA_MAX]` 21-chisini jimgina tashlab, «20 tasiga
+        #    berildi» derdi.
+        CHAQIRUV.clear()
+        kimlar = " ".join(str(5000000000 + i) for i in range(api.SOVGA_MAX + 1))
+        r = await c.post("/api/giveaway", headers=h, json={"kimlar": kimlar, "kun": 30})
+        xato = (await r.json()).get("error") or ""
+        assert r.status == 400 and str(api.SOVGA_MAX + 1) in xato, (r.status, xato)
+        assert not CHAQIRUV, f"rad etilgan sovg'a bazaga tegdi: {CHAQIRUV}"
+        check(9, "sovg'a: 20 tadan ko'p — 400, hech kimga berilmaydi", True)
+
+        # 15) Kuzatuv guruhi: musbat ID — shaxsiy chat (hamma kuzatilgan
+        #     yozishma o'sha odamga ketardi); ulkan son — 400, 500 emas.
+        #     Ikkalasi ham sinov xabaridan OLDIN rad etiladi.
+        for guruh in ["12345", "-1001234567890123456789", "0"]:
+            r = await c.post("/api/watch", headers=h, json={"amal": "group", "guruh": guruh})
+            assert r.status == 400, (guruh, r.status)
+        db_m = kod(ROOT / "db" / "database.py")
+        gi = funksiya(db_m, "get_user_by_identifier")
+        check(15, "kuzatuv guruhi faqat manfiy; get_user_by_identifier BIGINT'ni tekshiradi",
+              "2 ** 63" in gi and "except ValueError" in gi)
+
+        # 16) CSV: botni bloklaganlar ham (`nofaollar_ham=True`), ism
+        #     ustuni bor va u ham formula himoyasidan o'tadi.
+        ketgan = {}
+
+        async def soxta_hujjat(uid, baytlar, nom, izoh):
+            ketgan["matn"] = baytlar.decode("utf-8")
+            return True
+        api._hujjat = soxta_hujjat
+        CHAQIRUV.clear()
+        r = await c.post("/api/export?tur=users", headers=h)
+        assert r.status == 200, await r.text()
+        lu_kw = [x[1] for x in CHAQIRUV if x[0] == "list_users"]
+        satrlar = ketgan["matn"].lstrip("﻿").splitlines()
+        sarlavha = satrlar[0].split(";")
+        assert lu_kw and lu_kw[0].get("nofaollar_ham") is True, lu_kw
+        assert "ism" in sarlavha and "botni_bloklagan" in sarlavha, sarlavha
+        assert "'=HYPERLINK" in satrlar[1], satrlar[1]
+        assert satrlar[2].split(";")[sarlavha.index("botni_bloklagan")] == "ha", satrlar[2]
+        check(16, "CSV: bloklaganlar ham, ism ustuni, formula zararsiz", True)
+
     # 7) Ta'til matni — admin yozgan oddiy matn. Bot standart HTML
     #    rejimida: «Bot < 1 soat» kabi matn rad etilib, ta'til paytida
     #    hech kim javob olmasdi.
@@ -199,7 +267,62 @@ async def main():
           and "\\p{L}" in bosh and '"?"' not in bosh
           and adm.index('"/api/users/"') < adm.index("tasdiq("))
 
-    print("\npanel tuzatish: barcha tekshiruvlar o'tdi (8/8).")
+    soz = js_kod((ROOT / "web" / "static" / "soz.js").read_text(encoding="utf-8"))
+    html = (ROOT / "web" / "static" / "panel.html").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "static" / "panel.css").read_text(encoding="utf-8")
+
+    # 10) `tg` — faqat Telegram ichida. Skript brauzerda ham WebApp'ni
+    #     yaratadi: `if (tg)` u yerda rost bo'lib, limitlarni saqlab
+    #     bo'lmasdi va «Chiqish» ma'lumotni ekranda qoldirardi.
+    check(10, "tg faqat initData bo'lsa",
+          re.search(r"var tg = WA && WA\.initData \? WA : null;", js) is not None)
+
+    # 11) Karta: tasdiqda yangi raqam TO'LIQ; uzun ism — o'z xabari.
+    xato = database.clean_karta("8600123412341234", "A" * 300)[2]
+    gift = js[js.index('$("g-yubor")'): js.index('$("g-yubor")') + 1500]
+    check(11, "karta tasdig'ida raqam, uzun ism xabari, maydonlar ustma-ust; sovg'a tasdig'ida soni/kuni",
+          "S.savol.karta(raqamlar" in js and "50 belgi" in xato
+          and 'class="forma ustma" id="k-forma"' in html
+          and "S.savol.sovga(soni, kun)" in gift
+          and gift.index("META.sovga_max") < gift.index("tasdiq("))
+
+    # 12) Bugungi daromad: `timestamptz >= date` sessiya zonasida
+    #     o'giriladi (server UTC) va chegara 05:00 bo'lib qolardi.
+    rs = funksiya(db_manba, "revenue_stats")
+    check(12, "bugungi daromad ikkala tomonda Toshkent sanasi",
+          re.search(r"created_at >= \(NOW\(\) AT TIME ZONE 'Asia/Tashkent'\)::date", rs) is None
+          and re.search(r"\(created_at AT TIME ZONE 'Asia/Tashkent'\)::date\s*=\s*"
+                        r"\(NOW\(\) AT TIME ZONE 'Asia/Tashkent'\)::date", rs) is not None)
+
+    # 13) Grafik: kenglik qotirilmagan — telefonda yozuv 6-7px bo'lardi.
+    ch = js[js.index("function chizuvchi("): js.index("function chizuvchi(") + 6000]
+    check(13, "grafik: haqiqiy kenglik, ResizeObserver, tooltip qisiladi",
+          "var W = 640, PAD_L" not in js and 'setAttribute("viewBox"' in ch
+          and "ResizeObserver" in ch and "Math.max(yarim" in ch)
+
+    # 14) Navigatsiya: «Boshqa bo'limlar» zaxirasi yo'q (test_web_panel 2
+    #     beshala bo'limni tekshiradi), Faollik panelidagi kartochkalar
+    #     ICHMA-ICH emas, faol ichki tab ko'rinishga aylantiriladi.
+    faollik = html[html.index('<div class="pane on" data-pane="activity">'):
+                   html.index('<div class="pane" data-pane="audit">')]
+    # Har bir kartochka qaysi CHUQURLIKDA ochiladi — hammasi bir xil
+    # bo'lishi shart (grid2 ning bolalari). Ilgari birinchisi yopilmagan
+    # edi va ikkinchisi bir daraja ichkarida ochilardi.
+    chuqurlik, kartalar = 0, []
+    for t in re.finditer(r'<(/?)div\b([^>]*)>', faollik):
+        if t.group(1):
+            chuqurlik -= 1
+        else:
+            if 'class="card"' in t.group(2):
+                kartalar.append(chuqurlik)
+            chuqurlik += 1
+    ichma_ich = len(set(kartalar)) != 1 or len(kartalar) != 4
+    check(14, "5 bo'lim, ichma-ich kartochka yo'q, faol tab scrollIntoView",
+          "faqat-tel" not in html and "faqat-tel" not in css and not ichma_ich
+          and "scrollIntoView" in js[js.index("function showPane("): js.index("function navigatsiya(")]
+          and "report:" in soz and "journal:" not in soz)
+
+    print("\npanel tuzatish: barcha tekshiruvlar o'tdi (16/16).")
 
 
 if __name__ == "__main__":

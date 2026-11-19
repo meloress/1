@@ -971,7 +971,15 @@ async def get_user_by_identifier(identifier: str) -> Optional[int]:
         await create_db_pool()
     identifier = identifier.strip()
     if identifier.isdigit():
-        uid = int(identifier)
+        # ⚠️ BIGINT'ga sig'maydigan son (yoki `int()` o'qiy olmaydigan
+        # «²» kabi raqam belgisi) — bunday foydalanuvchi bo'lmaydi. Ilgari
+        # u to'g'ri so'rovga ketib, panelda 500 «server xatosi» berardi.
+        try:
+            uid = int(identifier)
+        except ValueError:
+            return None
+        if not 0 < uid <= 2 ** 63 - 1:
+            return None
         async with pool.acquire() as conn:
             exists = await conn.fetchval('SELECT 1 FROM users WHERE user_id = $1', uid)
             return uid if exists else None
@@ -2865,14 +2873,15 @@ async def get_watchlist() -> List[Dict[str, Any]]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''
-            SELECT w.user_id, w.added_at, u.username
+            SELECT w.user_id, w.added_at, u.username, u.tg_ism
             FROM watchlist w
             LEFT JOIN users u ON u.user_id = w.user_id
             ORDER BY w.added_at DESC
             '''
         )
         return [
-            {'user_id': r['user_id'], 'username': r['username'], 'added_at': r['added_at']}
+            {'user_id': r['user_id'], 'username': r['username'],
+             'tg_ism': r['tg_ism'], 'added_at': r['added_at']}
             for r in rows
         ]
 
@@ -4120,7 +4129,11 @@ def clean_karta(raqam, egasi) -> tuple:
     if not r and not e:
         return None, None, ""
     if not 16 <= len(r) <= 19 or len(r) != len("".join(str(raqam).split()).replace("-", "")):
-        return None, None, "Karta raqami 16 ta raqam bo'lsin (bo'shliq bilan yozsa ham bo'ladi)."
+        return None, None, "Karta raqami 16–19 ta raqam bo'lsin (bo'shliq bilan yozsa ham bo'ladi)."
+    # Uzunlik ALOHIDA aytiladi: ilgari 300 belgili ism ham «ismini
+    # yozing» deb rad etilardi — ism yozilgan edi, sabab boshqa.
+    if len(e) > 50:
+        return None, None, "Karta egasining ismi 50 belgidan oshmasin."
     if not _KARTA_EGASI_RE.fullmatch(e):
         return None, None, "Karta egasining ismini yozing (masalan: ALI VALIYEV)."
     return r, e, ""
@@ -4478,12 +4491,18 @@ async def revenue_stats() -> Dict[str, Any]:
     if pool is None:
         await create_db_pool()
     async with pool.acquire() as conn:
+        # ⚠️ «Bugun» — IKKALA tomon ham Toshkent sanasi. Ilgari
+        # `created_at >= (…)::date` edi: `date` → `timestamptz` o'girish
+        # SESSIYA zonasida bo'ladi, server esa UTC — ya'ni chegara 05:00
+        # Toshkent edi va 00:00–05:00 orasidagi to'lov «bugun»ga hech
+        # qachon kirmasdi (grafik esa uni ko'rsatardi).
         row = await conn.fetchrow(
             '''
             SELECT
               COALESCE(SUM(stars) FILTER (
                   WHERE refunded_at IS NULL
-                    AND created_at >= (NOW() AT TIME ZONE 'Asia/Tashkent')::date
+                    AND (created_at AT TIME ZONE 'Asia/Tashkent')::date
+                        = (NOW() AT TIME ZONE 'Asia/Tashkent')::date
               ), 0) AS stars_today,
               COALESCE(SUM(stars) FILTER (
                   WHERE refunded_at IS NULL AND created_at >= NOW() - INTERVAL '30 days'
@@ -5727,7 +5746,8 @@ def like_ekranla(matn: Optional[str]) -> Optional[str]:
 @with_db_retry()
 async def list_users(q: Optional[str] = None, tarif: str = "all",
                      limit: int = 20, offset: int = 0,
-                     tartib: str = "faollik") -> Dict[str, Any]:
+                     tartib: str = "faollik",
+                     nofaollar_ham: bool = False) -> Dict[str, Any]:
     """Web paneldagi foydalanuvchilar jadvali: qidiruv + filtr + sahifa.
 
     Nega yangi funksiya: `get_all_users()` da na chegara, na filtr bor —
@@ -5755,6 +5775,11 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
     faollik = "is_active = FALSE" if nofaol else "is_active = TRUE"
     if nofaol:
         tarif = "all"
+    # CSV eksporti uchun: faol ham, botni bloklagan ham. Ilgari eksport
+    # oddiy ro'yxatni olardi va bloklaganlar faylga JIMGINA kirmasdi —
+    # «foydalanuvchilar» fayli jamidan kam chiqardi.
+    if nofaollar_ham:
+        faollik = "TRUE"
     buyruq = _TARTIB.get(tartib, _TARTIB["faollik"])
 
     frag = (q or "").strip().lstrip("@") or None
@@ -5776,7 +5801,7 @@ async def list_users(q: Optional[str] = None, tarif: str = "all",
     async with pool.acquire() as conn:
         rows = await conn.fetch(f'''
             SELECT user_id, username, tg_ism, plan_type, is_banned, premium_until,
-                   created_at, last_seen
+                   created_at, last_seen, is_active
             FROM users
             WHERE {faollik} {_ODDIY_USER} {qidiruv}
               AND {_TARIF_SHARTI}

@@ -17,7 +17,14 @@
 (function () {
   "use strict";
 
-  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  /* ⚠️ `tg` — FAQAT HAQIQATAN Telegram ichida. Telegram skripti oddiy
+     brauzerda ham `Telegram.WebApp` ni yaratadi (platform "unknown"),
+     ya'ni `if (tg)` u yerda ham rost bo'lardi: limitlarning zaxira
+     «Saqlash» tugmasi yashirin qolib, brauzerdan limit saqlab bo'lmasdi,
+     «Chiqish» esa ko'rinmas `tg.close()` ni chaqirib, ma'lumotni ekranda
+     qoldirardi. Telegram ichida `initData` doim bor, tashqarida — bo'sh. */
+  var WA = window.Telegram && window.Telegram.WebApp;
+  var tg = WA && WA.initData ? WA : null;
   var S = window.SOZ;
   var META = null;            // /api/meta — tarif va limit nomlari
 
@@ -250,7 +257,7 @@
     if (!META) META = { tariflar: {}, ranglar: {}, limitlar: {}, limit_izohi: {},
                         // `EKSPORT_MAX` ning zaxirasi: lug'at kelmasa
                         // tasdiq matni «0 qator» deb yolg'on gapirmasin.
-                        eksport_max: 5000,
+                        eksport_max: 5000, sovga_max: 20, kun_max: 3650,
                         grafik_kunlari: [7, 30, 90] };
 
     qism("chiplar", chiplarniChiz);
@@ -337,7 +344,14 @@
     var sec = document.querySelector('section[data-screen="' + screen + '"]');
     if (!sec) return;
     sec.querySelectorAll(".subtabs button").forEach(function (b) {
-      b.setAttribute("aria-current", b.dataset.pane === pane ? "true" : "false");
+      var faol = b.dataset.pane === pane;
+      b.setAttribute("aria-current", faol ? "true" : "false");
+      // Tab qatori tor ekranda aylanadi — faol tab KO'RINIB tursin.
+      // Ilgari 360px'da «Adminlar» bosilsa ham u ekrandan tashqarida
+      // qolib, faqat ostki chizig'ining bir bo'lagi ko'rinardi.
+      if (faol && b.scrollIntoView) {
+        try { b.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) {}
+      }
     });
     sec.querySelectorAll(".pane").forEach(function (p) {
       p.classList.toggle("on", p.dataset.pane === pane);
@@ -629,7 +643,14 @@
      `chizuvchi(prefiks)` har bir grafikka o'z holatini beradi, kod esa
      bitta joyda qoladi. HTML tomonda id'lar prefiks bilan: "d-line",
      "d-dots" va hokazo. */
-  var W = 640, PAD_L = 44, PAD_R = 12, TOP = 18, BASE = 158;
+  /* ⚠️ Kenglik (`W`) QOTIRILMAGAN — har grafikda o'zi, konteynerning
+     haqiqiy piksel kengligi. Ilgari `viewBox="0 0 640 210"` edi va SVG
+     telefonda butunicha kichrayardi: 11px yozuvlar 360px ekranda 6.4px,
+     390px'da 7.2px bo'lib o'qib bo'lmasdi (audit, 2026-11-19). Endi
+     1 birlik = 1 CSS piksel, ya'ni yozuv hamma joyda 11px. */
+  // BALAND — x yorliqlari (y=176) va ularning pastki qismi sig'adigan
+  // eng kichik balandlik; 210 da ostida bo'sh joy qolardi.
+  var PAD_L = 44, PAD_R = 16, TOP = 18, BASE = 158, BALAND = 186;
 
   /* Yuqori chegara — 4 ga bo'linadigan "chiroyli" son, eng kamida 4.
      Nolga bo'lish va tekis nol grafik shu yerda to'xtaydi. */
@@ -641,8 +662,18 @@
   }
 
   function chizuvchi(prefiks, sarlavha, izoh) {
-    var DAYS = [], MAX = 100;
+    var DAYS = [], MAX = 100, W = 640, oxirgi = null;
     function el(nom) { return $(prefiks + nom); }
+
+    /* Konteyner kengligi. Yashirin tabda (masalan Daromad ochilmagan)
+       u 0 — unda eski qiymat qoladi, tab ochilganda ResizeObserver
+       qayta chizadi. */
+    function olcha() {
+      var box = el("box"), w = box ? Math.round(box.clientWidth) : 0;
+      if (w > 0) W = w;
+      el("svg").setAttribute("viewBox", "0 0 " + W + " " + BALAND);
+      el("hit").setAttribute("width", W);
+    }
 
     function x(i) {
       var n = DAYS.length > 1 ? DAYS.length - 1 : 1;
@@ -655,6 +686,8 @@
     function y(v) { return BASE - (v / MAX) * (BASE - TOP); }
 
     function chiz(kunlar) {
+      oxirgi = kunlar;
+      olcha();
       DAYS = kunlar || [];
       var eng = DAYS.length
         ? Math.max.apply(null, DAYS.map(function (p) { return p.soni; })) : 0;
@@ -677,7 +710,10 @@
           // bo'lmay qoladi — u yerda sana yoziladi.
           var yorliq = DAYS.length <= 7 ? p.nom
             : (p.kun || "").slice(8, 10) + "." + (p.kun || "").slice(5, 7);
-          labels += '<text x="' + x(i).toFixed(1) + '" y="176" text-anchor="middle">' +
+          // Oxirgi yorliq o'ng chetga TEKISLANADI — markazlansa uning
+          // yarmi kartadan tashqarida qolardi.
+          var langar = i === DAYS.length - 1 && DAYS.length > 1 ? "end" : "middle";
+          labels += '<text x="' + x(i).toFixed(1) + '" y="176" text-anchor="' + langar + '">' +
                     xavfsiz(yorliq) + "</text>";
         }
       });
@@ -714,11 +750,16 @@
         var cx = e.touches ? e.touches[0].clientX : e.clientX;
         var i = nearest(cx), r = box.getBoundingClientRect();
         cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", ".55");
-        tip.style.opacity = "1";
-        tip.style.left = (x(i) / W * r.width) + "px";
-        tip.style.top = (y(DAYS[i].soni) / 210 * r.height) + "px";
         tip.innerHTML = xavfsiz(kunNomi(DAYS[i].kun + "T12:00:00+05:00")) +
                         " · " + izoh(DAYS[i]);
+        tip.style.opacity = "1";
+        // ⚠️ KARTA ICHIDA QISILADI. Markazi nuqtada turgani uchun
+        // chetdagi nuqtada yarmi tashqariga chiqardi: kompyuterda qo'shni
+        // kartani yopardi, telefonda ekrandan chiqib ketardi.
+        var yarim = tip.offsetWidth / 2;
+        var chap = x(i) / W * r.width;
+        tip.style.left = Math.max(yarim, Math.min(r.width - yarim, chap)) + "px";
+        tip.style.top = (y(DAYS[i].soni) / BALAND * r.height) + "px";
       }
       function leave() { tip.style.opacity = "0"; cross.setAttribute("opacity", "0"); }
       hit.addEventListener("mousemove", move);
@@ -726,6 +767,15 @@
       hit.addEventListener("touchstart", move, { passive: true });
       hit.addEventListener("touchmove", move, { passive: true });
       hit.addEventListener("touchend", leave);
+      // Kenglik o'zgardi (telefon burildi, oyna kattalashdi, yashirin
+      // tab ochildi) — shu kenglikda qayta chiziladi. Faqat KENGLIK
+      // o'zgarganda: balandlik o'zgarishiga qayta chizish halqa bo'lardi.
+      if (window.ResizeObserver) {
+        new ResizeObserver(function () {
+          var w = Math.round(box.clientWidth);
+          if (oxirgi && w > 0 && w !== W) chiz(oxirgi);
+        }).observe(box);
+      }
     }
 
     return { chiz: chiz, hodisalar: hodisalar };
@@ -813,8 +863,10 @@
      ⚠️ O'CHIRISH TUGMASI YO'Q. Banner muvaffaqiyatli yuborishdan keyin
      o'zi yo'qoladi (server ikkita vaqtni solishtiradi), ya'ni qo'lda
      o'chirilgan banner muammo qolgan holda yo'qolib ketmaydi. */
-  function kuzatuvBanner(k) {
-    var joy = document.querySelector('section[data-screen="dash"]');
+  function kuzatuvBanner(k, joy) {
+    // Ikki joyda: Boshqaruvning tepasi va Odamlar › Kuzatuv — guruhni
+    // TUZATADIGAN joy (ilgari banner faqat Boshqaruvda edi).
+    joy = joy || document.querySelector('section[data-screen="dash"]');
     if (!joy) return;
     var eski = joy.querySelector(".banner");
     if (eski) eski.remove();
@@ -1185,13 +1237,17 @@
      yuklanadi — ekranga qaytganda yoki Telegram'dan panelga qaytganda.
      Sozlamalar va Promo YO'Q: ular qayta chizilsa yozilayotgan, hali
      saqlanmagan qiymatlar (limitlar, promo formasi) o'chib ketardi. */
-  var YANGILANADI = { dash: 1, stats: 1, users: 1, journal: 1, broadcast: 1 };
+  var YANGILANADI = { dash: 1, users: 1, report: 1 };
   var ESKIRISH_MS = 60000;
 
+  /* Besh bo'lim (2026-11-19): har biri o'z ichki tablarining hammasini
+     BIR yuklashda oladi — sozlamalar() va jurnal() oldindan shunday edi. */
+  function odamlarEkran() { return Promise.all([jadvalYukla(), kuzatuv()]); }
+  function hisobotEkran() { return Promise.all([statistika(), jurnal()]); }
+
   function ekranYukla(nom) {
-    var fn = { dash: boshqaruv, stats: statistika, users: jadvalYukla,
-               journal: jurnal, promo: promoEkran, system: sozlamalar,
-               broadcast: tarqatmalar }[nom];
+    var fn = { dash: boshqaruv, users: odamlarEkran, report: hisobotEkran,
+               promo: promoEkran, system: sozlamalar }[nom];
     if (!kirdi || !fn) return;
     var t = yuklangan[nom];
     if (t && !(YANGILANADI[nom] && Date.now() - t > ESKIRISH_MS)) return;
@@ -1549,6 +1605,15 @@
                      bloklansinmi ? S.natija.ban : S.natija.unban, this)) await qayta();
     });
 
+    // Kuzatuvga shu yerdan — ilgari ID'ni ko'chirib, Sozlamalarga o'tib,
+    // qayta yozish kerak edi.
+    $("a-kuzat").addEventListener("click", async function () {
+      if (!uOchiq) return;
+      if (!await tasdiq(S.savol.kuzat(nomi(uOchiq)))) return;
+      if (await amal("/api/watch", { amal: "add", kim: String(uOchiq.user_id) },
+                     S.natija.kuzat, this)) yuklangan.users = false;
+    });
+
     $("a-msg").addEventListener("click", function () {
       titroq("light");
       $("a-kunlar").hidden = true;
@@ -1877,13 +1942,14 @@
   /* ══ KUZATISH ═══════════════════════════════════════════════════ */
   async function kuzatuv() {
     var d = await ol("/api/watch");
+    kuzatuvBanner(d.holat, document.querySelector('.pane[data-pane="watch"]'));
     // Guruh qo'yilmagan bo'lsa kuzatuv UMUMAN ishlamaydi.
     $("w-guruh").textContent = d.guruh === null ? "qo'yilmagan" : d.guruh;
     $("w-rows").innerHTML = d.rows.length
       ? d.rows.map(function (u) {
-          var nom = u.username ? "@" + u.username : "ID:" + u.user_id;
-          return '<div class="row"><div class="t"><b>' + xavfsiz(nom) +
-            "</b><span>qo'shilgan " + xavfsiz(qisqa(u.added_at)) + "</span></div>" +
+          return '<div class="row"><div class="t"><b>' +
+            xavfsiz(nomi(u)) + "</b><span>ID " + xavfsiz(u.user_id) + " · qo'shilgan " +
+            xavfsiz(qisqa(u.added_at)) + "</span></div>" +
             (d.guruh === null ? '<span class="tag">guruh yo\'q</span>'
                               : '<span class="tag ok">Faol</span>') +
             '<button class="btn sm danger" data-wdel="' + u.user_id + '">O\'chirish</button></div>';
@@ -1926,7 +1992,7 @@
 
   async function sozlamalar() {
     skelet("l-rows", 4);
-    await Promise.all([limitlar(), tatil(), kuzatuv(), kartaSozlama(), adminlar()]);
+    await Promise.all([limitlar(), tatil(), kartaSozlama(), adminlar()]);
     yangilandiBelgisi();
   }
 
@@ -1993,7 +2059,7 @@
 
   async function promoEkran() {
     skelet("p-rows", 4);
-    await Promise.all([promokodlar(), sovga(), referal()]);
+    await Promise.all([promokodlar(), sovga(), referal(), tarqatmalar()]);
     yangilandiBelgisi();
   }
 
@@ -2136,7 +2202,9 @@
     $("k-saqla").addEventListener("click", async function () {
       var raqam = $("k-raqam-input").value.trim(), egasi = $("k-egasi-input").value.trim();
       if (!raqam || !egasi) return natijaChiz("k-natija", S.karta.ikkalasi, true);
-      if (!await tasdiq(S.savol.karta)) return;
+      var raqamlar = raqam.replace(/[\s-]/g, "");
+      if (!/^\d{16,19}$/.test(raqamlar)) return natijaChiz("k-natija", S.karta.raqam, true);
+      if (!await tasdiq(S.savol.karta(raqamlar.replace(/(\d{4})(?=\d)/g, "$1 "), egasi))) return;
       await kartaSaqla(this, raqam, egasi);
     });
     $("k-ochir").addEventListener("click", async function () {
@@ -2236,7 +2304,18 @@
     $("g-yubor").addEventListener("click", async function () {
       var kimlar = $("g-kimlar").value.trim();
       if (!kimlar) return natijaChiz("g-natija", "Kimga? ID yoki @username yozing.", true);
-      if (!await tasdiq(S.savol.sovga)) return;
+      // ⚠️ Tasdiqdan OLDIN: necha kishi va necha kun. Ilgari «Bepul Pro
+      // berilsinmi?» deyilardi — 0 yoki 99 999 kun uchun ham, 21 kishi
+      // uchun ham (21-chisi esa serverda jimgina tushib qolardi).
+      var soni = kimlar.split(/[\s,]+/).filter(Boolean).length;
+      var kunMatn = $("g-kun").value.trim(), kun = Number(kunMatn);
+      if (soni > META.sovga_max) {
+        return natijaChiz("g-natija", S.sovgaKop(META.sovga_max, soni), true);
+      }
+      if (!/^\d+$/.test(kunMatn) || kun < 1 || kun > META.kun_max) {
+        return natijaChiz("g-natija", S.sovgaKun(META.kun_max), true);
+      }
+      if (!await tasdiq(S.savol.sovga(soni, kun))) return;
       var j = await so_rov("/api/giveaway",
                            { kimlar: kimlar, kun: $("g-kun").value.trim() },
                            null, this);

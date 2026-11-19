@@ -451,11 +451,13 @@ nothing, so it writes no audit row. It sends through `_xabar`, so it carries `@b
 ### Screens refresh, an expired session says so, and search cannot go stale (2026-11-05)
 
 - **Refresh.** A screen used to load once and keep the numbers from the moment the panel
-  opened, even after the admin gave someone Pro and came back. Now `dash`, `stats`, `users`,
-  `journal` and `broadcast` reload when they are older than 60 s: on returning to the screen
-  and on `visibilitychange`, i.e. coming back from Telegram. ⛔️ `system` and `promo` are
+  opened, even after the admin gave someone Pro and came back. Now `dash`, `users` and
+  `report` reload when they are older than 60 s (since 2026-11-19 these three cover what was
+  `stats`, `journal` and the watch list): on returning to the screen and on
+  `visibilitychange`, i.e. coming back from Telegram. ⛔️ `system` and `promo` are
   deliberately left out. Redrawing them would erase limit values and promo fields that were
-  typed but not saved.
+  typed but not saved — which is also why the scheduled-broadcast list, now a `promo` pane,
+  no longer refreshes by itself.
 - **401.** When the 12-hour cookie expires, the panel shows «Sessiya tugadi» with the reason.
   Before, every screen said «Yuklanmadi · Qayta urinish», and retrying could never work,
   because `/api/session` refuses initData older than 5 minutes.
@@ -492,3 +494,38 @@ a fake bot — at 360 / 390 / 600 / 1536 px. Every fix below is guarded by
   for every user for the whole outage.
 - **«Eng faol» groups by `user_id` only** [3]; the name comes from `users`. The dead
   `most_active_*` / `last_user` queries in `activity_stats()` are gone.
+
+Second pass, same day:
+
+- ⭐ **Five sections, the same on the rail and on the tab bar** [14, `test_web_panel` 2-3]:
+  Boshqaruv · Odamlar (Ro'yxat · Kuzatuv) · O'sish (Promokod · Sovg'a · Referal · Tarqatma)
+  · Hisobot (Faollik · Daromad · Audit · Xatolar) · Sozlamalar (Limit · Ta'til · Karta ·
+  Adminlar). Seven screens with five tab-bar slots meant Statistika and Tarqatma were
+  reachable on a phone only from a card at the very bottom of Boshqaruv. A section loads all
+  its panes at once (`odamlarEkran`, `hisobotEkran`), as `system` and `journal` already did.
+  ⚠️ **At most four sub-tabs** — Sozlamalar had five and «Adminlar» was entirely off-screen
+  at 360 px with no hint that the row scrolls; the active sub-tab is also scrolled into view.
+  `.pane.on` is a flex column with the same gap as `section`: moved blocks would otherwise
+  touch (they already did on the revenue pane).
+- **`tg` exists only inside Telegram** [10]: `WA && WA.initData ? WA : null`. Telegram's
+  script creates `Telegram.WebApp` in a plain browser too, so every `if (tg)` was true there:
+  the limits' fallback «Saqlash» stayed hidden (limits could not be saved from a browser) and
+  «Chiqish» called an invisible `tg.close()`, leaving the data on screen. In a browser the
+  theme now follows the OS (`prefers-color-scheme`), not Telegram's default «light».
+- **Charts are drawn at the container's real pixel width** [13], re-measured by a
+  `ResizeObserver` (rotation, window resize, a hidden pane being opened). A fixed
+  `viewBox="0 0 640 210"` shrank the 11 px labels to 6.4 px at 360 px. The tooltip is clamped
+  inside the card.
+- **Gift**: more than `SOVGA_MAX` people is a 400, not a silent cut [9] — the 21st used to be
+  dropped while the reply said «20 tasiga berildi». The confirmation names count and days.
+- **Karta**: the confirmation shows the new number in full [11]; the inputs are stacked so a
+  19-digit number is visible while typed. No Luhn check — not confirmed for Uzcard/Humo.
+- **Today's revenue compares Tashkent dates on both sides** [12]. `timestamptz >= date`
+  converts in the *session* zone; the server is UTC, so «today» started at 05:00 and a
+  00:00–05:00 payment was never «today».
+- **The watch group must be negative** [15]: a positive ID is a private chat, and a user who
+  has started the bot would have passed the test send and received every watched
+  conversation. `get_user_by_identifier()` rejects out-of-BIGINT numbers for every caller.
+  The group-failure banner also shows on the Kuzatuv pane, where the group is fixed.
+- **The users CSV has `ism` and `botni_bloklagan`** and includes people who blocked the bot
+  [16] (`list_users(nofaollar_ham=True)`); the name goes through the formula guard.

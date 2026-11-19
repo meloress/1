@@ -17,11 +17,9 @@ window.SOZ = {
   ekran: {
     dash:      ["Boshqaruv", null],
     users:     ["Foydalanuvchilar", "yuklanmoqda…"],
-    stats:     ["Statistika", "oxirgi 7 kun"],
-    promo:     ["Promo va sovg'a", "kodlar, bepul Pro, referal"],
-    journal:   ["Jurnal", "audit, xatolar, daromad"],
-    system:    ["Sozlamalar", "limitlar, ta'til, kuzatish, adminlar"],
-    broadcast: ["Tarqatma", "Telegramda boshqariladi"],
+    report:    ["Hisobot", "faollik, daromad, audit, xatolar"],
+    promo:     ["O'sish", "promokod, sovg'a, referal, tarqatma"],
+    system:    ["Sozlamalar", "limit, ta'til, karta, adminlar"],
     profil:    ["Foydalanuvchi", null]
   },
 
@@ -122,8 +120,18 @@ window.SOZ = {
     katta:     "Limit juda katta. Cheksizlik uchun alohida tarif bor."
   },
 
+  /* ── Sovg'a formasi ────────────────────────────────────────── */
+  sovgaKop: function (max, soni) {
+    return "Bir martada eng ko'pi " + max + " kishi — siz " + soni + " ta yozdingiz. Ikki marta yuboring.";
+  },
+  sovgaKun: function (max) { return "Kun 1 dan " + max + " gacha butun son bo'lsin."; },
+
   /* ── Tasdiq savollari ──────────────────────────────────────── */
   savol: {
+    kuzat: function (kim) {
+      return kim + " kuzatuvga qo'shilsinmi? Uning yozishmalari kuzatuv guruhiga nusxalanadi " +
+             "(o'zi buni ko'rmaydi).";
+    },
     ban:     "Foydalanuvchi bloklansinmi? U botga yoza olmay qoladi.",
     unban:   "Blok olib tashlansinmi?",
     free:    "Tarif bepulga tushirilsinmi? Qolgan kunlar bekor bo'ladi.",
@@ -134,11 +142,19 @@ window.SOZ = {
     adminTopilmadi: "Bu ID botda topilmadi — odam avval botga /start yozsin.",
     adminOl: "Admin huquqi olib tashlansinmi?",
     kuzatuvOl: "Kuzatuvdan olib tashlansinmi?",
-    karta:   "Karta almashtirilsinmi? Endi foydalanuvchilarga shu karta ko'rsatiladi va to'lovlar unga tushadi.",
+    // ⛔️ Yangi raqam TO'LIQ: pul shu kartaga tushadi, bitta raqam xatosi
+    // hamma to'lovni begona kartaga yuboradi — admin uni ko'rib tasdiqlasin.
+    karta: function (raqam, egasi) {
+      return "Karta almashtirilsinmi?\n\n" + raqam + "\n" + egasi +
+             "\n\nEndi foydalanuvchilarga shu karta ko'rsatiladi va to'lovlar unga tushadi.";
+    },
     kartaOchir: "Karta to'lovi o'chirilsinmi? /pro da faqat Stars qoladi; chek yuborganlar baribir sizga keladi.",
     tatil:   "Texnik ta'til yoqilsinmi? Adminlardan boshqa hamma javob o'rniga ogohlantirish oladi.",
     avtomat: "Business Avtomat HAMMA uchun o'chirilsinmi? Bot mijozlarga o'zi javob yozishni to'xtatadi.",
-    sovga:   "Bepul Pro berilsinmi? Har biriga botdan xabar boradi.",
+    sovga: function (soni, kun) {
+      return soni + " kishiga " + kun + " kun Pro qo'shilsinmi? " +
+             "Qolgan muddatining ustiga qo'shiladi, har biriga botdan xabar boradi.";
+    },
     tarqatma: "Rejalashtirilgan tarqatma bekor qilinsinmi?",
 
     /* ⚠️ TASDIQ MATNI AMALNI AYTSIN, "Ishonchingiz komilmi?" emas.
@@ -192,6 +208,7 @@ window.SOZ = {
 
   /* ── Amal natijalari ───────────────────────────────────────── */
   natija: {
+    kuzat:     "Kuzatuvga qo'shildi — yozishmalari kuzatuv guruhiga nusxalanadi.",
     pro:       "Pro berildi.",
     free:      "Bepul tarifga o'tkazildi.",
     kvota:     "Kunlik sanoqlar tiklandi.",
@@ -233,6 +250,7 @@ window.SOZ = {
     yoq:        "qo'yilmagan — karta to'lovi o'chiq",
     faqatSuper: "Kartani faqat bosh admin o'zgartiradi.",
     narx:       "Narxlar (so'mda, Stars bilan bir xil nisbatda):",
-    ikkalasi:   "Karta raqami va egasining ismini yozing."
+    ikkalasi:   "Karta raqami va egasining ismini yozing.",
+    raqam:      "Karta raqami 16–19 ta raqam bo'lsin (bo'shliq bilan yozsa ham bo'ladi)."
   }
 };

@@ -78,7 +78,7 @@ def soxta_baza(tolov=None):
     db = api.database_module
 
     async def list_users(q=None, tarif="all", limit=20, offset=0,
-                         tartib="faollik"):
+                         tartib="faollik", nofaollar_ham=False):
         rows = [dict(PROFIL)] if offset == 0 else []
         return {"rows": rows, "jami": 45,
                 "sanoq": {"all": 45, "pro": 2, "free": 40, "ban": 3,
