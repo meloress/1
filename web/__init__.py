@@ -166,6 +166,13 @@ async def _kim(user_id: int, ism: Optional[str] = None) -> dict:
         if not ism:
             meta = await database_module.get_admin_meta(user_id) or {}
             ism = meta.get("username") or meta.get("display_name")
+        # Superadmin `admins` jadvalida bo'lmasligi mumkin (jonli bazada
+        # aynan shunday) — unda cookie bilan qayta kirishda kartochkada
+        # «ID:…» turardi. Ism `users` dan (bot uni har xabarda yangilaydi).
+        if not ism:
+            prof = await database_module.get_full_user_profile(user_id) or {}
+            ism = prof.get("tg_ism") or (
+                "@" + prof["username"] if prof.get("username") else None)
         if await database_module.is_superadmin(user_id):
             rol = "Superadmin"
     except Exception:

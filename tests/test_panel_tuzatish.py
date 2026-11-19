@@ -28,6 +28,14 @@ yiqiladi:
     [14] navigatsiya: 5 bo'lim, ichma-ich kartochka yo'q, faol tab ko'rinadi
     [15] kuzatuv guruhi faqat manfiy ID; ulkan ID — 400; banner Kuzatuv tabida ham
     [16] CSV: botni bloklaganlar ham, ism ustuni ham (formula himoyasi bilan)
+
+  3-to'plam (kosmetik, lekin admin aldanadigan joylar):
+    [17] eski natija xabari yangi bosishda tozalanadi (bitta umumiy joyda)
+    [18] kvota tasdiq bilan; qaytarish tasdig'ida summa va ayiriladigan kun
+    [19] ism: statistika, audit (va qidiruvi), yon panel — ro'yxat bilan bir xil
+    [20] son(): minglik ajratgich bo'linmaydigan bo'shliq
+    [21] CSS: yolg'iz 5-KPI, yorliq o'raladi, telefonda qator bir tekis
+    [22] matnlar: «KUN/MAX», «… ga» yo'q; audit qidiruvida % _ ekranlangan
 """
 
 import os
@@ -322,7 +330,63 @@ async def main():
           and "scrollIntoView" in js[js.index("function showPane("): js.index("function navigatsiya(")]
           and "report:" in soz and "journal:" not in soz)
 
-    print("\npanel tuzatish: barcha tekshiruvlar o'tdi (16/16).")
+    # 17) Eski natija: kartochkadagi tugma bosilganda AVVAL tozalanadi
+    #     (capture). Ilgari bekor qilingan bloklash ostida oldingi
+    #     amalning «Kunlik sanoqlar tiklandi.» xabari turardi.
+    nav = js[js.index("function navigatsiya("): js.index("function navigatsiya(") + 1500]
+    check(17, "natija qatori kartochkadagi har bosishda tozalanadi (capture)",
+          re.search(r'closest\("\.card"\)[\s\S]{0,200}querySelectorAll\("\.natija"\)', nav) is not None
+          and re.search(r"\}, true\);", nav) is not None)
+
+    # 18) Kvota — tasdiq bilan; qaytarish — summa va ayiriladigan kun.
+    kv = js[js.index('$("a-quota")'): js.index('$("a-quota")') + 600]
+    qt = js[js.index("async function qaytarish("): js.index("async function qaytarish(") + 900]
+    refund_matn = re.search(r"refund: function \(yulduz, kun\) \{([^}]*)\}", soz)
+    check(18, "kvota tasdiqli; qaytarish tasdig'ida summa va «kun ayiriladi»",
+          kv.index("tasdiq(S.savol.kvota)") < kv.index("/quota")
+          and "S.savol.refund(" in qt and "t.stars" in qt and "t.days" in qt
+          and refund_matn and "ayiriladi" in refund_matn.group(1))
+
+    # 19) Ism hamma joyda bir xil tartibda: ism → @username → ID.
+    assert api._kim(1, "ali", "Ali") == "Ali"
+    assert api._kim(1, "ali", None) == "@ali" and api._kim(1, None, None) == "ID:1"
+    top = js[js.index('$("s-top").innerHTML'): js.index('$("s-top").innerHTML') + 900]
+    audit_sql = funksiya(db_manba, "get_admin_audit")
+    web_init = kod(ROOT / "web" / "__init__.py")
+    kim_fn = web_init[web_init.index("async def _kim("): web_init.index("async def men(")]
+    check(19, "ism: statistika top, audit SQL/qidiruv, _kim(), yon panel zaxirasi",
+          "nomi(u)" in top and "avatar(shaxs(u)" in top
+          and "admin_ism" in audit_sql and "target_ism" in audit_sql
+          and '"u.tg_ism"' in db_manba and "get_full_user_profile" in kim_fn)
+
+    # 20) Son satr oxirida bo'linmasin: «75 / 000 so'm».
+    son_fn = js[js.index("function son("): js.index("function son(") + 200]
+    check(20, "son(): ajratgich U+00A0, oddiy bo'shliqqa almashtirilmaydi",
+          '"\\u00a0"' in son_fn and '" ")' not in son_fn)
+
+    # 21) CSS.
+    from _manba import css_kod
+    css_s = css_kod(css)
+    check(21, "CSS: 5-KPI butun qator, yorliq 2 qatorgacha, telefonda ism asosi tor",
+          ".kpis > .kpi:nth-child(5):last-child{grid-column:1 / -1}" in css_s
+          and "-webkit-line-clamp:2" in css_s
+          and re.search(r"@media \(max-width:420px\)\{[^@]*\.person\{flex-basis:", css_s) is not None
+          # Yakuniy keng tekshiruv topgan ikki gorizontal toshish: 128
+          # belgili ism (sahifa 870px) va bo'shliqsiz audit tafsiloti (1210px).
+          and ".person > div{min-width:0" in css_s
+          and re.search(r"\.tag\.tafsilot\{[^}]*white-space:normal", css_s) is not None
+          and '"tag tafsilot"' in js)
+
+    # 22) Matnlar va audit qidiruvi.
+    promo_xato = " ".join(database.clean_promo_spec(*a)[1] or "" for a in
+                          [("", 1, 1, ""), ("A", "x", 1, ""), ("A", 0, 1, ""), ("A", 1, 0, "")])
+    check(22, "promo xatolarida KUN/MAX yo'q; «… ga» birikmasi yo'q; audit LIKE ekranlangan",
+          "KUN" not in promo_xato and "MAX" not in promo_xato and "qisqa" not in promo_xato
+          and '" ga "' not in soz
+          and "like_ekranla(frag)" in funksiya(db_manba, "_audit_filtri")
+          and "ESCAPE" in funksiya(db_manba, "_audit_filtri"))
+
+    print("\npanel tuzatish: barcha tekshiruvlar o'tdi (22/22).")
 
 
 if __name__ == "__main__":

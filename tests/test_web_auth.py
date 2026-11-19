@@ -71,6 +71,7 @@ async def main():
     auth.huquq_bormi = soxta_huquq
     web.database_module.is_superadmin = baza_yiqilgan
     web.database_module.get_admin_meta = baza_yiqilgan
+    web.database_module.get_full_user_profile = baza_yiqilgan   # _kim(): ism zaxirasi
     # Chastota chegarasi testdagi ketma-ket so'rovlarni bo'g'masin.
     auth.SESSION_RATE_LIMIT = 1000
 

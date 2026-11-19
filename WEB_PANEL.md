@@ -529,3 +529,23 @@ Second pass, same day:
   The group-failure banner also shows on the Kuzatuv pane, where the group is fixed.
 - **The users CSV has `ism` and `botni_bloklagan`** and includes people who blocked the bot
   [16] (`list_users(nofaollar_ham=True)`); the name goes through the formula guard.
+
+Third pass, same day — small things an admin is misled by:
+
+- **A stale result line is cleared by one capture listener** [17] in `navigatsiya()`: any
+  button inside a `.card` blanks that card's `.natija` *before* its own handler runs. A
+  cancelled ban used to sit under the previous action's «Kunlik sanoqlar tiklandi.».
+- **Every person-name goes through one order: `tg_ism` → `@username` → `ID:…`** [19] —
+  `nomi()` in the panel, `_kim()` in `web/api.py` (audit rows, admin chips, CSV), and the
+  sidebar card (`web/__init__.py::_kim` falls back to `users` when the superadmin is not in
+  `admins`). The audit search covers names and escapes `%`/`_`. ⚠️ The token list stays
+  ID-only on purpose (its comment: it answers «where», not «who»).
+- **`son()` keeps U+00A0 as the thousands separator** [20]; it used to turn it into a plain
+  space and «75 000» broke across lines.
+- **Confirmations say what happens** [18, 22]: quota reset is confirmed; a refund names the
+  stars and the days that are *subtracted*; the person goes on its own «Kimga:» line instead
+  of «Ali ga». Promo errors say «kun» / «ishlatish soni», not the old command's `KUN`/`MAX`.
+- **No horizontal overflow at 360/390/600/1536 on any pane** [21] — re-checked by a sweep
+  that compares `scrollWidth` with the viewport. It found two the eye missed: a 128-letter
+  name in `.person` (needs `.person > div{min-width:0}`) widened the page to 870 px, and an
+  unbroken audit detail (`.tag` is `nowrap`) to 1210 px — the detail is now `.tag.tafsilot`.

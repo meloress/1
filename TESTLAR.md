@@ -307,7 +307,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   `initData`), **14** (no card nested in another — measured by `div` depth, because the
   original bug had a closing `</div>` *between* the two cards). It never calls
   `database.get_user_by_identifier()`: that would open a pool to the `.env` database, i.e.
-  production — the range check is read from source instead. Runs offline.
+  production — the range check is read from source instead. Checks 17-22 are the third
+  pass; **21** carries the two overflow fixes the final width sweep found (a long name and
+  an unbroken audit detail widened the page to 870 / 1210 px). Runs offline.
 - `test_eski_bot.py` — the old `@uzchatgptaibot` redirect (`DEPLOY.md` «The bot moved to
   @vexonai»). Its sharpest check is **2**: an old-bot Business customer gets nothing and
   the owner is told once — "this bot has stopped" must never land in the owner's name.

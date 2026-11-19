@@ -78,12 +78,12 @@ def soxta_baza():
         qatorlar = [{
             "id": 9, "admin_id": 2001, "action": "ban_user", "target_user_id": 641,
             "details": "sabab", "action_time": datetime.datetime(2026, 9, 15, 16, 4, tzinfo=UTC),
-            "admin_username": "melores", "target_username": "dilshod_a",
+            "admin_username": "melores", "target_username": "dilshod_a", "admin_ism": None, "target_ism": None,
         }, {
             "id": 8, "admin_id": 2001, "action": "bilib_bolmaydigan_amal",
             "target_user_id": None, "details": None,
             "action_time": datetime.datetime(2026, 9, 15, 15, 0, tzinfo=UTC),
-            "admin_username": None, "target_username": None,
+            "admin_username": None, "target_username": None, "admin_ism": None, "target_ism": None,
         }]
         return [q for q in qatorlar if admin_id is None or q["admin_id"] == admin_id]
 

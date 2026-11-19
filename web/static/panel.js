@@ -360,6 +360,23 @@
   }
 
   function navigatsiya() {
+    /* ⚠️ ESKI NATIJA QOLMASIN. Kartochkadagi har bir tugma bosilganda
+       o'sha kartochkaning natija qatori AVVAL tozalanadi (capture bosqichi —
+       tugmaning o'z ishlovchisidan oldin), keyin ishlovchi yangisini
+       yozadi. Ilgari bloklash yoki qaytarish bekor qilinsa ham ostida
+       oldingi amalning «Kunlik sanoqlar tiklandi.» xabari turaverardi —
+       admin uni yangi amalning natijasi deb o'qirdi. Har ishlovchida
+       alohida tozalash — o'n beshta joy, bittasi albatta unutiladi. */
+    document.addEventListener("click", function (e) {
+      var b = e.target && e.target.closest && e.target.closest("button");
+      var karta = b && b.closest(".card");
+      if (!karta) return;
+      karta.querySelectorAll(".natija").forEach(function (n) {
+        n.innerHTML = "&nbsp;";
+        n.className = "natija";
+      });
+    }, true);
+
     document.querySelectorAll("[data-go]").forEach(function (b) {
       b.addEventListener("click", function () {
         titroq("light");
@@ -396,8 +413,12 @@
     return h;
   }
 
+  /* ⚠️ Minglik ajratgich — BO'LINMAYDIGAN bo'shliq (U+00A0). Ilgari u
+     oddiy bo'shliqqa almashtirilardi va son satr oxirida bo'linib
+     ketardi: «75 / 000 so'm», «408 / 846». Tor ajratgich (U+202F) ham
+     shunga keltiriladi — u ba'zi shriftlarda ko'rinmaydi. */
   function son(n) {
-    return Number(n || 0).toLocaleString("ru-RU").replace(/,/g, " ").replace(/ /g, " ");
+    return Number(n || 0).toLocaleString("ru-RU").replace(/[,\u202f ]/g, "\u00a0");
   }
   function foiz(v, kasr) {
     // `null` = ma'lumot yo'q (bo'luvchi nol edi). «0%» bilan aralashib
@@ -940,10 +961,11 @@
     $("s-top").innerHTML = d.top.length
       ? '<div class="rbosh"><span>Foydalanuvchi</span><span class="ong">So\'rov</span><span>Ulush</span></div>' +
         d.top.map(function (u, i) {
-          var nom = u.username ? "@" + u.username : "ID:" + u.user_id;
+          // Ism ro'yxatdagidek: «ID:123» + ostida yana «123» — bitta ID
+          // ikki marta (§4) — endi yo'q; avatar shaxsiy nomdan.
           return '<div class="row bosiladi" data-uid="' + xavfsiz(u.user_id) + '"><div class="person">' +
-            avatar(nom, i === 0) +
-            "<div><b>" + xavfsiz(nom) + "</b><span>" + xavfsiz(u.user_id) +
+            avatar(shaxs(u), i === 0) +
+            "<div><b>" + xavfsiz(nomi(u)) + "</b><span>" + xavfsiz(u.user_id) +
             '</span></div></div><b class="num ong">' + son(u.soni) + "</b>" +
             '<div class="track" style="height:9px;border-radius:999px;background:var(--panel-2);overflow:hidden">' +
             '<div class="fill' + (i === 0 ? " top" : "") + '" style="height:100%;border-radius:999px;' +
@@ -1096,7 +1118,7 @@
         (r.kimga ? ' <span style="color:var(--ink-3)">→</span> ' + xavfsiz(r.kimga) : "") +
         "</b><span>" + xavfsiz(r.admin) + " · " + xavfsiz(soat(r.vaqt)) +
         (r.tafsilot ? "</span></div>" +
-          '<span class="tag">' + xavfsiz(r.tafsilot) + "</span>"
+          '<span class="tag tafsilot">' + xavfsiz(r.tafsilot) + "</span>"
                     : "</span></div>") + "</div>";
     });
     $("j-audit").innerHTML = d.rows.length ? h : boshHolat(S.bosh.audit);
@@ -1528,7 +1550,12 @@
   }
 
   async function qaytarish(payment_id, tugma) {
-    if (!await tasdiq(S.savol.refund)) return;
+    // Pul yo'li: tasdiq QANCHA va NIMA bo'lishini aytsin. Server qaytarilgan
+    // to'lovning kunlarini muddatdan AYIRADI (mark_payment_refunded) —
+    // «tarif olib tashlanadi» deyish noto'g'ri edi: 200 kuni bor odamda
+    // 90 kunlik to'lov qaytarilsa Pro qoladi.
+    var t = ((uOchiq && uOchiq.tolovlar) || []).filter(function (x) { return x.id === payment_id; })[0];
+    if (!await tasdiq(S.savol.refund(t ? son(t.stars) : "?", t ? t.days : "?"))) return;
     if (await amal("/api/payments/" + payment_id + "/refund", null,
                    S.natija.refund, tugma)) await qayta();
   }
@@ -1593,6 +1620,9 @@
 
     $("a-quota").addEventListener("click", async function () {
       if (!uOchiq) return;
+      // Tasdiq bilan: telefonda tasodifiy bosish odamga bugungi limitni
+      // qaytadan berib yuborardi.
+      if (!await tasdiq(S.savol.kvota)) return;
       if (await amal("/api/users/" + uOchiq.user_id + "/quota", null,
                      S.natija.kvota, this)) await qayta();
     });
@@ -1692,6 +1722,14 @@
   }
 
   /* ══ YOZUV SO'ROVLARI ═══════════════════════════════════════════ */
+  /* Tasdiq uchun: ro'yxat qatoridagi nom (ekranda ko'ringanining o'zi)
+     va ID — «kimni o'chiryapman» tasdiq oynasida ko'rinsin. */
+  function qatorNomi(tugma, uid) {
+    var b = tugma && tugma.closest(".row") && tugma.closest(".row").querySelector("b");
+    var nom = b ? b.textContent.trim() : "";
+    return (nom && nom.indexOf(String(uid)) < 0 ? nom + " · " : "") + "ID " + uid;
+  }
+
   function natijaChiz(id, matn, yomonmi) {
     var el = $(id);
     if (!el) return;
@@ -2182,7 +2220,7 @@
       await kuzatuv();
     });
     delegat("w-rows", "data-wdel", async function (uid, b) {
-      if (!await tasdiq(S.savol.kuzatuvOl)) return;
+      if (!await tasdiq(S.savol.kuzatuvOl(qatorNomi(b, uid)))) return;
       var j = await so_rov("/api/watch", { amal: "remove", kim: uid }, null, b);
       if (!j.ok) return natijaChiz("w-natija", j.xato, true);
       natijaChiz("w-natija", S.natija.kuzatuvOl);
@@ -2242,7 +2280,7 @@
     enterBosilsa(["ad-kim"], "ad-qosh");
 
     delegat("ad-rows", "data-addel", async function (uid, b) {
-      if (!await tasdiq(S.savol.adminOl)) return;
+      if (!await tasdiq(S.savol.adminOl(qatorNomi(b, uid)))) return;
       var j = await so_rov("/api/admins", { amal: "remove", kim: uid }, null, b);
       if (!j.ok) return natijaChiz("ad-natija", j.xato, true);
       natijaChiz("ad-natija", S.natija.adminOl);

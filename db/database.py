@@ -4818,19 +4818,21 @@ def clean_promo_spec(code, days, max_uses, expires_raw):
     `expires_raw`: `YYYY-MM-DD`, yoki `"-"`/bo'sh — muddatsiz.
     """
     kod = str(code or "").strip()
+    # Matnlar ODDIY SO'Z bilan: «KUN», «MAX» — eski Telegram buyrug'ining
+    # argument nomlari edi, panelda esa maydonlar «kun» va «soni».
     if not kod or not kod.replace("_", "").isalnum() or len(kod) > PROMO_KOD_MAX:
-        return None, (f"Kod faqat harf/raqam/pastki chiziqdan iborat va "
-                      f"{PROMO_KOD_MAX} belgidan qisqa bo'lsin.")
+        return None, (f"Kod faqat harf, raqam va pastki chiziqdan iborat bo'lsin, "
+                      f"ko'pi bilan {PROMO_KOD_MAX} belgi.")
     try:
         kun, soni = int(days), int(max_uses)
     except (TypeError, ValueError):
-        return None, "KUN va MAX butun son bo'lishi kerak."
+        return None, "Kun va ishlatish soni butun son bo'lsin."
     if isinstance(days, bool) or isinstance(max_uses, bool):
-        return None, "KUN va MAX butun son bo'lishi kerak."
+        return None, "Kun va ishlatish soni butun son bo'lsin."
     if not 0 < kun <= PROMO_KUN_MAX:
-        return None, f"KUN 1 dan {PROMO_KUN_MAX} gacha bo'lsin."
+        return None, f"Kun 1 dan {PROMO_KUN_MAX} gacha bo'lsin."
     if not 0 < soni <= PROMO_SONI_MAX:
-        return None, f"MAX 1 dan {PROMO_SONI_MAX} gacha bo'lsin."
+        return None, f"Ishlatish soni 1 dan {PROMO_SONI_MAX} gacha bo'lsin."
 
     expires_at = None
     xom = str(expires_raw or "").strip()
@@ -5430,7 +5432,9 @@ async def error_summary() -> Dict[str, Any]:
 # Audit ustunlari: qidiruv amal nomi, tafsilot va IKKALA tomonning
 # username'i bo'yicha ishlaydi. «Kim nima qilgan» ham, «kimga qilingan»
 # ham bitta qidiruv maydonidan topilishi kerak.
-_AUDIT_QIDIRUV = ("a.action", "a.details", "u.username", "t.username")
+_AUDIT_QIDIRUV = ("a.action", "a.details", "u.username", "t.username",
+                  # Ism ham: jurnal endi odamni ISMI bilan ko'rsatadi.
+                  "u.tg_ism", "t.tg_ism")
 
 
 def _audit_filtri(admin_id: Optional[int], q: Optional[str],
@@ -5447,10 +5451,11 @@ def _audit_filtri(admin_id: Optional[int], q: Optional[str],
             f"a.action_time >= NOW() - make_interval(days => ${len(args)}::int)")
     frag = (q or "").strip()[:64]
     if len(frag) >= 2:
-        args.append(f"%{frag}%")
+        # `%` va `_` — oddiy belgi (`like_ekranla` izohiga qarang).
+        args.append(f"%{like_ekranla(frag)}%")
         n = len(args)
         shartlar.append(
-            "(" + " OR ".join(f"{u} ILIKE ${n}" for u in _AUDIT_QIDIRUV) + ")")
+            "(" + " OR ".join(f"{u} ILIKE ${n} ESCAPE '\\'" for u in _AUDIT_QIDIRUV) + ")")
     return (" WHERE " + " AND ".join(shartlar) if shartlar else ""), args
 
 
@@ -5475,7 +5480,8 @@ async def get_admin_audit(limit: int = 10, offset: int = 0,
         rows = await conn.fetch(
             f'''SELECT a.id, a.admin_id, a.action, a.target_user_id, a.details,
                        a.action_time, u.username AS admin_username,
-                       t.username AS target_username
+                       t.username AS target_username,
+                       u.tg_ism AS admin_ism, t.tg_ism AS target_ism
                 {_AUDIT_FROM}
                 {shart}
                 ORDER BY a.id DESC LIMIT $1 OFFSET $2''', *args)

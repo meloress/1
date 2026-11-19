@@ -135,13 +135,19 @@ window.SOZ = {
     ban:     "Foydalanuvchi bloklansinmi? U botga yoza olmay qoladi.",
     unban:   "Blok olib tashlansinmi?",
     free:    "Tarif bepulga tushirilsinmi? Qolgan kunlar bekor bo'ladi.",
-    refund:  "To'lov qaytarilsinmi? Pul Telegram orqali qaytariladi va tarif olib tashlanadi.",
+    // Haqiqiy mantiq: to'lovning kunlari muddatdan AYIRILADI
+    // (mark_payment_refunded). «Tarif olib tashlanadi» noto'g'ri edi.
+    refund: function (yulduz, kun) {
+      return "To'lov qaytarilsinmi?\n\n" + yulduz + " ⭐ Telegram orqali qaytariladi va Pro " +
+             "muddatidan " + kun + " kun ayiriladi (shundan kam qolgan bo'lsa — bepul tarifga o'tadi).";
+    },
+    kvota:   "Bugungi sanoqlar nolga tushirilsinmi? Foydalanuvchi bugungi limitini qaytadan to'liq oladi.",
     // Oxiriga kimligi qo'shiladi (panel.js): «Bu odamga» deb so'ralganda
     // admin raqam xatosini tasdiqlab yuborardi — kimga ekanini ko'rmasdan.
     adminQosh: "To'liq admin huquqi berilsinmi?",
     adminTopilmadi: "Bu ID botda topilmadi — odam avval botga /start yozsin.",
-    adminOl: "Admin huquqi olib tashlansinmi?",
-    kuzatuvOl: "Kuzatuvdan olib tashlansinmi?",
+    adminOl: function (kim) { return "Admin huquqi olib tashlansinmi?\n\n" + kim; },
+    kuzatuvOl: function (kim) { return "Kuzatuvdan olib tashlansinmi?\n\n" + kim; },
     // ⛔️ Yangi raqam TO'LIQ: pul shu kartaga tushadi, bitta raqam xatosi
     // hamma to'lovni begona kartaga yuboradi — admin uni ko'rib tasdiqlasin.
     karta: function (raqam, egasi) {
@@ -166,8 +172,11 @@ window.SOZ = {
     /* ⚠️ MATN HOZIRGI HOLATNI AYTSIN. Bu amal muddatni ALMASHTIRADI,
        ya'ni kartadagi «20 kun» ni o'chiradi \u2014 va admin buni tasdiq
        oynasida KO'RMASA, yo'qotganini ham bilmaydi. */
+    /* Ism alohida «Kimga:» qatorida: «Ali ga», «@user ga» — o'zbekchada
+       qo'shimcha ajratib yozilmaydi, ism ichiga qo'shib yozish esa
+       «Foydalanuvchiga» kabi hamma ismga to'g'ri kelmaydi. */
     proFree: function (kim, kun) {
-      return kim + " ga " + kun + " kunlik Pro berilsinmi? Hozir bepul tarifda.";
+      return kun + " kunlik Pro berilsinmi? Hozir bepul tarifda.\n\nKimga: " + kim;
     },
     proMuddat: function (kim, kun, qolgan, sana) {
       return kim + ": hozir " + qolgan + " kuni bor (" + sana +
@@ -177,15 +186,15 @@ window.SOZ = {
     /* ⛔️ ENG QATTIQ HOLAT: cheksiz tarif muddatliga almashadi va eski
        qiymat auditdan boshqa hech qayerda qolmaydi. */
     proCheksizdan: function (kim, kun) {
-      return kim + " da hozir CHEKSIZ Pro bor. U O'CHADI va o'rniga " +
+      return kim + ": hozir CHEKSIZ Pro bor. U O'CHADI va o'rniga " +
              kun + " kunlik muddat qo'yiladi. Cheksiz tarif qaytarilmaydi.";
     },
     /* Cheksiz — alohida matn: u boshqa chiplar bilan yonma-yon turadi
        va bitta bosishda MUDDATSIZ tarif beradi. */
     proCheksizga: function (kim) {
-      return kim + " ga CHEKSIZ Pro berilsinmi?" +
+      return "CHEKSIZ Pro berilsinmi?" +
              " Bu muddatsiz: avtomatik tugamaydi va faqat qo'lda" +
-             " bekor qilinadi.";
+             " bekor qilinadi.\n\nKimga: " + kim;
     },
     eksport: function (nima, max) {
       return nima + " CSV fayli tayyorlansinmi? Eng ko'pi bilan " + max +
@@ -193,7 +202,7 @@ window.SOZ = {
              " \u2014 undan forward qilish mumkin.";
     },
     xabar: function (kim, parcha) {
-      return kim + " ga botdan xabar yuborilsinmi?\n\n\u00ab" + parcha + "\u00bb";
+      return "Botdan xabar yuborilsinmi?\n\nKimga: " + kim + "\n\n\u00ab" + parcha + "\u00bb";
     }
   },
 

@@ -891,10 +891,13 @@ async def refund(request: web.Request):
 JURNAL_SAHIFA = 20
 
 
-def _kim(user_id: Optional[int], username: Optional[str]) -> Optional[str]:
+def _kim(user_id: Optional[int], username: Optional[str],
+         ism: Optional[str] = None) -> Optional[str]:
     """Odamning KO'RINADIGAN nomi — panelda YAGONA formatter.
 
-    Tartib: `@username` → `ID:123`. Yo'q bo'lsa `None`.
+    Tartib: Telegram ismi → `@username` → `ID:123`. Yo'q bo'lsa `None`.
+    Ism birinchi — foydalanuvchilar ro'yxati va profil ham shunday
+    (2026-11-19): bir odam ro'yxatda «Ali», jurnalda «ID:…» bo'lmasin.
 
     ⚠️ Bitta odam bitta joyda bitta nom bilan atalishi kerak. Ilgari
     jurnalning filtr chiplari `ID:2001717965`, o'sha adminning jadvaldagi
@@ -903,6 +906,8 @@ def _kim(user_id: Optional[int], username: Optional[str]) -> Optional[str]:
     edi: chiplar ro'yxati faqat `admin_id` dan yig'ilardi, username
     umuman so'ralmasdi.
     """
+    if ism:
+        return ism
     if username:
         return "@" + username
     return f"ID:{user_id}" if user_id else None
@@ -1068,15 +1073,15 @@ async def journal_audit(request: web.Request):
         aid = r.get("admin_id")
         if aid:
             # Filtr chiplari uchun: nom bilan, quruq ID bilan emas.
-            adminlar.setdefault(aid, _kim(aid, r.get("admin_username")) or f"ID:{aid}")
+            adminlar.setdefault(aid, _kim(aid, r.get("admin_username"), r.get("admin_ism")) or f"ID:{aid}")
         tayyor.append({
             "id": r.get("id"),
             "vaqt": _sana(r.get("action_time")),
-            "admin": _kim(aid, r.get("admin_username")) or "tizim",
+            "admin": _kim(aid, r.get("admin_username"), r.get("admin_ism")) or "tizim",
             "admin_id": aid,
             "amal": nom,
             "ikonka": ikonka,
-            "kimga": _kim(r.get("target_user_id"), r.get("target_username")),
+            "kimga": _kim(r.get("target_user_id"), r.get("target_username"), r.get("target_ism")),
             "kimga_id": r.get("target_user_id"),
             "tafsilot": _tafsilot(amal, (r.get("details") or "")[:200]),
         })
@@ -1205,10 +1210,10 @@ async def eksport(request: web.Request):
             qatorlar.append((
                 r.get("id"), _sana(r.get("action_time")),
                 r.get("admin_id"),
-                _kim(r.get("admin_id"), r.get("admin_username")) or "tizim",
+                _kim(r.get("admin_id"), r.get("admin_username"), r.get("admin_ism")) or "tizim",
                 audit_nomi(amal)[0],
                 r.get("target_user_id"),
-                _kim(r.get("target_user_id"), r.get("target_username")) or "",
+                _kim(r.get("target_user_id"), r.get("target_username"), r.get("target_ism")) or "",
                 _tafsilot(amal, (r.get("details") or "")[:200]),
             ))
 
