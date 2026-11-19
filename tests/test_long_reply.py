@@ -219,8 +219,10 @@ async def _checks(LIMIT):
     m.bot.deleted.clear()
     msg = FakeMessage()
     text, rich_calls = await run_stream(msg, [1.6, "D" * 200], rich_ok=True)
+    # Status kadri «🔄 *O'ylayapman…*» (2026-11-19 dan bosqichli matn) yoki
+    # push_update'ning «⏳ Javob tayyorlanmoqda...» xabari.
     kutish = [t for _, t, _ in msg.sent
-              if "tayyorlanmoqda" in t or "tahlil" in t or "kuting" in t]
+              if t.startswith("🔄") or "tayyorlanmoqda" in t]
     assert kutish, "zaxira kutish xabari yaratilmagan — test sharti buzilgan"
     assert m.bot.deleted == [999], (
         f"yarim qolgan kutish xabari o'chirilmadi: {m.bot.deleted}")

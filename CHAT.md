@@ -1252,6 +1252,32 @@ timing constants were lifted out of `process_stream_draft()` to module level for
 they must stay shared. A second copy would drift and the bot would animate two different
 ways in two places.
 
+**Status texts were rewritten on 2026-11-19.** `holat_kadri()` is now the single place
+that builds a status frame. The DM draft, the group message and guest mode all render it,
+and guest's own copies are gone. The rules:
+
+- **Stages, not a loop.** Each list moves forward once and stays on its last entry. The
+  old four phrases looped every 2.4 s, so «Javob shakllantirilmoqda» could appear before
+  the model had started. After ten seconds the list began again and the bot looked frozen.
+  When the type changes, its stages start from the beginning (`tur_t0` in each animator).
+  `/research` steps every 15 s (`_BOSQICH_SONIYA`); its real progress is on the separate
+  card.
+- **Line 1 ≤ 26 characters** (`STATUS_QATOR_MAX`). A phone fits about 30. With the
+  changing dots, a longer line jumped between one and two lines.
+- **Variable details go on line 2.** `[STATUS]tur|tafsilot` carries them: the query
+  («dollar kursi»), then the sites read (`manbalar|kun.uz, gazeta.uz`), the city, or the
+  currency codes. `services/ai.py::_holat_tafsiloti()` sends them just before the tool
+  runs.
+- **Line 2 detail is cleaned, not escaped.** The detail comes from the model and lands in
+  HTML, legacy Markdown and rich markdown, so `_tafsilot()` strips `*_`[]<>|\`. One `_`
+  in a query would otherwise fail the group status with «can't parse».
+- **Parse signals with `holat_signali()`, never with `"image" in chunk`.** The old
+  substring match switched a search for «image editor» to the image-drawing status.
+- **Every tool name needs its status.** It goes in its own `elif` or in
+  `ai._TOOL_HOLATI`. Without one, the tool falls into the bare `elif` and shows
+  «Qidiryapman». Weather, currency, prayer times, places and image editing all did, until
+  `test_status_matn.py` 6 started checking every `INTERNAL_TOOL_NAMES` entry.
+
 And `handle_voice` now says something when synthesis fails. There was no `else` on
 `if generated_audio …`: the bot promised a voice reply and went silent forever, with the
 user still waiting. Silence is the worst failure mode — the text answer is already

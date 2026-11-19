@@ -821,94 +821,68 @@ async def _send_output_files(chat_id: int, output_files: list,
         logger.info(f"[Fayl] natija eslab qolindi: {last_sent[0]} (chat={chat_id})")
 
 
+# Status — BOSQICHLAR, aylanma emas (2026-11-19). Ro'yxat bir marta oldinga
+# yuradi va OXIRGISIDA TO'XTAYDI. Ilgari to'rt ibora 2,4 s da aylanib
+# qaytardi: model hali o'ylamasdan «Javob shakllantirilmoqda» chiqardi, 10 s
+# dan keyin esa ro'yxat boshidan boshlanib, bot qotgandek ko'rinardi.
+#
+# Ohang — birinchi shaxs («o'qiyapman»), idora tili («o'qilmoqda») emas:
+# xotira statusi shunday yozilgan edi va eng iliq chiqqani o'sha edi.
+#
+# ⚠️ HAR MATN ≤ STATUS_QATOR_MAX (26) harf. Telefonda qatorga ~30 harf
+# sig'adi; nuqtalar «.»→«....» har 0,5 s o'zgaradi, chekkada turgan qator
+# esa bir va ikki qator orasida sakrab, xabar pirpirardi. O'zgaruvchan
+# narsa (so'rov, sayt, shahar) 1-qatorga EMAS, 2-qatorga — `holat_kadri()`.
+# Nuqtalarni animatsiya o'zi qo'shadi — matn oxirida "..." YOZILMAYDI.
 STATUS_TEXTS_BY_TYPE: dict[str, list[str]] = {
-    "text": [
-        "Ma'lumotlar tahlil qilinmoqda",
-        "Fikrlar jamlanmoqda",
-        "Javob shakllantirilmoqda",
-        "Mukammal matn tayyorlanmoqda",
-    ],
-    "photo": [
-        "Rasm tahlil qilinmoqda",
-        "Tasvirdagi detallar aniqlanmoqda",
-        "Ko'rganlarim tahlil qilinmoqda",
-        "Javob shakllantirilmoqda",
-    ],
-    "document": [
-        "Hujjat o'qilmoqda",
-        "Matn tahlil qilinmoqda",
-        "Muhim joylar ajratilmoqda",
-        "Javob shakllantirilmoqda",
-    ],
-    "voice": [
-        "Ovozli xabar tinglanmoqda",
-        "Aytganlaringiz tahlil qilinmoqda",
-        "Fikrlar jamlanmoqda",
-        "Javob shakllantirilmoqda",
-    ],
+    # Javobning birinchi so'zi chiqishi bilan status yo'qoladi — shuning
+    # uchun «Javobni yozyapman» bosqichi YO'Q: matnning o'zi buni ko'rsatadi.
+    "text": ["Savolingizni o'qiyapman", "O'ylayapman"],
+    "photo": ["Rasmga qarayapman", "Tafsilotlarni ko'ryapman", "O'ylayapman"],
+    "document": ["Hujjatni o'qiyapman", "Muhim joylarni topyapman", "O'ylayapman"],
+    "voice": ["Ovozingizni tinglayapman", "O'ylayapman"],
     # ⚠️ Bu ro'yxat javob YUBORILGANDAN KEYIN ishlaydi — boshqa hammasi
     # javobdan oldin. Foydalanuvchi matnni o'qib bo'lgan, endi ovoz
     # sintez qilinishini kutyapti (5-10 soniya). Ilgari bu vaqt
     # BUTUNLAY jim o'tardi va odam ovoz kelishini bilmasdi.
-    "tts": [
-        "Ovozli javob tayyorlanmoqda",
-        "Matn ovozga o'girilmoqda",
-        "Ohang sozlanmoqda",
-        "Ovoz yakunlanmoqda",
-    ],
-    "search": [
-        "Internetdan ma'lumot qidirilmoqda",
-        "Manbalar solishtirilmoqda",
-        "Eng so'nggi ma'lumotlar tekshirilmoqda",
-        "Natijalar tahlil qilinmoqda",
-    ],
-    # /research — botdagi ENG UZUN amal (2-5 daqiqa). Ilgari u oddiy
-    # "search" ro'yxatidan foydalanardi: to'rtta ibora ~10 soniyada bir
-    # aylanib, uch daqiqa davomida o'ttiz marta takrorlanardi va ekran
-    # qotib qolgandek ko'rinardi. Bu yerda bosqichlar ko'p va ular
-    # haqiqiy quvurga mos: reja -> manbalar -> o'qish -> taqqoslash ->
-    # xulosa -> hisobot.
-    "research": [
-        "Tadqiqot rejasi tuzilmoqda",
-        "Manbalar qidirilmoqda",
-        "Topilgan manbalar o'qilmoqda",
-        "Ma'lumotlar solishtirilmoqda",
-        "Qarama-qarshi da'volar tekshirilmoqda",
-        "Raqamlar va sanalar aniqlanmoqda",
-        "Xulosalar shakllantirilmoqda",
-        "Hisobot yozilmoqda",
-    ],
-    "file_task": [
-        "Vazifa tahlil qilinmoqda",
-        "Kod tayyorlanmoqda",
-        "Fayl ustida ishlanmoqda",
-        "Natija shakllantirilmoqda",
-    ],
-    # Rasm yaratish ~20-25 soniya davom etadi — animatsiya bosqichlari
-    # foydalanuvchiga jarayon ketayotganini ko'rsatib turadi.
-    "image": [
-        "Rasm g'oyasi shakllantirilmoqda",
-        "Kompozitsiya tanlanmoqda",
-        "Ranglar joylanmoqda",
-        "Rasm chizilmoqda",
-    ],
-    "reminder": [
-        "Vaqt aniqlanmoqda",
-        "Eslatma qo'yilmoqda",
-        "Rejaga yozilmoqda",
-        "Tasdiqlanmoqda",
-    ],
-    # Uzoq muddatli xotira. Bu YAGONA status turi bo'lib, foydalanuvchi
-    # o'zi so'ramagan ish haqida gapiradi — shuning uchun ohang ham
-    # boshqacha: texnik emas, shaxsiy. Nuqtalarni animatsiya o'zi qo'shadi
-    # (`{status}{dots}`), shuning uchun matn oxirida "..." YOZILMAYDI.
-    "memory": [
-        "Sizni eslab qolayapman",
-        "Muhim ma'lumot saqlanmoqda",
-        "Xotiramga yozib qo'yayapman",
-        "Sizni yaxshiroq tanib olyapman",
-    ],
+    "tts": ["Ovozga aylantiryapman", "Ohangni sozlayapman", "Deyarli tayyor"],
+    # So'rov o'zi 2-qatorda («dollar kursi bugun»), keyin `manbalar` —
+    # o'qilgan saytlar bilan (services/ai.py::_holat_tafsiloti).
+    "search": ["Qidiryapman"],
+    "manbalar": ["Manbalarni o'qiyapman", "Manbalarni solishtiryapman"],
+    # /research — botdagi ENG UZUN amal (2-5 daqiqa); bosqichi
+    # `_BOSQICH_SONIYA` bo'yicha sekin yuradi. Haqiqiy bosqich va manbalar
+    # soni alohida kartada (`_tadqiqot_ochiq`), 2-qatorda — joriy so'rov.
+    "research": ["Reja tuzyapman", "Manbalarni qidiryapman",
+                 "Manbalarni o'qiyapman", "Da'volarni solishtiryapman"],
+    "file_task": ["Vazifani tushunyapman", "Kod yozyapman", "Faylni tayyorlayapman"],
+    "image": ["G'oyani o'ylayapman", "Kompozitsiyani tanlayapman", "Chizyapman"],
+    "image_edit": ["Rasmni tahrirlayapman"],
+    "reminder": ["Vaqtni aniqlayapman", "Eslatmani qo'yyapman"],
+    # Uzoq muddatli xotira — foydalanuvchi o'zi so'ramagan ish haqida
+    # gapiradigan YAGONA status, shuning uchun ohang shaxsiy.
+    "memory": ["Sizni eslab qolayapman", "Xotiramga yozyapman"],
+    # ⚠️ Quyidagilar ilgari YO'Q edi va hammasi «Internetdan ma'lumot
+    # qidirilmoqda» derdi (services/ai.py dagi bare `elif` — xotiradagi
+    # xato bilan bir xil). Ob-havo internetdan emas, xizmatdan olinadi.
+    "ob_havo": ["Ob-havoni tekshiryapman"],
+    "valyuta": ["Bugungi kursni olyapman"],
+    "namoz": ["Namoz vaqtini olyapman"],
+    "joylar": ["Yaqin joylarni qidiryapman"],
+    "imkoniyat": ["Imkoniyatlarni ko'ryapman"],
+    "biznes": ["Mijozlarni tekshiryapman"],
 }
+STATUS_QATOR_MAX = 26          # 1-qator, nuqtalarsiz (test qo'riqlaydi)
+TAFSILOT_MAX = 24              # 2-qatordagi o'zgaruvchan qism
+VAQT_KORINADI = 5.0            # soniya sanog'i shundan keyin chiqadi
+# Bosqich oralig'i, sukut — STATUS_INTERVAL. /research 2-5 daqiqa: 2,4 s
+# da u 10 soniyada oxirgi bosqichga yetib, uch daqiqa o'sha yerda turardi.
+_BOSQICH_SONIYA = {"research": 15.0}
+# Uzoq kutishda 2-qatorga bitta tinchlantiruvchi gap (bosqich vaqti bo'yicha).
+_UZOQ_KUTISH = {**{t: (20.0, "Savol chuqur, yana ozgina")
+                   for t in ("text", "photo", "document", "voice")},
+                "image": (30.0, "Biroz cho'zildi")}
+_TAFSILOT_TOZA = re.compile(r"[*_`\[\]<>|\\]")
 
 # ID'lar core/config.py:CUSTOM_EMOJI da — yagona manba, chunki ular
 # handlers/pro.py dagi Pro reklamasida ham ishlatiladi.
@@ -920,6 +894,11 @@ EMOJI_ID_BY_TYPE: dict[str, str] = {
     "image": CUSTOM_EMOJI["photo"],
     "research": CUSTOM_EMOJI["search"],
     "tts": CUSTOM_EMOJI["voice"],
+    **{t: CUSTOM_EMOJI["search"] for t in ("manbalar", "ob_havo", "valyuta",
+                                            "namoz", "joylar")},
+    "image_edit": CUSTOM_EMOJI["photo"],
+    "imkoniyat": CUSTOM_EMOJI["text"],
+    "biznes": CUSTOM_EMOJI["text"],
 }
 
 
@@ -956,7 +935,9 @@ _LOGO_BELGI = {"text": "🤔", "search": "🔍", "document": "📄", "photo": "�
                "build": "🔧", "pro": "👑", "limits": "📈", "capabilities": "🧭",
                "v": "🔷"}
 # Qaysi status qaysi animatsiyani oladi (yo'q tur -> "text").
-_LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice"}
+_LOGO_MOS = {"research": "search", "file_task": "document", "tts": "voice",
+             "manbalar": "search", "ob_havo": "search", "valyuta": "search",
+             "namoz": "search", "joylar": "search", "image_edit": "photo"}
 # ⚠️ Nomdagi raqam — to'plam nomi. Uni OSHIRMANG: egalari bu to'plamni o'z
 # emojilariga qo'shgan, yangi nom ularga yangi to'plam bo'lib qoladi.
 # Yangi tur — `_LOGO_TURLAR` oxiriga; o'zgargan animatsiya — `_LOGO_BELGI`.
@@ -1046,7 +1027,7 @@ async def logo_emojini_tayyorla(bot_username: str) -> None:
 # ular modul darajasiga chiqarildi — ikkinchi nusxa yozilsa, ohang va
 # tezlik ikki joyda ayri o'zgarib, ikkita boshqacha animatsiya paydo
 # bo'lardi.
-STATUS_INTERVAL = 2.4          # matn almashish oralig'i
+STATUS_INTERVAL = 2.4          # bosqich oralig'i (sukut)
 DOT_INTERVAL = 0.5             # nuqtalar
 RICH_DRAFT_PING_INTERVAL = 0.6
 FALLBACK_PING_INTERVAL = 1.0
@@ -1056,27 +1037,68 @@ def _status_texts_for(active_type: str) -> list[str]:
     return STATUS_TEXTS_BY_TYPE.get(active_type, STATUS_TEXTS_BY_TYPE["text"])
 
 
-def _thinking_html_for(active_type: str, elapsed: float) -> str:
+def _tafsilot(matn) -> str:
+    """2-qatorga ketadigan o'zgaruvchan qism: bitta qator, belgilarsiz.
+
+    ⚠️ U MODELDAN keladi (so'rov, shahar) va uch xil formatga tushadi —
+    HTML draft, eski Markdown (guruh), rich markdown (guest). Qochirish
+    o'rniga `*_`[]<>|\\` shunchaki olib tashlanadi: so'rovdagi bitta `_`
+    eski Markdown'da butun status xabarini «can't parse» qilardi."""
+    s = " ".join(_TAFSILOT_TOZA.sub("", str(matn or "")).split())
+    return s if len(s) <= TAFSILOT_MAX else s[:TAFSILOT_MAX - 1].rstrip() + "…"
+
+
+def holat_signali(chunk: str) -> tuple[str, str] | None:
+    """«[STATUS]tur|tafsilot» → (tur, tafsilot); noma'lum tur — None.
+
+    ⚠️ `|` dan keyingisi — MODEL yozgan so'rov. Ilgari tur `"image" in
+    chunk` bilan topilardi: «image editor» qidiruvi rasm chizish statusini
+    yoqib qo'yardi. Oddiy bot ham, guest ham SHU funksiyadan o'qiydi."""
+    tur, _, taf = chunk[len("[STATUS]"):].partition("|")
+    tur = tur.strip()
+    return (tur, taf) if tur in STATUS_TEXTS_BY_TYPE else None
+
+
+def holat_kadri(tur: str, elapsed: float, tafsilot: str = "",
+                bosqich: float | None = None) -> tuple[str, str]:
+    """Status kadri — (1-qator nuqtalari bilan, 2-qator yoki "").
+
+    YAGONA manba: DM draft, guruh matni va guest — uchalasi ham shundan.
+    `bosqich` — shu TUR boshlanganidan beri o'tgan vaqt (tur almashsa,
+    bosqich boshidan); `elapsed` — butun kutish (nuqtalar va sanoq)."""
+    matnlar = _status_texts_for(tur)
+    b = elapsed if bosqich is None else bosqich
+    i = min(int(b // _BOSQICH_SONIYA.get(tur, STATUS_INTERVAL)), len(matnlar) - 1)
+    nuqta = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
+    pastki = []
+    if tafsilot := _tafsilot(tafsilot):
+        pastki.append(tafsilot)
+    elif (uzoq := _UZOQ_KUTISH.get(tur)) and b >= uzoq[0]:
+        pastki.append(uzoq[1])
+    # Birinchi soniyalarda «0s 1s 2s» faqat joy egallaydi — tez javobda
+    # odam uni o'qishga ham ulgurmaydi.
+    if elapsed >= VAQT_KORINADI:
+        pastki.append(_format_elapsed(elapsed))
+    return matnlar[i] + nuqta, " · ".join(pastki)
+
+
+def _thinking_html_for(active_type: str, elapsed: float, tafsilot: str = "",
+                       bosqich: float | None = None) -> str:
     """Rich draft uchun xira (`<tg-thinking>`) status bloki."""
-    status_texts = _status_texts_for(active_type)
+    yuqori, pastki = holat_kadri(active_type, elapsed, tafsilot, bosqich)
     emoji_id = status_emoji_id(active_type)
-    status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
-    dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
-    safe_status = html_lib.escape(status_texts[status_index])
-    elapsed_label = html_lib.escape(_format_elapsed(elapsed))
+    pastki = f"<br/>{html_lib.escape(pastki)}" if pastki else ""
     return (
         f'<tg-thinking><tg-emoji emoji-id="{emoji_id}">🔄</tg-emoji> '
-        f"<b>{safe_status}{dots}</b><br/>"
-        f"{elapsed_label}</tg-thinking>"
+        f"<b>{html_lib.escape(yuqori)}</b>{pastki}</tg-thinking>"
     )
 
 
-def _thinking_plain_for(active_type: str, elapsed: float) -> str:
+def _thinking_plain_for(active_type: str, elapsed: float, tafsilot: str = "",
+                        bosqich: float | None = None) -> str:
     """Draft ishlamaydigan joy (guruh) uchun oddiy matnli status."""
-    status_texts = _status_texts_for(active_type)
-    status_index = int(elapsed // STATUS_INTERVAL) % len(status_texts)
-    dots = "." * (int(elapsed // DOT_INTERVAL) % 4 + 1)
-    return f"🔄 *{status_texts[status_index]}{dots}*\n{_format_elapsed(elapsed)}"
+    yuqori, pastki = holat_kadri(active_type, elapsed, tafsilot, bosqich)
+    return f"🔄 *{yuqori}*" + (f"\n{pastki}" if pastki else "")
 
 
 @asynccontextmanager
@@ -1568,6 +1590,8 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
     # mumkin — shu payt active_type "search"ga o'tadi va status matni/emoji
     # ham shunga mos almashadi (pastdagi async-for ichida yangilanadi).
     active_type = content_type
+    # 2-qator: so'rov, saytlar, shahar — `[STATUS]tur|tafsilot` dan.
+    tafsilot = ""
 
     # ⚠️ STATUS_INTERVAL / DOT_INTERVAL / *_PING_INTERVAL endi modul
     # darajasida — ularni ovoz sintezi ko'rsatkichi ham ishlatadi.
@@ -1584,25 +1608,25 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
 
     stop_animation = asyncio.Event()
 
-    # `active_type` oqim davomida o'zgaradi ([STATUS]search), shuning
-    # uchun umumiy funksiyalar shu yerda o'ralib chaqiriladi.
-    def _status_texts() -> list[str]:
-        return _status_texts_for(active_type)
-
-    def _thinking_html(elapsed: float) -> str:
-        return _thinking_html_for(active_type, elapsed)
-
     async def emoji_animator():
         nonlocal fallback_message, using_rich_draft, rich_draft_ok
         start_ts = time.monotonic()
         rich_draft_failures = 0
         last_fallback_text = None
+        # `active_type` oqim davomida o'zgaradi ([STATUS]search) — yangi
+        # turning bosqichlari BOSHIDAN yuradi, aks holda qidiruv 8-soniyada
+        # boshlansa darhol oxirgi bosqichidan ko'rinardi.
+        tur_oldin, tur_t0 = None, start_ts
         while not stop_animation.is_set():
-            elapsed = time.monotonic() - start_ts
+            hozir = time.monotonic()
+            elapsed = hozir - start_ts
+            if active_type != tur_oldin:
+                tur_oldin, tur_t0 = active_type, hozir
+            kadr = (active_type, elapsed, tafsilot, hozir - tur_t0)
             wait_time = RICH_DRAFT_PING_INTERVAL
 
             if using_rich_draft:
-                thinking_html = _thinking_html(elapsed)
+                thinking_html = _thinking_html_for(*kadr)
                 try:
                     res = await _send_rich_draft(
                         message.chat.id, draft_id,
@@ -1623,7 +1647,7 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                         using_rich_draft = False
 
             if not using_rich_draft:
-                text_to_send_fallback = _thinking_plain_for(active_type, elapsed)
+                text_to_send_fallback = _thinking_plain_for(*kadr)
                 wait_time = FALLBACK_PING_INTERVAL
                 try:
                     if fallback_message is None:
@@ -1759,21 +1783,16 @@ async def process_stream_draft(message: Message, stream_generator, content_type:
                 # Kontent emas — bu faqat "band" animatsiyasiga signal.
                 # Animatsiya TO'XTATILMAYDI, chunki qidiruv/fayl vazifasi
                 # hali davom etyapti (ekran "muzlab qolmasligi" uchun).
-                if "file_task" in chunk:
-                    active_type = "file_task"
-                elif "image" in chunk:
-                    active_type = "image"
-                elif "reminder" in chunk:
-                    active_type = "reminder"
-                elif "memory" in chunk:
-                    active_type = "memory"
-                elif "search" in chunk:
+                if signal := holat_signali(chunk):
+                    tur, tafsilot = signal
                     # ⚠️ /research O'Z holatini saqlaydi. Uning ichida
                     # o'nlab qidiruv ketadi va har biri statusni umumiy
                     # "qidiruv"ga tushirsa, 2-5 daqiqalik tadqiqot
-                    # oddiy savoldan farq qilmay qolardi.
-                    if content_type != "research":
-                        active_type = "search"
+                    # oddiy savoldan farq qilmay qolardi. So'rovi esa
+                    # 2-qatorga baribir chiqadi.
+                    if not (content_type == "research"
+                            and tur in ("search", "manbalar")):
+                        active_type = tur
                 # ⚠️ ANIMATSIYANI QAYTA YOQAMIZ. Model tool chaqirishdan
                 # OLDIN matn yozgan bo'lsa (odatiy hol: "hozir
                 # qidiraman..."), animatsiya allaqachon to'xtagan va

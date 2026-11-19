@@ -4488,6 +4488,59 @@ TADQIQOT: ContextVar[Optional[dict]] = ContextVar("tadqiqot", default=None)
 _HAVOLA_RE = re.compile(r"https?://[^\s<>\"')\]]+")
 
 
+# Status signallari (handlers/messages.py::STATUS_TEXTS_BY_TYPE) — nomi
+# alohida `elif` da yozilmagan toollar uchun. Bu ro'yxatda yo'q nom pastdagi
+# bare `elif` ga tushib «Qidiryapman» bo'ladi (test_status_matn.py tekshiradi).
+_TOOL_HOLATI = {
+    "ob_havo": "ob_havo", "valyuta": "valyuta", "namoz_vaqti": "namoz",
+    "find_nearby": "joylar", "edit_image": "image_edit",
+    "open_memory": "memory", "open_reminder": "reminder",
+    "open_capabilities": "imkoniyat", "biznes_xabar": "biznes",
+}
+
+
+def _holat_tafsiloti(nom: str, args: dict) -> Optional[str]:
+    """Tool ishga tushishidan oldin statusning 2-qatori: «[STATUS]tur|matn».
+
+    Faqat foydalanuvchining O'Z so'ragani (so'rov, shahar, valyuta) — hech
+    qanday ichki narsa. Uzunlik va belgilarni handlers tomoni tozalaydi
+    (`messages._tafsilot`). `find_nearby` yo'q: uning turkumi OSM tegi."""
+    if not isinstance(args, dict):
+        return None
+    if nom in ("ob_havo", "namoz_vaqti"):
+        tur, matn = _TOOL_HOLATI[nom], args.get("joy")
+    elif nom == "valyuta":
+        kodlar = args.get("kodlar")
+        tur = "valyuta"
+        matn = ", ".join(map(str, kodlar)) if isinstance(kodlar, list) else ""
+    elif nom == "internet_search":
+        tur = "search"
+        if havola := str(args.get("url") or "").strip():
+            # Havola qidirilmaydi, O'QILADI — «Manbalarni o'qiyapman».
+            tur, matn = "manbalar", _domenlar(havola)
+        else:
+            q = str(args.get("primary_query") or "").strip()
+            matn = f"«{q}»" if q else ""
+    else:
+        return None
+    matn = str(matn or "").replace("|", " ").strip()
+    return f"[STATUS]{tur}|{matn}" if matn else None
+
+
+def _domenlar(matn: str, sigim: int = 24) -> str:
+    """Natijadagi havolalarning saytlari: «kun.uz, gazeta.uz». Faqat BUTUN
+    nomlar, sig'imgacha — kesilgan «gazeta.u…» o'qilmaydi."""
+    natija: list[str] = []
+    for u in _HAVOLA_RE.findall(matn or ""):
+        d = (urlparse(u).hostname or "").removeprefix("www.")
+        if not d or d in natija:
+            continue
+        if len(", ".join(natija + [d])) > sigim:
+            break
+        natija.append(d)
+    return ", ".join(natija)
+
+
 def _tadqiqot_qayd(nom: str, args: dict, natija: str) -> None:
     """Asbob natijasidan keyin: qidiruv so'rovi va noyob havolalar soni
     (karta "manba" deydi), PDF bosqichi tugadi — "x" (xulosa yozilmoqda)."""
@@ -5305,6 +5358,11 @@ async def get_openai_reply(
                                 if not memory_started:
                                     yield "[STATUS]memory"
                                     memory_started = True
+                            elif _call_name in _TOOL_HOLATI:
+                                # ⚠️ Bu shox ham SHART — yuqoridagi xotira
+                                # izohiga qarang: ob-havo, valyuta, namoz
+                                # «Internetdan qidirilmoqda» derdi.
+                                yield "[STATUS]" + _TOOL_HOLATI[_call_name]
                             elif not search_performed:
                                 yield "[STATUS]search"
                                 search_performed = True
@@ -5361,6 +5419,8 @@ async def get_openai_reply(
                 args = json.loads(call_item.arguments or "{}")
             except Exception:
                 args = {}
+            if _h := _holat_tafsiloti(call_item.name, args):
+                yield _h
 
             # ⚠️ Bu ham `else` dan OLDIN turishi SHART: pastdagi bare
             # `else` har qanday tanilmagan tool nomini veb qidiruvga
@@ -5537,6 +5597,8 @@ async def get_openai_reply(
                             fetch_pages=6 if research else 3,
                             max_queries=4 if research else 3,
                         )
+                        if _d := _domenlar(tool_output):
+                            yield "[STATUS]manbalar|" + _d
                     # Rasm FAQAT bir marta qidiriladi: ikkinchi raundda
                     # ro'yxat almashsa, model birinchi ro'yxatga qarab
                     # yozgan [rasm:2] boshqa rasmga tegib ketardi.

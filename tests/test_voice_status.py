@@ -94,8 +94,7 @@ async def _sinov_draft():
     check(1, f"draft bir necha marta yangilandi ({len(animatsiya)} ta)",
           len(animatsiya) >= 2)
     check(2, "status matni ovoz sintezi haqida",
-          any("Ovozli javob tayyorlanmoqda" in c["html"]
-              or "ovozga" in c["html"] for c in animatsiya))
+          any(m.STATUS_TEXTS_BY_TYPE["tts"][0] in c["html"] for c in animatsiya))
     check(3, "animatsiya aylanadi (matn o'zgaradi)",
           len({c["html"] for c in animatsiya}) >= 2)
 

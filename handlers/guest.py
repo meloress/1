@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import html as html_lib
 import os
 import re
 import time
@@ -23,7 +22,9 @@ from core.config import (
 from db.database import (has_started, check_and_consume_quota, refund_quota,
                          get_maintenance_notice_for)
 from handlers.messages import (
-    STATUS_TEXTS_BY_TYPE, status_emoji_id, _format_elapsed, track_user_activity,
+    STATUS_TEXTS_BY_TYPE, status_emoji_id, holat_kadri, holat_signali,
+    _thinking_html_for,
+    track_user_activity,
     RICH_MEDIA_TIMEOUT, _send_rich_message, OUTCOME_REJECTED, OUTCOME_UNKNOWN,
     MAX_RICH_CHARS,
 )
@@ -88,8 +89,6 @@ _GUEST_CONTENT_COST = {
 # (_run_guest_chat_status_animator). Bo'lmasa (masalan faqat guest inline
 # javob mumkin bo'lgan holatda) — oddiy matn + nuqta animatsiyasiga
 # (_run_guest_status_animator) tushamiz.
-_STATUS_ANIM_INTERVAL = 2.4
-_DOT_ANIM_INTERVAL = 0.5
 _STATUS_PING_INTERVAL = 1.2
 _RICH_DRAFT_PING_INTERVAL = 0.6
 _RICH_DRAFT_FAILURE_LIMIT = 2
@@ -115,10 +114,11 @@ def _guest_status_text(content_type: str) -> str:
     return STATUS_TEXTS_BY_TYPE.get(content_type, STATUS_TEXTS_BY_TYPE["text"])[0]
 
 
-def _guest_status_frame(content_type: str, elapsed: float) -> str:
-    """Berilgan lahzadagi status matnini (aylanuvchi fraza + miltillovchi
-    nuqtalar + o'tgan vaqt) qaytaradi — handlers/messages.py dagi
-    emoji_animator'ning "fallback" (draft'siz) rejimi bilan bir xil ritmda.
+def _guest_status_frame(content_type: str, elapsed: float, tafsilot: str = "",
+                        bosqich: float | None = None) -> str:
+    """Berilgan lahzadagi status matnini (bosqich + miltillovchi nuqtalar +
+    2-qator) qaytaradi — kadr `messages.holat_kadri()` dan, oddiy bot
+    bilan bir xil.
 
     DIQQAT: bitta \\n YETARLI EMAS — guest javoblari answerGuestQuery/
     editMessageText'ning `rich_message.markdown` maydoni orqali ketadi, u esa
@@ -129,11 +129,9 @@ def _guest_status_frame(content_type: str, elapsed: float) -> str:
     Emoji ishlatilmaydi (caller_chat_id doim None — premium tg-emoji
     arxitektura jihatidan mumkin emas, oddiy unicode emoji ham matnni
     "arzon" ko'rsatadi) — o'rniga faqat tipografiya: **qalin** aylanuvchi
-    fraza va _kursiv_ o'tgan vaqt, bo'sh qator bilan ajratilgan."""
-    status_texts = STATUS_TEXTS_BY_TYPE.get(content_type, STATUS_TEXTS_BY_TYPE["text"])
-    status_index = int(elapsed // _STATUS_ANIM_INTERVAL) % len(status_texts)
-    dots = "." * (int(elapsed // _DOT_ANIM_INTERVAL) % 4 + 1)
-    return f"*{status_texts[status_index]}{dots}*\n\n_{_format_elapsed(elapsed)}_"
+    fraza va _kursiv_ 2-qator, bo'sh qator bilan ajratilgan."""
+    yuqori, pastki = holat_kadri(content_type, elapsed, tafsilot, bosqich)
+    return f"*{yuqori}*" + (f"\n\n_{pastki}_" if pastki else "")
 
 
 async def _run_guest_status_animator(
@@ -155,21 +153,29 @@ async def _run_guest_status_animator(
     `rich=True` — `edit_fn(text, html)`: html — oddiy botdagi premium
     `<tg-thinking>` kadri, text — uning zaxirasi.
     `kutib=True` — birinchi kadr allaqachon ekranda (placeholder), darhol
-    qayta tahrirlash tahrir byudjetini bekorga yeydi."""
+    qayta tahrirlash tahrir byudjetini bekorga yeydi.
+    Callable `(tur, tafsilot)` juftini ham qaytarishi mumkin."""
     start_ts = time.monotonic()
     last_text = None
+    tur_oldin, tur_t0 = None, start_ts
     if kutib:
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
         except asyncio.TimeoutError:
             pass
     while not stop_event.is_set():
-        elapsed = time.monotonic() - start_ts
-        tur = content_type() if callable(content_type) else content_type
-        text = _guest_status_frame(tur, elapsed)
+        hozir = time.monotonic()
+        elapsed = hozir - start_ts
+        v = content_type() if callable(content_type) else content_type
+        tur, taf = v if isinstance(v, tuple) else (v, "")
+        # Yangi tur — bosqichlari boshidan (messages.emoji_animator kabi).
+        if tur != tur_oldin:
+            tur_oldin, tur_t0 = tur, hozir
+        kadr = (tur, elapsed, taf, hozir - tur_t0)
+        text = _guest_status_frame(*kadr)
         if text != last_text:
             try:
-                natija = (edit_fn(text, _guest_status_md(tur, elapsed)) if rich
+                natija = (edit_fn(text, _guest_status_md(*kadr)) if rich
                           else edit_fn(text))
                 if await natija:
                     return
@@ -183,22 +189,13 @@ async def _run_guest_status_animator(
 
 
 def _guest_thinking_html(content_type: str, elapsed: float) -> str:
-    """handlers/messages.py dagi (process_stream_draft ichidagi) _thinking_html
-    bilan bir xil — tg-thinking/tg-emoji premium status ko'rinishi."""
-    status_texts = STATUS_TEXTS_BY_TYPE.get(content_type, STATUS_TEXTS_BY_TYPE["text"])
-    emoji_id = status_emoji_id(content_type)
-    status_index = int(elapsed // _STATUS_ANIM_INTERVAL) % len(status_texts)
-    dots = "." * (int(elapsed // _DOT_ANIM_INTERVAL) % 4 + 1)
-    safe_status = html_lib.escape(status_texts[status_index])
-    elapsed_label = html_lib.escape(_format_elapsed(elapsed))
-    return (
-        f'<tg-thinking><tg-emoji emoji-id="{emoji_id}">🔄</tg-emoji> '
-        f"<b>{safe_status}{dots}</b><br/>"
-        f"{elapsed_label}</tg-thinking>"
-    )
+    """handlers/messages.py dagi DM draft kadrining O'ZI (nusxa emas) —
+    tg-thinking/tg-emoji premium status ko'rinishi."""
+    return _thinking_html_for(content_type, elapsed)
 
 
-def _guest_status_md(content_type: str, elapsed: float) -> str:
+def _guest_status_md(content_type: str, elapsed: float, tafsilot: str = "",
+                     bosqich: float | None = None) -> str:
     """Guest INLINE xabar uchun status kadri — oddiy botdagi animatsiyali
     premium emoji + qalin matn + vaqt.
 
@@ -206,12 +203,9 @@ def _guest_status_md(content_type: str, elapsed: float) -> str:
     (inline) xabarda `RICH_MESSAGE_BLOCK_UNSUPPORTED` bilan rad etadi, u
     faqat shaxsiy chat DRAFT'i uchun. Premium emoji esa guruhdagi yakuniy
     javoblarda allaqachon ishlab turibdi (`![ ](tg://emoji?id=…)`)."""
-    status_texts = STATUS_TEXTS_BY_TYPE.get(content_type, STATUS_TEXTS_BY_TYPE["text"])
-    emoji_id = status_emoji_id(content_type)
-    status_index = int(elapsed // _STATUS_ANIM_INTERVAL) % len(status_texts)
-    dots = "." * (int(elapsed // _DOT_ANIM_INTERVAL) % 4 + 1)
-    return (f"![ ](tg://emoji?id={emoji_id}) **{status_texts[status_index]}{dots}**"
-            f"\n\n_{_format_elapsed(elapsed)}_")
+    yuqori, pastki = holat_kadri(content_type, elapsed, tafsilot, bosqich)
+    return (f"![ ](tg://emoji?id={status_emoji_id(content_type)}) **{yuqori}**"
+            + (f"\n\n_{pastki}_" if pastki else ""))
 
 
 async def _run_guest_chat_status_animator(
@@ -991,7 +985,7 @@ else:
         # ⚠️ Barcha tahrirlar bitta `inline["oxirgi"]` vaqtiga bo'ysunadi:
         # inline tahrir byudjeti qattiq (429 «retry after 33»), yakuniy
         # javobga joy qolishi shart.
-        inline = {"tur": content_type, "html": True, "oxirgi": 0.0,
+        inline = {"tur": content_type, "taf": "", "html": True, "oxirgi": 0.0,
                   "yopiq": False}
 
         async def _edit_thinking_inline(text: str, html: str | None = None) -> bool:
@@ -1025,7 +1019,8 @@ else:
             status_anim_stop = asyncio.Event()
             status_anim_task = asyncio.create_task(
                 _run_guest_status_animator(
-                    _edit_thinking_inline, lambda: inline["tur"], status_anim_stop,
+                    _edit_thinking_inline, lambda: (inline["tur"], inline["taf"]),
+                    status_anim_stop,
                     interval=_INLINE_PING_INTERVAL, rich=True, kutib=kutib,
                 )
             )
@@ -1217,9 +1212,8 @@ else:
                         if not chunk:
                             continue
                         if chunk.startswith("[STATUS]"):
-                            tur = chunk[len("[STATUS]"):].strip()
-                            if tur in STATUS_TEXTS_BY_TYPE:
-                                inline["tur"] = tur
+                            if signal := holat_signali(chunk):
+                                inline["tur"], inline["taf"] = signal
                             # Tool raundi: jonli matn o'rniga yana status
                             # (oddiy botdagi animatsiya qayta boshlanishi).
                             if guest_inline_message_id is not None:

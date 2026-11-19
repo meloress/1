@@ -216,6 +216,14 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_voice_status.py` — the TTS status indicator cleans up on every exit path
   (draft emptied, group message deleted, and both still done when the body raises). An
   abandoned draft hangs on screen and kills the next animation.
+- `test_status_matn.py` — the status frame (2026-11-19). Every line-1 text is ≤ 26
+  characters, because on a phone a longer one jumps between one and two lines as the dots
+  change. Stages move forward and stop on the last one instead of looping. Variable details
+  (the query, the sites read, the city) go on line 2, stripped of `*_`[]<>|\`. Sharpest
+  check (6) runs every name in `INTERNAL_TOOL_NAMES` through the real stream and fails if
+  any tool other than `internet_search` shows «Qidiryapman». Weather, currency, prayer
+  times, places and image editing all used to show «Internetdan qidirilmoqda». Check 8
+  pins that a query containing «image» does not switch the status to image drawing.
 - `test_biznes.py` / `test_biznes_yordamchi.py` / `test_biznes_avtomat.py` /
   `test_biznes_hisobot.py` / `test_biznes_uslub.py` / `test_biznes_mavzu.py` /
   `test_biznes_tanlov.py` / `test_biznes_qaror.py` / `test_biznes_ishonch.py` /
