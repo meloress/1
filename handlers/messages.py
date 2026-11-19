@@ -298,6 +298,16 @@ async def close_http_session() -> None:
 OUTCOME_REJECTED = "rejected"     # Telegram aniq rad etdi (ok:false / 4xx)
 OUTCOME_UNKNOWN = "unknown"       # timeout yoki tarmoq uzildi
 
+# ⛔️ VIDJETLAR VAQTINCHA O'CHIQ (2026-11-19). Telegram Bot API 10.4
+# vidjetlarini o'zi vaqtincha o'chirib qo'ydi — hech biri ko'rinmayapti.
+# Shu kalit o'chiq ekan, `sendWidget` / `editMessageWidgetData` Telegram'ga
+# UMUMAN ketmaydi va "rad etildi" deb qaytadi: har bir chaqiruvchida zaxira
+# bor (/start, /pro, /profile, /kunlik, ob-havo, valyuta, test, kartochka —
+# avvalgi matnli ekran). Asboblar esa raqamlarni javob matniga yozadi
+# (`_vidjet_royxati` → None). Qayta yoqish: Railway'da `VIDJET=1`.
+VIDJET_YOQIQ = os.getenv("VIDJET", "0") == "1"
+_VIDJET_USULLARI = ("sendWidget", "editMessageWidgetData")
+
 
 async def _telegram_api_request(method: str, payload: dict, *,
                                 outcome: list | None = None,
@@ -313,6 +323,11 @@ async def _telegram_api_request(method: str, payload: dict, *,
     har bir rasmni O'ZI manba saytdan yuklab oladi va bu 10 soniyadan
     oson oshadi.
     """
+    if method in _VIDJET_USULLARI and not VIDJET_YOQIQ:
+        # REJECTED, UNKNOWN emas: chaqiruvchi zaxira ekranni yuboradi.
+        if outcome is not None:
+            outcome.append(OUTCOME_REJECTED)
+        return None
     if not BOT_TOKEN:
         if outcome is not None:
             outcome.append(OUTCOME_UNKNOWN)
@@ -1382,7 +1397,7 @@ def _vidjet_royxati(message: Message) -> list | None:
     `getattr` — bezak javob yo'lini hech qachon yiqitmasin: chat turi
     noma'lum bo'lsa, vidjetsiz (xavfsiz) tomon tanlanadi."""
     turi = getattr(getattr(message, "chat", None), "type", None)
-    return [] if turi == "private" else None
+    return [] if turi == "private" and VIDJET_YOQIQ else None
 
 
 async def karta_yubor(chat_id: int, v: dict, thread_id=None) -> str | None:

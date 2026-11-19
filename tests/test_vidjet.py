@@ -355,8 +355,20 @@ check(38, "ob_havo dispatch'i bare `else` (veb-qidiruv) dan OLDIN",
       0 < aik.index('elif call_item.name == "ob_havo"')
       < aik.index("            else:\n                search_ran = True"))
 
-check(39, "guruhda vidjet ro'yxati None (asbob raqamni matnga yozadi)",
-      msg._vidjet_royxati(_Msg()) == [] and msg._vidjet_royxati(_Msg("supergroup")) is None)
+_kalit = msg.VIDJET_YOQIQ
+msg.VIDJET_YOQIQ = True
+_yoqiq = (msg._vidjet_royxati(_Msg()) == [] and msg._vidjet_royxati(_Msg("supergroup")) is None)
+# ⛔️ 2026-11-19: Telegram vidjetlarni vaqtincha o'chirdi — kalit o'chiq
+# bo'lsa shaxsiy chatda ham None: asbob raqamlarni javob matniga yozadi.
+msg.VIDJET_YOQIQ = False
+_ochiq = msg._vidjet_royxati(_Msg()) is None
+_natija: list = []
+_yuborilmadi = (asyncio.run(msg._telegram_api_request("sendWidget", {}, outcome=_natija)) is None
+                and _natija == [msg.OUTCOME_REJECTED])
+msg.VIDJET_YOQIQ = _kalit
+check(39, "guruhda vidjet ro'yxati None; kalit o'chiq — shaxsiy chatda ham None, "
+          "sendWidget tarmoqqa chiqmay REJECTED (zaxira ekran)",
+      _yoqiq and _ochiq and _yuborilmadi)
 
 chaqiruvlar.clear()
 msg._telegram_api_request = _api_soxta({"message_id": 5})
@@ -573,7 +585,9 @@ check(63, "daydjest: karta yetsa matn yo'q; rad etilsa raqamlar MATN bilan",
       [x[1] for x in kartalar] == ["obhavo", "valyuta"] and dm_ketdi == [(9, "ZAXIRA MATN", 0)])
 dgk = kod(ILDIZ / "handlers" / "digest.py")
 check(64, "daydjest asbobga vidjet ro'yxatini beradi va kartalarni yuboradi",
-      "vidjet_out=vidjet_out" in dgk and "await _kartalar(uid, vidjetlar, thread)" in dgk)
+      "vidjet_out=vidjet_out" in dgk and "await _kartalar(uid, vidjetlar or [], thread)" in dgk
+      # Kalit o'chiq (2026-11-19) — ro'yxat o'rniga None: raqamlar matnda.
+      and "vidjetlar = [] if VIDJET_YOQIQ else None" in dgk)
 
 # ─────────────────────────────────────────────────────────────
 # 65-70. ESLATMA SANOQ KARTASI

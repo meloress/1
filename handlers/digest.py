@@ -20,7 +20,8 @@ from core.loader import logger
 from db import database
 from handlers.helpers import _dm_or_deactivate
 from handlers.helpers import _mavzular
-from handlers.messages import (OUTCOME_UNKNOWN, _send_rich_message, _telegram_api_request,
+from handlers.messages import (OUTCOME_UNKNOWN, VIDJET_YOQIQ, _send_rich_message,
+                               _telegram_api_request,
                                _thread_key, ekran_almashtir, karta_yubor, xabar_id,
                                xabarni_ochir)
 from handlers.pro import btn, send_rich, BTN_PRIMARY, BTN_SUCCESS, BTN_DANGER
@@ -546,7 +547,8 @@ async def _bitta_daydjest(row: dict, sem: asyncio.Semaphore) -> None:
             topics = row.get("digest_topics")
             if not topics:                  # SQL buni o'tkazmaydi — ikkinchi qavat
                 return
-            vidjetlar: list = []
+            # Vidjet o'chiq bo'lsa None — asbob raqamlarni daydjest matniga yozadi.
+            vidjetlar = [] if VIDJET_YOQIQ else None
             body = await _build_digest(topics, vidjetlar)
             if not body:
                 # Ilgari jim edi: sanoq "yuborildi", foydalanuvchi esa hech narsa olmasdi.
@@ -554,8 +556,8 @@ async def _bitta_daydjest(row: dict, sem: asyncio.Semaphore) -> None:
                 return
             thread = row.get("digest_thread_id") or 0
             await _send_digest(uid, body, thread)
-            await _kartalar(uid, vidjetlar, thread)
-            logger.info(f"[Daydjest] yuborildi (user={uid}, karta={len(vidjetlar)})")
+            await _kartalar(uid, vidjetlar or [], thread)
+            logger.info(f"[Daydjest] yuborildi (user={uid}, karta={len(vidjetlar or [])})")
         except Exception as e:
             # Sanoq allaqachon "yuborildi" deb belgilangan — ertaga qayta
             # uriniladi. Ataylab: soat bo'yi qayta urinib bezovta qilmaymiz.

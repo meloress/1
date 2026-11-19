@@ -247,7 +247,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
 - **Premium emoji, maps, buttons, tables, `$`** — the model writes markers, code emits the
   tags; a lapsed Premium rejects the whole message, so the downgrade rung strips them.
   `_compact_tables()` runs before maths; inline maths never takes `re.S`.
-- **Widgets** (Bot API 10.4) — DM only in production; the model writes `[test]` /
+- **Widgets** (Bot API 10.4) — ⛔️ **switched off since 2026-11-19.** Telegram disabled
+  widgets on its side for now. `messages.VIDJET_YOQIQ` (env `VIDJET=1`) blocks `sendWidget`
+  and `editMessageWidgetData` in `_telegram_api_request`, so every caller falls back to its
+  old text screen. Tools write the numbers into the reply. Re-enable once Telegram does. DM only in production; the model writes `[test]` /
   `[kartochka]`, never HTML; weather (`ob_havo`) and currency (`valyuta`) are tools that give
   the model real numbers and queue a card via `vidjet_out` in a DM. Currency conversion is
   computed in code, and `Nominal` is honoured. Prayer times (`namoz_vaqti`): official
