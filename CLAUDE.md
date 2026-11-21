@@ -346,6 +346,10 @@ owner-style learning) and the planned next work. The rules that break silently:
   scheduled — none of which is in the topic history), the text of a bot message the owner
   replied to, and can read a customer chat, edit Knowledge **by line number** and change
   settings. Every write (send / Knowledge / setting) is a proposal confirmed by "ha" in code.
+- Navbatchi (2026-11-22, `handlers/navbatchi.py`): the owner's **own account** answers in
+  a group through a Telethon userbot, because Business is private-chat only. ⛔️ Commands
+  are only the owner's own messages; a stranger's «vexon to'xta» is chat. `USERBOT_SESSION`
+  is the account's full key: never print it. Rules: `BIZNES.md` «Navbatchi».
 - Instagram Direct (2026-10-15, `handlers/instagram.py`): the same pipeline, not a copy — a
   webhook message is shaped like a `Message` and fed to `biznes_xabar()`, and `_mijozga()`
   routes `ig:` connections to the Graph API. Customer chat id is `-IGSID`. ⛔️ Unsigned

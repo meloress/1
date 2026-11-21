@@ -823,3 +823,62 @@ written from the whole conversation).
   chat — each calls `_kartochka_hal()`.
 - RAM on purpose: a deploy forgets it, and the worst case is one repeated sentence.
   `test_biznes_avtomat.py` checks 32-33; other Business tests clear `_kartochka` per step.
+
+## Navbatchi: the owner's own account in a group (2026-11-22)
+
+Telegram Business cannot do this. `BusinessBotRights.can_reply` covers **private chats
+only** (Bot API 10.4), and group messages never reach a business connection. So
+`handlers/navbatchi.py` is a **userbot**: Telethon (`telethon==1.45.0`) logged in with the
+owner's own session. It runs inside the same process, as `eski_bot` does. Without
+`USERBOT_SESSION`, `USERBOT_API_ID` and `USERBOT_API_HASH` it never starts. The owner
+produces the session on their own machine with `python tools/userbot_kirish.py`. ⛔️ That
+string is the account's full key: never log it, print it or put it in chat.
+
+The owner types these in a group from their own account. Each command message is deleted
+at once.
+
+- `vexon, <task of at least 3 words>` starts a shift, or replaces the task.
+- `vexon to'xta` / `vexon stop` stops it.
+- `vexon belgi o'chir` / `vexon belgi yoq` turns the ᵃᵛᵗᵒʲᵃᵛᵒᵇ mark off and on. The
+  mark is on by default and links to the bot.
+
+When the owner writes an ordinary message, they are back, and the shift ends. A report of
+every question and answer then goes to the owner's DM through @vexonai.
+
+⛔️ **The rules live in code, not in the prompt.** The owner said people treat it as a
+joke and try to break it.
+
+- **Only the owner's own message (`event.out`) is a command.** A stranger's «vexon
+  to'xta» is conversation, and the model answers it with a joke
+  (`test_navbatchi.py` 3).
+- **Private chats are never touched** (`event.is_group`).
+- **Spam limits:** one reply per `ORALIQ` (20 s) per group and `MAX_JAVOB` (30) per shift.
+  A shift ends by itself after `NAVBAT_SOAT` (3 h). Spammy behaviour gets the **account**
+  restricted.
+- **The rate slot is reserved before the model call.** Telethon runs handlers in
+  parallel, so two messages arriving together would both pass the check. If there is no
+  reply, the slot is freed.
+- **Our own replies are not «the owner came back».** They are recognised by
+  `_YOZILGAN` / `_YOZYAPTI`.
+- **Telegram dates are whole seconds**, so a message is «before the shift» only if it is
+  more than 2 s older than the start.
+
+The model is `ai.navbat_javobi()` with fixed `NAVBAT_INSTRUCTIONS`, so the prompt cache
+applies. The task, the last 15 group messages and its own earlier replies go in
+`developer` / `user`. «-» means no reply. If the reply repeats an earlier one, it is asked
+once more for something different, and if it repeats again it stays silent. The
+«don't repeat yourself» rule alone did not hold: `eval_navbat.py` takror_2 got the
+identical text back.
+
+**Boundaries the owner agreed to:**
+
+- It never denies being an AI when sincerely asked, even with the mark off.
+- It does not chase anyone who says «bas».
+- It writes nothing crude and sends no DMs.
+
+Live baseline: `railway run python tests/eval_navbat.py --takror 2` scored **19/19**
+(2026-11-22). The cases cover a stranger's stop, a prompt leak, the owner's phone number,
+«are you a bot?», a programming question, off-topic chat (silence), banter, flattery,
+«bas», and no repeats. ⚠️ Run it from PowerShell in `C:\Users\Acer\Desktop\123`. The
+Railway link is keyed by that exact path, and Git Bash's `/c/...` path reports «No linked
+project».

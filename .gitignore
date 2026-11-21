@@ -35,3 +35,8 @@ tests/.eval_chat_oxirgi.json
 # Brend manbalari (4K logo, maskot eskizi) — katta, repoga kerak emas.
 # Botdagi nusxalari: assets/vexon_logo.jpg, assets/vexon_v.png, web/static/logo.jpg
 brend/
+
+# Telethon sessiya fayllari — akkauntning TO'LIQ kaliti (navbatchi StringSession
+# ishlatadi, fayl yaratmaydi; bu — tasodifiy nusxaga qarshi).
+*.session
+*.session-journal

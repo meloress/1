@@ -216,6 +216,13 @@ Some are structural guards rather than feature tests, and they earn their keep o
 - `test_voice_status.py` — the TTS status indicator cleans up on every exit path
   (draft emptied, group message deleted, and both still done when the body raises). An
   abandoned draft hangs on screen and kills the next animation.
+- `test_navbatchi.py` — the userbot shift in groups (2026-11-22). All the safety rules
+  live in code: only the owner's own message is a command, and a stranger's «vexon to'xta»
+  is conversation (check 3, the sharpest). Private chats are ignored. It allows one reply
+  per 20 s, stops after 30 replies or 3 hours, and stops when the owner writes an ordinary
+  message. Our own replies are not «the owner came back». Model check 13 keeps group text
+  out of `instructions` and covers the repeat guard (re-ask once, then silence).
+  Mutation-tested 14/14. Live counterpart: `eval_navbat.py`.
 - `test_status_matn.py` — the status frame (2026-11-19). Every line-1 text is ≤ 26
   characters, because on a phone a longer one jumps between one and two lines as the dots
   change. Stages move forward and stop on the last one instead of looping. Variable details

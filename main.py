@@ -401,6 +401,11 @@ async def main():
     elif eski_token:
         logger.warning("ESKI_BOT_TOKEN = BOT_TOKEN — eski bot ishga tushirilmadi")
 
+    # Navbatchi — egasining O'Z akkauntidan guruhda javob (handlers/navbatchi.py).
+    # USERBOT_* sozlamasi bo'lmasa o'zi jim qaytadi.
+    from handlers import navbatchi
+    asyncio.create_task(navbatchi.ishga_tushir())
+
     await bot(DeleteWebhook(drop_pending_updates=True))
 
     # allowed_updates ro'yxatdan o'tgan handlerlardan chiqariladi.
@@ -422,8 +427,9 @@ async def _yopish() -> None:
     marta) va eski bot jarayon o'lguncha polling qilardi. Har biri alohida
     va 5 s bilan cheklangan — bittasi osilsa ham boshqalari yopiladi, Railway
     esa konteynerni kutib turmaydi."""
-    from handlers import eski_bot, guest
+    from handlers import eski_bot, guest, navbatchi
     for nom, fn in (("eski bot", eski_bot.toxtat),
+                    ("navbatchi", navbatchi.toxtat_hammasi),
                     ("matn sessiyasi", messages_module.close_http_session),
                     ("mehmon sessiyasi", getattr(guest, "close_http_session", None))):
         if fn is None:
