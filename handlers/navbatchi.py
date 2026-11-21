@@ -278,30 +278,35 @@ async def _muddat_kuzatuvchi() -> None:
             await toxtat(chat_id, "vaqt tugadi")
 
 
+_KUZATUVCHI = False
+
+
 async def ishga_tushir() -> None:
-    """main.py dan fon vazifasi. Sozlama yo'q — jim qaytadi."""
-    global _CLIENT
-    sessiya = os.getenv("USERBOT_SESSION", "").strip()
-    api_id = os.getenv("USERBOT_API_ID", "").strip()
-    api_hash = os.getenv("USERBOT_API_HASH", "").strip()
-    if not (sessiya and api_id.isdigit() and api_hash):
-        return
+    """main.py dan fon vazifasi va QR ulanishdan keyin. Sozlama yo'q — jim."""
+    global _CLIENT, _KUZATUVCHI
     try:
+        s = await _sozlama()
+        if s is None:
+            return
+        sessiya, api_id, api_hash = s
         from telethon import TelegramClient, events
         from telethon.sessions import StringSession
-        client = TelegramClient(StringSession(sessiya), int(api_id), api_hash)
+        client = TelegramClient(StringSession(sessiya), api_id, api_hash)
         await client.connect()
         if not await client.is_user_authorized():
-            logger.error("[Navbat] sessiya yaroqsiz — tools/userbot_kirish.py qayta")
+            logger.error("[Navbat] sessiya yaroqsiz — /navbat_ulash bilan qayta ulang")
             await client.disconnect()
             return
         me = await client.get_me()
         _EGASI.update(id=me.id, ism=_ism(me), username=me.username or "")
         client.add_event_handler(xabar_keldi, events.NewMessage(func=lambda e: e.is_group))
         _CLIENT = client
-        asyncio.create_task(_muddat_kuzatuvchi())
+        if not _KUZATUVCHI:
+            _KUZATUVCHI = True
+            asyncio.create_task(_muddat_kuzatuvchi())
         logger.info("[Navbat] userbot ulandi")
     except Exception as x:
+        # ⛔️ Faqat turi: xabar matnida sessiya parchasi bo'lishi mumkin.
         logger.error(f"[Navbat] ishga tushmadi: {type(x).__name__}")
 
 
@@ -309,3 +314,317 @@ async def toxtat_hammasi() -> None:
     """SIGTERM'da: ulanish yopiladi (navbatlar RAM — baribir tugaydi)."""
     if _CLIENT is not None:
         await _CLIENT.disconnect()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  BOTNING O'ZIDA ULASH — QR (2026-11-22). ⛔️ FAQAT superadmin.
+# ═══════════════════════════════════════════════════════════════════
+# Egasi: «kodni botga yuborsam bo'lmaydimi?» — YO'Q: Telegram ichida biror
+# chatga yuborilgan kirish kodini Telegram o'zi bekor qiladi (fishingga
+# qarshi), buni aylanib o'tmaymiz. QR esa Telegram Desktop'ga kirishning
+# rasmiy yo'li: kod umuman yo'q, egasi telefonda Qurilmalar → Kompyuterni
+# ulash bilan skanerlaydi.
+#
+# Begonaga buyruqlar UMUMAN yo'q: filtr (`egami`) o'tkazmaydi — xabar oddiy
+# matn bo'lib AI'ga ketadi, «ruxsat yo'q» degan iz ham qolmaydi. Menyuda yo'q.
+#
+# Saqlash: bazada Fernet bilan shifrlangan (kalit BOT_TOKEN'dan), Railway
+# o'zgaruvchilari (USERBOT_*) bo'lsa — ular ustun. QR rasmi SERVERDA yasaladi
+# (segno): kirish tokenini tashqi QR servisga berish = akkauntni berish.
+QR_MUDDAT = 180             # skanerlash uchun jami vaqt (token ~30 s da yangilanadi)
+PAROL_MUDDAT = 300
+PAROL_URINISH = 3
+_PAROL: dict[int, dict] = {}        # egasi → {"client", "chat", "urinish", "t"}
+_ULASHMOQDA: set[int] = set()
+
+
+def _fernet():
+    import base64
+    import hashlib
+    from cryptography.fernet import Fernet
+    from core.config import BOT_TOKEN
+    return Fernet(base64.urlsafe_b64encode(
+        hashlib.sha256(b"navbatchi:" + (BOT_TOKEN or "").encode()).digest()))
+
+
+def shifrla(d: dict) -> str:
+    import json
+    return _fernet().encrypt(json.dumps(d).encode()).decode()
+
+
+def ochir(matn: str | None) -> dict | None:
+    """Shifrni ochadi; buzilgan / boshqa token bilan yozilgan — None."""
+    if not matn:
+        return None
+    try:
+        import json
+        return json.loads(_fernet().decrypt(matn.encode()))
+    except Exception:
+        return None
+
+
+async def _saqlangan() -> dict:
+    from db import database
+    try:
+        return ochir(await database.navbat_ulanish_ol()) or {}
+    except Exception as x:
+        logger.warning(f"[Navbat] ulanish o'qilmadi: {type(x).__name__}")
+        return {}
+
+
+async def _sozlama() -> tuple[str, int, str] | None:
+    """(sessiya, api_id, api_hash): avval Railway o'zgaruvchilari, keyin baza."""
+    sessiya = os.getenv("USERBOT_SESSION", "").strip()
+    api_id = os.getenv("USERBOT_API_ID", "").strip()
+    api_hash = os.getenv("USERBOT_API_HASH", "").strip()
+    if sessiya and api_id.isdigit() and api_hash:
+        return sessiya, int(api_id), api_hash
+    d = await _saqlangan()
+    if d.get("sessiya") and str(d.get("api_id", "")).isdigit() and d.get("api_hash"):
+        return d["sessiya"], int(d["api_id"]), d["api_hash"]
+    return None
+
+
+async def egami(message) -> bool:
+    """aiogram filtri: faqat superadmin, faqat shaxsiy chat."""
+    u = getattr(message, "from_user", None)
+    if u is None or getattr(getattr(message, "chat", None), "type", None) != "private":
+        return False
+    try:
+        from db import database
+        return await database.is_superadmin(u.id)
+    except Exception:
+        return False
+
+
+def parol_kutilmoqda(message) -> bool:
+    """aiogram filtri: QR'dan keyin ikki bosqichli parol kutilyapti. Bazaga
+    bormaydi — `_PAROL` ga faqat superadmin tushadi."""
+    u = getattr(message, "from_user", None)
+    h = _PAROL.get(getattr(u, "id", None))
+    if h is None or getattr(getattr(message, "chat", None), "type", None) != "private":
+        return False
+    if time.time() - h["t"] > PAROL_MUDDAT:
+        _PAROL.pop(u.id, None)
+        asyncio.create_task(_uzil(h["client"]))
+        return False
+    return bool(getattr(message, "text", None))
+
+
+async def _uzil(client) -> None:
+    try:
+        await client.disconnect()
+    except Exception:
+        pass
+
+
+async def _xabarni_ochir(message) -> None:
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+def _qr_png(url: str) -> bytes:
+    import io
+    import segno
+    b = io.BytesIO()
+    segno.make(url, error="m").save(b, kind="png", scale=10, border=3)
+    return b.getvalue()
+
+
+async def navbat_api(message, command=None) -> None:
+    """/navbat_api <api_id> <api_hash> — my.telegram.org dan."""
+    await _xabarni_ochir(message)              # api_hash chatda qolmasin
+    q = ((getattr(command, "args", None) or "").split())
+    if len(q) != 2 or not q[0].isdigit() or not re.fullmatch(r"[0-9a-fA-F]{32}", q[1]):
+        await message.answer(
+            "Format: <code>/navbat_api 1234567 0123456789abcdef0123456789abcdef</code>\n"
+            "https://my.telegram.org → API development tools dan oling.",
+            parse_mode="HTML", disable_web_page_preview=True)
+        return
+    from db import database
+    d = await _saqlangan()
+    d.update(api_id=int(q[0]), api_hash=q[1].lower())
+    await database.navbat_ulanish_yoz(shifrla(d))
+    await message.answer("✅ API saqlandi (xabaringiz o'chirildi). Endi /navbat_ulash")
+
+
+async def navbat_ulash(message) -> None:
+    """/navbat_ulash — QR yuboradi; egasi telefonda skanerlaydi."""
+    uid, chat = message.from_user.id, message.chat.id
+    d = await _saqlangan()
+    api_id = d.get("api_id") or (os.getenv("USERBOT_API_ID", "").strip() or None)
+    api_hash = d.get("api_hash") or os.getenv("USERBOT_API_HASH", "").strip()
+    if not (str(api_id or "").isdigit() and api_hash):
+        await message.answer(
+            "Avval API kalit kerak (bir martalik, 2 daqiqa):\n"
+            "1. https://my.telegram.org → API development tools\n"
+            "2. Bu yerga: <code>/navbat_api API_ID API_HASH</code>",
+            parse_mode="HTML", disable_web_page_preview=True)
+        return
+    if uid in _ULASHMOQDA or uid in _PAROL:
+        await message.answer("⏳ Ulanish allaqachon ketyapti.")
+        return
+    _ULASHMOQDA.add(uid)
+    asyncio.create_task(_qr_jarayon(chat, uid, int(api_id), api_hash))
+
+
+async def _qr_jarayon(chat: int, uid: int, api_id: int, api_hash: str) -> None:
+    from aiogram.types import BufferedInputFile, InputMediaPhoto
+    from core.loader import bot
+    from telethon import TelegramClient
+    from telethon.errors import SessionPasswordNeededError
+    from telethon.sessions import StringSession
+    izoh = ("📱 <b>Kompyuterda</b> oching, <b>telefonda</b>: Telegram → Sozlamalar → "
+            "Qurilmalar → <b>Kompyuterni ulash</b> → shu QR'ni skanerlang.\n"
+            "<i>3 daqiqa amal qiladi. Hech kimga ko'rsatmang.</i>")
+    client, rasm, parolga = None, None, False
+    try:
+        client = TelegramClient(StringSession(), api_id, api_hash)
+        await client.connect()
+        qr = await client.qr_login()
+        tugash = time.time() + QR_MUDDAT
+        while True:
+            fayl = BufferedInputFile(_qr_png(qr.url), filename="qr.png")
+            if rasm is None:
+                rasm = await bot.send_photo(chat, fayl, caption=izoh, parse_mode="HTML",
+                                            protect_content=True)
+            else:
+                await bot.edit_message_media(
+                    InputMediaPhoto(media=fayl, caption=izoh, parse_mode="HTML"),
+                    chat_id=chat, message_id=rasm.message_id)
+            qoldi = tugash - time.time()
+            try:
+                await qr.wait(timeout=max(5.0, min(25.0, qoldi)))
+                break
+            except asyncio.TimeoutError:
+                if time.time() >= tugash:
+                    await bot.send_message(chat, "⌛ Vaqt tugadi. Qayta: /navbat_ulash")
+                    return
+                await qr.recreate()
+            except SessionPasswordNeededError:
+                parolga = True
+                _PAROL[uid] = {"client": client, "chat": chat, "urinish": 0, "t": time.time()}
+                await bot.send_message(
+                    chat, "🔐 Ikki bosqichli parolingizni yozing.\n<i>Xabaringiz darhol "
+                    "o'chiriladi, parol hech qayerga saqlanmaydi. 5 daqiqa.</i>",
+                    parse_mode="HTML")
+                return
+        await _yakunla(client, uid, chat)
+    except Exception as x:
+        logger.warning(f"[Navbat] QR ulanish: {type(x).__name__}")
+        try:
+            await bot.send_message(chat, f"❌ Ulanmadi ({type(x).__name__}). Qayta: /navbat_ulash")
+        except Exception:
+            pass
+    finally:
+        _ULASHMOQDA.discard(uid)
+        if rasm is not None:
+            try:
+                await bot.delete_message(chat, rasm.message_id)   # token eskirsin ham
+            except Exception:
+                pass
+        if client is not None and not parolga:
+            await _uzil(client)
+
+
+async def parol_keldi(message) -> None:
+    """QR'dan keyingi ikki bosqichli parol — darhol o'chiriladi, saqlanmaydi."""
+    from telethon.errors import PasswordHashInvalidError
+    uid = message.from_user.id
+    h = _PAROL.get(uid)
+    parol = message.text or ""
+    await _xabarni_ochir(message)
+    if h is None:
+        return
+    try:
+        await h["client"].sign_in(password=parol)
+    except PasswordHashInvalidError:
+        h["urinish"] += 1
+        if h["urinish"] >= PAROL_URINISH:
+            _PAROL.pop(uid, None)
+            await _uzil(h["client"])
+            await message.answer("❌ Parol 3 marta noto'g'ri. Qayta: /navbat_ulash")
+        else:
+            await message.answer(f"❌ Parol noto'g'ri, qayta yozing "
+                                 f"({PAROL_URINISH - h['urinish']} urinish qoldi).")
+        return
+    except Exception as x:
+        _PAROL.pop(uid, None)
+        await _uzil(h["client"])
+        await message.answer(f"❌ Ulanmadi ({type(x).__name__}). Qayta: /navbat_ulash")
+        return
+    _PAROL.pop(uid, None)
+    try:
+        await _yakunla(h["client"], uid, h["chat"])
+    finally:
+        await _uzil(h["client"])
+
+
+async def _yakunla(client, uid: int, chat: int) -> None:
+    """Kirish bo'ldi: FAQAT egasining o'z akkaunti bo'lsa saqlanadi."""
+    from core.loader import bot
+    from db import database
+    me = await client.get_me()
+    if me.id != uid:
+        # QR'ni boshqa telefon skanerlagan — begona akkaunt serverda qolmasin.
+        try:
+            await client.log_out()
+        except Exception:
+            pass
+        await bot.send_message(chat, "❌ Bu boshqa akkaunt. Faqat o'zingizning "
+                                     "akkauntingiz bilan skanerlang: /navbat_ulash")
+        return
+    d = await _saqlangan()
+    d.update(sessiya=client.session.save())
+    if not d.get("api_id"):        # API Railway'dan kelgan bo'lsa
+        d.update(api_id=client.api_id, api_hash=client.api_hash)
+    await database.navbat_ulanish_yoz(shifrla(d))
+    await _uzil(client)
+    await qayta_ulan()
+    await bot.send_message(
+        chat, f"✅ <b>Ulandi:</b> {html.escape(_ism(me))}\n\n"
+              "Guruhda o'z akkauntingizdan yozing:\n"
+              "• <code>vexon, guruhni qizitib tur, hazillash</code> — navbat\n"
+              "• <code>vexon to'xta</code> — to'xtatish\n"
+              "• <code>vexon belgi o'chir</code> / <code>vexon belgi yoq</code>\n"
+              "Uzish: /navbat_uzish", parse_mode="HTML")
+
+
+async def qayta_ulan() -> None:
+    global _CLIENT
+    if _CLIENT is not None:
+        await _uzil(_CLIENT)
+        _CLIENT = None
+    _NAVBAT.clear()
+    await ishga_tushir()
+
+
+async def navbat_uzish(message) -> None:
+    """/navbat_uzish — sessiya Telegram'da ham tugatiladi, API qoladi."""
+    global _CLIENT
+    from db import database
+    if _CLIENT is not None:
+        try:
+            await _CLIENT.log_out()
+        except Exception:
+            await _uzil(_CLIENT)
+        _CLIENT = None
+    _NAVBAT.clear()
+    d = await _saqlangan()
+    d.pop("sessiya", None)
+    await database.navbat_ulanish_yoz(shifrla(d) if d else None)
+    qoshimcha = ("\n⚠️ Railway'da USERBOT_SESSION ham bor — uni o'zingiz o'chiring."
+                 if os.getenv("USERBOT_SESSION") else "")
+    await message.answer("🔌 Uzildi — sessiya Telegram'da ham tugatildi." + qoshimcha)
+
+
+def royxatdan_otkaz(dp) -> None:
+    """main.py: admin handlerlaridan keyin, AI'dan OLDIN. Har biri `egami`
+    (yoki `_PAROL`) filtri bilan — begona uchun bu buyruqlar mavjud emas."""
+    from aiogram.filters import Command
+    dp.message.register(navbat_api, Command("navbat_api"), egami)
+    dp.message.register(navbat_ulash, Command("navbat_ulash"), egami)
+    dp.message.register(navbat_uzish, Command("navbat_uzish"), egami)
+    dp.message.register(parol_keldi, parol_kutilmoqda)

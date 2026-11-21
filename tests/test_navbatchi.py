@@ -245,4 +245,262 @@ assert ikki is None, "«-» — javob yo'q"
 assert not any("reasoning" in c for c in ch if not c["model"].startswith(("gpt-5", "o")))
 print("[13] model: guruh matni user'da, vazifa developer'da, «-» → jim, zaxira model, takror → qayta yoki jim OK")
 
-print("\nnavbatchi: barcha tekshiruvlar o'tdi (13/13).")
+# ═══════════════════════════════════════════════════════════════════
+# 14-21. Botning o'zida QR bilan ulash — FAQAT superadmin
+# ═══════════════════════════════════════════════════════════════════
+import core.loader as yuklovchi
+from db import database as db
+
+baza = {"ulanish": None}
+yozildi: list = []
+SUPER = 777
+
+
+async def _is_super(uid):
+    return uid == SUPER
+
+
+async def _ol():
+    return baza["ulanish"]
+
+
+async def _yoz(q):
+    baza["ulanish"] = q
+    yozildi.append(q)
+
+
+class SoxtaBot:
+    def __init__(self):
+        self.yuborildi = []
+
+    async def send_message(self, chat, matn, **kw):
+        self.yuborildi.append(matn)
+
+sbot = SoxtaBot()
+db.is_superadmin, db.navbat_ulanish_ol, db.navbat_ulanish_yoz = _is_super, _ol, _yoz
+yuklovchi.bot = sbot
+
+
+class Xabar:
+    def __init__(self, uid=SUPER, chat_turi="private", matn="/navbat_ulash"):
+        self.from_user = NS(id=uid)
+        self.chat = NS(id=uid, type=chat_turi)
+        self.text, self.ochirildi, self.javoblar = matn, False, []
+
+    async def delete(self):
+        self.ochirildi = True
+
+    async def answer(self, matn, **kw):
+        self.javoblar.append(matn)
+
+
+# ── 14) Begona va guruh — buyruq umuman yo'q ─────────────────────────
+assert asyncio.run(n.egami(Xabar())) is True
+assert asyncio.run(n.egami(Xabar(uid=555))) is False, "KRITIK: begona ulash buyrug'iga kirdi"
+assert asyncio.run(n.egami(Xabar(chat_turi="supergroup"))) is False, "guruhda ham yo'q"
+
+
+async def _yiqil(uid):
+    raise RuntimeError("baza yo'q")
+db.is_superadmin = _yiqil
+assert asyncio.run(n.egami(Xabar())) is False, "baza xatosida — yopiq tomon"
+db.is_superadmin = _is_super
+
+
+class SoxtaDp:
+    def __init__(self):
+        self.message = self
+        self.royxat = []
+
+    def register(self, fn, *filtrlar):
+        self.royxat.append((fn, filtrlar))
+
+dp = SoxtaDp()
+n.royxatdan_otkaz(dp)
+for fn, filtrlar in dp.royxat:
+    assert n.egami in filtrlar or n.parol_kutilmoqda in filtrlar, \
+        f"KRITIK: {fn.__name__} superadmin filtrisiz ro'yxatdan o'tdi"
+assert len(dp.royxat) == 4
+print("[14] ulash buyruqlari faqat superadmin + shaxsiy chat; begonaga mavjud emas OK")
+
+# ── 15) Shifr: bazada ochiq sessiya yo'q, boshqa token bilan ochilmaydi ─
+shifr = n.shifrla({"sessiya": "MAXFIY_SESSIYA_1", "api_id": 1, "api_hash": "a" * 32})
+assert "MAXFIY" not in shifr and n.ochir(shifr)["sessiya"] == "MAXFIY_SESSIYA_1"
+import core.config as cfg
+asl_token, cfg.BOT_TOKEN = cfg.BOT_TOKEN, "boshqa:token"
+assert n.ochir(shifr) is None, "boshqa kalit bilan ochilmasin"
+cfg.BOT_TOKEN = asl_token
+assert n.ochir("buzuq") is None and n.ochir(None) is None
+print("[15] sessiya bazada shifrlangan, kalitsiz ochilmaydi OK")
+
+# ── 16) /navbat_api: xabar o'chadi, format tekshiriladi ──────────────
+x = Xabar(matn="/navbat_api 123 xyz")
+asyncio.run(n.navbat_api(x, NS(args="123 xyz")))
+assert x.ochirildi and baza["ulanish"] is None and "Format" in x.javoblar[-1]
+x = Xabar()
+asyncio.run(n.navbat_api(x, NS(args="1234567 " + "ab" * 16)))
+assert x.ochirildi and n.ochir(baza["ulanish"]) == {"api_id": 1234567, "api_hash": "ab" * 16}
+print("[16] /navbat_api: api_hash chatda qolmaydi, noto'g'ri format saqlanmaydi OK")
+
+
+# ── 17) Begona akkaunt skanerlasa — saqlanmaydi, chiqib ketiladi ─────
+class SoxtaKlient:
+    def __init__(self, me_id):
+        self._me, self.chiqdi, self.uzildi = me_id, False, False
+        self.session = NS(save=lambda: "YANGI_SESSIYA")
+        self.api_id, self.api_hash = 1234567, "ab" * 16
+        self.parollar = []
+
+    async def get_me(self):
+        return NS(id=self._me, first_name="Jasur", last_name=None, username="jasur_dev")
+
+    async def log_out(self):
+        self.chiqdi = True
+
+    async def disconnect(self):
+        self.uzildi = True
+
+    async def sign_in(self, password):
+        from telethon.errors import PasswordHashInvalidError
+        self.parollar.append(password)
+        if password != "togri":
+            raise PasswordHashInvalidError(request=None)
+
+qayta = []
+
+
+async def _qayta():
+    qayta.append(1)
+asl_qayta, n.qayta_ulan = n.qayta_ulan, _qayta
+k = SoxtaKlient(999)
+asyncio.run(n._yakunla(k, SUPER, SUPER))
+assert k.chiqdi and "sessiya" not in (n.ochir(baza["ulanish"]) or {}) and not qayta, \
+    "KRITIK: boshqa odamning akkaunti egasi nomidan saqlandi"
+k = SoxtaKlient(SUPER)
+asyncio.run(n._yakunla(k, SUPER, SUPER))
+assert n.ochir(baza["ulanish"])["sessiya"] == "YANGI_SESSIYA" and qayta == [1]
+assert "Ulandi" in sbot.yuborildi[-1]
+print("[17] faqat egasining o'z akkaunti saqlanadi, begonasi log_out OK")
+
+# ── 18) Parol: o'chiriladi, 3 xatoda bekor, muddati o'tsa — yo'q ─────
+k = SoxtaKlient(SUPER)
+n._PAROL[SUPER] = {"client": k, "chat": SUPER, "urinish": 0, "t": time.time()}
+assert n.parol_kutilmoqda(Xabar(matn="x")) and not n.parol_kutilmoqda(Xabar(uid=555, matn="x"))
+for i in range(3):
+    x = Xabar(matn=f"xato{i}")
+    asyncio.run(n.parol_keldi(x))
+    assert x.ochirildi, "parol chatda qolmasin"
+assert SUPER not in n._PAROL and k.uzildi and "3 marta" in x.javoblar[-1]
+k = SoxtaKlient(SUPER)
+n._PAROL[SUPER] = {"client": k, "chat": SUPER, "urinish": 0, "t": time.time()}
+qayta.clear()
+x = Xabar(matn="togri")
+asyncio.run(n.parol_keldi(x))
+assert x.ochirildi and SUPER not in n._PAROL and qayta == [1] and k.parollar == ["togri"]
+
+
+async def _muddat():
+    n._PAROL[SUPER] = {"client": SoxtaKlient(SUPER), "chat": SUPER, "urinish": 0,
+                       "t": time.time() - n.PAROL_MUDDAT - 1}
+    natija = n.parol_kutilmoqda(Xabar(matn="x"))
+    await asyncio.sleep(0)
+    return natija
+assert asyncio.run(_muddat()) is False and SUPER not in n._PAROL
+print("[18] parol: darhol o'chadi, 3 xatoda va 5 daqiqada bekor, to'g'risida ulanadi OK")
+
+# ── 19) QR serverda yasaladi (tashqi servis yo'q) ────────────────────
+png = n._qr_png("tg://login?token=abc")
+assert png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) > 300
+print("[19] QR rasm serverda (segno), token tashqariga chiqmaydi OK")
+
+# ── 20) /navbat_uzish: Telegram'da log_out, API qoladi ───────────────
+k = SoxtaKlient(SUPER)
+n._CLIENT = k
+baza["ulanish"] = n.shifrla({"api_id": 1, "api_hash": "c" * 32, "sessiya": "S"})
+x = Xabar(matn="/navbat_uzish")
+asyncio.run(n.navbat_uzish(x))
+assert k.chiqdi and n._CLIENT is None and n.ochir(baza["ulanish"]) == {"api_id": 1, "api_hash": "c" * 32}
+print("[20] /navbat_uzish sessiyani Telegram'da ham tugatdi, API saqlandi OK")
+
+# ── 21) Manba: Railway o'zgaruvchisi ustun, keyin baza ───────────────
+baza["ulanish"] = n.shifrla({"api_id": 5, "api_hash": "d" * 32, "sessiya": "BAZA"})
+assert asyncio.run(n._sozlama()) == ("BAZA", 5, "d" * 32)
+os.environ.update(USERBOT_SESSION="ENV", USERBOT_API_ID="9", USERBOT_API_HASH="e" * 32)
+assert asyncio.run(n._sozlama()) == ("ENV", 9, "e" * 32)
+for k_ in ("USERBOT_SESSION", "USERBOT_API_ID", "USERBOT_API_HASH"):
+    os.environ.pop(k_)
+baza["ulanish"] = None
+assert asyncio.run(n._sozlama()) is None
+n.qayta_ulan = asl_qayta
+print("[21] sessiya manbai: Railway → baza → yo'q (jim) OK")
+
+# ── 22) QR jarayoni: yuborish, yangilash, parolga o'tish, QR o'chadi ──
+import telethon
+from telethon.errors import SessionPasswordNeededError
+
+
+class QRBot(SoxtaBot):
+    def __init__(self):
+        super().__init__()
+        self.rasmlar, self.tahrirlar, self.ochirildi = [], 0, []
+
+    async def send_photo(self, chat, fayl, **kw):
+        self.rasmlar.append(kw)
+        return NS(message_id=55)
+
+    async def edit_message_media(self, *a, **kw):
+        self.tahrirlar += 1
+
+    async def delete_message(self, chat, mid):
+        self.ochirildi.append(mid)
+
+
+def qr_klient(oqim):
+    """oqim — har wait() da: "timeout" / "parol" / "ok"."""
+    class QR:
+        url = "tg://login?token=x"
+
+        async def wait(self, timeout=None):
+            q = oqim.pop(0)
+            if q == "timeout":
+                raise asyncio.TimeoutError
+            if q == "parol":
+                raise SessionPasswordNeededError(request=None)
+
+        async def recreate(self):
+            pass
+
+    class K(SoxtaKlient):
+        def __init__(self, *a, **k):
+            super().__init__(SUPER)
+            klientlar.append(self)
+
+        async def connect(self):
+            pass
+
+        async def qr_login(self):
+            return QR()
+    return K
+
+klientlar: list = []
+asl_tc, qbot = telethon.TelegramClient, QRBot()
+yuklovchi.bot = qbot
+try:
+    telethon.TelegramClient = qr_klient(["timeout", "parol"])
+    asyncio.run(n._qr_jarayon(SUPER, SUPER, 1, "a" * 32))
+    assert qbot.rasmlar[0].get("protect_content") is True, "QR forward qilinmasin"
+    assert qbot.tahrirlar == 1, "token eskirganda QR yangilansin"
+    assert qbot.ochirildi == [55], "QR rasmi oxirida o'chirilsin"
+    assert SUPER in n._PAROL and not klientlar[-1].uzildi, "parol kutilganda ulanish tursin"
+    assert "parolingizni" in qbot.yuborildi[-1] and SUPER not in n._ULASHMOQDA
+    n._PAROL.clear()
+    n.qayta_ulan = _qayta
+    qayta.clear()
+    telethon.TelegramClient = qr_klient(["ok"])
+    asyncio.run(n._qr_jarayon(SUPER, SUPER, 1, "a" * 32))
+    assert qayta == [1] and klientlar[-1].uzildi and "Ulandi" in qbot.yuborildi[-1]
+finally:
+    telethon.TelegramClient, n.qayta_ulan = asl_tc, asl_qayta
+print("[22] QR: himoyalangan rasm, yangilanadi, parolga o'tadi, oxirida o'chadi OK")
+
+print("\nnavbatchi: barcha tekshiruvlar o'tdi (22/22).")

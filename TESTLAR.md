@@ -222,7 +222,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   per 20 s, stops after 30 replies or 3 hours, and stops when the owner writes an ordinary
   message. Our own replies are not «the owner came back». Model check 13 keeps group text
   out of `instructions` and covers the repeat guard (re-ask once, then silence).
-  Mutation-tested 14/14. Live counterpart: `eval_navbat.py`.
+  Checks 14-22 cover connecting by QR. The commands exist only for the superadmin in a
+  private chat. The session is encrypted, and another account that scans the code is
+  logged out. The password and the api_hash message are deleted, with 3 tries in 5
+  minutes. The QR has `protect_content` and is deleted at the end. Mutation-tested 14/14 +
+  14/14. Live counterpart: `eval_navbat.py`.
 - `test_status_matn.py` — the status frame (2026-11-19). Every line-1 text is ≤ 26
   characters, because on a phone a longer one jumps between one and two lines as the dots
   change. Stages move forward and stop on the last one instead of looping. Variable details

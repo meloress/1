@@ -172,6 +172,12 @@ async def main():
     # tushib yo'qolardi — pul olinib, Pro berilmasdi).
     admin_module.register_admin_handlers(dp, bot)
 
+    # Navbatchi ulash (/navbat_api, /navbat_ulash, /navbat_uzish, QR'dan keyingi
+    # parol) — FAQAT superadmin (`navbatchi.egami` filtri). AI'dan OLDIN:
+    # aks holda parol GPT'ga savol bo'lib ketardi. Begona uchun filtr o'tkazmaydi.
+    from handlers import navbatchi as _navbatchi
+    _navbatchi.royxatdan_otkaz(dp)
+
     # FSM holatlari ham oddiy AI handlerlaridan oldin turishi kerak, aks
     # holda "kimga sovg'a qilay?" javobi GPT'ga savol bo'lib ketardi.
     dp.message.register(pro_module.process_gift_recipient,

@@ -288,6 +288,13 @@ async def create_users_table():
             ALTER TABLE bot_settings
                 ADD COLUMN IF NOT EXISTS biznes_avtomat BOOLEAN
         ''')
+        # Navbatchi ulanishi (2026-11-22, handlers/navbatchi.py): api_id,
+        # api_hash va Telethon sessiyasi — Fernet bilan SHIFRLANGAN matn
+        # (kalit BOT_TOKEN'dan). Faqat baza sizsa — akkaunt kaliti o'qilmaydi.
+        await conn.execute('''
+            ALTER TABLE bot_settings
+                ADD COLUMN IF NOT EXISTS navbat_ulanish TEXT
+        ''')
         # Avtomatik texnik ta'til (2026-11-05, `services/avto_tatil.py`).
         # `maintenance_avto` — sabab, faqat bot O'ZI yoqqanda; NULL = qo'lda
         # yoki o'chiq. `maintenance_vaqt` — ta'til qachon boshlangan: Business
@@ -1135,6 +1142,24 @@ async def log_admin_action(admin_id: int, action: str, target_user_id: Optional[
 
 
 @with_db_retry()
+async def navbat_ulanish_ol() -> Optional[str]:
+    """Navbatchi ulanishi — SHIFRLANGAN matn (ochish handlers/navbatchi.py da)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval('SELECT navbat_ulanish FROM bot_settings WHERE id = 1')
+
+
+async def navbat_ulanish_yoz(qiymat: Optional[str]) -> None:
+    """None — ulanish o'chiriladi (/navbat_uzish)."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('UPDATE bot_settings SET navbat_ulanish = $1 WHERE id = 1', qiymat)
+
+
 async def is_superadmin(user_id: int) -> bool:
     global pool
     if pool is None:

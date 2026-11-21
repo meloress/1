@@ -831,7 +831,7 @@ only** (Bot API 10.4), and group messages never reach a business connection. So
 `handlers/navbatchi.py` is a **userbot**: Telethon (`telethon==1.45.0`) logged in with the
 owner's own session. It runs inside the same process, as `eski_bot` does. Without
 `USERBOT_SESSION`, `USERBOT_API_ID` and `USERBOT_API_HASH` it never starts. The owner
-produces the session on their own machine with `python tools/userbot_kirish.py`. ⛔️ That
+connects from inside the bot (below). `python tools/userbot_kirish.py` stays as the terminal fallback; `USERBOT_*` variables override the stored session. ⛔️ That
 string is the account's full key: never log it, print it or put it in chat.
 
 The owner types these in a group from their own account. Each command message is deleted
@@ -882,3 +882,30 @@ Live baseline: `railway run python tests/eval_navbat.py --takror 2` scored **19/
 «bas», and no repeats. ⚠️ Run it from PowerShell in `C:\Users\Acer\Desktop\123`. The
 Railway link is keyed by that exact path, and Git Bash's `/c/...` path reports «No linked
 project».
+
+**Connecting inside the bot (QR, 2026-11-22).** The owner asked whether they could just
+send the login code to the bot. ⛔️ No. Telegram itself cancels a login code that is sent
+to any chat (anti-phishing), and we do not work around that. QR is Telegram Desktop's
+official login and needs no code at all. These commands work **only for the superadmin in
+a private chat**. The `egami` filter is on every registration (`test_navbatchi.py` 14),
+so for anyone else the command does not exist: it falls through to the AI as plain text
+and leaves no «access denied» trace. They are not in the `/` menu either.
+
+- `/navbat_api <api_id> <api_hash>` comes from my.telegram.org and is still required,
+  because Telegram wants each userbot to have its own app key. The message is deleted at
+  once.
+- `/navbat_ulash`: the server builds the QR with `segno`. ⛔️ Never use an external QR
+  service, because the login token *is* the account. The QR is sent with
+  `protect_content` and refreshed when the token expires (~30 s). It stays valid for 3
+  minutes and is deleted at the end.
+  - With two-step verification on, the bot asks for the password. The reply is deleted at
+    once and never stored. It allows 3 tries within 5 minutes.
+  - The session is kept **only if it belongs to the owner's own account**
+    (`me.id == superadmin`). Any other account that scans the code is logged out at once.
+- `/navbat_uzish`: `log_out()` ends the session on Telegram's side too. The API key is
+  kept.
+
+The session is stored in `bot_settings.navbat_ulanish` with Fernet encryption. The key is
+`sha256("navbatchi:" + BOT_TOKEN)`, so a leaked database alone does not give the account
+away. Rotating `BOT_TOKEN` makes the old session unreadable, and the fix is to run
+`/navbat_ulash` again.
