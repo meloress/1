@@ -38,6 +38,15 @@ async def _jim(*a, **k):
 ASL_NAVBAT = ai.navbat_javobi          # 13-band haqiqiysini sinaydi
 n._egasiga, n._terish = _soxta_egasiga, _jim
 ai.navbat_javobi = _soxta_model
+tasdiqlar: list = []
+tasdiq_javobi = {"matn": "Xo'p, siz kelguningizcha guruhni isitib turaman"}
+
+
+async def _soxta_tasdiq(holat, vazifa, egasi, **kw):
+    tasdiqlar.append((holat, vazifa))
+    return tasdiq_javobi["matn"]
+ASL_TASDIQ = ai.navbat_tasdiq
+ai.navbat_tasdiq = _soxta_tasdiq
 n._belgi_html = lambda: "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"
 
 
@@ -89,14 +98,22 @@ assert b("vexon zo'r") is None, "2 so'z — oddiy gap, navbat yoqilmasin"
 assert b("vexonchi guruhda tur dedim") is None and b("salom vexon to'xta") is None
 print("[1] buyruq tahlili: boshla / to'xta / belgi, oddiy gap buyruq emas OK")
 
-# ── 2) Egasi yoqadi: buyruq o'chiriladi, egasiga tasdiq ──────────────
+# ── 2) Egasi yoqadi: buyruq guruhda qoladi, Vexon tabiiy javob beradi ─
 tozala()
 h = Hodisa("vexon guruhni qizitib tur, hazillash", out=True)
 yur(h)
-assert h.ochirildi and -1001 in n._NAVBAT, "buyruq o'chmadi yoki navbat yo'q"
+assert not h.ochirildi and -1001 in n._NAVBAT, "buyruq guruhda qolsin, navbat yoqilsin"
 assert n._NAVBAT[-1001].vazifa == "guruhni qizitib tur, hazillash"
+assert tasdiqlar[-1] == ("boshla", "guruhni qizitib tur, hazillash")
+assert h.javob.startswith("Xo&#x27;p, siz kelguningizcha"), h.javob
+assert (h.chat_id, h.id + 5000) in n._YOZILGAN, "tasdiq o'zimizniki deb belgilansin"
 assert "Navbat yoqildi" in egasiga[-1] and "Dasturchilar" in egasiga[-1]
-print("[2] egasi yoqdi: buyruq o'chdi, tasdiq keldi OK")
+tasdiq_javobi["matn"] = None                    # model yo'q — zaxira gap
+h2 = Hodisa("vexon guruhni qizitib tur, hazillash", out=True)
+yur(h2)
+assert h2.javob.startswith(n.html.escape(n._TASDIQ_ZAXIRA["boshla"])), h2.javob
+tasdiq_javobi["matn"] = "Xo'p, siz kelguningizcha guruhni isitib turaman"
+print("[2] egasi yoqdi: buyruq qoldi, uning profilidan tabiiy «xo'p» (zaxirasi bilan) OK")
 
 # ── 3) ⛔️ Begona «vexon to'xta» — navbat TO'XTAMAYDI, suhbat bo'ladi ───
 h = Hodisa("vexon to'xta", ism="Hazilkash")
@@ -187,12 +204,17 @@ yur(Hodisa("savol"))
 assert -1001 not in n._NAVBAT and "chegarasi" in egasiga[-1]
 print(f"[11] {n.NAVBAT_SOAT} soat va {n.MAX_JAVOB} javobdan keyin o'zi to'xtaydi OK")
 
-# ── 12) Egasining «vexon to'xta» si — to'xtatadi va o'chiriladi ──────
+# ── 12) Egasining «vexon to'xta» si — «jim bo'ldim» va to'xtaydi ─────
 yur(Hodisa("vexon dasturlash savollariga javob ber", out=True))
+tasdiq_javobi["matn"] = "Bo'ldi, jim bo'ldim 🤐"
 h = Hodisa("vexon to'xta", out=True)
 yur(h)
-assert -1001 not in n._NAVBAT and h.ochirildi and "buyruq" in egasiga[-1]
-print("[12] egasining «vexon to'xta» si to'xtatdi, xabari o'chdi OK")
+assert -1001 not in n._NAVBAT and not h.ochirildi and "buyruq" in egasiga[-1]
+assert tasdiqlar[-1] == ("toxta", "dasturlash savollariga javob ber") and "jim bo" in h.javob
+oldin = len(tasdiqlar)
+yur(Hodisa("vexon to'xta", out=True))              # navbat yo'q — javob ham yo'q
+assert len(tasdiqlar) == oldin
+print("[12] egasining «vexon to'xta» si: «jim bo'ldim» deb to'xtadi OK")
 
 
 
@@ -503,4 +525,26 @@ finally:
     telethon.TelegramClient, n.qayta_ulan = asl_tc, asl_qayta
 print("[22] QR: himoyalangan rasm, yangilanadi, parolga o'tadi, oxirida o'chadi OK")
 
-print("\nnavbatchi: barcha tekshiruvlar o'tdi (22/22).")
+# ── 23) Tasdiq modeli: instructions bir xil, holat developer'da ──────
+async def tasdiq_sinovi():
+    ch = []
+
+    class J:
+        output_text, usage = "**Xo'p**, turaman", None
+
+    async def create(**kw):
+        ch.append(kw)
+        return J()
+    asl = ai.openai_client.responses.create
+    ai.openai_client.responses.create = create
+    try:
+        return ch, await ASL_TASDIQ("toxta", "hazillash", "Jasur")
+    finally:
+        ai.openai_client.responses.create = asl
+
+ch, t = asyncio.run(tasdiq_sinovi())
+assert t == "Xo'p, turaman" and ch[0]["instructions"] is ai.NAVBAT_TASDIQ_INSTRUCTIONS
+assert "[HOLAT] toxta" in ch[0]["input"][0]["content"]
+print("[23] tasdiq: bir xil instructions (kesh), holat developer'da, markdown tozalandi OK")
+
+print("\nnavbatchi: barcha tekshiruvlar o'tdi (23/23).")

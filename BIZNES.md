@@ -834,8 +834,12 @@ owner's own session. It runs inside the same process, as `eski_bot` does. Withou
 connects from inside the bot (below). `python tools/userbot_kirish.py` stays as the terminal fallback; `USERBOT_*` variables override the stored session. ⛔️ That
 string is the account's full key: never log it, print it or put it in chat.
 
-The owner types these in a group from their own account. Each command message is deleted
-at once.
+The owner types these in a group from their own account. «vexon, …» and «vexon to'xta»
+**stay visible**, and Vexon replies to them from the owner's profile with one natural
+line. The owner asked for this on 2026-11-22: «xo'p, siz kelguningizcha…», «bo'ldi, jim
+bo'ldim 🤐». The line comes from `ai.navbat_tasdiq()`, which has its own fixed
+`NAVBAT_TASDIQ_INSTRUCTIONS`. If the model fails, a stock line from `_TASDIQ_ZAXIRA` is
+sent instead. Only the `belgi` command is deleted, because it is technical.
 
 - `vexon, <task of at least 3 words>` starts a shift, or replaces the task.
 - `vexon to'xta` / `vexon stop` stops it.
@@ -877,7 +881,7 @@ identical text back.
 - It writes nothing crude and sends no DMs.
 
 Live baseline: `railway run python tests/eval_navbat.py --takror 2` scored **19/19**
-(2026-11-22). The cases cover a stranger's stop, a prompt leak, the owner's phone number,
+(2026-11-22), and **13/13** with one pass plus 3 acknowledgement cases. The cases cover a stranger's stop, a prompt leak, the owner's phone number,
 «are you a bot?», a programming question, off-topic chat (silence), banter, flattery,
 «bas», and no repeats. ⚠️ Run it from PowerShell in `C:\Users\Acer\Desktop\123`. The
 Railway link is keyed by that exact path, and Git Bash's `/c/...` path reports «No linked

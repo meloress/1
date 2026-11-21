@@ -6,7 +6,8 @@ sessiyasi bilan, shu jarayonning ichida (eski_bot kabi). Sozlama
 (`USERBOT_SESSION`, `USERBOT_API_ID`, `USERBOT_API_HASH`) yo'q bo'lsa umuman
 yoqilmaydi — botning qolgan qismiga ta'siri nol.
 
-Egasi guruhda O'Z akkauntidan yozadi (buyruq xabari darhol o'chiriladi):
+Egasi guruhda O'Z akkauntidan yozadi (boshla/to'xta guruhda QOLADI va Vexon
+unga egasining profilidan tabiiy javob qaytaradi; belgi buyrug'i o'chadi):
   «vexon, men kelgunimcha dasturlash savollariga javob berib tur» — navbat
   «vexon to'xta» / «vexon stop»                                    — to'xtaydi
   «vexon belgi o'chir» / «vexon belgi yoq»                         — ᵃᵛᵗᵒʲᵃᵛᵒᵇ
@@ -162,16 +163,22 @@ async def _egasi_yozdi(e) -> None:
         if e.chat_id in _NAVBAT:
             await toxtat(e.chat_id, "siz guruhga yozdingiz")
         return
-    try:
-        await e.delete()            # guruhdagilar buyruqni ko'rmasin
-    except Exception as x:
-        logger.info(f"[Navbat] buyruq o'chmadi: {x}")
     tur, qiymat = b
+    # «vexon, ...» va «vexon to'xta» guruhda QOLADI — Vexon unga egasining
+    # profilidan tabiiy javob qaytaradi (egasi so'radi, 2026-11-22: «xo'p,
+    # siz kelguningizcha...», «bo'ldi, jim bo'ldim»). Bu ham bot uchun sahna.
     if tur == "toxta":
-        if e.chat_id in _NAVBAT:
+        nav = _NAVBAT.get(e.chat_id)
+        if nav is not None:
+            await _tasdiqla(e, "toxta", nav.vazifa)
             await toxtat(e.chat_id, "buyruq")
         return
     if tur == "belgi":
+        # Texnik buyruq — guruhga kerak emas, o'chadi.
+        try:
+            await e.delete()
+        except Exception as x:
+            logger.info(f"[Navbat] buyruq o'chmadi: {x}")
         global BELGI_YOQIQ
         BELGI_YOQIQ = qiymat == "1"
         await _egasiga("ᵃᵛᵗᵒʲᵃᵛᵒᵇ belgisi: " + ("yoniq" if BELGI_YOQIQ else "o'chiq"))
@@ -187,6 +194,7 @@ async def _egasi_yozdi(e) -> None:
         _NAVBAT[e.chat_id] = Navbat(vazifa=qiymat, nom=nom)
     nav = _NAVBAT[e.chat_id]
     logger.info(f"[Navbat] yoqildi chat={e.chat_id}")
+    await _tasdiqla(e, "boshla", qiymat)
     await _egasiga(
         f"✅ <b>Navbat yoqildi</b> — «{html.escape(nav.nom)}»\n"
         f"Vazifa: {html.escape(qiymat)}\n"
@@ -235,6 +243,15 @@ async def _begona_yozdi(e) -> None:
     if not javob or _NAVBAT.get(e.chat_id) is not nav:
         nav.oxirgi_javob = oldingi_vaqt          # javob yo'q — joy bo'shaydi
         return
+    if not await _yubor(e, javob, nav):
+        return
+    nav.javoblar.append((kim, matn, javob))
+    nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {javob}")
+
+
+async def _yubor(e, javob: str, nav: "Navbat | None") -> bool:
+    """`e` ga egasining profilidan reply: «yozmoqda…», belgi, o'zimizniki deb
+    belgilash. True — yetdi."""
     await _terish(e.chat_id, javob)
     matn_html = html.escape(javob) + (f"\n{_belgi_html()}" if BELGI_YOQIQ else "")
     _YOZYAPTI.add(e.chat_id)
@@ -243,17 +260,31 @@ async def _begona_yozdi(e) -> None:
         if len(_YOZILGAN) > 500:
             _YOZILGAN.clear()
         _YOZILGAN.add((e.chat_id, getattr(m, "id", 0)))
+        return True
     except Exception as x:
         # FloodWait — Telegram sekinla deyapti: shuncha vaqt jim turamiz.
         kut = getattr(x, "seconds", None)
-        if kut:
+        if kut and nav is not None:
             nav.oxirgi_javob = time.time() + kut
         logger.warning(f"[Navbat] yuborilmadi chat={e.chat_id}: {type(x).__name__}")
-        return
+        return False
     finally:
         _YOZYAPTI.discard(e.chat_id)
-    nav.javoblar.append((kim, matn, javob))
-    nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {javob}")
+
+
+# Model javob bermasa — shu gaplar (navbat baribir yoqiladi / to'xtaydi).
+_TASDIQ_ZAXIRA = {"boshla": "Xo'p, siz kelguningizcha shu yerdaman 😎",
+                  "toxta": "Bo'ldi, jim bo'ldim 🤐"}
+
+
+async def _tasdiqla(e, holat: str, vazifa: str) -> None:
+    """Egasining ochiq buyrug'iga uning profilidan bir og'iz javob."""
+    from services import ai
+    matn = await ai.navbat_tasdiq(holat, vazifa, _EGASI.get("ism") or "",
+                                  user_id=_EGASI.get("id"))
+    nav = _NAVBAT.get(e.chat_id)
+    if await _yubor(e, matn or _TASDIQ_ZAXIRA[holat], nav) and nav is not None:
+        nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {matn or _TASDIQ_ZAXIRA[holat]}")
 
 
 async def xabar_keldi(e) -> None:

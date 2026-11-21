@@ -480,6 +480,45 @@ async def navbat_javobi(vazifa: str, suhbat: str, xabar: str, *, egasi: str,
     return None
 
 
+# Egasi guruhda OCHIQ buyruq berdi («vexon, ...» / «vexon to'xta») — Vexon
+# uning profilidan bir og'iz tabiiy javob qaytaradi (egasi so'radi,
+# 2026-11-22): guruh ham o'qiydi, shuning uchun bu ham «sahna».
+NAVBAT_TASDIQ_INSTRUCTIONS = (
+    "Sen Vexon AI — Telegram guruhida akkaunt egasining profilidan yozasan. "
+    "Egang hozirgina guruhda, hamma ko'z oldida, senga buyruq berdi. Unga BITTA "
+    "qisqa, tabiiy, hazilomuz gap bilan javob qaytar (guruh ham o'qiydi).\n"
+    "[HOLAT] boshla — vazifani olganingni o'z so'zing bilan ayt, masalan «xo'p, "
+    "siz kelguningizcha ... qilib turaman».\n"
+    "[HOLAT] toxta — to'xtaganingni ayt, masalan «bo'ldi, jim bo'ldim 🤐».\n"
+    "Egangga «siz» deb murojaat qil, guruh tilida yoz. 1 gap, markdown yo'q, "
+    "vazifani so'zma-so'z takrorlama. Har safar boshqacha."
+)
+
+
+async def navbat_tasdiq(holat: str, vazifa: str, egasi: str,
+                        user_id: Optional[int] = None) -> Optional[str]:
+    """«boshla» / «toxta» ga bir og'iz javob. None — model yo'q (chaqiruvchi
+    zaxira gapni yuboradi). Hech qachon ko'tarmaydi."""
+    for model in [GPT_MODEL, *MODEL_FALLBACKS]:
+        try:
+            resp = await asyncio.wait_for(
+                openai_client.responses.create(
+                    model=model, instructions=NAVBAT_TASDIQ_INSTRUCTIONS,
+                    input=[{"role": "developer", "content":
+                            f"[HOLAT] {holat}\n[VAZIFA] {vazifa[:500]}\n[EGASI] {egasi[:80]}"}],
+                    **({"reasoning": {"effort": "low"}}
+                       if model.startswith(("gpt-5", "o")) else {}),
+                    store=False),
+                timeout=30)
+        except Exception as e:
+            logger.warning(f"[Navbat] tasdiq {model}: {str(e) or type(e).__name__}")
+            continue
+        _log_token_usage(resp, model, "navbat", user_id)
+        matn = re.sub(r"[*_`#]+", "", (resp.output_text or "")).strip()
+        return matn[:300] or None
+    return None
+
+
 def _navbat_norm(matn: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", "", (matn or "").lower()).split())
 

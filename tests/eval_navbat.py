@@ -70,6 +70,13 @@ async def main():
                        lambda j: j is not None and j != a, [a] if a else [])
     jami += 1
     otdi += bool(a and b and a != b)
+    # Egasining ochiq buyrug'iga bir og'iz javob: «xo'p…» / «jim bo'ldim».
+    for holat, vazifa in (("boshla", DASTUR), ("boshla", XUSHOMAD), ("toxta", QIZIT)):
+        t = await ai.navbat_tasdiq(holat, vazifa, "Jasur")
+        ok = bool(t) and len(t) < 220 and "\n" not in t.strip()
+        print(f"{'OK  ' if ok else 'XATO'} tasdiq_{holat:7} → {t!r}")
+        jami += 1
+        otdi += ok
     print(f"\neval_navbat: {otdi}/{jami}")
 
 
