@@ -226,7 +226,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   private chat. The session is encrypted, and another account that scans the code is
   logged out. The password and the api_hash message are deleted, with 3 tries in 5
   minutes. The QR has `protect_content` and is deleted at the end. Mutation-tested 14/14 +
-  14/14. Live counterpart: `eval_navbat.py`.
+  14/14. Checks 23-28 cover the acknowledgement line, the memory and its fact filter
+  (and that saving really calls it), Premium emoji with the plain fallback,
+  `/navbat_xotira`, the JSON reply and dash removal. Live counterpart: `eval_navbat.py`.
 - `test_status_matn.py` — the status frame (2026-11-19). Every line-1 text is ≤ 26
   characters, because on a phone a longer one jumps between one and two lines as the dots
   change. Stages move forward and stop on the last one instead of looping. Variable details

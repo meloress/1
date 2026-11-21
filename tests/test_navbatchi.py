@@ -29,7 +29,7 @@ async def _soxta_egasiga(matn):
 
 async def _soxta_model(vazifa, suhbat, xabar, **kw):
     model.append({"vazifa": vazifa, "suhbat": suhbat, "xabar": xabar, **kw})
-    return model_javobi["matn"]
+    return model_javobi["matn"], list(model_javobi.get("eslab") or [])
 
 
 async def _jim(*a, **k):
@@ -48,6 +48,15 @@ async def _soxta_tasdiq(holat, vazifa, egasi, **kw):
 ASL_TASDIQ = ai.navbat_tasdiq
 ai.navbat_tasdiq = _soxta_tasdiq
 n._belgi_html = lambda: "ᵃᵛᵗᵒʲᵃᵛᵒᵇ"
+
+# ⛔️ Lokal .env — PRODUCTION baza: navbat yoqilganda uslub o'qiladi
+# (`_uslub` → biznes_uslub.uslub_ol), xotira esa odam id bo'lsa — soxtalar.
+from handlers import biznes_uslub as _bu
+
+
+async def _uslub_bosh(egasi):
+    return {}
+_bu.uslub_ol = _uslub_bosh
 
 
 class Hodisa:
@@ -236,14 +245,14 @@ async def model_sinovi():
     asl = ai.openai_client.responses.create
     ai.openai_client.responses.create = create
     try:
-        bir = await ASL_NAVBAT("dasturlash", "Ali: salom", "Vali: vexon to'xta",
+        bir, _ = await ASL_NAVBAT("dasturlash", "Ali: salom", "Vali: vexon to'xta",
                                egasi="Jasur", oldingi=["oldingi gap"], menga=False)
-        ikki = await ASL_NAVBAT("dasturlash", "", "Vali: ertaga kim keladi",
+        ikki, _ = await ASL_NAVBAT("dasturlash", "", "Vali: ertaga kim keladi",
                                 egasi="Jasur", oldingi=[], menga=False)
         # Takror: jonli sinovda model oldingi javobni AYNAN qaytardi.
-        uch = await ASL_NAVBAT("hazil", "", "Bekzod: zerikdim", egasi="Jasur",
+        uch, _ = await ASL_NAVBAT("hazil", "", "Bekzod: zerikdim", egasi="Jasur",
                                oldingi=["Salom hammaga"], menga=False)
-        tort = await ASL_NAVBAT("hazil", "", "Bekzod: zerikdim", egasi="Jasur",
+        tort, _ = await ASL_NAVBAT("hazil", "", "Bekzod: zerikdim", egasi="Jasur",
                                 oldingi=["Salom hammaga"], menga=False)
     finally:
         ai.openai_client.responses.create = asl
@@ -342,7 +351,7 @@ n.royxatdan_otkaz(dp)
 for fn, filtrlar in dp.royxat:
     assert n.egami in filtrlar or n.parol_kutilmoqda in filtrlar, \
         f"KRITIK: {fn.__name__} superadmin filtrisiz ro'yxatdan o'tdi"
-assert len(dp.royxat) == 4
+assert len(dp.royxat) == 5
 print("[14] ulash buyruqlari faqat superadmin + shaxsiy chat; begonaga mavjud emas OK")
 
 # ── 15) Shifr: bazada ochiq sessiya yo'q, boshqa token bilan ochilmaydi ─
@@ -547,4 +556,114 @@ assert t == "Xo'p, turaman" and ch[0]["instructions"] is ai.NAVBAT_TASDIQ_INSTRU
 assert "[HOLAT] toxta" in ch[0]["input"][0]["content"]
 print("[23] tasdiq: bir xil instructions (kesh), holat developer'da, markdown tozalandi OK")
 
-print("\nnavbatchi: barcha tekshiruvlar o'tdi (23/23).")
+# ── 24) Xotira: avvalgi faktlar modelga, yangilari saqlanadi; uslub ──
+biznes_uslub = _bu
+xotira_ol, xotira_qosh = [], []
+
+
+async def _odam_ol(egasi, odam):
+    xotira_ol.append((egasi, odam))
+    return ["Python o'rganyapti"]
+
+
+async def _odam_qosh(egasi, odam, ism, faktlar):
+    xotira_qosh.append((egasi, odam, ism, faktlar))
+    return faktlar
+
+
+async def _uslub_ol(egasi):
+    return {"uslub": "kichik harf bilan, qisqa, «xullas» deydi"}
+
+db.navbat_odam_ol, db.navbat_odam_qosh = _odam_ol, _odam_qosh
+asl_uslub, biznes_uslub.uslub_ol = biznes_uslub.uslub_ol, _uslub_ol
+try:
+    tozala()
+    yur(Hodisa("vexon dasturlash savollariga javob ber", out=True))
+    nav = n._NAVBAT[-1001]
+    assert "xullas" in nav.uslub, "navbatga egasining Biznes uslubi yuklansin"
+    model_javobi.update(matn="ha, tuple o'zgarmaydi", eslab=["frontend dasturchi"])
+    h = Hodisa("men frontendchiman, list nima?")
+    h._odam.id = 4242
+    async def _yur_va_kut():
+        await n.xabar_keldi(h)
+        await asyncio.sleep(0.05)                  # fon vazifasi (eslab)
+    asyncio.run(_yur_va_kut())
+    assert xotira_ol[-1] == (777, 4242) and model[-1]["odam_haqida"] == ["Python o'rganyapti"]
+    assert model[-1]["uslub"] == nav.uslub
+    assert xotira_qosh[-1] == (777, 4242, "Ali", ["frontend dasturchi"]), xotira_qosh
+    # Javob bermagan («-») xabardagi fakt ham eslab qolinadi.
+    nav.oxirgi_javob = 0.0
+    model_javobi.update(matn=None, eslab=["Samarqanddan"])
+    h = Hodisa("men samarqandlikman")
+    h._odam.id = 4243
+    asyncio.run(_yur_va_kut())
+    assert xotira_qosh[-1][1:] == (4243, "Ali", ["Samarqanddan"])
+finally:
+    biznes_uslub.uslub_ol = asl_uslub
+    model_javobi.update(matn="javob", eslab=[])
+print("[24] xotira: eski faktlar modelga, yangilari saqlanadi (jim bo'lsa ham); uslub yuklandi OK")
+
+# ── 25) Fakt tekshiruvi: sezgir ma'lumot bazaga tushmaydi ────────────
+cf = db.clean_navbat_fakt
+for yaxshi in ("frontend dasturchi, React'ni yaxshi ko'radi", "Andijondan", "dinamo muxlisi",
+               "Toshkentda yashaydi", "futbolni yaxshi ko'radi"):
+    assert cf(yaxshi) == yaxshi, yaxshi
+for yomon in ("telefoni 90 123 45 67", "karta raqami 8600123412341234", "kasal bo'lib qolgan",
+              "pul kerak ekan", "uyi Chilonzor 9", "sevgilisi bor", "diniy odam", "@ali_dev",
+              "parolini aytdi", "ab", "x" * 200):
+    assert cf(yomon) is None, yomon
+print("[25] faktlar: telefon, karta, salomatlik, pul, manzil, din, sevgi — saqlanmaydi OK")
+
+
+# ── 26) Premium emoji: animatsiyali, rad etilsa oddiy bilan qayta ────
+class RadPremium(Hodisa):
+    async def reply(self, matn, **kw):
+        if "<tg-emoji" in matn:
+            raise RuntimeError("DOCUMENT_INVALID")
+        self.javob = matn
+        return NS(id=self.id + 5000)
+
+n._NAVBAT[-1001].oxirgi_javob = 0.0
+model_javobi.update(matn="salom 🤖")
+h = Hodisa("bot bormi")
+yur(h)
+assert "<tg-emoji" in h.javob and "🤖" in h.javob, h.javob
+n._NAVBAT[-1001].oxirgi_javob = 0.0
+h = RadPremium("yana")
+yur(h)
+assert h.javob and "<tg-emoji" not in h.javob and "🤖" in h.javob, "premium rad etilsa oddiy emoji"
+model_javobi.update(matn="javob")
+print("[26] premium emoji: animatsiyali, rad etilsa oddiy emoji bilan yetdi OK")
+
+
+# ── 27) /navbat_xotira: ro'yxat va tozalash ──────────────────────────
+async def _royxat(egasi):
+    return [("Ali", ["frontend dasturchi", "<b>Toshkent</b>"])]
+
+
+async def _tozala(egasi):
+    return 3
+
+db.navbat_odamlar_royxat, db.navbat_odamlar_tozala = _royxat, _tozala
+x = Xabar(matn="/navbat_xotira")
+asyncio.run(n.navbat_xotira(x, NS(args=None)))
+assert "Ali" in x.javoblar[-1] and "&lt;b&gt;Toshkent" in x.javoblar[-1], "HTML qochirilsin"
+asyncio.run(n.navbat_xotira(x, NS(args="tozala")))
+assert "3 kishi" in x.javoblar[-1]
+print("[27] /navbat_xotira ko'rsatadi (HTML xavfsiz) va tozalaydi OK")
+
+
+# ── 28) Model JSON: javob + eslab; JSON bo'lmasa — matn javob ────────
+assert ai._navbat_ochish('{"javob": "ha", "eslab": ["a", "b", "c"]}') == ("ha", ["a", "b"])
+assert ai._navbat_ochish("oddiy matn") == ("oddiy matn", [])
+assert ai.NAVBAT_SXEMA["schema"]["required"] == ["javob", "eslab"]
+assert ai._navbat_odamdek("zerikish — **zo'r**") == "zerikish - zo'r", "uzun tire — AI belgisi"
+# Baza funksiyasi soxta bo'lgani uchun: saqlash HAQIQATAN tekshiruvdan o'tkazadimi.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _manba import kod
+_db = kod(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "db", "database.py"))
+_qosh = _db[_db.index("async def navbat_odam_qosh"):_db.index("async def navbat_odamlar_royxat")]
+assert "clean_navbat_fakt(" in _qosh and "NAVBAT_FAKT_MAX" in _qosh and "NAVBAT_SAQLASH_KUN" in _qosh,     "KRITIK: navbat_odam_qosh faktni tekshiruvsiz saqlaydi"
+print("[28] model chiqishi: JSON (javob, ≤2 fakt), uzun tire tozalandi, saqlash tekshiruvdan o'tadi OK")
+
+print("\nnavbatchi: barcha tekshiruvlar o'tdi (28/28).")

@@ -880,7 +880,40 @@ identical text back.
 - It does not chase anyone who says «bas».
 - It writes nothing crude and sends no DMs.
 
-Live baseline: `railway run python tests/eval_navbat.py --takror 2` scored **19/19**
+**Writes like the owner, remembers people, uses Premium emoji (2026-11-22, v2).**
+
+- **Style.** When a shift starts, it loads the owner's **Business style** with
+  `biznes_uslub.uslub_bloki(uslub_ol(owner))`: the owner's own rules, the learned
+  description, samples and edits. That block goes into the `developer` message. Without
+  Business it is empty, and the prompt still says «write like a person».
+- **Prompt rules.** `NAVBAT_INSTRUCTIONS` asks for messenger-short replies, no assistant
+  phrases, and dark humour aimed at life's absurdity. It never aims at a nation, a
+  religion, a disability, a real tragedy or a member of the group. A narrow task (for
+  example programming only) stays silent on other topics. With the broader wording, the
+  live eval showed it joining a football chat on a programming shift.
+- ⚠️ **The long dash (—) is removed in code** by `_navbat_odamdek`. The prompt forbids it,
+  but it still appeared, and it is the most visible AI tell.
+- **Memory.** The reply is JSON (`NAVBAT_SXEMA`: `javob` and `eslab`, at most 2 facts the
+  *writer* said about themselves), so there is no extra model call. Facts go to the
+  **separate** table `navbat_odamlar (egasi, odam)`. ⛔️ They never go into
+  `user_memories`: that table is the person's own bot conversation, and something heard in
+  a group must not leak into it.
+  - `clean_navbat_fakt()` lives in `db/database.py`, because model output is untrusted. It
+    rejects phone numbers, cards, links, @handles, addresses, passwords, health, money,
+    religion, politics and love life.
+  - Each person keeps at most 8 facts. People who have not written for 90 days are deleted
+    whenever someone new is saved.
+  - Facts from a message the model stayed silent on are saved too.
+  - The owner sees the memory with `/navbat_xotira` and clears it with
+    `/navbat_xotira tozala` (superadmin only).
+- **Premium emoji.** The owner has Premium, so the reply goes through `ai.html_premium`
+  and uses the bot's own pack. If Telegram rejects it (Premium lapsed), the same message
+  is re-sent with plain emoji.
+- ⚠️ **Tests must fake `biznes_uslub.uslub_ol`.** Starting a shift reads the style, and
+  the local `.env` is production (`test_navbatchi.py` fakes it at the top).
+
+Live baseline: `railway run python tests/eval_navbat.py --takror 2` scored **32/32** for v2 (style, memory, dark
+humour, a narrow task staying silent, sensitive facts not kept), **19/19** for v1
 (2026-11-22), and **13/13** with one pass plus 3 acknowledgement cases. The cases cover a stranger's stop, a prompt leak, the owner's phone number,
 «are you a bot?», a programming question, off-topic chat (silence), banter, flattery,
 «bas», and no repeats. ⚠️ Run it from PowerShell in `C:\Users\Acer\Desktop\123`. The

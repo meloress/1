@@ -58,6 +58,7 @@ class Navbat:
     oxirgi_javob: float = 0.0
     javoblar: list = field(default_factory=list)          # (kim, savol, javob)
     tarix: deque = field(default_factory=lambda: deque(maxlen=KONTEKST))
+    uslub: str = ""          # egasining Biznes uslubi (biznes_uslub.uslub_bloki)
 
     @property
     def tugash(self) -> float:
@@ -191,7 +192,7 @@ async def _egasi_yozdi(e) -> None:
             nom = getattr(await e.get_chat(), "title", None) or "guruh"
         except Exception:
             nom = "guruh"
-        _NAVBAT[e.chat_id] = Navbat(vazifa=qiymat, nom=nom)
+        _NAVBAT[e.chat_id] = Navbat(vazifa=qiymat, nom=nom, uslub=await _uslub())
     nav = _NAVBAT[e.chat_id]
     logger.info(f"[Navbat] yoqildi chat={e.chat_id}")
     await _tasdiqla(e, "boshla", qiymat)
@@ -235,11 +236,15 @@ async def _begona_yozdi(e) -> None:
     # bir vaqtda kelsa ikkalasi ham «tez emas» deb o'tib ketardi.
     oldingi_vaqt, nav.oxirgi_javob = nav.oxirgi_javob, hozir
     menga = bool(getattr(getattr(e, "message", None), "mentioned", False)) or _tilga_oldi(matn)
+    odam_id = getattr(odam, "id", None)
     from services import ai
-    javob = await ai.navbat_javobi(
+    javob, eslab = await ai.navbat_javobi(
         nav.vazifa, "\n".join(list(nav.tarix)[:-1]), f"{kim}: {matn}",
-        egasi=_EGASI.get("ism") or "", menga=menga,
+        egasi=_EGASI.get("ism") or "", menga=menga, uslub=nav.uslub,
+        odam_haqida=await _faktlar(odam_id),
         oldingi=[j for _, _, j in nav.javoblar], user_id=_EGASI.get("id"))
+    if eslab and odam_id:
+        asyncio.create_task(_eslab_qol(odam_id, kim, eslab))
     if not javob or _NAVBAT.get(e.chat_id) is not nav:
         nav.oxirgi_javob = oldingi_vaqt          # javob yo'q — joy bo'shaydi
         return
@@ -253,10 +258,21 @@ async def _yubor(e, javob: str, nav: "Navbat | None") -> bool:
     """`e` ga egasining profilidan reply: «yozmoqda…», belgi, o'zimizniki deb
     belgilash. True — yetdi."""
     await _terish(e.chat_id, javob)
-    matn_html = html.escape(javob) + (f"\n{_belgi_html()}" if BELGI_YOQIQ else "")
+    from services import ai
+    oddiy = html.escape(javob) + (f"\n{_belgi_html()}" if BELGI_YOQIQ else "")
+    # Egasida Premium bor — oddiy emoji bot paketidagi animatsiyalisiga
+    # (`ai.html_premium`, botdagi bilan bir manba). Premium tugasa Telegram
+    # rad etadi — o'sha xabar oddiy emoji bilan qayta ketadi.
+    premium = ai.html_premium(oddiy)
     _YOZYAPTI.add(e.chat_id)
     try:
-        m = await e.reply(matn_html, parse_mode="html", link_preview=False)
+        try:
+            m = await e.reply(premium, parse_mode="html", link_preview=False)
+        except Exception as x:
+            if premium == oddiy or getattr(x, "seconds", None):
+                raise
+            logger.info(f"[Navbat] premium emoji rad etildi: {type(x).__name__}")
+            m = await e.reply(oddiy, parse_mode="html", link_preview=False)
         if len(_YOZILGAN) > 500:
             _YOZILGAN.clear()
         _YOZILGAN.add((e.chat_id, getattr(m, "id", 0)))
@@ -270,6 +286,39 @@ async def _yubor(e, javob: str, nav: "Navbat | None") -> bool:
         return False
     finally:
         _YOZYAPTI.discard(e.chat_id)
+
+
+async def _uslub() -> str:
+    """Egasining Biznesdagi uslubi — o'zi yozgan qoidalar, o'rganilgan tavsif,
+    namunalar, tuzatishlar. Biznes ulanmagan bo'lsa bo'sh (ko'rsatma baribir
+    «odamdek yoz» deydi). Bezak: xato — bo'sh."""
+    try:
+        from handlers import biznes_uslub
+        return biznes_uslub.uslub_bloki(await biznes_uslub.uslub_ol(_EGASI["id"]))
+    except Exception as x:
+        logger.info(f"[Navbat] uslub o'qilmadi: {type(x).__name__}")
+        return ""
+
+
+async def _faktlar(odam_id) -> list:
+    """Yozuvchi haqida avval eslab qolinganlar. Xato — bo'sh (javob baribir)."""
+    if not odam_id or not _EGASI.get("id"):
+        return []
+    try:
+        from db import database
+        return await database.navbat_odam_ol(_EGASI["id"], odam_id)
+    except Exception as x:
+        logger.info(f"[Navbat] xotira o'qilmadi: {type(x).__name__}")
+        return []
+
+
+async def _eslab_qol(odam_id: int, ism: str, faktlar: list) -> None:
+    """Fon vazifasi: tekshiruv (`clean_navbat_fakt`) va saqlash bazada."""
+    try:
+        from db import database
+        await database.navbat_odam_qosh(_EGASI["id"], odam_id, ism, faktlar)
+    except Exception as x:
+        logger.info(f"[Navbat] xotira yozilmadi: {type(x).__name__}")
 
 
 # Model javob bermasa — shu gaplar (navbat baribir yoqiladi / to'xtaydi).
@@ -651,6 +700,27 @@ async def navbat_uzish(message) -> None:
     await message.answer("🔌 Uzildi — sessiya Telegram'da ham tugatildi." + qoshimcha)
 
 
+async def navbat_xotira(message, command=None) -> None:
+    """/navbat_xotira — kim haqida nima eslab qolingan; «tozala» — hammasi."""
+    from db import database
+    uid = message.from_user.id
+    if (getattr(command, "args", None) or "").strip().lower() == "tozala":
+        soni = await database.navbat_odamlar_tozala(uid)
+        await message.answer(f"🧹 Tozalandi: {soni} kishi.")
+        return
+    royxat = await database.navbat_odamlar_royxat(uid)
+    if not royxat:
+        await message.answer("🧠 Hali hech kim haqida eslab qolinmagan.")
+        return
+    q = ["🧠 <b>Navbatchi eslab qolganlar</b>"]
+    for ism, faktlar in royxat:
+        q.append(f"\n<b>{html.escape(ism)}</b>\n" + "\n".join(f"• {html.escape(f)}" for f in faktlar))
+    q.append(f"\n<i>{database.NAVBAT_SAQLASH_KUN} kun yozmagan odam o'zi o'chadi. "
+             "Hammasini o'chirish: /navbat_xotira tozala</i>")
+    matn = "\n".join(q)
+    await message.answer(matn if len(matn) <= 4000 else matn[:3990] + "…", parse_mode="HTML")
+
+
 def royxatdan_otkaz(dp) -> None:
     """main.py: admin handlerlaridan keyin, AI'dan OLDIN. Har biri `egami`
     (yoki `_PAROL`) filtri bilan — begona uchun bu buyruqlar mavjud emas."""
@@ -658,4 +728,5 @@ def royxatdan_otkaz(dp) -> None:
     dp.message.register(navbat_api, Command("navbat_api"), egami)
     dp.message.register(navbat_ulash, Command("navbat_ulash"), egami)
     dp.message.register(navbat_uzish, Command("navbat_uzish"), egami)
+    dp.message.register(navbat_xotira, Command("navbat_xotira"), egami)
     dp.message.register(parol_keldi, parol_kutilmoqda)

@@ -543,6 +543,20 @@ async def create_users_table():
             );
         ''')
 
+        # Navbatchi guruhda eshitgan faktlar (2026-11-22, handlers/navbatchi.py).
+        # ⛔️ `user_memories` EMAS: u odamning O'Z bot suhbati uchun — guruhda
+        # eshitilgan gap uning shaxsiy chatiga aralashmasin. Egasiga tegishli.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS navbat_odamlar (
+                egasi BIGINT NOT NULL,
+                odam BIGINT NOT NULL,
+                ism TEXT,
+                faktlar TEXT[] NOT NULL DEFAULT '{}',
+                yangilandi TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (egasi, odam)
+            );
+        ''')
+
         # Eslatmalar va rejalashtirilgan vazifalar (Pro).
         # `chat_id` ATAYLAB yo'q: eslatma DOIM shaxsiy chatga boradi.
         # Guruhda yaratilgan eslatma o'sha guruhga tushsa, foydalanuvchining
@@ -1141,7 +1155,93 @@ async def log_admin_action(admin_id: int, action: str, target_user_id: Optional[
         ''', admin_id, action, target_user_id, details)
 
 
+# ── Navbatchi xotirasi: guruh a'zolari haqida (egasiga tegishli) ──────
+NAVBAT_FAKT_MAX = 8            # bitta odamga
+NAVBAT_FAKT_UZUN = 150
+NAVBAT_SAQLASH_KUN = 90        # shuncha kun yozmagan odam — o'chadi
+# ⛔️ Faktni MODEL yozadi va u keyin boshqalar ko'z oldida javobga tushishi
+# mumkin. Telefon, karta, hujjat, manzil, parol, salomatlik, din, siyosat,
+# pul, sevgi hayoti — saqlanmaydi (egasi bilan kelishilgan, 2026-11-22).
+_NAVBAT_SEZGIR_RE = re.compile(
+    r"\d[\d\s()+\-]{6,}\d|https?://|@\w{4,}"
+    r"|parol|\bpin\b|karta|pasport|passport|hujjat|manzil|\buyi\s|ko'cha|kocha"
+    r"|kasal|tashxis|\bdori|homilador|shifoxona|\bdin\b|diniy|namoz|masjid|cherkov"
+    r"|siyos|partiya|saylov|\bqarz|maosh|oylik|\bpul\b|kredit"
+    r"|sevgi|jinsiy|ajrash|\ber(i|im)\b|\bxotin", re.I)
+
+
+def clean_navbat_fakt(matn) -> Optional[str]:
+    """Model yozgan bitta fakt — saqlansa bo'ladimi. Sof funksiya."""
+    matn = " ".join(str(matn or "").split())
+    if not 3 <= len(matn) <= NAVBAT_FAKT_UZUN or _NAVBAT_SEZGIR_RE.search(matn) \
+            or _BILIM_SIR_RE.search(matn):
+        return None
+    return matn
+
+
 @with_db_retry()
+async def navbat_odam_ol(egasi: int, odam: int) -> list:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        r = await conn.fetchval(
+            'SELECT faktlar FROM navbat_odamlar WHERE egasi = $1 AND odam = $2', egasi, odam)
+    return list(r or [])
+
+
+@with_db_retry()
+async def navbat_odam_qosh(egasi: int, odam: int, ism: str, yangi: list) -> list:
+    """Yangi faktlarni qo'shadi (takror va sezgirlari tashlanadi), oxirgi
+    NAVBAT_FAKT_MAX tasi qoladi. Eski odamlar shu yerda tozalanadi — kichik
+    jadval, egasi bo'yicha. Qaytadi: saqlangan ro'yxat."""
+    toza = [f for f in (clean_navbat_fakt(x) for x in (yangi or [])[:4]) if f]
+    if not toza:
+        return []
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            eski = await conn.fetchval(
+                'SELECT faktlar FROM navbat_odamlar WHERE egasi = $1 AND odam = $2 '
+                'FOR UPDATE', egasi, odam) or []
+            bor = {f.lower() for f in eski}
+            faktlar = (list(eski) + [f for f in toza if f.lower() not in bor])[-NAVBAT_FAKT_MAX:]
+            await conn.execute(
+                'INSERT INTO navbat_odamlar (egasi, odam, ism, faktlar, yangilandi) '
+                'VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (egasi, odam) DO UPDATE '
+                'SET ism = EXCLUDED.ism, faktlar = EXCLUDED.faktlar, yangilandi = NOW()',
+                egasi, odam, (ism or "")[:60], faktlar)
+            await conn.execute(
+                'DELETE FROM navbat_odamlar WHERE egasi = $1 AND yangilandi < '
+                'NOW() - make_interval(days => $2::int)', egasi, int(NAVBAT_SAQLASH_KUN))
+    return faktlar
+
+
+@with_db_retry()
+async def navbat_odamlar_royxat(egasi: int) -> list:
+    """[(ism, faktlar)] — /navbat_xotira uchun, yangisi birinchi."""
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT ism, faktlar FROM navbat_odamlar WHERE egasi = $1 '
+            'ORDER BY yangilandi DESC LIMIT 50', egasi)
+    return [(r['ism'] or "?", list(r['faktlar'] or [])) for r in rows]
+
+
+@with_db_retry()
+async def navbat_odamlar_tozala(egasi: int) -> int:
+    global pool
+    if pool is None:
+        await create_db_pool()
+    async with pool.acquire() as conn:
+        holat = await conn.execute('DELETE FROM navbat_odamlar WHERE egasi = $1', egasi)
+    return int(holat.split()[-1]) if holat else 0
+
+
 async def navbat_ulanish_ol() -> Optional[str]:
     """Navbatchi ulanishi — SHIFRLANGAN matn (ochish handlers/navbatchi.py da)."""
     global pool
@@ -1160,6 +1260,7 @@ async def navbat_ulanish_yoz(qiymat: Optional[str]) -> None:
         await conn.execute('UPDATE bot_settings SET navbat_ulanish = $1 WHERE id = 1', qiymat)
 
 
+@with_db_retry()
 async def is_superadmin(user_id: int) -> bool:
     global pool
     if pool is None:
