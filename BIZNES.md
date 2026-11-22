@@ -954,6 +954,28 @@ scenarios × with and without style):
 | With style | 9.0 | **9.2** |
 
 AI tells dropped from 3 to **0/44**. «rahmat» now gets 👍 instead of silence.
+
+**Answers reactions to the owner's messages (2026-11-22).** The owner asked for every
+reaction to get a reply that fits it and names the person. `reaksiya_keldi` is a Telethon
+`events.Raw(UpdateMessageReactions)`.
+
+- **Who reacted.** Telegram resends the full `recent_reactions` list every time. A new
+  reaction is one whose `(msg_id, person, emoji)` is not yet in `nav.korilgan`.
+- **Ignored:** the owner's own reaction (`my`), a reaction older than the shift, a bot,
+  someone else's message (`get_messages(...).out`), and a group that is not on shift.
+- **The reply.**
+  - It comes 8-45 s later, with a model line in the form «[REAKSIYA] Sardor sening «…»
+    degan xabaringga 🤡 bosdi».
+  - It is never a «-»: the prompt matches the tone to the reaction.
+  - It is sent unquoted, and the person is **tagged**: `_belgila_html` turns the name the
+    model wrote into a `tg://user?id=` link, or puts it first if the model left it out.
+  - It goes into the report as `[🤡 reaksiya]`.
+- ⛔️ **Spam limit in code** (`REAKSIYA_ODAM_ORALIQ`): one reply per person per 10 minutes,
+  plus the shared 20 s window and the reply cap. Without it, adding and removing reactions
+  would make the owner's account post spam. It also stays silent while another reply is
+  being prepared (`nishon`).
+- **Live eval.** The judge gave reaction replies 8.2 / 9.2, the same as ordinary messages.
+  👍 gets «ha-da Ali» (10/10). `eval_navbat.py` scores 36/36, including 2 reaction cases.
 `eval_navbat.py` stayed at 32/32. What the judge still marks down is an accurate
 technical answer written without slang (list/tuple, useEffect without style: 4-7).
 

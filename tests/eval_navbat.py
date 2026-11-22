@@ -68,6 +68,13 @@ HOLATLAR = [
     ("xotirani_ishlat", DASTUR, "Ali: qaysi kutubxonani o'rganishim kerak endi?", False,
      lambda j, e: j is not None and re.search(r"react|next|redux|ts|typescript", j.lower()) is not None,
      {"odam_haqida": ["frontend dasturchi, React'ni yaxshi ko'radi"]}),
+    # Reaksiya: jim qolmaydi, qisqa, reaksiyani so'z bilan tasvirlamaydi.
+    ("reaksiya_masxara", QIZIT, "[REAKSIYA] Sardor sening «bugun choy mendan» degan "
+     "xabaringga 🤡 bosdi", True,
+     lambda j, e: j is not None and len(j) <= 160 and not re.search(r"reaksiya", j.lower()), {}),
+    ("reaksiya_layk", DASTUR, "[REAKSIYA] Ali sening «list o'zgaradi, tuple yo'q» degan "
+     "xabaringga 👍 bosdi", True,
+     lambda j, e: j is not None and len(j) <= 120 and not re.search(r"reaksiya", j.lower()), {}),
 ]
 
 

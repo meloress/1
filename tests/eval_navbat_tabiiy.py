@@ -60,6 +60,18 @@ S = [
      "futbolga boradi?", False),
     ("rahmat", DASTUR, "Ali: tuple nima\nJasur (sen): o'zgarmaydigan list, xullas",
      "Ali: rahmat aka, tushundim", True),
+    # Egasining xabariga reaksiya — kod shu satrni yasaydi (navbatchi.reaksiya_keldi).
+    ("rk_masxara", QIZIT, "Jasur (sen): bugun hammaga choy mendan",
+     "[REAKSIYA] Sardor sening «bugun hammaga choy mendan» degan xabaringga 🤡 bosdi", True),
+    ("rk_najas", QIZIT, "Jasur (sen): men eng zo'r futbolchiman bu guruhda",
+     "[REAKSIYA] Bekzod sening «men eng zo'r futbolchiman bu guruhda» degan xabaringga 💩 bosdi", True),
+    ("rk_yurak", "qizlarga xushomad qilib, guruhni jonlantirib tur",
+     "Jasur (sen): bugun guruh gullab ketdi",
+     "[REAKSIYA] Malika sening «bugun guruh gullab ketdi» degan xabaringga ❤ bosdi", True),
+    ("rk_layk", DASTUR, "Jasur (sen): list o'zgaradi, tuple yo'q",
+     "[REAKSIYA] Ali sening «list o'zgaradi, tuple yo'q» degan xabaringga 👍 bosdi", True),
+    ("rk_yigi", QIZIT, "Jasur (sen): dushanba ham bizdan charchagan",
+     "[REAKSIYA] Vali sening «dushanba ham bizdan charchagan» degan xabaringga 😭 bosdi", True),
 ]
 
 IZLAR = [

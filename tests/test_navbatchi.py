@@ -813,4 +813,96 @@ assert nav.javoblar[-1][2] == "e qo'ysang-chi 😂\n\nkechqurun boramiz"
 model_javobi.update(matn="javob")
 print("[34] ikki xabar: birinchisi reply, ikkinchisi oddiy, belgi oxirida OK")
 
-print("\nnavbatchi: barcha tekshiruvlar o'tdi (34/34).")
+# ── 35) Reaksiya: egasining xabariga — o'sha odamni belgilab, mos javob ─
+from telethon.tl import types as tt
+
+
+class ReaksiyaKlient:
+    def __init__(self):
+        self.xabarlar, self.odamlar = {}, {}
+
+    async def get_messages(self, chat, ids):
+        return self.xabarlar.get(ids)
+
+    async def get_entity(self, uid):
+        return self.odamlar[uid]
+
+
+def reaksiya(msg_id, uid, emoji, *, my=False, sana=None, chat=1001):
+    return tt.UpdateMessageReactions(
+        peer=tt.PeerChat(chat_id=chat), msg_id=msg_id,
+        reactions=tt.MessageReactions(results=[], recent_reactions=[tt.MessagePeerReaction(
+            peer_id=tt.PeerUser(user_id=uid), date=sana or datetime.now(timezone.utc),
+            reaction=tt.ReactionEmoji(emoticon=emoji), my=my)]))
+
+
+nav = yangi_navbat()
+rk = ReaksiyaKlient()
+n._CLIENT = rk
+bizniki = Hodisa("python savollariga men javob beraman", out=True)
+begonaniki = Hodisa("salom", ism="Vali")
+rk.xabarlar = {bizniki.id: bizniki, begonaniki.id: begonaniki}
+rk.odamlar = {4242: NS(first_name="Sardor", last_name=None, username=None, bot=False),
+              4243: NS(first_name="Malika", last_name=None, username=None, bot=False),
+              4244: NS(first_name="Bot", last_name=None, username=None, bot=True),
+              777: NS(first_name="Jasur", last_name=None, username=None, bot=False)}
+
+
+def rkyur(u):
+    asyncio.run(n.reaksiya_keldi(u))
+
+model_javobi.update(matn="sardor oynaga qarab bosdingmi 😂")
+oldin = len(model)
+rkyur(reaksiya(bizniki.id, 4242, "🤡"))
+assert len(model) == oldin + 1 and model[-1]["menga"] is True
+assert model[-1]["xabar"].startswith("[REAKSIYA] Sardor") and "🤡" in model[-1]["xabar"]
+assert "python savollariga" in model[-1]["xabar"], "qaysi xabarga bosgani modelga aytilsin"
+tur, matn = bizniki.yuborilgan[-1]
+assert tur == "respond" and '<a href="tg://user?id=4242">sardor</a> oynaga' in matn, matn
+assert nav.javoblar[-1][:2] == ("Sardor", "[🤡 reaksiya]") and nav.nishon is None
+# Javobdan keyin o'sha odam darhol yana bossa — 10 daqiqa jim.
+nav.oxirgi_javob = 0.0
+rkyur(reaksiya(bizniki.id, 4242, "😭"))
+assert len(model) == oldin + 1, "KRITIK: javobdan keyin 10 daqiqalik chegara qo'yilmadi"
+# Telegram o'sha ro'yxatni qayta yuborsa — ikkinchi javob yo'q.
+nav.oxirgi_javob, nav.reaksiya_javob = 0.0, {}
+rkyur(reaksiya(bizniki.id, 4242, "🤡"))
+assert len(model) == oldin + 1, "bir reaksiyaga ikki marta javob"
+# O'sha odam 10 daqiqa ichida yana bossa — jim (bosib-olib spam yozdirolmaydi).
+nav.oxirgi_javob = 0.0
+nav.reaksiya_javob[4242] = time.time()
+rkyur(reaksiya(bizniki.id, 4242, "❤"))
+assert len(model) == oldin + 1, "KRITIK: reaksiya orqali spam"
+# Model ismni yozmasa — boshida belgilanadi.
+nav.oxirgi_javob = 0.0
+model_javobi.update(matn="rahmat, sizga ham 😊")
+rkyur(reaksiya(bizniki.id, 4243, "❤"))
+assert bizniki.yuborilgan[-1][1].startswith('<a href="tg://user?id=4243">Malika</a>, rahmat')
+assert len(model) == oldin + 2
+model_javobi.update(matn="javob")
+print("[35] reaksiya: odam belgilanadi, mos javob; takror va 10 daqiqalik spam — yo'q OK")
+
+# ── 36) Reaksiya: begona xabar, egasining o'zi, eski, bot, boshqa guruh — jim ─
+nav.reaksiya_javob = {}
+oldin = len(model)
+eski = datetime.fromtimestamp(nav.boshlandi - 60, timezone.utc)
+for u in (reaksiya(begonaniki.id, 4242, "👍"), reaksiya(bizniki.id, 4242, "🔥", my=True),
+          reaksiya(bizniki.id, 777, "🔥"), reaksiya(bizniki.id, 4242, "😁", sana=eski),
+          reaksiya(bizniki.id, 4244, "👍"), reaksiya(bizniki.id, 4242, "👀", chat=1002)):
+    nav.oxirgi_javob = 0.0
+    rkyur(u)
+assert len(model) == oldin, model[oldin:]
+nav.oxirgi_javob = 0.0
+nav.nishon = ("band",)
+rkyur(reaksiya(bizniki.id, 4242, "🙏"))
+assert len(model) == oldin, "boshqa xabarga javob tayyorlanayotganda — ikkinchisi yo'q"
+nav.nishon = None
+assert n._belgila_html("salom", 1, "<b>X") == '<a href="tg://user?id=1">&lt;b&gt;X</a>, salom'
+assert n._belgila_html("a &amp; amp", 2, "Amp") == 'a &amp; <a href="tg://user?id=2">amp</a>', \
+    "HTML belgisi (&amp;) ichidagi so'z havola bo'lmasin"
+assert n._mavzuda(NS(message="matn", reply_to=NS(forum_topic=True))), \
+    "Message'ning o'zi (reaksiya yo'li) — mavzu ham tanilsin"
+n._CLIENT = None
+print("[36] reaksiya: faqat egasining xabari, o'zi/eski/bot/boshqa guruh/band — jim OK")
+
+print("\nnavbatchi: barcha tekshiruvlar o'tdi (36/36).")

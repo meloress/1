@@ -45,6 +45,7 @@ ORALIQ = 20.0              # bitta guruhda javoblar orasidagi eng kam vaqt (s)
 MAX_JAVOB = 30             # bitta navbatda
 KONTEKST = 15              # modelga ko'rinadigan oxirgi guruh xabarlari
 VAZIFA_MIN_SOZ = 3         # «vexon zo'r» — buyruq emas, oddiy gap
+REAKSIYA_ODAM_ORALIQ = 600  # bitta odamning reaksiyalariga — 10 daqiqada bitta javob
 OTKAZISH = 0.25            # o'ziga qaratilmagan, savol emas xabarni o'tkazib yuborish
 REPLYSIZ = 0.7             # guruhdagi oxirgi xabarga reply'siz yozish ehtimoli
 
@@ -75,6 +76,8 @@ class Navbat:
     oxirgi_id: int = 0       # guruhdagi oxirgi begona xabar (reply'siz yozish uchun)
     # Javobga chog'lanib turgan xabar: (e, kim, matn, odam_id, menga) yoki None.
     nishon: tuple | None = None
+    korilgan: set = field(default_factory=set)        # (msg_id, odam, emoji) — reaksiyalar
+    reaksiya_javob: dict = field(default_factory=dict)  # odam → oxirgi javob vaqti
 
     @property
     def tugash(self) -> float:
@@ -134,9 +137,24 @@ def bolaklar(javob: str) -> list[str]:
 
 
 def _mavzuda(e) -> bool:
-    """Forum mavzusidagi xabar: reply'siz yuborilsa «General» ga ketadi."""
-    rt = getattr(getattr(e, "message", None), "reply_to", None)
+    """Forum mavzusidagi xabar: reply'siz yuborilsa «General» ga ketadi.
+    `e` — hodisa (`.message.reply_to`) yoki Message'ning o'zi (`.reply_to`)."""
+    rt = (getattr(getattr(e, "message", None), "reply_to", None)
+          or getattr(e, "reply_to", None))
     return bool(getattr(rt, "forum_topic", False))
+
+
+def _belgila_html(matn_html: str, uid: int, ism: str) -> str:
+    """Odamni bosiladigan qilib tilga olish (unga bildirishnoma boradi).
+    Model ismini yozgan bo'lsa — o'sha so'z havola bo'ladi, aks holda boshiga."""
+    nom = html.escape((ism or "").split(" ")[0])
+    def havola(t):
+        return f'<a href="tg://user?id={int(uid)}">{t}</a>'
+    if len(nom) >= 2:
+        m = re.search(rf"(?<![\w&]){re.escape(nom)}(?!\w)", matn_html, re.I)
+        if m:
+            return matn_html[:m.start()] + havola(m.group(0)) + matn_html[m.end():]
+    return f"{havola(nom or 'aka')}, {matn_html}"
 
 
 def _iqtibos_kerak(e, nav: "Navbat") -> bool:
@@ -355,10 +373,12 @@ async def _begona_yozdi(e) -> None:
         nav.nishon = None
 
 
-async def _yubor(e, javob: str, nav: "Navbat | None", *, iqtibos: bool = True) -> bool:
+async def _yubor(e, javob: str, nav: "Navbat | None", *, iqtibos: bool = True,
+                 belgila: tuple | None = None) -> bool:
     """Egasining profilidan: har qism oldidan «yozmoqda…», birinchisi reply
     (`iqtibos`) yoki oddiy xabar, belgi — oxirgisida; o'zimizniki deb
-    belgilanadi. True — hech bo'lmasa birinchi qism yetdi."""
+    belgilanadi. `belgila=(uid, ism)` — birinchi qismda odam tilga olinadi.
+    True — hech bo'lmasa birinchi qism yetdi."""
     from services import ai
     qismlar = bolaklar(javob)
     tema = _mavzuda(e)
@@ -366,8 +386,11 @@ async def _yubor(e, javob: str, nav: "Navbat | None", *, iqtibos: bool = True) -
         if i:
             await _kut(random.uniform(0.5, 2.0))
         await _terish(e.chat_id, qism)
-        oddiy = html.escape(qism) + (f"\n{_belgi_html()}"
-                                     if BELGI_YOQIQ and i == len(qismlar) - 1 else "")
+        oddiy = html.escape(qism)
+        if belgila and i == 0:
+            oddiy = _belgila_html(oddiy, *belgila)
+        if BELGI_YOQIQ and i == len(qismlar) - 1:
+            oddiy += f"\n{_belgi_html()}"
         # Egasida Premium bor — oddiy emoji bot paketidagi animatsiyalisiga
         # (`ai.html_premium`, botdagi bilan bir manba). Premium tugasa Telegram
         # rad etadi — o'sha xabar oddiy emoji bilan qayta ketadi.
@@ -459,6 +482,84 @@ async def xabar_keldi(e) -> None:
         logger.warning(f"[Navbat] xabar ishlanmadi: {type(x).__name__}: {x}")
 
 
+def _reaksiya_nomi(r) -> str:
+    em = getattr(r, "emoticon", None)
+    if em:
+        return em
+    return "⭐" if type(r).__name__ == "ReactionPaid" else "stiker-emoji"
+
+
+async def reaksiya_keldi(u) -> None:
+    """Telethon Raw `UpdateMessageReactions`: kimdir EGASINING xabariga
+    reaksiya bosdi — o'sha odamni tilga olib, reaksiyasiga mos javob (egasi
+    so'radi, 2026-11-22: «hamma reaksiyalarga»). Hech qachon ko'tarmaydi.
+
+    ⛔️ Spam chegarasi kodda: bitta odamga 10 daqiqada bitta javob
+    (`REAKSIYA_ODAM_ORALIQ`) — aks holda reaksiyani bosib-olib akkauntdan
+    spam yozdirish mumkin; umumiy ORALIQ va MAX_JAVOB ham amal qiladi."""
+    try:
+        from telethon import utils
+        chat_id = utils.get_peer_id(u.peer)
+        nav = _NAVBAT.get(chat_id)
+        if nav is None or _CLIENT is None:
+            return
+        hozir = time.time()
+        # Telegram har safar oxirgi reaksiyalarning TO'LIQ ro'yxatini yuboradi —
+        # yangisi `korilgan` da yo'qligi bilan topiladi.
+        yangi = None
+        for r in (getattr(u.reactions, "recent_reactions", None) or []):
+            uid = utils.get_peer_id(r.peer_id)
+            kalit = (u.msg_id, uid, _reaksiya_nomi(r.reaction))
+            sana = getattr(r, "date", None)
+            if (getattr(r, "my", False) or uid == _EGASI.get("id") or kalit in nav.korilgan
+                    or (sana is not None and sana.timestamp() < nav.boshlandi - 2)):
+                continue
+            nav.korilgan.add(kalit)
+            yangi = yangi or (uid, kalit[2])
+        if yangi is None:
+            return
+        uid, emoji = yangi
+        if (hozir - nav.reaksiya_javob.get(uid, 0) < REAKSIYA_ODAM_ORALIQ
+                or nav.nishon is not None or javob_mumkinmi(nav, hozir)):
+            return
+        xabar = await _CLIENT.get_messages(chat_id, ids=u.msg_id)
+        if xabar is None or not getattr(xabar, "out", False):
+            return                                  # faqat egasining xabari
+        odam = await _CLIENT.get_entity(uid)
+        if getattr(odam, "bot", False):
+            return
+        kim = _ism(odam)
+        if nav.nishon is not None:                  # get_* paytida band bo'ldi
+            return
+        nav.nishon = (xabar, kim, "", uid, True)
+        oldingi_vaqt, nav.oxirgi_javob = nav.oxirgi_javob, hozir
+        nav.reaksiya_javob[uid] = hozir
+        try:
+            await _kut(random.uniform(8, 45))       # odam reaksiyani darhol ko'rmaydi
+            if _NAVBAT.get(chat_id) is not nav:
+                return
+            matn = " ".join((getattr(xabar, "raw_text", "") or "").split())[:200]
+            from services import ai
+            javob, _, _ = await ai.navbat_javobi(
+                nav.vazifa, "\n".join(nav.tarix),
+                f"[REAKSIYA] {kim} sening «{matn}» degan xabaringga {emoji} bosdi",
+                egasi=_EGASI.get("ism") or "", menga=True, uslub=nav.uslub,
+                odam_haqida=await _faktlar(uid),
+                oldingi=[j for _, _, j in nav.javoblar], user_id=_EGASI.get("id"))
+            nav.tarix.append(f"{kim}: [sening xabaringga {emoji} bosdi]")
+            if not javob or _NAVBAT.get(chat_id) is not nav:
+                nav.oxirgi_javob = oldingi_vaqt
+                return
+            if await _yubor(xabar, javob, nav, iqtibos=False, belgila=(uid, kim)):
+                nav.javoblar.append((kim, f"[{emoji} reaksiya]", javob))
+                nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {javob}")
+            nav.oxirgi_javob = max(nav.oxirgi_javob, time.time())
+        finally:
+            nav.nishon = None
+    except Exception as x:
+        logger.warning(f"[Navbat] reaksiya ishlanmadi: {type(x).__name__}: {x}")
+
+
 async def _muddat_kuzatuvchi() -> None:
     """Guruh jim qolsa ham unutilgan navbat o'z vaqtida tugasin."""
     while True:
@@ -490,6 +591,8 @@ async def ishga_tushir() -> None:
         me = await client.get_me()
         _EGASI.update(id=me.id, ism=_ism(me), username=me.username or "")
         client.add_event_handler(xabar_keldi, events.NewMessage(func=lambda e: e.is_group))
+        from telethon.tl.types import UpdateMessageReactions
+        client.add_event_handler(reaksiya_keldi, events.Raw(UpdateMessageReactions))
         _CLIENT = client
         if not _KUZATUVCHI:
             _KUZATUVCHI = True

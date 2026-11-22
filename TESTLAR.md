@@ -241,7 +241,16 @@ Some are structural guards rather than feature tests, and they earn their keep o
   - two short messages, with the marker on the last one.
 
   Random behaviour is switched off for checks 1-28 (`OTKAZISH`/`REPLYSIZ` = 0,
-  `_kut` faked). Mutation-tested 13/13. Live counterparts: `eval_navbat.py` (rules) and
+  `_kut` faked). Mutation-tested 13/13. Checks 35-36 cover replying to a reaction on the
+  owner's message:
+  - the person is tagged (`tg://user?id=`), with an HTML entity never mistaken for a name;
+  - no second reply to the same resent reaction list;
+  - one reply per person per 10 minutes, set by the reply itself (the sharpest check);
+  - silence for someone else's message, the owner's own reaction, an old reaction, a bot,
+    another group, and while busy.
+
+  Mutation-tested 10/10, plus one deliberately doubled `nishon` check. Live counterparts:
+  `eval_navbat.py` (rules) and
   `eval_navbat_tabiiy.py` (blind judge).
 - `test_status_matn.py` — the status frame (2026-11-19). Every line-1 text is ≤ 26
   characters, because on a phone a longer one jumps between one and two lines as the dots
