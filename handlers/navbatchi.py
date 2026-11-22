@@ -20,11 +20,19 @@ Egasi guruhga ODDIY xabar yozsa — u qaytdi, navbat tugaydi.
 - guruhda ORALIQ soniyada bitta javob, navbatga MAX_JAVOB, NAVBAT_SOAT dan
   keyin o'zi to'xtaydi — spamga o'xshasa Telegram AKKAUNTNI cheklaydi.
 - `USERBOT_SESSION` — akkauntning TO'LIQ kaliti: hech qachon logga chiqmaydi.
+
+Tabiiylik — XULQ ham (2026-11-22, egasi: «botligi sezilmasin umuman»): matn
+qanchalik odamdek bo'lmasin, har xabarga 3 soniyada, doim reply bilan javob
+— bot. Shuning uchun kodda: o'qish kechikishi (`oqish_vaqti`), telefonda
+terish tezligi (`terish_vaqti`), ba'zi xabarni o'tkazib yuborish
+(`OTKAZISH`), oxirgi xabarga reply'siz (`REPLYSIZ`), matn o'rniga reaksiya,
+ikki qisqa xabarga bo'lish (`bolaklar`).
 """
 import asyncio
 import html
 import logging
 import os
+import random
 import re
 import time
 from collections import deque
@@ -37,7 +45,11 @@ ORALIQ = 20.0              # bitta guruhda javoblar orasidagi eng kam vaqt (s)
 MAX_JAVOB = 30             # bitta navbatda
 KONTEKST = 15              # modelga ko'rinadigan oxirgi guruh xabarlari
 VAZIFA_MIN_SOZ = 3         # «vexon zo'r» — buyruq emas, oddiy gap
+OTKAZISH = 0.25            # o'ziga qaratilmagan, savol emas xabarni o'tkazib yuborish
+REPLYSIZ = 0.7             # guruhdagi oxirgi xabarga reply'siz yozish ehtimoli
 
+_SAVOL_RE = re.compile(r"\?|(?<!\w)(nima\w*|nega|qanday|qanaqa|qachon|qayer\w*|kim|"
+                       r"qancha|nechi\w*)(?!\w)|\w(mi|mu)(?!\w)", re.I)
 _BUYRUQ_RE = re.compile(r"^\s*(?:vexon|вексон)\b[\s,:;!.\-—]*(.*)$", re.I | re.S)
 _TOXTA = {"to'xta", "toxta", "stop", "bas", "тўхта", "стоп"}
 
@@ -59,6 +71,10 @@ class Navbat:
     javoblar: list = field(default_factory=list)          # (kim, savol, javob)
     tarix: deque = field(default_factory=lambda: deque(maxlen=KONTEKST))
     uslub: str = ""          # egasining Biznes uslubi (biznes_uslub.uslub_bloki)
+    reaksiyalar: int = 0
+    oxirgi_id: int = 0       # guruhdagi oxirgi begona xabar (reply'siz yozish uchun)
+    # Javobga chog'lanib turgan xabar: (e, kim, matn, odam_id, menga) yoki None.
+    nishon: tuple | None = None
 
     @property
     def tugash(self) -> float:
@@ -93,6 +109,49 @@ def javob_mumkinmi(nav: Navbat, hozir: float) -> str | None:
     return None
 
 
+def oqish_vaqti(menga: bool) -> float:
+    """Javobdan oldingi kechikish (s): odam xabarni darhol ko'rmaydi. O'ziga
+    qaratilganini tezroq; ba'zan telefon cho'ntakda — 1-2 daqiqa."""
+    if menga:
+        return random.uniform(3, 18)
+    if random.random() < 0.15:
+        return random.uniform(45, 100)
+    return random.uniform(6, 40)
+
+
+def terish_vaqti(matn: str) -> float:
+    """«yozmoqda…» qancha turadi: telefonda ~3,5-6 belgi/s va bir oz o'ylash."""
+    return max(2.0, min(25.0, random.uniform(1.0, 2.5) + len(matn) / random.uniform(3.5, 6.0)))
+
+
+def bolaklar(javob: str) -> list[str]:
+    """Model bo'sh qator bilan ajratgan 2-3 qisqa gap — alohida xabarlar (odam
+    shunday yozadi). Uzun qism bo'lsa (kod, tushuntirish) — bitta xabar."""
+    qismlar = [q.strip() for q in javob.split("\n\n") if q.strip()]
+    if 2 <= len(qismlar) <= 3 and all(len(q) <= 200 for q in qismlar):
+        return qismlar
+    return [javob]
+
+
+def _mavzuda(e) -> bool:
+    """Forum mavzusidagi xabar: reply'siz yuborilsa «General» ga ketadi."""
+    rt = getattr(getattr(e, "message", None), "reply_to", None)
+    return bool(getattr(rt, "forum_topic", False))
+
+
+def _iqtibos_kerak(e, nav: "Navbat") -> bool:
+    """Reply (iqtibos) kerakmi. Guruhdagi oxirgi xabarga odam ko'pincha
+    reply'siz yozadi; orada boshqa xabar kelgan bo'lsa — kimga javobligi
+    ko'rinsin. (Forum mavzusi — `_yubor` da doim reply.)"""
+    if nav.oxirgi_id != e.id:
+        return True
+    return random.random() >= REPLYSIZ
+
+
+async def _kut(soniya: float) -> None:
+    await asyncio.sleep(soniya)
+
+
 def _ism(odam) -> str:
     ism = " ".join(filter(None, [getattr(odam, "first_name", None),
                                  getattr(odam, "last_name", None)]))
@@ -112,7 +171,8 @@ def _tilga_oldi(matn: str) -> bool:
 def hisobot(nav: Navbat, sabab: str) -> str:
     """Navbat tugagach egasiga: kim nima so'radi, nima deyildi."""
     q = [f"⏸ <b>Navbat tugadi</b> — «{html.escape(nav.nom)}» ({html.escape(sabab)})",
-         f"Javoblar: {len(nav.javoblar)}"]
+         f"Javoblar: {len(nav.javoblar)}"
+         + (f", reaksiyalar: {nav.reaksiyalar}" if nav.reaksiyalar else "")]
     for kim, savol, javob in nav.javoblar:
         q.append(f"\n• <b>{html.escape(kim)}:</b> {html.escape(savol[:200])}\n"
                  f"  ↳ {html.escape(javob[:300])}")
@@ -140,12 +200,25 @@ async def _egasiga(matn: str) -> None:
 
 
 async def _terish(chat_id: int, matn: str) -> None:
-    """«yozmoqda…» — odam kabi: javob uzunligiga qarab 1,5-6 s."""
+    """«yozmoqda…» — telefonda terilgandek (`terish_vaqti`)."""
     try:
         async with _CLIENT.action(chat_id, "typing"):
-            await asyncio.sleep(min(6.0, 1.5 + len(matn) / 40))
+            await asyncio.sleep(terish_vaqti(matn))
     except Exception:
         pass
+
+
+async def _reaksiya_qoy(e, rk: str) -> bool:
+    """Xabarga reaksiya. Guruh reaksiyani cheklagan bo'lsa — jim (bezak)."""
+    try:
+        from telethon.tl.functions.messages import SendReactionRequest
+        from telethon.tl.types import ReactionEmoji
+        await _CLIENT(SendReactionRequest(peer=await e.get_input_chat(), msg_id=e.id,
+                                          reaction=[ReactionEmoji(emoticon=rk)]))
+        return True
+    except Exception as x:
+        logger.info(f"[Navbat] reaksiya qo'yilmadi: {type(x).__name__}")
+        return False
 
 
 async def toxtat(chat_id: int, sabab: str) -> None:
@@ -226,66 +299,102 @@ async def _begona_yozdi(e) -> None:
         return
     kim = _ism(odam)
     nav.tarix.append(f"{kim}: {matn[:300]}")
+    nav.oxirgi_id = e.id
+    menga = bool(getattr(getattr(e, "message", None), "mentioned", False)) or _tilga_oldi(matn)
+    odam_id = getattr(odam, "id", None)
     sabab = javob_mumkinmi(nav, hozir)
     if sabab == "limit":
         await toxtat(e.chat_id, f"{MAX_JAVOB} ta javob chegarasi")
         return
+    if nav.nishon is not None:
+        # «O'qib» turgan payt yangi xabar keldi: o'ziga qaratilgani muhimroq
+        # (odam ham shunga javob beradi), qolgani baribir kontekstda ko'rinadi.
+        if menga and not nav.nishon[4]:
+            nav.nishon = (e, kim, matn, odam_id, True)
+        return
     if sabab:
         return
+    if not menga and not _SAVOL_RE.search(matn) and random.random() < OTKAZISH:
+        return                                   # odam har xabarga yozmaydi
     # Joy OLDINDAN band qilinadi: Telethon handler'lari parallel, ikki xabar
     # bir vaqtda kelsa ikkalasi ham «tez emas» deb o'tib ketardi.
+    nav.nishon = (e, kim, matn, odam_id, menga)
     oldingi_vaqt, nav.oxirgi_javob = nav.oxirgi_javob, hozir
-    menga = bool(getattr(getattr(e, "message", None), "mentioned", False)) or _tilga_oldi(matn)
-    odam_id = getattr(odam, "id", None)
-    from services import ai
-    javob, eslab = await ai.navbat_javobi(
-        nav.vazifa, "\n".join(list(nav.tarix)[:-1]), f"{kim}: {matn}",
-        egasi=_EGASI.get("ism") or "", menga=menga, uslub=nav.uslub,
-        odam_haqida=await _faktlar(odam_id),
-        oldingi=[j for _, _, j in nav.javoblar], user_id=_EGASI.get("id"))
-    if eslab and odam_id:
-        asyncio.create_task(_eslab_qol(odam_id, kim, eslab))
-    if not javob or _NAVBAT.get(e.chat_id) is not nav:
-        nav.oxirgi_javob = oldingi_vaqt          # javob yo'q — joy bo'shaydi
-        return
-    if not await _yubor(e, javob, nav):
-        return
-    nav.javoblar.append((kim, matn, javob))
-    nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {javob}")
-
-
-async def _yubor(e, javob: str, nav: "Navbat | None") -> bool:
-    """`e` ga egasining profilidan reply: «yozmoqda…», belgi, o'zimizniki deb
-    belgilash. True — yetdi."""
-    await _terish(e.chat_id, javob)
-    from services import ai
-    oddiy = html.escape(javob) + (f"\n{_belgi_html()}" if BELGI_YOQIQ else "")
-    # Egasida Premium bor — oddiy emoji bot paketidagi animatsiyalisiga
-    # (`ai.html_premium`, botdagi bilan bir manba). Premium tugasa Telegram
-    # rad etadi — o'sha xabar oddiy emoji bilan qayta ketadi.
-    premium = ai.html_premium(oddiy)
-    _YOZYAPTI.add(e.chat_id)
     try:
-        try:
-            m = await e.reply(premium, parse_mode="html", link_preview=False)
-        except Exception as x:
-            if premium == oddiy or getattr(x, "seconds", None):
-                raise
-            logger.info(f"[Navbat] premium emoji rad etildi: {type(x).__name__}")
-            m = await e.reply(oddiy, parse_mode="html", link_preview=False)
-        if len(_YOZILGAN) > 500:
-            _YOZILGAN.clear()
-        _YOZILGAN.add((e.chat_id, getattr(m, "id", 0)))
-        return True
-    except Exception as x:
-        # FloodWait — Telegram sekinla deyapti: shuncha vaqt jim turamiz.
-        kut = getattr(x, "seconds", None)
-        if kut and nav is not None:
-            nav.oxirgi_javob = time.time() + kut
-        logger.warning(f"[Navbat] yuborilmadi chat={e.chat_id}: {type(x).__name__}")
-        return False
+        await _kut(oqish_vaqti(menga))
+        if _NAVBAT.get(e.chat_id) is not nav:
+            return
+        e, kim, matn, odam_id, menga = nav.nishon
+        # Kontekst — kutish paytida kelganlari ham; nishon satri alohida beriladi.
+        suhbat = list(nav.tarix)
+        satr = f"{kim}: {matn[:300]}"
+        if satr in suhbat:
+            del suhbat[len(suhbat) - 1 - suhbat[::-1].index(satr)]
+        from services import ai
+        javob, eslab, rk = await ai.navbat_javobi(
+            nav.vazifa, "\n".join(suhbat), f"{kim}: {matn}",
+            egasi=_EGASI.get("ism") or "", menga=menga, uslub=nav.uslub,
+            odam_haqida=await _faktlar(odam_id),
+            oldingi=[j for _, _, j in nav.javoblar], user_id=_EGASI.get("id"))
+        if eslab and odam_id:
+            asyncio.create_task(_eslab_qol(odam_id, kim, eslab))
+        if not (javob or rk) or _NAVBAT.get(e.chat_id) is not nav:
+            nav.oxirgi_javob = oldingi_vaqt      # javob yo'q — joy bo'shaydi
+            return
+        if rk and await _reaksiya_qoy(e, rk):
+            nav.reaksiyalar += 1
+        if javob:
+            if rk:
+                await _kut(random.uniform(1, 3))
+            if await _yubor(e, javob, nav, iqtibos=_iqtibos_kerak(e, nav)):
+                nav.javoblar.append((kim, matn, javob))
+                nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {javob}")
+        # ORALIQ yuborilgan paytdan sanaladi (FloodWait kelajakni qo'ygan bo'lsa — o'sha).
+        nav.oxirgi_javob = max(nav.oxirgi_javob, time.time())
     finally:
-        _YOZYAPTI.discard(e.chat_id)
+        nav.nishon = None
+
+
+async def _yubor(e, javob: str, nav: "Navbat | None", *, iqtibos: bool = True) -> bool:
+    """Egasining profilidan: har qism oldidan «yozmoqda…», birinchisi reply
+    (`iqtibos`) yoki oddiy xabar, belgi — oxirgisida; o'zimizniki deb
+    belgilanadi. True — hech bo'lmasa birinchi qism yetdi."""
+    from services import ai
+    qismlar = bolaklar(javob)
+    tema = _mavzuda(e)
+    for i, qism in enumerate(qismlar):
+        if i:
+            await _kut(random.uniform(0.5, 2.0))
+        await _terish(e.chat_id, qism)
+        oddiy = html.escape(qism) + (f"\n{_belgi_html()}"
+                                     if BELGI_YOQIQ and i == len(qismlar) - 1 else "")
+        # Egasida Premium bor — oddiy emoji bot paketidagi animatsiyalisiga
+        # (`ai.html_premium`, botdagi bilan bir manba). Premium tugasa Telegram
+        # rad etadi — o'sha xabar oddiy emoji bilan qayta ketadi.
+        premium = ai.html_premium(oddiy)
+        jonat = e.reply if (tema or (iqtibos and i == 0)) else e.respond
+        _YOZYAPTI.add(e.chat_id)
+        try:
+            try:
+                m = await jonat(premium, parse_mode="html", link_preview=False)
+            except Exception as x:
+                if premium == oddiy or getattr(x, "seconds", None):
+                    raise
+                logger.info(f"[Navbat] premium emoji rad etildi: {type(x).__name__}")
+                m = await jonat(oddiy, parse_mode="html", link_preview=False)
+            if len(_YOZILGAN) > 500:
+                _YOZILGAN.clear()
+            _YOZILGAN.add((e.chat_id, getattr(m, "id", 0)))
+        except Exception as x:
+            # FloodWait — Telegram sekinla deyapti: shuncha vaqt jim turamiz.
+            kut = getattr(x, "seconds", None)
+            if kut and nav is not None:
+                nav.oxirgi_javob = time.time() + kut
+            logger.warning(f"[Navbat] yuborilmadi chat={e.chat_id}: {type(x).__name__}")
+            return i > 0
+        finally:
+            _YOZYAPTI.discard(e.chat_id)
+    return True
 
 
 async def _uslub() -> str:
@@ -332,7 +441,8 @@ async def _tasdiqla(e, holat: str, vazifa: str) -> None:
     matn = await ai.navbat_tasdiq(holat, vazifa, _EGASI.get("ism") or "",
                                   user_id=_EGASI.get("id"))
     nav = _NAVBAT.get(e.chat_id)
-    if await _yubor(e, matn or _TASDIQ_ZAXIRA[holat], nav) and nav is not None:
+    # O'z xabariga o'zi reply qilmaydi — odam shunchaki davomini yozadi.
+    if await _yubor(e, matn or _TASDIQ_ZAXIRA[holat], nav, iqtibos=False) and nav is not None:
         nav.tarix.append(f"{_EGASI.get('ism') or 'egasi'} (sen): {matn or _TASDIQ_ZAXIRA[holat]}")
 
 

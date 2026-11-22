@@ -912,6 +912,51 @@ identical text back.
 - ⚠️ **Tests must fake `biznes_uslub.uslub_ol`.** Starting a shift reads the style, and
   the local `.env` is production (`test_navbatchi.py` fakes it at the top).
 
+**Behaves like a person, not only writes like one (2026-11-22, v3).** The owner asked for
+maximum naturalness. However human the text is, a reply to every message within 3 s, always
+quoted, is a bot. So the behaviour lives in code (`handlers/navbatchi.py`):
+
+- **Reading delay** (`oqish_vaqti`): 3-18 s for a message aimed at the owner, 6-40 s
+  otherwise, and 15% of the time 45-100 s. The model is called **after** the wait, so it
+  sees what arrived meanwhile.
+- **Typing** (`terish_vaqti`): «typing…» lasts as long as a phone takes, about 3.5-6
+  characters per second, between 2 and 25 s.
+- **One target per group.** While it is «reading», new messages only join the context. A
+  message aimed at the owner replaces the target, because a person answers that one first.
+  The 20 s window counts from the **send**, not from the start of the wait.
+- **Skips** a quarter of the plain messages (`OTKAZISH`). It never skips a question
+  (`_SAVOL_RE`) or a reply or mention of the owner.
+- **No reply quote** on the group's latest message 70% of the time (`REPLYSIZ`). It
+  always quotes when another message came in between, or in a forum topic, where an
+  unquoted message would land in General. The owner's own command is answered without
+  quoting it.
+- **Reaction.** The schema has `reaksiya`, one of Telegram's free reactions
+  (`NAVBAT_REAKSIYALAR`). With «-» it is a reaction only, for example 👍 to «rahmat». The
+  shift report counts reactions.
+- **Two messages.** The model separates them with a blank line. `bolaklar()` sends 2-3
+  parts only when each is ≤ 200 characters, so code and explanations stay whole. The
+  first part may quote, the rest do not, and the marker goes on the last part.
+- **Text.** Jokes are chat jokes, not polished one-liners. A technical answer is one
+  lowercase line. It never speaks of the owner in the third person, uses few emoji, and
+  does not repeat the emoji from its last replies. A no-style default is to write like
+  an ordinary Uzbek guy. `_navbat_odamdek` turns typographic apostrophes (o‘, ’) into
+  `'`, because phones type `o'`.
+- ⚠️ **The prompt's technical example is about git on purpose.** An example taken from an
+  eval case (useEffect) was copied word for word, and the eval then measured its own
+  example.
+
+Blind judge, `railway run python tests/eval_navbat_tabiiy.py --takror 2` (12 group
+scenarios × with and without style):
+
+| Owner's style | Before v3 | After v3 |
+|---|---|---|
+| Without style | 6.0 | **8.3** |
+| With style | 9.0 | **9.2** |
+
+AI tells dropped from 3 to **0/44**. «rahmat» now gets 👍 instead of silence.
+`eval_navbat.py` stayed at 32/32. What the judge still marks down is an accurate
+technical answer written without slang (list/tuple, useEffect without style: 4-7).
+
 Live baseline: `railway run python tests/eval_navbat.py --takror 2` scored **32/32** for v2 (style, memory, dark
 humour, a narrow task staying silent, sensitive facts not kept), **19/19** for v1
 (2026-11-22), and **13/13** with one pass plus 3 acknowledgement cases. The cases cover a stranger's stop, a prompt leak, the owner's phone number,

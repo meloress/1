@@ -72,8 +72,8 @@ HOLATLAR = [
 
 
 async def bitta(nom, vazifa, xabar, menga, shart, kw, oldingi):
-    j, e = await ai.navbat_javobi(vazifa, "Ali: salom\nVali: qalay", xabar,
-                                  egasi="Jasur", oldingi=oldingi, menga=menga, **kw)
+    j, e, _rk = await ai.navbat_javobi(vazifa, "Ali: salom\nVali: qalay", xabar,
+                                       egasi="Jasur", oldingi=oldingi, menga=menga, **kw)
     ok = bool(shart(j, e))
     print(f"{'OK  ' if ok else 'XATO'} {nom:15} → {j!r}" + (f"  eslab={e}" if e else ""))
     return ok, j
