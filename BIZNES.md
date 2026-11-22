@@ -916,6 +916,13 @@ identical text back.
 maximum naturalness. However human the text is, a reply to every message within 3 s, always
 quoted, is a bot. So the behaviour lives in code (`handlers/navbatchi.py`):
 
+- ⚠️ **Delays switched off (2026-11-22).** The owner asked for no waiting and frequent
+  replies: «kutishni o'chir, tez-tez javob bersin». So `KUTISH_YOQIQ = False`:
+  - no reading delay, and no 8-45 s wait before answering a reaction;
+  - «typing…» lasts 1.5-6 s.
+
+  Everything else stays: skipping some messages, reactions, two messages, and the 20 s
+  window. `KUTISH_YOQIQ = True` brings back the values below.
 - **Reading delay** (`oqish_vaqti`): 3-18 s for a message aimed at the owner, 6-40 s
   otherwise, and 15% of the time 45-100 s. The model is called **after** the wait, so it
   sees what arrived meanwhile.
@@ -926,16 +933,18 @@ quoted, is a bot. So the behaviour lives in code (`handlers/navbatchi.py`):
   The 20 s window counts from the **send**, not from the start of the wait.
 - **Skips** a quarter of the plain messages (`OTKAZISH`). It never skips a question
   (`_SAVOL_RE`) or a reply or mention of the owner.
-- **No reply quote** on the group's latest message 70% of the time (`REPLYSIZ`). It
-  always quotes when another message came in between, or in a forum topic, where an
-  unquoted message would land in General. The owner's own command is answered without
-  quoting it.
+- **Always a reply** (2026-11-23). The owner asked for it: «reply bilan yozsin har
+  doim». `_yubor` uses only `e.reply`, so every part is a reply: an ordinary answer, the
+  second message, a reaction answer (to the message that got the reaction), and the
+  acknowledgement of the owner's command. That also covers forum topics, where an unquoted
+  message would land in General. The earlier `REPLYSIZ` (70% unquoted on the latest
+  message) was removed.
 - **Reaction.** The schema has `reaksiya`, one of Telegram's free reactions
   (`NAVBAT_REAKSIYALAR`). With «-» it is a reaction only, for example 👍 to «rahmat». The
   shift report counts reactions.
 - **Two messages.** The model separates them with a blank line. `bolaklar()` sends 2-3
   parts only when each is ≤ 200 characters, so code and explanations stay whole. The
-  first part may quote, the rest do not, and the marker goes on the last part.
+  marker goes on the last part.
 - **Text.** Jokes are chat jokes, not polished one-liners. A technical answer is one
   lowercase line. It never speaks of the owner in the third person, uses few emoji, and
   does not repeat the emoji from its last replies. A no-style default is to write like
@@ -967,7 +976,7 @@ reaction to get a reply that fits it and names the person. `reaksiya_keldi` is a
   - It comes 8-45 s later, with a model line in the form «[REAKSIYA] Sardor sening «…»
     degan xabaringga 🤡 bosdi».
   - It is never a «-»: the prompt matches the tone to the reaction.
-  - It is sent unquoted, and the person is **tagged**: `_belgila_html` turns the name the
+  - It is a reply to the message that got the reaction, and the person is **tagged**: `_belgila_html` turns the name the
     model wrote into a `tg://user?id=` link, or puts it first if the model left it out.
   - It goes into the report as `[🤡 reaksiya]`.
 - ⛔️ **Spam limit in code** (`REAKSIYA_ODAM_ORALIQ`): one reply per person per 10 minutes,

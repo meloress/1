@@ -230,10 +230,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   (and that saving really calls it), Premium emoji with the plain fallback,
   `/navbat_xotira`, the JSON reply and dash removal. Checks 29-34 cover the behaviour
   that makes it read as a person (2026-11-22):
-  - the reading delay and the typing speed;
+  - delays switched off (`KUTISH_YOQIQ`, at the owner's request), with the human ranges
+    checked when it is switched on;
   - skipping some plain messages, but never a question or a message aimed at the owner;
-  - no reply quote on the latest message, but a quote when another message came in
-    between or the chat is a forum topic;
+  - every part is always a reply (`e.reply`, at the owner's request, 2026-11-23),
+    including the command acknowledgement and reaction answers;
   - a message aimed at the owner that arrives during the wait becomes the target, with
     one reply only;
   - the window counts from the send;

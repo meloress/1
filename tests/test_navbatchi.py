@@ -38,7 +38,7 @@ async def _jim(*a, **k):
 ASL_NAVBAT = ai.navbat_javobi          # 13-band haqiqiysini sinaydi
 n._egasiga, n._terish, n._kut = _soxta_egasiga, _jim, _jim
 # Tasodif 1-28 da o'chiq (aniq natija); 29+ da alohida sinaladi.
-n.OTKAZISH, n.REPLYSIZ = 0.0, 0.0
+n.OTKAZISH = 0.0
 reaksiyalar: list = []
 
 
@@ -130,8 +130,8 @@ assert not h.ochirildi and -1001 in n._NAVBAT, "buyruq guruhda qolsin, navbat yo
 assert n._NAVBAT[-1001].vazifa == "guruhni qizitib tur, hazillash"
 assert tasdiqlar[-1] == ("boshla", "guruhni qizitib tur, hazillash")
 assert h.javob.startswith("Xo&#x27;p, siz kelguningizcha"), h.javob
-assert h.yuborilgan[0][0] == "respond", "o'z buyrug'iga o'zi reply qilmaydi"
-assert (h.chat_id, h.id + 5001) in n._YOZILGAN, "tasdiq o'zimizniki deb belgilansin"
+assert h.yuborilgan[0][0] == "reply", "egasi: har doim reply (buyruqqa ham)"
+assert (h.chat_id, h.id + 5000) in n._YOZILGAN, "tasdiq o'zimizniki deb belgilansin"
 assert "Navbat yoqildi" in egasiga[-1] and "Dasturchilar" in egasiga[-1]
 tasdiq_javobi["matn"] = None                    # model yo'q — zaxira gap
 h2 = Hodisa("vexon guruhni qizitib tur, hazillash", out=True)
@@ -690,6 +690,11 @@ print("[28] model chiqishi: JSON (javob, ≤2 fakt), uzun tire tozalandi, saqlas
 # ── 29) Vaqt: o'qish kechikishi va telefonda terish tezligi ──────────
 import random
 random.seed(7)
+# Egasi kutishni o'chirdi: o'qish 0, «yozmoqda» qisqa (≤ 6 s).
+assert n.KUTISH_YOQIQ is False, "egasi so'radi: tez-tez javob bersin"
+assert n.oqish_vaqti(True) == 0.0 and n.oqish_vaqti(False) == 0.0
+assert n.terish_vaqti("ha") <= 2.0 and n.terish_vaqti("x" * 400) == 6.0
+n.KUTISH_YOQIQ = True                              # qayta yoqilsa — odamdek oraliqlar
 menga_v = [n.oqish_vaqti(True) for _ in range(2000)]
 boshqa_v = [n.oqish_vaqti(False) for _ in range(2000)]
 assert 3 <= min(menga_v) and max(menga_v) <= 18, "o'ziga qaratilganiga 3-18 s"
@@ -698,7 +703,8 @@ assert 6 <= min(boshqa_v) and max(boshqa_v) <= 100 and max(boshqa_v) > 45, \
 assert len({round(v) for v in boshqa_v}) > 30, "kechikish har safar boshqacha"
 assert 2.0 <= n.terish_vaqti("ha") <= 4.5 and n.terish_vaqti("x" * 400) == 25.0
 assert n.terish_vaqti("x" * 60) > n.terish_vaqti("x" * 10)
-print("[29] vaqt: o'qish 3-18 s / 6-100 s, terish uzunlikka qarab 2-25 s OK")
+n.KUTISH_YOQIQ = False
+print("[29] vaqt: kutish o'chiq — darhol, «yozmoqda» ≤ 6 s; yoqilsa 3-100 s / 2-25 s OK")
 
 
 # ── 30) Har xabarga yozmaydi: savol va o'ziga qaratilgani — o'tkazilmaydi ─
@@ -725,12 +731,11 @@ for s in ("zo'r ekan", "kuldim", "hammaga salom"):
     assert not n._SAVOL_RE.search(s), s
 print("[30] odamdek: oddiy gapni ba'zan o'tkazadi, savol va reply — hech qachon OK")
 
-# ── 31) Reply'siz: guruhdagi oxirgi xabarga; orada boshqasi bo'lsa — reply ─
-n.REPLYSIZ = 1.0
+# ── 31) Reply — DOIM (egasi so'radi): oxirgi xabarga ham, mavzuda ham ─
 nav.oxirgi_javob = 0.0
 h = Hodisa("nima gap")
 yur(h)
-assert h.yuborilgan[0][0] == "respond", "oxirgi xabarga odam reply'siz yozadi"
+assert [t for t, _ in h.yuborilgan] == ["reply"], "egasi: har doim reply"
 oraliq = Hodisa("boshqa gap")
 
 
@@ -741,15 +746,9 @@ nav.oxirgi_javob = 0.0
 h = Hodisa("nima gap")
 yur(h)
 n._kut = _jim
-assert h.yuborilgan[0][0] == "reply", "orada xabar bor — kimga javobligi ko'rinsin"
+assert h.yuborilgan[0][0] == "reply"
 assert "boshqa gap" in model[-1]["suhbat"], "kutish paytida kelgani kontekstda"
-nav.oxirgi_javob = 0.0
-h = Hodisa("nima gap")
-h.message.reply_to = NS(forum_topic=True)
-yur(h)
-assert h.yuborilgan[0][0] == "reply", "forum mavzusida reply'siz General'ga ketardi"
-n.REPLYSIZ = 0.0
-print("[31] reply'siz: oxirgi xabarga — oddiy, orada xabar yoki mavzu bo'lsa — reply OK")
+print("[31] har doim reply (egasi so'radi); kutishda kelgani kontekstda OK")
 
 # ── 32) «O'qiyotganda» o'ziga qaratilgan xabar kelsa — o'shanga javob ──
 nav.oxirgi_javob = 0.0
@@ -807,11 +806,11 @@ nav.oxirgi_javob = 0.0
 model_javobi.update(matn="e qo'ysang-chi 😂\n\nkechqurun boramiz")
 h = Hodisa("futbolga kim boradi")
 yur(h)
-assert [t for t, _ in h.yuborilgan] == ["reply", "respond"], h.yuborilgan
+assert [t for t, _ in h.yuborilgan] == ["reply", "reply"], h.yuborilgan
 assert "ᵃᵛᵗᵒʲᵃᵛᵒᵇ" not in h.yuborilgan[0][1] and h.yuborilgan[1][1].endswith("ᵃᵛᵗᵒʲᵃᵛᵒᵇ")
 assert nav.javoblar[-1][2] == "e qo'ysang-chi 😂\n\nkechqurun boramiz"
 model_javobi.update(matn="javob")
-print("[34] ikki xabar: birinchisi reply, ikkinchisi oddiy, belgi oxirida OK")
+print("[34] ikki xabar: ikkalasi ham reply, belgi oxirida OK")
 
 # ── 35) Reaksiya: egasining xabariga — o'sha odamni belgilab, mos javob ─
 from telethon.tl import types as tt
@@ -858,7 +857,7 @@ assert len(model) == oldin + 1 and model[-1]["menga"] is True
 assert model[-1]["xabar"].startswith("[REAKSIYA] Sardor") and "🤡" in model[-1]["xabar"]
 assert "python savollariga" in model[-1]["xabar"], "qaysi xabarga bosgani modelga aytilsin"
 tur, matn = bizniki.yuborilgan[-1]
-assert tur == "respond" and '<a href="tg://user?id=4242">sardor</a> oynaga' in matn, matn
+assert tur == "reply" and '<a href="tg://user?id=4242">sardor</a> oynaga' in matn, matn
 assert nav.javoblar[-1][:2] == ("Sardor", "[🤡 reaksiya]") and nav.nishon is None
 # Javobdan keyin o'sha odam darhol yana bossa — 10 daqiqa jim.
 nav.oxirgi_javob = 0.0
@@ -900,8 +899,6 @@ nav.nishon = None
 assert n._belgila_html("salom", 1, "<b>X") == '<a href="tg://user?id=1">&lt;b&gt;X</a>, salom'
 assert n._belgila_html("a &amp; amp", 2, "Amp") == 'a &amp; <a href="tg://user?id=2">amp</a>', \
     "HTML belgisi (&amp;) ichidagi so'z havola bo'lmasin"
-assert n._mavzuda(NS(message="matn", reply_to=NS(forum_topic=True))), \
-    "Message'ning o'zi (reaksiya yo'li) — mavzu ham tanilsin"
 n._CLIENT = None
 print("[36] reaksiya: faqat egasining xabari, o'zi/eski/bot/boshqa guruh/band — jim OK")
 
