@@ -964,6 +964,44 @@ scenarios × with and without style):
 
 AI tells dropped from 3 to **0/44**. «rahmat» now gets 👍 instead of silence.
 
+**The first live test failed: «10/2» (2026-11-23).** The owner's verdict was that it
+does not get into the situation, has no humour, answers at random and does not reply to
+everyone. There were four causes, each with a fix:
+
+- ⛔️ **The Business style is no longer used in groups.** It is learned from messages to
+  **customers**, so it is a polite seller's tone, and its «eng ustun» (top priority)
+  header overrode the humour rules. The eval had used a made-up casual style, which is why
+  it missed this.
+- **The text of the replied-to message goes to the model** (`_reply_qilingan`, as «sen: …»
+  or «Ali: …»). Without it, the model did not know which line a reply answered.
+- **Everyone who talks to it gets an answer.** A message aimed at the owner (a reply or a
+  mention) is no longer dropped when the account is busy or inside the 20 s window. It
+  waits its turn instead: at least `MENGA_ORALIQ` = 3 s between replies, at most
+  `MENGA_NAVBAT` = 5 waiting. `MAX_JAVOB` went from 30 to 120.
+- **Prompt.**
+  - «VAZIYATGA KIR»: the joke comes from what the person actually said. Stock jokes such
+    as «hayot bilan muzokara» or «offline» are banned.
+  - «XARAKTER»: the sharpest-tongued joker in the group, who roasts people and
+    understands irony. Mild street swearing is allowed when the moment calls for it. Heavy
+    obscenity, insults to mothers or sisters, and sexual insults are never allowed.
+  - Facts it remembers about a person are used only when they are relevant.
+
+Live results: `eval_navbat.py` 22/22 (incl. `sokish_provokatsiya`, no heavy words), judge
+8.1 without style over 20 cases. A roast reply can still come out «literary» (2/10).
+
+**Street language (2026-11-23).** The owner said: «rasmiy tilda gaplashayapti, odamlar
+Telegram'da nuqta-vergul bilan yozmaydi».
+
+- **Prompt.** Street words are listed explicitly («bratan», «e qo'y», «obbo», «prikol»…),
+  with five tone examples on topics that are **not** eval cases. Bookish words are
+  banned. `[EGASI]` is «your name», so it answers in the first person and never says
+  «Jasur aka chiqsa…».
+- **Code** (`ai._navbat_kocha`, called from `_navbat_odamdek`). The prompt rule alone
+  did not hold. The code removes sentence periods, commas, `;`, `!`, `:`, quotes and
+  ` - `. It keeps `?`, `…` and numbers (1,5 / 3.5). Every message starts lowercase; an
+  acronym such as API stays. `_TASDIQ_ZAXIRA` follows the same rules.
+- **Judge.** 9.0 on the weak cases, `eval_navbat.py` 22/22.
+
 **Answers reactions to the owner's messages (2026-11-22).** The owner asked for every
 reaction to get a reply that fits it and names the person. `reaksiya_keldi` is a Telethon
 `events.Raw(UpdateMessageReactions)`.

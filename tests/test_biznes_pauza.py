@@ -269,4 +269,16 @@ check(14, "sozlama tugmasi: navbatdagi qiymat, oxiridan keyin boshiga; nomlari",
       and (b.davomiylik(30), b.davomiylik(300), b.davomiylik(0))
       == ("30 soniya", "5 daqiqa", "yo'q"))
 
-print("\nHammasi o'tdi: 14/14")
+# ── 15. «Men yozganda jim: yo'q» (0) — egasi yozsa ham bot javob beradi ──
+from core.config import BIZNES_PAUZA_VARIANT
+UL.update(pauza_soat=0)
+holat["pauza"] = None
+soatlar.clear()
+kutib((xabar("narxi qancha?"), 0.1), (xabar("80 ming", kimdan=EGASI), 0.5))
+check(15, "«yo'q»: pauza YOZILMAYDI (boshqa pauzani o'chirmasin), nomi «yo'q», tugma 24→0→1",
+      soatlar == [] and b.pauza_nomi(0) == "yo'q" and b.pauza_nomi(5) == "5 soat"
+      and BIZNES_PAUZA_VARIANT[0] == 0 and b.keyingi(BIZNES_PAUZA_VARIANT, 24) == 0
+      and b.keyingi(BIZNES_PAUZA_VARIANT, 0) == 1)
+UL.update(pauza_soat=5)
+
+print("\nHammasi o'tdi: 15/15")

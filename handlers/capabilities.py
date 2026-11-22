@@ -518,7 +518,7 @@ _BATAFSIL: dict = {
         "muayyan chatda avtomatni o'chirish/yoqish; 🤖 «avtojavob» yozuvi — javob "
         "ostidagi kichik «avtojavob» belgisi bor/yo'q; ⏳ Kutish vaqti — javobdan "
         "oldin kutish (0, 15, 30 soniya, 1, 2, 5, 10 daqiqa), 💤 Men yozganda jim — siz "
-        "o'zingiz yozgan chatda jim turish (1–24 soat); bu ikkisi bosgan sari "
+        "o'zingiz yozgan chatda jim turish (yo'q yoki 1–24 soat); bu ikkisi bosgan sari "
         "keyingi qiymatga o'tadi. ✏️ Bio, 👤 Ism, 🖼 Profil rasmi, 🎬 Story joylash — "
         "xohishingizni so'z bilan yozasiz (rasm/story uchun rasm yuborsangiz "
         "ham bo'ladi), tayyorlab ko'rsataman, «✅ Ha, tasdiqlayman» "

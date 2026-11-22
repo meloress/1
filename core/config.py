@@ -942,7 +942,8 @@ BIZNES_PAUZA_SOAT = 3
 BIZNES_KUTISH_SONIYA = 30
 # Sozlamalar tugmasi bosilganda navbatdagisiga o'tadi.
 BIZNES_KUTISH_VARIANT = (0, 15, 30, 60, 120, 300, 600)
-BIZNES_PAUZA_VARIANT = (1, 2, 3, 5, 8, 12, 24)
+# 0 — «yo'q»: egasi yozsa ham bot jim turmaydi (egasi so'radi, 2026-11-23).
+BIZNES_PAUZA_VARIANT = (0, 1, 2, 3, 5, 8, 12, 24)
 # Business debounce (AUDIT 4.4). DM'dagi 1,5 s suhbatdoshning ketma-ket
 # 2-3 qisqa xabarini ("salom" / "narxi qancha" / "futbolka") bo'lib
 # yuborardi: har biriga alohida javob va to'lov, avtomatda esa birinchi

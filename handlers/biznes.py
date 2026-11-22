@@ -678,7 +678,9 @@ async def biznes_xabar(message: Message):
         # Avtomatda — tabiiy "qo'lga olish": egasi yozgan chatda bot
         # `pauza_soat` jim turadi (REJA.md 3-bosqich, 4-qadam). Kutish
         # (`kutish_soniya`) paytida yozsa ham shu pauza botni to'xtatadi.
-        if ul["rejim"] == "avtomat":
+        # 0 = «yo'q» — pauza YOZILMAYDI: NOW()+0 bilan ustidan yozsa chatdagi
+        # boshqa pauzani (masalan «uzatildi») ham o'chirib yuborardi.
+        if ul["rejim"] == "avtomat" and ul.get("pauza_soat", BIZNES_PAUZA_SOAT):
             await database.biznes_pauza(egasi, message.chat.id,
                                         ul.get("pauza_soat", BIZNES_PAUZA_SOAT))
         olchov.belgi("egasi_holati")
@@ -1958,8 +1960,9 @@ def sozlama_matni(ul: dict | None) -> str:
         if kutish:
             q.append(f"⏳ Javobdan oldin <b>{davomiylik(kutish)}</b> kutaman — shu "
                      "orada o'zingiz yozsangiz, men jim turaman.")
-        q.append(f"💤 Siz o'zingiz yozgan chatda <b>"
-                 f"{ul.get('pauza_soat', BIZNES_PAUZA_SOAT)} soat</b> jim turaman.")
+        pauza = ul.get("pauza_soat", BIZNES_PAUZA_SOAT)
+        q.append(f"💤 Siz o'zingiz yozgan chatda <b>{pauza} soat</b> jim turaman." if pauza else
+                 "💤 Siz o'zingiz yozgan chatda ham <b>jim turmayman</b> — javob berishda davom etaman.")
         q.append("\n⏳ <b>Kutish vaqti</b> va 💤 <b>Men yozganda jim</b> tugmasini bosgan sari "
                  "navbatdagi qiymatga o'tadi.")
     q.append("\n🎨 <b>Yozish uslubim</b> — o'zingiz yozgan xabarlardan o'zim o'rganaman; "
@@ -1983,7 +1986,7 @@ def _sozlama_kb(ul: dict | None) -> InlineKeyboardMarkup | None:
         qatorlar.append([pro_module.btn(
             f"⏳ Kutish vaqti: {davomiylik(ul.get('kutish_soniya', BIZNES_KUTISH_SONIYA))}", "bz:kt")])
         qatorlar.append([pro_module.btn(
-            f"💤 Men yozganda jim: {ul.get('pauza_soat', BIZNES_PAUZA_SOAT)} soat", "bz:pz")])
+            f"💤 Men yozganda jim: {pauza_nomi(ul.get('pauza_soat', BIZNES_PAUZA_SOAT))}", "bz:pz")])
     qatorlar.append([pro_module.btn("✏️ Bio", "bz:pf:bio"),
                      pro_module.btn("👤 Ism", "bz:pf:ism")])
     qatorlar.append([pro_module.btn("🖼 Profil rasmi", "bz:pf:rasm"),
@@ -1997,6 +2000,11 @@ def davomiylik(soniya: int) -> str:
     if not soniya:
         return "yo'q"
     return f"{soniya} soniya" if soniya < 60 else f"{soniya // 60} daqiqa"
+
+
+def pauza_nomi(soat: int) -> str:
+    """«Men yozganda jim» qiymati: 0 — «yo'q», aks holda «N soat». Sof."""
+    return f"{soat} soat" if soat else "yo'q"
 
 
 def keyingi(variantlar: tuple, hozir: int) -> int:
@@ -2255,7 +2263,7 @@ async def handle_biznes_callback(query: CallbackQuery, state: FSMContext) -> Non
         else:
             ustun, yangi = "pauza_soat", keyingi(
                 BIZNES_PAUZA_VARIANT, ul.get("pauza_soat", BIZNES_PAUZA_SOAT))
-            xabar = f"💤 Men yozganda jim: {yangi} soat"
+            xabar = f"💤 Men yozganda jim: {pauza_nomi(yangi)}"
         await database.biznes_vaqt_yoz(uid, ustun, yangi)
         matn, kb = sozlama_matni(ul), _sozlama_kb(ul)
         try:
@@ -3410,7 +3418,7 @@ async def _sozlama_taklif(egasi: int, thread_id: int, args: dict) -> str:
             return f"{ustun} faqat shulardan biri: {', '.join(map(str, variant))}"
         q = {"ustun": ustun, "qiymat": qiymat}
         tavsif = (f"javobdan oldin kutish: {davomiylik(qiymat)}" if ustun == "kutish_soniya"
-                  else f"siz yozgan chatda jim turish: {qiymat} soat")
+                  else f"siz yozgan chatda jim turish: {pauza_nomi(qiymat)}")
     else:
         return ("qaysi sozlama? rejim; chat_id+avtomat(true/false); chat_id+pauza_soat; "
                 "ish_vaqti; kutish_soniya; umumiy_pauza_soat")

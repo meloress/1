@@ -60,6 +60,11 @@ S = [
      "futbolga boradi?", False),
     ("rahmat", DASTUR, "Ali: tuple nima\nJasur (sen): o'zgarmaydigan list, xullas",
      "Ali: rahmat aka, tushundim", True),
+    ("provokatsiya", QIZIT, "Bekzod: jasur bugun jim-ku", "Sardor: jasur sen eshak, "
+     "javob ber-chi qo'rqoq", True),
+    ("tentak_kim", QIZIT, "Ali: zerikdik", "Bekzod: bu guruhda eng tentak kim o'zi?", False),
+    ("kinoya", QIZIT, "Vali: men bugun 5 da turdim", "Ali: voy-bo'y, endi seni olimpiadaga "
+     "yuboramiz, chempion 😂", False),
     # Egasining xabariga reaksiya — kod shu satrni yasaydi (navbatchi.reaksiya_keldi).
     ("rk_masxara", QIZIT, "Jasur (sen): bugun hammaga choy mendan",
      "[REAKSIYA] Sardor sening «bugun hammaga choy mendan» degan xabaringga 🤡 bosdi", True),

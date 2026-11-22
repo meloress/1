@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 
 NAVBAT_SOAT = 3            # unutilgan navbat guruhni kun bo'yi to'ldirmasin
 ORALIQ = 20.0              # bitta guruhda javoblar orasidagi eng kam vaqt (s)
-MAX_JAVOB = 30             # bitta navbatda
+MAX_JAVOB = 120            # bitta navbatda (hammaga javob — 30 tez tugardi)
+MENGA_ORALIQ = 3.0         # u bilan gaplashayotganlarga javoblar orasidagi eng kam vaqt (s)
+MENGA_NAVBAT = 5           # javob kutayotgan «menga» xabarlar soni (ko'pi)
 KONTEKST = 15              # modelga ko'rinadigan oxirgi guruh xabarlari
 VAZIFA_MIN_SOZ = 3         # «vexon zo'r» — buyruq emas, oddiy gap
 REAKSIYA_ODAM_ORALIQ = 600  # bitta odamning reaksiyalariga — 10 daqiqada bitta javob
@@ -78,6 +80,7 @@ class Navbat:
     reaksiyalar: int = 0
     # Javobga chog'lanib turgan xabar: (e, kim, matn, odam_id, menga) yoki None.
     nishon: tuple | None = None
+    kutayotgan: int = 0      # navbatda turgan «menga» xabarlar
     korilgan: set = field(default_factory=set)        # (msg_id, odam, emoji) — reaksiyalar
     reaksiya_javob: dict = field(default_factory=dict)  # odam → oxirgi javob vaqti
 
@@ -272,7 +275,11 @@ async def _egasi_yozdi(e) -> None:
             nom = getattr(await e.get_chat(), "title", None) or "guruh"
         except Exception:
             nom = "guruh"
-        _NAVBAT[e.chat_id] = Navbat(vazifa=qiymat, nom=nom, uslub=await _uslub())
+        # ⛔️ Biznes uslubi BERILMAYDI (jonli sinov, 2026-11-23, egasi: «10/2,
+        # vaziyatga kirishmayapti, yumor yo'q»): u MIJOZLARGA yozilgan
+        # xabarlardan o'rganilgan — xushmuomala sotuvchi ohangi, «eng ustun»
+        # sarlavhasi bilan hazil qoidasini bosib ketardi.
+        _NAVBAT[e.chat_id] = Navbat(vazifa=qiymat, nom=nom)
     nav = _NAVBAT[e.chat_id]
     logger.info(f"[Navbat] yoqildi chat={e.chat_id}")
     await _tasdiqla(e, "boshla", qiymat)
@@ -312,20 +319,30 @@ async def _begona_yozdi(e) -> None:
     if sabab == "limit":
         await toxtat(e.chat_id, f"{MAX_JAVOB} ta javob chegarasi")
         return
-    if nav.nishon is not None:
-        # «O'qib» turgan payt yangi xabar keldi: o'ziga qaratilgani muhimroq
-        # (odam ham shunga javob beradi), qolgani baribir kontekstda ko'rinadi.
-        if menga and not nav.nishon[4]:
-            nav.nishon = (e, kim, matn, odam_id, True)
+    if menga:
+        # U bilan gaplashayotgan odam javobsiz QOLMAYDI (egasi, 2026-11-23: «u
+        # bilan gaplashayotgan hammaga reply»): band yoki tez bo'lsa — tashlab
+        # yuborilmaydi, navbat kutadi (MENGA_ORALIQ dan tez emas). Navbat
+        # cheklangan — to'lsa jim (akkaunt spamga tushmasin).
+        if nav.kutayotgan >= MENGA_NAVBAT:
+            return
+        nav.kutayotgan += 1
+        try:
+            # ponytail: 0,5 s so'rov — guruhdagi bir necha kishiga yetadi.
+            while nav.nishon is not None or time.time() - nav.oxirgi_javob < MENGA_ORALIQ:
+                if _NAVBAT.get(e.chat_id) is not nav:
+                    return
+                await asyncio.sleep(0.5)
+        finally:
+            nav.kutayotgan -= 1
+    elif nav.nishon is not None or sabab:
         return
-    if sabab:
-        return
-    if not menga and not _SAVOL_RE.search(matn) and random.random() < OTKAZISH:
+    elif not _SAVOL_RE.search(matn) and random.random() < OTKAZISH:
         return                                   # odam har xabarga yozmaydi
-    # Joy OLDINDAN band qilinadi: Telethon handler'lari parallel, ikki xabar
-    # bir vaqtda kelsa ikkalasi ham «tez emas» deb o'tib ketardi.
+    # Joy OLDINDAN band qilinadi (await'siz): Telethon handler'lari parallel,
+    # ikki xabar bir vaqtda kelsa ikkalasi ham «bo'sh» deb o'tib ketardi.
     nav.nishon = (e, kim, matn, odam_id, menga)
-    oldingi_vaqt, nav.oxirgi_javob = nav.oxirgi_javob, hozir
+    oldingi_vaqt, nav.oxirgi_javob = nav.oxirgi_javob, time.time()
     try:
         await _kut(oqish_vaqti(menga))
         if _NAVBAT.get(e.chat_id) is not nav:
@@ -341,7 +358,8 @@ async def _begona_yozdi(e) -> None:
             nav.vazifa, "\n".join(suhbat), f"{kim}: {matn}",
             egasi=_EGASI.get("ism") or "", menga=menga, uslub=nav.uslub,
             odam_haqida=await _faktlar(odam_id),
-            oldingi=[j for _, _, j in nav.javoblar], user_id=_EGASI.get("id"))
+            oldingi=[j for _, _, j in nav.javoblar], user_id=_EGASI.get("id"),
+            reply_qilingan=await _reply_qilingan(e))
         if eslab and odam_id:
             asyncio.create_task(_eslab_qol(odam_id, kim, eslab))
         if not (javob or rk) or _NAVBAT.get(e.chat_id) is not nav:
@@ -359,6 +377,23 @@ async def _begona_yozdi(e) -> None:
         nav.oxirgi_javob = max(nav.oxirgi_javob, time.time())
     finally:
         nav.nishon = None
+
+
+async def _reply_qilingan(e) -> str:
+    """Xabar reply bo'lsa — nimaga: «sen: …» yoki «Ali: …». Busiz model
+    reply'ning o'zini ko'rib, qaysi gapga javobligini bilmay «bog'dan-tog'dan»
+    yozardi (jonli sinov, 2026-11-23). Xato — bo'sh (bezak)."""
+    if not getattr(e, "is_reply", False):
+        return ""
+    try:
+        r = await e.get_reply_message()
+        matn = " ".join((getattr(r, "raw_text", "") or "").split())
+        if not matn:
+            return ""
+        kim = "sen" if getattr(r, "out", False) else _ism(await r.get_sender())
+        return f"{kim}: {matn[:400]}"
+    except Exception:
+        return ""
 
 
 async def _yubor(e, javob: str, nav: "Navbat | None", *,
@@ -406,18 +441,6 @@ async def _yubor(e, javob: str, nav: "Navbat | None", *,
     return True
 
 
-async def _uslub() -> str:
-    """Egasining Biznesdagi uslubi — o'zi yozgan qoidalar, o'rganilgan tavsif,
-    namunalar, tuzatishlar. Biznes ulanmagan bo'lsa bo'sh (ko'rsatma baribir
-    «odamdek yoz» deydi). Bezak: xato — bo'sh."""
-    try:
-        from handlers import biznes_uslub
-        return biznes_uslub.uslub_bloki(await biznes_uslub.uslub_ol(_EGASI["id"]))
-    except Exception as x:
-        logger.info(f"[Navbat] uslub o'qilmadi: {type(x).__name__}")
-        return ""
-
-
 async def _faktlar(odam_id) -> list:
     """Yozuvchi haqida avval eslab qolinganlar. Xato — bo'sh (javob baribir)."""
     if not odam_id or not _EGASI.get("id"):
@@ -440,8 +463,8 @@ async def _eslab_qol(odam_id: int, ism: str, faktlar: list) -> None:
 
 
 # Model javob bermasa — shu gaplar (navbat baribir yoqiladi / to'xtaydi).
-_TASDIQ_ZAXIRA = {"boshla": "Xo'p, siz kelguningizcha shu yerdaman 😎",
-                  "toxta": "Bo'ldi, jim bo'ldim 🤐"}
+_TASDIQ_ZAXIRA = {"boshla": "xo'p siz kelguningizcha shu yerdaman 😎",
+                  "toxta": "bo'ldi jim bo'ldim 🤐"}
 
 
 async def _tasdiqla(e, holat: str, vazifa: str) -> None:

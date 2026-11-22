@@ -279,7 +279,7 @@ matnlar = ["**Salom** hammaga", " - ",
            "Salom hammaga", "Yangi hazil"]          # tort: ikkinchisi yangi
 ch, bir, ikki, uch, tort = asyncio.run(model_sinovi())
 assert uch is None, f"ikki marta takror — jim turishi kerak: {uch!r}"
-assert tort == "Yangi hazil", tort
+assert tort == "yangi hazil", tort
 qayta = [c for c in ch if "AVVAL yozgansan" in c["input"][0]["content"]]
 assert len(qayta) == 2, "takrorda «boshqacha yoz» bilan qayta so'ralsin"
 assert all(c["instructions"] is ai.NAVBAT_INSTRUCTIONS for c in ch), \
@@ -287,7 +287,7 @@ assert all(c["instructions"] is ai.NAVBAT_INSTRUCTIONS for c in ch), \
 assert "vexon to'xta" in ch[0]["input"][1]["content"] and ch[0]["input"][1]["role"] == "user"
 assert "dasturlash" in ch[0]["input"][0]["content"] and ch[0]["input"][0]["role"] == "developer"
 assert ch[1]["model"] == ai.MODEL_FALLBACKS[0], "asosiy model yiqilsa zaxiraga o'tsin"
-assert bir == "Salom hammaga", bir
+assert bir == "salom hammaga", bir
 assert ikki is None, "«-» — javob yo'q"
 assert not any("reasoning" in c for c in ch if not c["model"].startswith(("gpt-5", "o")))
 print("[13] model: guruh matni user'da, vazifa developer'da, «-» → jim, zaxira model, takror → qayta yoki jim OK")
@@ -568,7 +568,7 @@ async def tasdiq_sinovi():
         ai.openai_client.responses.create = asl
 
 ch, t = asyncio.run(tasdiq_sinovi())
-assert t == "Xo'p, turaman" and ch[0]["instructions"] is ai.NAVBAT_TASDIQ_INSTRUCTIONS
+assert t == "xo'p turaman" and ch[0]["instructions"] is ai.NAVBAT_TASDIQ_INSTRUCTIONS
 assert "[HOLAT] toxta" in ch[0]["input"][0]["content"]
 print("[23] tasdiq: bir xil instructions (kesh), holat developer'da, markdown tozalandi OK")
 
@@ -596,7 +596,7 @@ try:
     tozala()
     yur(Hodisa("vexon dasturlash savollariga javob ber", out=True))
     nav = n._NAVBAT[-1001]
-    assert "xullas" in nav.uslub, "navbatga egasining Biznes uslubi yuklansin"
+    assert nav.uslub == "", "⛔️ Biznes (mijoz) uslubi guruhga berilmaydi — hazilni bosib ketdi"
     model_javobi.update(matn="ha, tuple o'zgarmaydi", eslab=["frontend dasturchi"])
     h = Hodisa("men frontendchiman, list nima?")
     h._odam.id = 4242
@@ -676,9 +676,17 @@ assert ai._navbat_ochish('{"javob": "-", "eslab": [], "reaksiya": "🦄"}')[2] =
     "ro'yxatda yo'q reaksiya — guruh rad etadi"
 assert ai._navbat_ochish("oddiy matn") == ("oddiy matn", [], "")
 assert ai.NAVBAT_SXEMA["schema"]["required"] == ["javob", "eslab", "reaksiya"]
-assert ai._navbat_odamdek("zerikish — **zo'r**") == "zerikish - zo'r", "uzun tire — AI belgisi"
-assert ai._navbat_odamdek("o‘zgaradi, React’da") == "o'zgaradi, React'da", "telefonda o' yoziladi"
+assert ai._navbat_odamdek("zerikish — **zo'r**") == "zerikish zo'r", "uzun tire — AI belgisi"
+assert ai._navbat_odamdek("o‘zgaradi, React’da") == "o'zgaradi React'da", "telefonda o' yoziladi"
 assert ai._navbat_odamdek("ha bro \n \n  keyin") == "ha bro\n\nkeyin"
+# Ko'cha tili: tinish belgisi va katta harf yo'q (egasi: «nuqta vergul bilan kim yozadi»).
+od = ai._navbat_odamdek
+assert od("Shu yerdaman, Sardor, yo'qolganim yo'q. Shunchaki: ishdaman!") == \
+    "shu yerdaman Sardor yo'qolganim yo'q Shunchaki ishdaman"
+assert od("«Zo'r» ekan; qachon kelasan?") == "zo'r ekan qachon kelasan?", "savol belgisi qoladi"
+assert od("narxi 1,5 mln, 3.5 baravar...") == "narxi 1,5 mln 3.5 baravar...", "sonlar va … qoladi"
+assert od("API ishlamayapti.") == "API ishlamayapti", "qisqartma kichik harfga tushmaydi"
+assert od("Ha bro.\n\nKeyin, gaplashamiz.") == "ha bro\n\nkeyin gaplashamiz", "har xabar alohida"
 # Baza funksiyasi soxta bo'lgani uchun: saqlash HAQIQATAN tekshiruvdan o'tkazadimi.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _manba import kod
@@ -750,22 +758,41 @@ assert h.yuborilgan[0][0] == "reply"
 assert "boshqa gap" in model[-1]["suhbat"], "kutish paytida kelgani kontekstda"
 print("[31] har doim reply (egasi so'radi); kutishda kelgani kontekstda OK")
 
-# ── 32) «O'qiyotganda» o'ziga qaratilgan xabar kelsa — o'shanga javob ──
+# ── 32) U bilan gaplashayotganlar javobsiz QOLMAYDI: band bo'lsa — navbat ─
+n.MENGA_ORALIQ = 0.0
 nav.oxirgi_javob = 0.0
 qaratilgan = Hodisa("jasur qayerdasan", mentioned=True, ism="Sardor")
+begona_orada = Hodisa("bugun nima qildinglar", ism="Bekzod")   # menga emas — band, jim
+vazifalar = []
 
 
-async def _orada_menga(*a):
-    await n.xabar_keldi(qaratilgan)
-n._kut = _orada_menga
+async def _orada(*a):
+    if not vazifalar:
+        vazifalar.append(asyncio.create_task(n.xabar_keldi(qaratilgan)))
+        await n.xabar_keldi(begona_orada)
+        await asyncio.sleep(0.1)                   # qaratilgan navbatda turibdi
+
+
+async def _ikkalasi():
+    await n.xabar_keldi(Hodisa("bugun issiq ekan", ism="Vali"))
+    await asyncio.gather(*vazifalar)
+n._kut = _orada
 oldin = len(model)
-yur(Hodisa("bugun issiq ekan", ism="Vali"))
+asyncio.run(_ikkalasi())
 n._kut = _jim
-assert len(model) == oldin + 1, "bitta javob (ikkinchisi parallel boshlanmadi)"
+assert len(model) == oldin + 2, "KRITIK: band paytida unga yozgan odam javobsiz qoldi"
+assert model[-2]["xabar"] == "Vali: bugun issiq ekan"
 assert model[-1]["xabar"] == "Sardor: jasur qayerdasan" and model[-1]["menga"] is True
-assert "Vali: bugun issiq ekan" in model[-1]["suhbat"] and qaratilgan.javob
+assert qaratilgan.javob and begona_orada.javob is None, "band paytidagi oddiy gap — o'tkaziladi"
 assert "jasur qayerdasan" not in model[-1]["suhbat"], "nishon kontekstda ikki marta bo'lmasin"
-assert nav.nishon is None
+assert nav.nishon is None and nav.kutayotgan == 0
+# Navbat cheklangan: to'lsa — jim (akkaunt spamga tushmasin).
+nav.kutayotgan = n.MENGA_NAVBAT
+oldin = len(model)
+yur(Hodisa("jasur?", mentioned=True))
+assert len(model) == oldin
+nav.kutayotgan = 0
+n.MENGA_ORALIQ = 3.0
 
 
 # ORALIQ yuborilgan paytdan: 40 s «o'qigan» bo'lsa, 20 s darhol tugamasin.
@@ -777,7 +804,7 @@ t0 = time.time()
 yur(Hodisa("nima gap"))
 n._kut = _jim
 assert nav.oxirgi_javob - t0 >= 0.15, "ORALIQ kutish boshidan sanaldi"
-print("[32] kutishda o'ziga qaratilgani keldi — javob o'shanga, bittagina OK")
+print("[32] unga yozganlar navbat bilan javob oladi, navbat cheklangan; ORALIQ yuborishdan OK")
 
 # ── 33) Reaksiya: matnsiz ham javob; slot band qoladi ────────────────
 nav.oxirgi_javob = 0.0
@@ -902,4 +929,20 @@ assert n._belgila_html("a &amp; amp", 2, "Amp") == 'a &amp; <a href="tg://user?i
 n._CLIENT = None
 print("[36] reaksiya: faqat egasining xabari, o'zi/eski/bot/boshqa guruh/band — jim OK")
 
-print("\nnavbatchi: barcha tekshiruvlar o'tdi (36/36).")
+# ── 37) Reply: qaysi xabarga javobligi modelga beriladi ──────────────
+nav.oxirgi_javob = 0.0
+h = Hodisa("yo'q, sen noto'g'ri aytding", mentioned=True)
+h.is_reply = True
+
+
+async def _asl_xabar():
+    return NS(raw_text="python eng\n zo'r til", out=True)
+h.get_reply_message = _asl_xabar
+yur(h)
+assert model[-1]["reply_qilingan"] == "sen: python eng zo'r til", model[-1].get("reply_qilingan")
+nav.oxirgi_javob = 0.0
+yur(Hodisa("oddiy gap", mentioned=True))
+assert model[-1]["reply_qilingan"] == ""
+print("[37] reply qilingan xabar (kimniki, matni) modelga beriladi OK")
+
+print("\nnavbatchi: barcha tekshiruvlar o'tdi (37/37).")
