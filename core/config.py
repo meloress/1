@@ -1737,10 +1737,87 @@ REMINDER_MAX_AHEAD_DAYS: int = 31
 # O'sib boradi, chunki javob bermayotgan odamni har hafta turtish spam.
 INACTIVE_STEPS: tuple = (7, 15, 30)
 
-# Bitta tsiklda nechta odamga yuboriladi. Har biriga alohida model
-# chaqiruvi ketadi, shuning uchun tavan bor — aks holda bitta tsikl
-# yuzlab so'rov qilib, hisobni ham, Telegram limitini ham urardi.
+# Bitta tsiklda nechta odamga yuboriladi — Telegram limitini urmaslik uchun tavan.
 INACTIVE_BATCH: int = 40
+
+# Tayyor matnlar — N-xabar N-matnni oladi, birortasi takrorlanmaydi.
+# ⚠️ Ilgari matnni MODEL yozardi: har xabar ~6 300 token (asosiy chatning
+# 5 700 tokenlik instructions'i bilan, keshsiz, reasoning=high), kuniga
+# ~80 ming, bir kunda 650 minggacha (2026-11-24 log o'lchovi). Tayyor matn — 0 token.
+# 21 ta = 7/15/30 kunlik sikl bilan taxminan BIR YIL. Oxirgisidan keyin
+# yozilmaydi (`take_inactive_users`): yil javob bermagan odamni turtish
+# spam va bloklash sababi. Odam qaytsa sanoq noldan (`save_user`).
+# `{ism}` — ", Ism" yoki bo'sh (`helpers._miss_you_text`). Faqat BEPUL
+# imkoniyatlar tilga olinadi: bepul odamga Pro'nikini va'da qilmaymiz.
+INACTIVE_MATNLAR: tuple = (
+    # 1-sikl: 7, 22, 52 kun
+    "👋 Salom{ism}! Bir haftadan beri ko'rinmadingiz. Savol tug'ilsa — "
+    "yozing, darrov javob beraman. Bugun nima haqida gaplashamiz?",
+    "🌤 Salom{ism}! Sizni sog'indim. PDF yoki Word faylni yuborsangiz, "
+    "o'qib chiqib, qisqa xulosasini yozib beraman. Sinab ko'ramizmi?",
+    "💛 Salom{ism}! Ancha bo'ldi, ko'rishmadik. Men hali ham shu yerdaman "
+    "va har qanday savolingizga yordam berishga tayyorman. Bir savol "
+    "bermaysizmi?",
+    # 2-sikl: 59, 74, 104 kun
+    "☕️ Salom{ism}! Bugun bir narsa so'rab ko'ring, masalan: «ertaga "
+    "Toshkentda ob-havo qanday?» — aniq raqamlar bilan javob beraman. "
+    "Qani, nima qiziqtiradi?",
+    "🎙 Salom{ism}! Yozishga erinsangiz — ovozli xabar yuboring, tushunib "
+    "javob beraman, javobni ham ovozda olasiz. Bir sinab ko'rasizmi?",
+    "🤗 Salom{ism}! Uch oyga yaqin ko'rinmadingiz — rostdan sog'indim. "
+    "Biror reja, savol yoki g'oya bo'lsa, birga o'ylab ko'ramiz. Nimadan "
+    "boshlaymiz?",
+    # 3-sikl: 111, 126, 156 kun
+    "📊 Salom{ism}! Taqdimot kerakmi? «Marketing haqida 10 slaydlik "
+    "taqdimot» deb yozing — bir-ikki daqiqada tayyor fayl yuboraman. "
+    "Qaysi mavzuda tayyorlaymiz?",
+    "⏰ Salom{ism}! Biror ishni unutib qo'yishdan qo'rqsangiz, menga "
+    "ayting: «ertaga soat 9 da qo'ng'iroq qilishni eslat» — vaqtida "
+    "eslataman. Nimani eslatay?",
+    "🌱 Salom{ism}! Besh oy bo'ldi... Botga doim yangi imkoniyatlar "
+    "qo'shilib turadi — /help bosib hammasini ko'rishingiz mumkin. "
+    "Qachon qaytasiz?",
+    # 4-sikl: 163, 178, 208 kun
+    "📸 Salom{ism}! Rasm yuboring — unda nima borligini tushuntirib "
+    "beraman: hujjat, chek, jadval yoki shunchaki qiziq narsa. Qaysi "
+    "rasmni ko'rsatasiz?",
+    "🌍 Salom{ism}! Biror matnni tarjima qilish kerakmi? Ingliz, rus yoki "
+    "boshqa tildan — tez va tushunarli o'zbekchada beraman. Nimani "
+    "tarjima qilamiz?",
+    "💌 Salom{ism}! Yarim yildan oshdi, ko'rishmadik. Savollaringizni "
+    "sog'indim — kichik bo'lsa ham, katta bo'lsa ham. Bir salom "
+    "yo'llaysizmi?",
+    # 5-sikl: 215, 230, 260 kun
+    "🔎 Salom{ism}! Yangiliklar, narxlar, kurslar — internetdan qidirib, "
+    "eng so'nggi ma'lumotni topib beraman. Masalan: «bugungi dollar "
+    "kursi». Nima qidiramiz?",
+    "📍 Salom{ism}! Lokatsiyangizni yuborsangiz, eng yaqin dorixona, kafe "
+    "yoki bankomatni topib, yo'lini ko'rsataman. Hozir nima kerak?",
+    "🕊 Salom{ism}! Ancha bo'ldi... Hayot band bo'lishi tabiiy. Lekin bir "
+    "savol uchun bir daqiqa yetadi — men shu yerdaman. Nima haqida "
+    "o'ylayapsiz?",
+    # 6-sikl: 267, 282, 312 kun
+    "📑 Salom{ism}! Uzun hujjatni o'qishga vaqt yo'qmi? Faylni yuboring — "
+    "asosiy fikrlarni besh qatorda yozib beraman. Qaysi fayldan "
+    "boshlaymiz?",
+    "🧠 Salom{ism}! Aytganlaringizni eslab qola olaman: «men dasturchiman, "
+    "eslab qol» desangiz, keyingi suhbatlarda hisobga olaman. Men "
+    "haqingizda nimani bilib qo'yay?",
+    "🌟 Salom{ism}! O'n oy bo'ldi, juda sog'indim. Menda biror narsa "
+    "yoqmagan bo'lsa — ochiq ayting, yaxshilashga harakat qilaman. "
+    "Fikringizni bilsam bo'ladimi?",
+    # 7-sikl: 319, 334, 364 kun
+    "📈 Salom{ism}! Jadval bilan ishlaysizmi? «Shu ro'yxatni Excel qil» "
+    "deb yuboring — tayyor fayl qaytaraman. Qaysi ma'lumotni tartibga "
+    "solamiz?",
+    "🕌 Salom{ism}! Namoz vaqti, ob-havo yoki valyuta kursi — bir savol "
+    "bilan bilib olasiz: «Samarqandda namoz vaqti». Bugun nimani "
+    "bilmoqchisiz?",
+    # Oxirgisi — xayrlashuv: shundan keyin boshqa yozilmaydi.
+    "🤍 Salom{ism}! Bir yildan beri ko'rishmadik. Boshqa bezovta "
+    "qilmayman — lekin eshigim doim ochiq. Qachon kerak bo'lsam, "
+    "shunchaki yozing. Yana ko'rishguncha!",
+)
 
 # Tekshiruv oralig'i. Kunlik aniqlik yetarli, lekin soatlik tekshiruv
 # deploy'dan keyin tez tiklanishni ta'minlaydi.

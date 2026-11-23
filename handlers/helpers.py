@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime, timezone, timedelta
 from html import escape as html_escape
 from typing import Optional
@@ -6,7 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramForbiddenError
 
 from core.loader import logger, bot
-from core.config import MAX_MANUAL_RETRIES, guruh_xato_sababi
+from core.config import MAX_MANUAL_RETRIES, INACTIVE_MATNLAR, guruh_xato_sababi
 from db import database
 from core.memory import store_failed_request
 
@@ -266,78 +267,30 @@ async def _send_watch_copy(group_id, user_id, username, direction, text,
     await kuzatuv_holati(yetdi, oxirgi_xato)
 
 
-_MISS_FALLBACK = (
-    "👋 <b>Sog'indik!</b>\n\n"
-    "Ancha vaqtdan beri ko'rinmadingiz. Savolingiz bo'lsa yozing — "
-    "men shu yerdaman."
-)
+def _miss_you_text(n: int, tg_ism: str | None) -> str:
+    """N-"sog'indik" xabari (1 dan) — tayyor matn, model YO'Q (0 token).
 
-# Bosqichga qarab ohang: birinchisi yengil, oxirgisi eng iliq.
-_MISS_TONES = (
-    "yengil va do'stona, bir haftalik jimlikdan keyin",
-    "iliqroq, sog'inganingizni bildirib, foydali bir taklif bilan",
-    "eng samimiy, uzoq vaqt ko'rishmaganingizni ta'kidlab, "
-    "qaytishga chin dildan chorlab",
-)
+    Ism — Telegram to'liq ismining birinchi so'zi; markdown belgilari
+    (`*`, `_`, `[` ...) olib tashlanadi, aks holda ism matnni buzardi."""
+    ism = re.sub(r"[^\w'ʻʼ‘’-]|_", "", (tg_ism or "").split(" ")[0])[:30]
+    matn = INACTIVE_MATNLAR[min(max(n, 1), len(INACTIVE_MATNLAR)) - 1]
+    return matn.format(ism=f", {ism}" if ism else "")
 
 
-async def _miss_you_text(stage: int, name: str | None) -> str:
-    """"Sog'indik" xabarini MODEL yozadi — har safar boshqacha.
-
-    Qat'iy shablon bir xil matnni takror yuborardi va u spamdek
-    ko'rinardi. tools_enabled=False — internetga chiqish shart emas.
-    """
-    from services.ai import get_gpt_reply     # ⚠️ tsiklik import
-
-    ohang = _MISS_TONES[min(stage, len(_MISS_TONES) - 1)]
-    kimga = f"Ismi: {name}. " if name else ""
-    prompt = (
-        f"Sen Telegram AI-yordamchi botsan. Foydalanuvchi ancha vaqtdan "
-        f"beri botdan foydalanmayapti. {kimga}"
-        f"Unga qaytishga undaydigan qisqa xabar yoz.\n\n"
-        f"Ohang: {ohang}.\n\n"
-        f"Qoidalar:\n"
-        f"- o'zbek tilida, samimiy, iliq, xushomadli\n"
-        f"- 300 belgidan oshmasin, 2-3 qisqa gap\n"
-        f"- boshida mos emoji bo'lsin\n"
-        f"- nima qila olishingdan BITTA aniq misol ayt "
-        f"(hujjat tahlili, rasm, ovozli javob, fayl yaratish, qidiruv)\n"
-        f"- oxirida savol berishga undab tugat\n"
-        f"- HAR SAFAR boshqacha yoz, shablon takrorlanmasin\n"
-        f"- reklama va bosim yo'q, do'stona bo'lsin"
-    )
-    parts: list[str] = []
-    async for chunk in get_gpt_reply(0, prompt, is_pro=True, tools_enabled=False):
-        if not chunk or chunk.startswith("[STATUS]"):
-            continue
-        if "[CLEAR_TEXT]" in chunk:
-            parts.clear()
-            chunk = chunk.replace("[CLEAR_TEXT]", "")
-        if chunk:
-            parts.append(chunk)
-    return "".join(parts).strip()
-
-
-async def _send_miss_you(user_id: int, stage: int, name: str | None) -> None:
+async def _send_miss_you(user_id: int, n: int, tg_ism: str | None) -> None:
     """Oddiy javob bilan bir xil ko'rinishda yuboradi, zaxirasi bilan."""
     from handlers.messages import _send_rich_message   # ⚠️ tsiklik import
     from services.ai import build_rich_markdown
 
-    body = ""
+    body = _miss_you_text(n, tg_ism)
     try:
-        body = await _miss_you_text(stage, name)
+        if await _send_rich_message(
+                user_id, markdown=build_rich_markdown(body)) is not None:
+            return
     except Exception as e:
-        logger.warning(f"[Sog'indik] matn yozilmadi (user={user_id}): {e}")
+        logger.warning(f"[Sog'indik] rich yuborilmadi (user={user_id}): {e}")
 
-    if body:
-        try:
-            if await _send_rich_message(
-                    user_id, markdown=build_rich_markdown(body)) is not None:
-                return
-        except Exception as e:
-            logger.warning(f"[Sog'indik] rich yuborilmadi (user={user_id}): {e}")
-
-    await _dm_or_deactivate(user_id, html_escape(body) if body else _MISS_FALLBACK)
+    await _dm_or_deactivate(user_id, html_escape(body))
 
 
 async def notify_inactive_users():
@@ -365,10 +318,7 @@ async def notify_inactive_users():
             if due:
                 logger.info(f"[Sog'indik] {len(due)} ta foydalanuvchiga yuborilmoqda")
             for row in due:
-                # next_stage — YANGILANGANidan keyingi qiymat, ya'ni hozir
-                # yuborilayotgani undan bittaga oldingisi.
-                stage = (row["next_stage"] - 1) % len(_MISS_TONES)
-                await _send_miss_you(row["user_id"], stage, row.get("username"))
+                await _send_miss_you(row["user_id"], row["yuborilgan"], row.get("tg_ism"))
                 await asyncio.sleep(0.1)      # flood-control
         except Exception as e:
             logger.error(f"[Sog'indik] fon vazifasida xatolik: {e}")

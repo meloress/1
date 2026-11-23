@@ -18,7 +18,7 @@ from core.config import (
     MAX_ACTIVE_REMINDERS, REMINDER_MAX_LEN, REMINDER_REPEATS,
     REMINDER_MAX_AHEAD_DAYS,
     REFERRAL_REQUIRED, REFERRAL_REWARD_DAYS, REFERRAL_MAX_REWARDS,
-    INACTIVE_STEPS, ACTIVITY_TYPES, ACTIVITY_BUYRUQLAR,
+    INACTIVE_STEPS, INACTIVE_MATNLAR, ACTIVITY_TYPES, ACTIVITY_BUYRUQLAR,
     BIZNES_BILIM_MAX, BIZNES_REJIMLAR, BIZNES_LOYIHA_TTL_SOAT,
     BIZNES_NAMUNA_MAX, BIZNES_NAMUNA_KORSAT, BIZNES_TAHRIR_KORSAT, BIZNES_JUFT_MIN_SOZ,
     BIZNES_USLUB_MAX, BIZNES_SAQLASH_KUN, BIZNES_TOPSHIRIQ_MAX, BIZNES_YUBORILGAN_KUN,
@@ -851,7 +851,8 @@ async def save_user(user_id: int, username: Optional[str] = None,
                 -- boshlanadi. Aks holda u qaytganidan keyin ham 15/30
                 -- kunlik eslatmalar ketaverardi.
                 inactive_stage = 0,
-                inactive_notified_at = NULL
+                inactive_notified_at = NULL,
+                inactive_sent = 0
         ''', user_id, username, (tg_ism or None) and tg_ism.strip()[:100] or None)
 
 
@@ -3164,6 +3165,9 @@ async def ensure_profile_columns():
             # inactive_stage — INACTIVE_STEPS ro'yxatidagi o'rin.
             "ADD COLUMN IF NOT EXISTS inactive_stage SMALLINT DEFAULT 0",
             "ADD COLUMN IF NOT EXISTS inactive_notified_at TIMESTAMPTZ",
+            # Odam qaytmaguncha nechta "sog'indik" ketgani: N-xabar
+            # INACTIVE_MATNLAR[N-1]; hammasi ketgach boshqa yozilmaydi.
+            "ADD COLUMN IF NOT EXISTS inactive_sent SMALLINT DEFAULT 0",
         ]
         for col in columns:
             try:
@@ -5165,6 +5169,10 @@ async def take_inactive_users(limit: int = 40) -> List[Dict[str, Any]]:
     shu edi: u xabar yuborgach last_seen = NOW() qilardi, ya'ni foydalanuvchi
     hech qachon kirmagan bo'lsa ham "hozir kirgan" bo'lib qolardi va
     haqiqiy faollik ma'lumoti yo'q bo'lardi.
+
+    `inactive_sent` — odam qaytmaguncha ketgan xabarlar soni. U
+    INACTIVE_MATNLAR soniga yetgach odam boshqa olinmaydi (xayrlashuv
+    oxirgi matn); `yuborilgan` — YANGILANGAN qiymat, ya'ni 1 dan boshlanadi.
     """
     global pool
     if pool is None:
@@ -5178,6 +5186,7 @@ async def take_inactive_users(limit: int = 40) -> List[Dict[str, Any]]:
                  WHERE is_active = TRUE
                    AND COALESCE(is_banned, FALSE) = FALSE
                    AND last_seen IS NOT NULL
+                   AND COALESCE(inactive_sent, 0) < $2
                    AND GREATEST(last_seen, COALESCE(inactive_notified_at, last_seen))
                        < NOW() - make_interval(days =>
                            (ARRAY[{steps}])[COALESCE(inactive_stage, 0) + 1])
@@ -5189,11 +5198,12 @@ async def take_inactive_users(limit: int = 40) -> List[Dict[str, Any]]:
                 inactive_notified_at = NOW(),
                 -- Keyingi bosqich; oxirgisidan keyin yana boshiga qaytadi.
                 inactive_stage = (COALESCE(u.inactive_stage, 0) + 1)
-                                 % {len(INACTIVE_STEPS)}
+                                 % {len(INACTIVE_STEPS)},
+                inactive_sent = COALESCE(u.inactive_sent, 0) + 1
               FROM picked p
              WHERE u.user_id = p.user_id
-            RETURNING u.user_id, u.username, COALESCE(u.inactive_stage, 0) AS next_stage
-        ''', limit)
+            RETURNING u.user_id, u.tg_ism, u.inactive_sent AS yuborilgan
+        ''', int(limit), len(INACTIVE_MATNLAR))
         return [dict(r) for r in rows]
 
 

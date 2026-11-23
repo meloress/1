@@ -88,70 +88,85 @@ def test_watcher_fixed():
 
 
 async def test_text():
-    """Matnni model yozadi; yiqilsa ham xabar yetib boradi."""
-    chaqiruv = {}
+    """Tayyor matn — model chaqirilmaydi (ilgari har xabar ~6 300 token edi)."""
+    from core.config import INACTIVE_MATNLAR
 
-    async def fake_reply(chat_id, prompt, **kw):
-        chaqiruv["chat_id"] = chat_id
-        chaqiruv["prompt"] = prompt
-        chaqiruv["kw"] = kw
-        yield "👋 Sog'indik! Qaytib keling."
+    # 21 ta = 7/15/30 sikli bilan taxminan bir yil; hammasi har xil.
+    assert len(INACTIVE_MATNLAR) == 21, len(INACTIVE_MATNLAR)
+    assert len(set(INACTIVE_MATNLAR)) == len(INACTIVE_MATNLAR), "takror matn bor"
+    kunlar, kun = [], 0
+    for i in range(len(INACTIVE_MATNLAR)):
+        kun += INACTIVE_STEPS[i % len(INACTIVE_STEPS)]
+        kunlar.append(kun)
+    assert 330 <= kunlar[-1] <= 400, f"oxirgi xabar {kunlar[-1]}-kunda — bir yil emas"
+    for m in INACTIVE_MATNLAR:
+        assert m.count("{ism}") == 1, m
+        assert len(m.format(ism=", Abdurahmonbek")) <= 300, m
+    print(f"[7] 21 ta har xil tayyor matn, oxirgisi {kunlar[-1]}-kunda OK")
 
+    # Model UMUMAN chaqirilmasin — butun tejash shunda.
     import services.ai as ai_mod
     real = ai_mod.get_gpt_reply
-    ai_mod.get_gpt_reply = fake_reply
+
+    def chaqirilmasin(*a, **k):
+        raise AssertionError("sog'indik model chaqirdi — token sarflanyapti")
+    ai_mod.get_gpt_reply = chaqirilmasin
+    yuborilgan = []
+
+    async def fake_rich(user_id, markdown=None, **k):
+        yuborilgan.append(markdown)
+        return 1
+    import handlers.messages as msg_mod
+    real_rich = msg_mod._send_rich_message
+    msg_mod._send_rich_message = fake_rich
     try:
-        matn = await helpers._miss_you_text(0, "Og'abek")
+        for n in range(1, len(INACTIVE_MATNLAR) + 1):
+            await helpers._send_miss_you(7, n, None)
     finally:
         ai_mod.get_gpt_reply = real
-    assert matn.startswith("👋"), matn
-    assert chaqiruv["chat_id"] == 0, "foydalanuvchi tarixiga yozilmasin"
-    assert chaqiruv["kw"].get("tools_enabled") is False, \
-        "bu xabar uchun internetga chiqish shart emas"
-    assert "Og'abek" in chaqiruv["prompt"], "ism ishlatilmadi"
-    print("[7] matnni model yozadi, ism ishlatiladi OK")
+        msg_mod._send_rich_message = real_rich
+    assert len(set(yuborilgan)) == len(INACTIVE_MATNLAR), "N-xabar N-matnni olmadi"
+    print("[8] model chaqirilmaydi, N-xabar N-matnni oladi OK")
 
-    # Har bosqich uchun OHANG boshqacha bo'lsin.
-    ohanglar = set()
-    async def spy(chat_id, prompt, **kw):
-        ohanglar.add(prompt)
-        yield "ok"
-    ai_mod.get_gpt_reply = spy
-    try:
-        for stage in range(len(INACTIVE_STEPS)):
-            await helpers._miss_you_text(stage, None)
-    finally:
-        ai_mod.get_gpt_reply = real
-    assert len(ohanglar) == len(INACTIVE_STEPS), "bosqichlar bir xil matn so'rayapti"
-    print("[8] har bosqichda ohang boshqacha OK")
+    # Ism: to'liq ismning birinchi so'zi; markdown belgilari tushadi; yo'q bo'lsa — usiz.
+    assert helpers._miss_you_text(1, "Og'abek Karimov").startswith("👋 Salom, Og'abek!")
+    assert helpers._miss_you_text(1, "*Ali_*").startswith("👋 Salom, Ali!")
+    assert helpers._miss_you_text(1, None).startswith("👋 Salom!")
+    assert helpers._miss_you_text(1, "🔥🔥").startswith("👋 Salom!")
+    print("[9] ism birinchi so'zdan, belgilarsiz; ism yo'q bo'lsa — usiz OK")
 
-    # Model yiqilsa — zaxira matn ketadi.
-    yuborilgan = {}
+    # Rich yetmasa — oddiy xabar, HTML ekranlangan.
+    oddiy = {}
 
-    async def fail(*a, **k):
-        raise RuntimeError("model yiqildi")
-        yield ""
+    async def rad(*a, **k):
+        return None
 
     async def fake_dm(user_id, text, kb=None):
-        yuborilgan["text"] = text
-
+        oddiy["text"] = text
     real_dm = helpers._dm_or_deactivate
-    ai_mod.get_gpt_reply = fail
-    helpers._dm_or_deactivate = fake_dm
+    msg_mod._send_rich_message, helpers._dm_or_deactivate = rad, fake_dm
     try:
-        await helpers._send_miss_you(7, 0, None)
+        await helpers._send_miss_you(7, 1, "Ali<b>")
     finally:
-        ai_mod.get_gpt_reply = real
-        helpers._dm_or_deactivate = real_dm
-    assert "Sog'indik" in yuborilgan["text"], yuborilgan
-    print("[9] model yiqilsa zaxira xabar ketadi OK")
+        msg_mod._send_rich_message, helpers._dm_or_deactivate = real_rich, real_dm
+    assert oddiy["text"].startswith("👋 Salom, Alib!") and "<" not in oddiy["text"], oddiy
+    print("[10] rich rad etilsa oddiy xabar ketadi OK")
+
+    # 21-xabardan keyin TO'XTAYDI, qaytgan odamda sanoq noldan.
+    take = _kod(database.take_inactive_users)
+    assert "COALESCE(inactive_sent, 0) < $2" in take and "len(INACTIVE_MATNLAR)" in take, \
+        "hamma matn ketgach ham yozaveradi — yil bo'yi javob bermaganga spam"
+    assert "inactive_sent = COALESCE(u.inactive_sent, 0) + 1" in take
+    assert "inactive_sent = 0" in inspect.getsource(database.save_user), \
+        "qaytgan odamga keyingi safar xabarlar umuman ketmaydi"
+    print("[11] 21-xabardan keyin to'xtaydi, qaytsa sanoq noldan OK")
 
 
 async def main():
     test_steps()
     test_watcher_fixed()
     await test_text()
-    print("\nsog'indik: barcha tekshiruvlar o'tdi (9/9).")
+    print("\nsog'indik: barcha tekshiruvlar o'tdi (11/11).")
 
 
 if __name__ == "__main__":
