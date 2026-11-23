@@ -139,8 +139,9 @@ async def main():
     # ═══════════════════════════════════════════════════════════════
     #  🧩 VIDJET SO'ROVI (Bot API 10.4)
     # ═══════════════════════════════════════════════════════════════
-    # aiogram 3.31 `widget_query` ni bilmaydi — outer middleware uni
-    # `event_type` o'qilishidan OLDIN ushlaydi (handlers/profile.py).
+    # Outer middleware uni `event_type` o'qilishidan OLDIN ushlaydi
+    # (handlers/profile.py). aiogram 3.31 bu turni bilmasdi; 3.32+ biladi,
+    # lekin middleware ikkala holatni o'qiydi — observer'ga ko'chirish shart emas.
     dp.update.outer_middleware(vidjet_mw)
 
     # ═══════════════════════════════════════════════════════════════
@@ -418,8 +419,9 @@ async def main():
     # `stopped_message_generation` uchun endi haqiqiy observer bor, ya'ni
     # u ro'yxatga o'zi tushadi — qo'lda qo'shish kerak emas.
     try:
-        # `widget_query` — qo'lda: aiogram bu turni bilmaydi (yuqoridagi
-        # middleware), ro'yxatda bo'lmasa Telegram uni umuman yubormaydi.
+        # `widget_query` — qo'lda: uni `dp.widget_query` handleri emas,
+        # yuqoridagi middleware ushlaydi, shuning uchun resolve_used_update_types
+        # uni ro'yxatga qo'shmaydi; ro'yxatda bo'lmasa Telegram uni yubormaydi.
         await dp.start_polling(bot, allowed_updates=[
             *dp.resolve_used_update_types(), "widget_query"])
     finally:

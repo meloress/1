@@ -273,8 +273,12 @@ async def _h(message):
     otdi.append(message.text)
 
 bot = Bot("123:abc")
+# `chat_instance` va `type` — WidgetQuery'ning majburiy maydonlari (Telegram
+# ularni doim yuboradi). aiogram 3.31 maydonni tekshirmasdi, 3.34 tekshiradi:
+# ularsiz soxta update butunlay yiqiladi.
 asyncio.run(dp.feed_update(bot, Update.model_validate({
     "update_id": 1, "widget_query": {"id": "q9", "from": {"id": 7, "is_bot": False, "first_name": "a"},
+                                     "chat_instance": "ci", "type": {"type": "data"},
                                      "chat": {"id": 7, "type": "private"}, "message_id": 5, "data": "y"}})))
 check(29, "widget_query aiogram'da yiqilmaydi va bizga yetadi",
       olingan and olingan[0]["id"] == "q9" and olingan[0]["from"]["id"] == 7)

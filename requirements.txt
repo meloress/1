@@ -14,7 +14,7 @@
 #   https://pypi.org/pypi/<paket>/<versiya>/json -> urls[].filename
 
 # ── Bot va API ──────────────────────────────────────────────────────
-aiogram==3.31.0            # Bot API 10.3 (stopped_message_generation observer) uchun >= 3.31
+aiogram==3.34.0            # Bot API 10.5; 3.33 — xavfsizlik: tarmoq/yuklash xatosida token log'ga tushardi (GHSA-52j5-qrwv-2vf2)
 openai==2.44.0
 pydantic==2.11.10
 python-dotenv==1.2.4

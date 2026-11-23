@@ -269,9 +269,10 @@ touching its code — the one-liner tells you *that* something breaks silently, 
   `karta_tolov.xabarlar` and go on approval/cancel/expiry. The old text is the fallback; every one falls back to the old screen, and the Pro
   card keeps the normal screen's buttons. Asset cards are sent through
   `karta_yubor()`, `/kunlik` included;
-  a rejected quiz widget falls back to the text quiz; aiogram 3.31 does not know
-  `widget_query`, so `profile.vidjet_mw` is an outer middleware and the type is appended
-  to `allowed_updates` by hand.
+  a rejected quiz widget falls back to the text quiz; `profile.vidjet_mw` is an outer
+  middleware (written when aiogram 3.31 did not know `widget_query`; since 3.34 it reads the
+  real field too) and the type is appended to `allowed_updates` by hand — no
+  `dp.widget_query` handler exists, so `resolve_used_update_types()` never lists it.
 - **Editing a photo** — the bytes are never a tool parameter; `size="auto"` and
   `input_fidelity="high"` must stay.
 - **Places** — the model gives an OSM tag, `_TURKUM_RE` validates it; an empty mirror never
