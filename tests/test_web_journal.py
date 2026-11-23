@@ -38,13 +38,17 @@ UTC = datetime.timezone.utc
 # Audit amali yoziladigan funksiyalar: bazaga to'g'ridan-to'g'ri
 # (`log_admin_action`) va web'ning yordamchisi (`_yoz`).
 YOZUVCHILAR = ("log_admin_action", "_yoz")
+# Daraxtni aylanganda tashlanadigan papkalar — test_takroriy_def.py bilan bir
+# xil. `venv/` ichidagi kutubxonalar bizning kod emas: ularning `_yoz(`
+# chaqiruvi soxta audit amali bo'lib ko'rinardi, utf-8 bo'lmagan fayl esa testni yiqitardi.
+CHETLAB = {"venv", ".venv", "__pycache__", ".git", "node_modules"}
 
 
 def yozilgan_amallar() -> set:
     """Kod haqiqatda yozadigan audit amallari — manbadan o'qib."""
     nomlar = set()
     for f in ROOT.rglob("*.py"):
-        if "__pycache__" in str(f) or f.parts[len(ROOT.parts)] == "tests":
+        if CHETLAB & set(f.parts) or f.parts[len(ROOT.parts)] == "tests":
             continue
         try:
             daraxt = ast.parse(f.read_text(encoding="utf-8"))
@@ -410,7 +414,7 @@ async def main():
     # test o'z hujjatimizni xato deb o'qirdi.
     topildi = []
     for yol in sorted(ROOT.glob("**/*.py")):
-        if "tests" in yol.parts or ".git" in yol.parts:
+        if "tests" in yol.parts or CHETLAB & set(yol.parts):
             continue
         manba = kod(yol)
         if "|| ' days')" in manba or "||' days')" in manba:

@@ -27,6 +27,13 @@ node --check web/static/soz.js          # panel lug'ati (u ham JS)
 python -m compileall -q .               # butun daraxt kompilyatsiyasi
 ```
 
+⚠️ **Run Python through `venv/Scripts/python`, not the global `python`.** The global one is
+3.11.3, where aiogram ≥ 3.33 does not even import (its `typing` cannot hash pydantic's
+`FailFast` metadata, 2026-11-23). `venv/` is Python 3.13 like Railway (built with
+`python -m uv venv --python 3.13 venv`, then `python -m uv pip install --python
+venv/Scripts/python.exe -r requirements.txt`). It is gitignored; rebuild it the same way
+after a `requirements.txt` change. Wherever this file says `python …`, read `venv/Scripts/python …`.
+
 No test framework, no linter, no build step — but the panel's JavaScript has no test that
 parses it, so `node --check` is the only thing standing between a typo and a blank screen
 for every admin. Run it after every `panel.js` / `soz.js` edit. Each `tests/test_*.py` is a standalone `assert`-based script with numbered `print("[N] ... OK")` lines and a final summary. New tests follow that shape. On Windows, prefix with `PYTHONIOENCODING=utf-8` — some tests print emoji and the console codepage will otherwise raise `UnicodeEncodeError` (a false failure, not a real one).
@@ -34,7 +41,7 @@ for every admin. Run it after every `panel.js` / `soz.js` edit. Each `tests/test
 Run the whole suite by looping over `tests/test_*.py`; `test_pro_security.py` is the slow one:
 
 ```bash
-fail=0; for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 timeout 300 python "$f" >/dev/null 2>&1 || { echo "FAIL $f"; fail=1; }; done; echo done $fail
+fail=0; for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 timeout 300 venv/Scripts/python "$f" >/dev/null 2>&1 || { echo "FAIL $f"; fail=1; }; done; echo done $fail
 ```
 
 It takes ~10 minutes, so it usually runs in the background. ⛔️ **Read its output
