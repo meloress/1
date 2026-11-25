@@ -244,6 +244,8 @@ Image search runs with `safesearch="on"` (`SEARCH_IMAGE_SAFESEARCH`); the librar
 
 This exists because the shared aiohttp session caps every call at 10s — right for the 0.6s draft pings it was tuned for, wrong for a rich message carrying image URLs, since Telegram fetches each image from the source site before it creates the message. The client timed out, the ladder concluded "rejected", re-sent without images, and Telegram delivered both: users saw the same answer twice, once with photos and once without. Media sends now get `RICH_MEDIA_TIMEOUT` instead.
 
+A 429 is neither: the message was refused *for now*. `core.loader.FloodKutish`, a request middleware on the bot's own session, waits `retry_after` (≤ 30 s, two retries) and sends again — but only for **send** methods (`_YUBORISH`). On 2026-11-20 one chat had 11 answer parts and 2 files refused in one second with «retry in 12» and they were simply lost: `_answer_plain()` and the file sender caught the 429 like any other error. Drafts, edits and chat actions are left out on purpose (waiting would stall the stream, and the next ping comes anyway), as are callback/guest answers (their deadline would pass) and `getUpdates` (aiogram retries it). The same middleware re-sends on `ClientConnectorError` (the request never reached Telegram, so no duplicate is possible: a Business customer went unanswered four times in five days). ⚠️ It never re-sends on a **timeout**, for the reason above. It does not cover `_telegram_api_request` (raw HTTP); that path has its own ladder. `test_flood.py`.
+
 ### Splitting a long answer must not cut a construct in half
 
 `_split_for_telegram()` breaks answers at a limit that depends on the send path — `MAX_RICH_CHARS` (30000, rich messages cap at 32768) or `MAX_PLAIN_CHARS` (4000, `sendMessage` caps at 4096) — and the cut point lands wherever the last newline or space happens to be. Three constructs cannot survive that cut and are handled explicitly: an open code fence is closed and reopened with its language on the next part, and `_safe_cut()` moves the boundary *before* a markdown link and *before* a footnote pair. Splitting `[OLX Uzbekistan](https://…)` in the middle leaves both halves as literal text — that is how a sources list once reached a user as `• [OLX` followed by `Uzbekistan](https://…)`. A footnote is the same shape with its halves far apart — `[^1]` sits in the text, `[^1]: …` at the very end — so `_safe_cut()` takes the whole remaining text, not `rest[:limit]`, or the definition beyond the limit would be invisible to it. Anything else added to answers with paired syntax needs the same treatment. `==marked==`, `<sub>`/`<sup>` and `- [ ]` need no code at all: Telegram renders them and `build_rich_markdown()` passes them through untouched — they are prompt rules only.
@@ -1282,6 +1284,17 @@ And `handle_voice` now says something when synthesis fails. There was no `else` 
 `if generated_audio …`: the bot promised a voice reply and went silent forever, with the
 user still waiting. Silence is the worst failure mode — the text answer is already
 delivered, so one line saying so is enough.
+
+### A voice reply is about one minute
+
+`clean_text_for_speech()` ends in `_ovozga_qisqart()`: past `OVOZ_MAX_BELGI` (1 000) the
+spoken text stops at the last full sentence and says «Qolgani — matnli javobda.» (ru/en in
+their own words). Measured live (29 voice replies, 2026-11-19..23): synthesis time grows with
+length, 20-30 s for an average answer, and a long one ran ~60 s in Gemini, failed, and went to
+edge-tts for **100-140 s** in total. The text answer is always sent in full, so the voice note
+is a convenience. ⛔️ Parallel chunked synthesis was rejected: Gemini's free quota is per model
+(below), so multiplying requests would end Uzbek voice for everyone. Cutting changes nothing
+about the request count. `test_voice_fallback.py` 16-17.
 
 ### Two free TTS engines, two ways to go silent
 

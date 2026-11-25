@@ -6214,7 +6214,35 @@ def clean_text_for_speech(text: str) -> str:
     text = _SPEECH_URL_RE.sub("", text)
     text = _EMOJI_RE.sub("", text)
     text = _MD_MARKERS_RE.sub("", text)
-    return re.sub(r"[ \t]{2,}", " ", text).strip()
+    return _ovozga_qisqart(re.sub(r"[ \t]{2,}", " ", text).strip())
+
+
+# Ovozli javob ~1 daqiqa. ⚠️ Jonli (2026-11-19..23, 29 ta ovoz): sintez
+# vaqti matn uzunligiga qarab o'sadi — o'rtacha javob 20-30 s, uzuni
+# Gemini'da ~60 s ishlab yiqilib, edge-tts bilan JAMI 100-140 s. Matnli
+# javob baribir TO'LIQ yuboriladi; ovoz — qulaylik. Bo'laklab PARALLEL
+# sintez rad etildi: Gemini kvotasi modelga bog'liq (CHAT.md), so'rovlar
+# soni oshsa o'zbek ovozi hammaga o'chadi. Qisqartirish so'rov sonini o'zgartirmaydi.
+OVOZ_MAX_BELGI = 1000
+_OVOZ_DAVOMI = {"uz": "Qolgani — matnli javobda.",
+                "ru": "Остальное — в текстовом ответе.",
+                "en": "The rest is in the text reply."}
+_GAP_OXIRI_RE = re.compile(r"[.!?…](?=\s)|\n")
+
+
+def _ovozga_qisqart(text: str) -> str:
+    """`OVOZ_MAX_BELGI` dan uzun matn — oxirgi to'liq gapgacha + «qolgani matnda».
+    Gap chegarasi yarmidan oldin bo'lsa — oxirgi bo'sh joygacha (so'z bo'linmasin)."""
+    if len(text) <= OVOZ_MAX_BELGI:
+        return text
+    oyna = text[:OVOZ_MAX_BELGI]
+    chegaralar = [m.end() for m in _GAP_OXIRI_RE.finditer(oyna)]
+    kes = chegaralar[-1] if chegaralar and chegaralar[-1] >= OVOZ_MAX_BELGI // 2 else (
+        oyna.rfind(" ") if oyna.rfind(" ") > 0 else OVOZ_MAX_BELGI)
+    qism = oyna[:kes].rstrip()
+    if qism[-1:] not in ".!?…":
+        qism += "."
+    return f"{qism}\n{_OVOZ_DAVOMI.get(detect_speech_lang(text), _OVOZ_DAVOMI['uz'])}"
 
 
 # ─────────────────────────────────────────────────────────────

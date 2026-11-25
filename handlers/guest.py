@@ -106,6 +106,11 @@ _JONLI_MIN_BELGI = 60
 # kutib qayta yuboramiz. Telegram odatda 30s atrofida so'raydi.
 _GUEST_FLOOD_MAX_WAIT = 40.0
 
+# Telegram'ning «muddati o'tgan query» javobi. Bunday query'ga hech narsa
+# yetkazib bo'lmaydi — placeholder shu bilan rad etilsa model chaqirilmaydi.
+_ESKIRGAN_BELGI = "query is too old"
+_eskirgan_sorovlar: set[str] = set()
+
 
 def _guest_status_text(content_type: str) -> str:
     """content-type'ga mos status matni — handlers/messages.py dagi
@@ -534,6 +539,8 @@ else:
                 if resp.status == 200 and data.get("ok"):
                     return (data.get("result") or {}).get("inline_message_id")
                 logger.warning(f"Guest placeholder-answer rad etildi ({list(rich_message)}): {data}")
+                if _ESKIRGAN_BELGI in str(data.get("description", "")):
+                    _eskirgan_sorovlar.add(str(guest_query_id))
                 return None
         except Exception as e:
             logger.warning(f"Guest placeholder-answer xatosi ({list(rich_message)}): {e}")
@@ -563,6 +570,8 @@ else:
                 guest_query_id, {"markdown": html, "skip_entity_detection": True})
             if inline_id:
                 return inline_id
+            if str(guest_query_id) in _eskirgan_sorovlar:
+                return None       # muddati o'tgan — boshqa shakl ham rad etiladi
         inline_id = await _raw_answer_guest_query(
             guest_query_id, {"markdown": plain_text, "skip_entity_detection": True}
         )
@@ -586,6 +595,8 @@ else:
             return sent.inline_message_id
         except Exception as e:
             logger.warning(f"Guest placeholder-answer (plain AnswerGuestQuery) xatosi: {e}")
+            if _ESKIRGAN_BELGI in str(e):
+                _eskirgan_sorovlar.add(str(guest_query_id))
             return None
 
     async def _edit_guest_inline_message(
@@ -1088,6 +1099,21 @@ else:
                 html=_guest_status_md(content_type, 0.0),
             )
             inline["oxirgi"] = time.monotonic()
+            if (guest_inline_message_id is None
+                    and str(guest_query_id) in _eskirgan_sorovlar):
+                # ⚠️ Jonli (2026-11-24): placeholder «query is too old» bilan
+                # rad etilgach ham model chaqirilardi (9 582 token) va yakuniy
+                # javob O'SHA query orqali yana rad etilardi — javob hech
+                # qachon yetmasdi. Muddati o'tgan query'ga yo'l yo'q: kredit
+                # qaytadi, model chaqirilmaydi.
+                _eskirgan_sorovlar.discard(str(guest_query_id))
+                logger.info(f"[Guest] query muddati o'tgan — model chaqirilmadi "
+                            f"(query_id={guest_query_id})")
+                try:
+                    await refund_quota(caller_user_id, cost)
+                except Exception as e:
+                    logger.error(f"[Guest Kvota] qaytarishda xatolik: {e}")
+                return
             if guest_inline_message_id is None:
                 logger.warning(
                     f"[Guest] status placeholder umuman yuborilmadi (query_id={guest_query_id}) — "

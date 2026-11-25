@@ -515,7 +515,17 @@ async def flood_tests():
     assert "display_text[:MAX_RICH_CHARS]" in manba and "display_text[:MAX_GUEST_REPLY_LEN]" not in manba
     print("[17] uzun javob faqat oddiy zaxirada kesiladi va bu aytiladi OK")
 
-    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (18/18).")
+    # Jonli (2026-11-24): placeholder «query is too old» bilan rad etilgach ham
+    # model chaqirilardi (9 582 token), javob esa hech qachon yetmasdi.
+    plac = manba.index("guest_inline_message_id = await _answer_guest_query_placeholder(")
+    tarmoq = manba.index("in _eskirgan_sorovlar", plac)
+    model = manba.index("get_gpt_reply(", plac)
+    blok = manba[tarmoq:manba.index("if guest_inline_message_id is None:", tarmoq + 1)]
+    assert tarmoq < model and "refund_quota(caller_user_id, cost)" in blok and "return" in blok, blok
+    assert manba.count("_eskirgan_sorovlar.add(") == 2, "ikkala javob yo'lida ham eskirish belgilanmaydi"
+    print("[19] muddati o'tgan guest query'da model chaqirilmaydi, kredit qaytadi OK")
+
+    print("\nflood himoyasi va status: barcha tekshiruvlar o'tdi (19/19).")
 
 
 async def _ready(value):

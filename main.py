@@ -358,12 +358,18 @@ async def main():
         # noto'g'ri edi — endi teskarisi: YOQILGAN bo'lsa ogohlantiramiz.
         # Ulashish tugmasi inline'siz ham ishlaydi (t.me/share/url
         # zaxirasi) — faqat xabar tugmasiz, tekis matn bo'ladi.
+        # Bot API 10.5 (`setMySettings`) dan beri bot uni O'ZI o'chiradi —
+        # ogohlantirish yetmasdi: odam logni o'qiguncha guest mode o'lik edi.
         pro_module.INLINE_ENABLED = bool(me.supports_inline_queries)
         if pro_module.INLINE_ENABLED:
-            logger.warning(
-                "⚠️ Inline rejim YOQILGAN — bu Guest Mode'ni buzadi: "
-                "guruhda @bot bilan yozilgan savol botga yetib bormaydi. "
-                "@BotFather → /setinline o'chiring.")
+            try:
+                await bot.set_my_settings(supports_inline_queries=False)
+                pro_module.INLINE_ENABLED = False
+                logger.warning("⚠️ Inline rejim YOQILGAN edi — Guest Mode'ni buzadi, "
+                               "o'chirildi (setMySettings).")
+            except Exception as e:
+                logger.error(f"⚠️ Inline rejim YOQILGAN va o'chirilmadi ({e}) — guest mode "
+                             "ishlamaydi: @BotFather → /setinline o'chiring.")
 
         # ── MAVZU (topic) REJIMI ────────────────────────────────────
         # Bu @BotFather Mini App'dagi tugma, koddan yoqib bo'lmaydi —

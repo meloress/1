@@ -236,7 +236,24 @@ async def main():
     assert ai.clean_text_for_speech(oddiy) == oddiy
     print("[15] manbasiz javob tegilmaydi OK")
 
-    print("\nvoice_fallback: barcha tekshiruvlar o'tdi (15/15).")
+    # ⚠️ Jonli: uzun javob sintezi 20-140 s edi (Gemini uzun matnda ~60 s
+    # ishlab yiqilardi). Ovoz ~1 daqiqa, gap chegarasida, «qolgani matnda» bilan.
+    gaplar = " ".join(f"Bu {i}-gap, unda bir oz tushuntirish bor." for i in range(80))
+    qisqa = ai.clean_text_for_speech(gaplar)
+    assert len(qisqa) <= ai.OVOZ_MAX_BELGI + 40, len(qisqa)
+    assert qisqa.endswith("Qolgani — matnli javobda."), qisqa[-60:]
+    tana = qisqa.rsplit("\n", 1)[0]
+    assert tana.endswith("bor.") and tana in gaplar, tana[-60:]
+    print("[16] uzun javob ovozi ~1 daqiqa, to'liq gapda kesiladi OK")
+
+    rus = " ".join("Это предложение для проверки длины ответа." for _ in range(40))
+    assert ai.clean_text_for_speech(rus).endswith("Остальное — в текстовом ответе.")
+    yaxlit = "so'z " * 400                      # nuqtasiz uzun matn — so'z bo'linmaydi
+    q = ai.clean_text_for_speech(yaxlit).rsplit("\n", 1)[0]
+    assert q.endswith("so'z.") and len(q) <= ai.OVOZ_MAX_BELGI + 1, q[-30:]
+    print("[17] rus tilida o'z jumlasi; nuqtasiz matnda so'z bo'linmaydi OK")
+
+    print("\nvoice_fallback: barcha tekshiruvlar o'tdi (17/17).")
 
 
 if __name__ == "__main__":

@@ -164,6 +164,11 @@ _MAIN = kod(os.path.join(os.path.dirname(os.path.dirname(
 check(17, "TOPICS_ENABLED getMe dan to'ldiriladi",
       "messages_module.TOPICS_ENABLED" in _MAIN
       and "has_topics_enabled" in _MAIN)
+# ⛔️ Inline yoqilsa guest mode o'ladi (CLAUDE.md) — bot uni o'zi o'chiradi,
+# lekin o'zi hech qachon YOQMAYDI.
+check("17a", "inline rejim yoqilib qolsa — bot uni o'zi o'chiradi, hech qachon yoqmaydi",
+      "set_my_settings(supports_inline_queries=False)" in _MAIN
+      and "supports_inline_queries=True" not in _MAIN)
 
 
 # ── 18-19. Eslab qolingan fayl ham mavzu bo'yicha ────────────────

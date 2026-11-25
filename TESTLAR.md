@@ -15,6 +15,13 @@ Some are structural guards rather than feature tests, and they earn their keep o
   of an existing table** — the `biznes_chat` column made `test_biznes_owner.py` fire on a
   query that was fine.
 
+- `test_flood.py` — `core.loader.FloodKutish`: a 429 on a send method waits and re-sends
+  (live: 11 answer parts and 2 files lost in one second, 2026-11-20). Sharpest: 3-4 (an edit
+  or `getUpdates` is **not** held) and 9 (a timeout is **not** re-sent: it may have arrived).
+- `test_guest_reply.py` 19 — an expired guest query (placeholder refused «query is too old»)
+  never reaches the model and refunds the points: nothing can be delivered through it.
+- `test_inactive.py` — «Sog'indik»: 21 fixed texts, the model is never called (check 8), and
+  check 11 stops it after the 21st and resets on return.
 - `test_alifbo.py` — a Latin question never gets a mixed-script answer (`messages._alifbo`):
   the live `rahmat` reply is converted. The sharpest checks are 3 and 4: «kirillda yoz» and a
   Russian quote without ўғқҳ stay Cyrillic.
