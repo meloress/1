@@ -112,7 +112,7 @@ async def send_error_with_retry(chat_id: int, message_id: int, user_id: int, pro
         
     if not retry:
         try:
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, **mavzu_kwargs(thread_id))
         except Exception:
             logger.exception("xato xabari yuborilmadi")
         return

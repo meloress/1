@@ -310,10 +310,29 @@ mem.failed_requests.clear()
 # ── 26-27. Xom `bot.send_*` xabarlari mavzuga tushadi ────────────
 # aiogram mavzuni faqat `message.answer()` ga qo'shadi.
 _XATO = inspect.getsource(hlp.send_error_with_retry)
-check(26, "xato + qayta urinish tugmasi mavzuga yuboriladi",
-      "mavzu_kwargs(thread_id)" in _XATO and "thread_id=thread_id" in _XATO)
+# Ikkala yo'l: tugmali VA tugmasiz (`retry=False` — Biznes xatosi «💼 Biznes»
+# mavzusiga). 2026-11-25 gacha tugmasiz yo'l asosiy oqimga tushardi.
+check(26, "xato (tugmali ham, tugmasiz ham) mavzuga yuboriladi",
+      _XATO.count("mavzu_kwargs(thread_id)") >= 2 and "thread_id=thread_id" in _XATO)
 check(27, "«matn juda uzun» ogohlantirishi ham mavzuga",
       "mavzu_kwargs(_thread_key(last_message))" in _MERGED)
 
 
-print("\ntopics: barcha tekshiruvlar o'tdi (27/27).")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MSG = kod(os.path.join(_ROOT, "handlers", "messages.py"))
+_amallar = _MSG.split("bot.send_chat_action(")[1:]
+check(28, "«yozmoqda / yuklamoqda» belgisi savol berilgan mavzuda",
+      len(_amallar) == 4 and all("mavzu_kwargs(thread_id)" in q.split("\n")[0] for q in _amallar))
+_PRO = kod(os.path.join(_ROOT, "handlers", "pro.py"))
+_inv = _PRO[_PRO.index("async def _send_invoice"):]
+_inv = _inv[:_inv.index("\nasync def ")]
+check(29, "Stars invoice Pro ekrani turgan mavzuda",
+      '"message_thread_id": thread_id' in _inv
+      and "thread_id=_thread_key(query.message)" in _PRO)
+_NAV = kod(os.path.join(_ROOT, "handlers", "navbatchi.py"))
+_qr = _NAV[_NAV.index("async def _qr_jarayon"):_NAV.index("async def qayta_ulan")]
+check(30, "Navbatchi QR ulanishi /navbat_ulash yozilgan mavzuda",
+      _qr.count("bot.send_") == _qr.count("**mk)"))
+
+
+print("\ntopics: barcha tekshiruvlar o'tdi (30/30).")

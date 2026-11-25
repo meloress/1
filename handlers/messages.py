@@ -3234,7 +3234,7 @@ async def handle_photo(message: Message, state: FSMContext):
                         narx=0 if quota.get("unlimited") else MESSAGE_COST_PHOTO)
 
     try:
-        await bot.send_chat_action(chat_id, "upload_photo")
+        await bot.send_chat_action(chat_id, "upload_photo", **mavzu_kwargs(thread_id))
     except Exception:
         pass
 
@@ -3383,7 +3383,7 @@ async def handle_document(message: Message, state: FSMContext):
         _pending_files[(chat_id, thread_id)] = {"ts": time.time(), "event": asyncio.Event()}
 
     try:
-        await bot.send_chat_action(chat_id, "upload_document")
+        await bot.send_chat_action(chat_id, "upload_document", **mavzu_kwargs(thread_id))
     except Exception:
         pass
 
@@ -3574,7 +3574,7 @@ async def handle_voice(message: Message, state: FSMContext):
     user_text = None
 
     try:
-        await bot.send_chat_action(chat_id, "typing")
+        await bot.send_chat_action(chat_id, "typing", **mavzu_kwargs(thread_id))
     except Exception:
         pass
 
@@ -3639,7 +3639,7 @@ async def handle_voice(message: Message, state: FSMContext):
             await _maybe_warn_long(message, thread_id, jami, _is_pro(quota))
 
         try:
-            await bot.send_chat_action(chat_id, "record_voice")
+            await bot.send_chat_action(chat_id, "record_voice", **mavzu_kwargs(thread_id))
         except Exception:
             pass
 

@@ -769,10 +769,14 @@ async def navbat_ulash(message) -> None:
         await message.answer("⏳ Ulanish allaqachon ketyapti.")
         return
     _ULASHMOQDA.add(uid)
-    asyncio.create_task(_qr_jarayon(chat, uid, int(api_id), api_hash))
+    # Xom `bot.send_*` mavzuni o'zi qo'shmaydi — javoblar /navbat_ulash
+    # yozilgan mavzuda qolsin.
+    mk = {"message_thread_id": message.message_thread_id} if message.is_topic_message else {}
+    asyncio.create_task(_qr_jarayon(chat, uid, int(api_id), api_hash, mk))
 
 
-async def _qr_jarayon(chat: int, uid: int, api_id: int, api_hash: str) -> None:
+async def _qr_jarayon(chat: int, uid: int, api_id: int, api_hash: str, mk: dict | None = None) -> None:
+    mk = mk or {}
     from aiogram.types import BufferedInputFile, InputMediaPhoto
     from core.loader import bot
     from telethon import TelegramClient
@@ -791,7 +795,7 @@ async def _qr_jarayon(chat: int, uid: int, api_id: int, api_hash: str) -> None:
             fayl = BufferedInputFile(_qr_png(qr.url), filename="qr.png")
             if rasm is None:
                 rasm = await bot.send_photo(chat, fayl, caption=izoh, parse_mode="HTML",
-                                            protect_content=True)
+                                            protect_content=True, **mk)
             else:
                 await bot.edit_message_media(
                     InputMediaPhoto(media=fayl, caption=izoh, parse_mode="HTML"),
@@ -802,22 +806,22 @@ async def _qr_jarayon(chat: int, uid: int, api_id: int, api_hash: str) -> None:
                 break
             except asyncio.TimeoutError:
                 if time.time() >= tugash:
-                    await bot.send_message(chat, "⌛ Vaqt tugadi. Qayta: /navbat_ulash")
+                    await bot.send_message(chat, "⌛ Vaqt tugadi. Qayta: /navbat_ulash", **mk)
                     return
                 await qr.recreate()
             except SessionPasswordNeededError:
                 parolga = True
-                _PAROL[uid] = {"client": client, "chat": chat, "urinish": 0, "t": time.time()}
+                _PAROL[uid] = {"client": client, "chat": chat, "mk": mk, "urinish": 0, "t": time.time()}
                 await bot.send_message(
                     chat, "🔐 Ikki bosqichli parolingizni yozing.\n<i>Xabaringiz darhol "
                     "o'chiriladi, parol hech qayerga saqlanmaydi. 5 daqiqa.</i>",
-                    parse_mode="HTML")
+                    parse_mode="HTML", **mk)
                 return
-        await _yakunla(client, uid, chat)
+        await _yakunla(client, uid, chat, mk)
     except Exception as x:
         logger.warning(f"[Navbat] QR ulanish: {type(x).__name__}")
         try:
-            await bot.send_message(chat, f"❌ Ulanmadi ({type(x).__name__}). Qayta: /navbat_ulash")
+            await bot.send_message(chat, f"❌ Ulanmadi ({type(x).__name__}). Qayta: /navbat_ulash", **mk)
         except Exception:
             pass
     finally:
@@ -859,13 +863,14 @@ async def parol_keldi(message) -> None:
         return
     _PAROL.pop(uid, None)
     try:
-        await _yakunla(h["client"], uid, h["chat"])
+        await _yakunla(h["client"], uid, h["chat"], h.get("mk"))
     finally:
         await _uzil(h["client"])
 
 
-async def _yakunla(client, uid: int, chat: int) -> None:
+async def _yakunla(client, uid: int, chat: int, mk: dict | None = None) -> None:
     """Kirish bo'ldi: FAQAT egasining o'z akkaunti bo'lsa saqlanadi."""
+    mk = mk or {}
     from core.loader import bot
     from db import database
     me = await client.get_me()
@@ -876,7 +881,7 @@ async def _yakunla(client, uid: int, chat: int) -> None:
         except Exception:
             pass
         await bot.send_message(chat, "❌ Bu boshqa akkaunt. Faqat o'zingizning "
-                                     "akkauntingiz bilan skanerlang: /navbat_ulash")
+                                     "akkauntingiz bilan skanerlang: /navbat_ulash", **mk)
         return
     d = await _saqlangan()
     d.update(sessiya=client.session.save())
@@ -891,7 +896,7 @@ async def _yakunla(client, uid: int, chat: int) -> None:
               "• <code>vexon, guruhni qizitib tur, hazillash</code> — navbat\n"
               "• <code>vexon to'xta</code> — to'xtatish\n"
               "• <code>vexon belgi o'chir</code> / <code>vexon belgi yoq</code>\n"
-              "Uzish: /navbat_uzish", parse_mode="HTML")
+              "Uzish: /navbat_uzish", parse_mode="HTML", **mk)
 
 
 async def qayta_ulan() -> None:

@@ -779,7 +779,7 @@ async def handle_pro(message: Message, state: FSMContext):
 
 
 async def _send_invoice(chat_id: int, days: int, beneficiary_id: int,
-                        is_gift: bool = False):
+                        is_gift: bool = False, thread_id: int = 0):
     """Stars invoice. «⬅️ Orqaga» — muddatlar ekraniga (invoice o'chadi):
     to'lamay qaytgan odamning chatida osilib qolgan invoice qolmaydi.
     ⚠️ To'lov tugmasi BIRINCHI turishi shart (Bot API)."""
@@ -790,6 +790,9 @@ async def _send_invoice(chat_id: int, days: int, beneficiary_id: int,
             [InlineKeyboardButton(text=f"⭐️ {stars} Stars to'lash", pay=True)],
             [btn("⬅️ Orqaga", f"pro:orqa:{beneficiary_id}" if is_gift else "pro:orqa")]]),
         chat_id=chat_id,
+        # Xom `bot.send_*` — aiogram mavzuni o'zi qo'shmaydi; busiz invoice
+        # Pro ekrani turgan mavzuda emas, asosiy oqimda chiqardi.
+        **({"message_thread_id": thread_id} if thread_id else {}),
         title=f"{prefix} — {title}",
         description=(
             f"{daily_limit('pro', 'points')} ball/kun · "
@@ -2837,11 +2840,12 @@ async def handle_pro_callback(query: CallbackQuery, state: FSMContext):
                 await query.message.answer(error, parse_mode="HTML")
                 return
 
-        from handlers.messages import ekran_almashtir, ekranni_ochir
+        from handlers.messages import _thread_key, ekran_almashtir, ekranni_ochir
         chat_id = query.message.chat.id
         try:
             inv = await _send_invoice(chat_id, days, beneficiary,
-                                      is_gift=(beneficiary != user_id))
+                                      is_gift=(beneficiary != user_id),
+                                      thread_id=_thread_key(query.message))
         except Exception as exc:
             logger.error(f"[Pro] invoice yuborilmadi: {exc}")
             await query.message.answer(

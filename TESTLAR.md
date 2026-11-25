@@ -224,7 +224,9 @@ Some are structural guards rather than feature tests, and they earn their keep o
   going to one topic while its history is written to another (the bot then cannot see
   its own answer, and nothing logs), and result files landing in the chat's main flow
   instead of the topic. Pins `_thread_key()` to aiogram's own `is_topic_message`
-  condition. Runs offline.
+  condition. Runs offline. 26-30 (2026-11-25): every raw `bot.send_*` lands in the
+  topic — the no-retry error (a Business error went to the main flow, not «💼 Biznes»),
+  the four chat actions, the Stars invoice and the Navbatchi QR flow.
 - `test_voice_status.py` — the TTS status indicator cleans up on every exit path
   (draft emptied, group message deleted, and both still done when the body raises). An
   abandoned draft hangs on screen and kills the next animation.
