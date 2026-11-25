@@ -63,6 +63,14 @@ def _mavzular_yoqilgan() -> bool:
     return bool(getattr(_m, "TOPICS_ENABLED", False))
 
 
+def _vidjet() -> bool:
+    """Vidjetlar (kartalar, bosiladigan test) yoqiqmi. ⛔️ 2026-11-19 dan
+    Telegram tomonida o'chiq: bu shartsiz ekran va `open_capabilities`
+    «karta chiqadi» deb va'da berardi, odam esa oddiy matn olardi."""
+    from handlers import messages as _m          # ⚠️ tsiklik import
+    return bool(getattr(_m, "VIDJET_YOQIQ", False))
+
+
 def _mavzular_matni() -> str:
     return ("🗂 <b>Suhbatlar</b> — bitta chat ichida bir nechta suhbat "
             "yuritsangiz bo'ladi va <b>har biri o'z xotirasida</b> qoladi. "
@@ -83,14 +91,20 @@ SECTIONS: dict[str, dict] = {
             "qidiraman va manbalarni ko'rsataman: yangiliklar, narxlar.\n\n"
             "🌤 <b>Ob-havo</b> va 💱 <b>valyuta kursi</b> — haqiqiy manbadan "
             "(Open-Meteo, Markaziy bank). «100 dollar necha so'm» ni aniq "
-            "hisoblayman; shaxsiy chatda tayyor karta ham chiqadi.\n\n"
+            "hisoblayman" + ("; shaxsiy chatda tayyor karta ham chiqadi"
+                             if _vidjet() else "") + ".\n\n"
             "🕌 <b>Namoz vaqtlari</b> — O'zbekiston shaharlari uchun rasmiy "
-            "jadval bo'yicha; shaxsiy chatda keyingi namozgacha sanoq bilan "
-            "karta chiqadi. Qo'ygan eslatmangiz ham sanoq kartasi bo'ladi.\n\n"
-            "📝 <b>Test</b> va 🗂 <b>kartochkalar</b> — «5 ta test tuz» yoki "
-            "«inglizcha 10 ta so'z kartochkasi» desangiz, shaxsiy chatda "
-            "bosib yechiladigan test yoki aylanadigan kartochka yuboraman.\n\n"
-            "🔗 <b>Havola tashlasangiz</b> — o'sha sahifani ochib o'qiyman, "
+            "jadval bo'yicha"
+            + ("; shaxsiy chatda keyingi namozgacha sanoq bilan karta chiqadi. "
+               "Qo'ygan eslatmangiz ham sanoq kartasi bo'ladi.\n\n"
+               if _vidjet() else ".\n\n")
+            + "📝 <b>Test</b> va 🗂 <b>kartochkalar</b> — «5 ta test tuz» yoki "
+            "«inglizcha 10 ta so'z kartochkasi» desangiz, "
+            + ("shaxsiy chatda bosib yechiladigan test yoki aylanadigan "
+               "kartochka yuboraman.\n\n" if _vidjet() else
+               "tayyor test (javoblari yopiq bo'limda) yoki so'z ro'yxatini "
+               "yozib beraman.\n\n")
+            + "🔗 <b>Havola tashlasangiz</b> — o'sha sahifani ochib o'qiyman, "
             "qidiruvga ketmayman. «Shuni qisqartir» desangiz kifoya. "
             "Javobimdan bir qismini belgilab reply qilsangiz — aynan "
             "o'sha qism haqida gaplashamiz.\n\n"
@@ -469,7 +483,8 @@ _BATAFSIL: dict = {
     "voice": (
         "Bepulda oddiy sintez ovozi, Pro'da tabiiyroq ovoz. Ovozli javob "
         "FAQAT ovozli xabarga keladi — matn yozilsa ovozda javob bera "
-        "olmayman. Guruhda ham ovozli xabarni tushunaman."
+        "olmayman. Ovozli javob qisqa — taxminan 1 daqiqa; uzun javobning "
+        "qolgani matnda keladi. Guruhda ham ovozli xabarni tushunaman."
     ),
     "file": (
         "Shunchaki so'rang: «… haqida 10 slaydlik taqdimot», «shu jadvalni "
@@ -481,7 +496,8 @@ _BATAFSIL: dict = {
     "guruh": (
         "Guruhda yo'q: fayl yasash, rasm chizish va tahrirlash, eslatma — "
         "bular shaxsiy chatda. Javob @bot deb yozilgan xabar o'rnida "
-        "chiqadi."
+        "chiqadi. Birinchi marta ishlatishdan oldin botni bir marta ochib "
+        "/start bosish kerak — aks holda guruhda shu haqda eslatma chiqadi."
     ),
     "joy": (
         "Lokatsiyani 30 daqiqa eslayman — keyin qaytadan yuborish kerak. "
@@ -563,9 +579,10 @@ _BATAFSIL: dict = {
         "bepulda ham bor; «har kuni / har dushanba …» — takroriy, Pro; «har "
         "kuni 9 da dollar kursini yubor» — vazifa: vaqti kelganda o'zim "
         "qidirib natijani yuboraman, Pro. «Eslatmalarimni ko'rsat», «falon "
-        "eslatmani bekor qil» ham ishlaydi. Shaxsiy chatda eslatma "
-        "qo'yilgach, qancha vaqt qolganini ko'rsatadigan karta chiqadi. "
-        "Eslatma qaysi mavzuda "
+        "eslatmani bekor qil» ham ishlaydi. "
+        + ("Shaxsiy chatda eslatma qo'yilgach, qancha vaqt qolganini "
+           "ko'rsatadigan karta chiqadi. " if _vidjet() else "")
+        + "Eslatma qaysi mavzuda "
         "o'rnatilgan bo'lsa, o'shanga keladi.\n"
         "Pro olish: /pro — Telegram Stars bilan yoki «💳 Karta orqali» so'mda "
         "(kartaga o'tkazib, chekni yuborasiz; admin 24 soat ichida tasdiqlaydi, "

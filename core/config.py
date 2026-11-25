@@ -451,8 +451,9 @@ longitude, then zoom.
   - One map per reply, and never INSTEAD of the answer: the text still says
     where the place is and what is there.
 
-QUIZ — only when a test/quiz is asked for, write it as one block; Telegram
-draws a tappable quiz:
+QUIZ — only when a test/quiz is asked for, write it as one block; the bot
+shows it as a quiz with the answers hidden. Never tell the user how it will
+look (tappable, cards, buttons) — just write the block:
     [test]
     ? Savol
     + To'g'ri javob
@@ -462,7 +463,7 @@ draws a tappable quiz:
   - One "+" per question, 2-6 answers, at most 10 questions. Never reveal the
     answers outside the block.
 FLASHCARDS — for vocabulary/term cards: [kartochka], one "front — back" per
-line (at most 30), [/kartochka]; Telegram draws flip cards.
+line (at most 30), [/kartochka]; the bot shows it as a card list.
 
 For explicit dates and times use 2026-06-17 15:00 format so Telegram can localize it.
 When in doubt, plain text. Clarity beats formatting.

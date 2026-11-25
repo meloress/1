@@ -336,7 +336,25 @@ async def main():
         _m.TOPICS_ENABLED = asl
     print("[14] guruh rejimi, joylashuv; mavzular faqat rejim yoqilganda OK")
 
-    print("\ncapabilities: barcha tekshiruvlar o'tdi (16/16).")
+    # Vidjetlar o'chiq (2026-11-19 dan, Telegram tomonida) — na /help, na
+    # open_capabilities karta yoki bosiladigan test va'da qilmasin: model
+    # shu matndan o'qib «karta chiqadi» derdi, odam esa oddiy matn olardi.
+    asl_v = _m.VIDJET_YOQIQ
+    try:
+        _m.VIDJET_YOQIQ = False
+        hammasi = "".join(cap.model_uchun(p, b) for p in (False, True) for b in cap.BOLIMLAR)
+        assert "karta chiqadi" not in hammasi and "kartasi bo'ladi" not in hammasi
+        assert "bosib yechiladigan" not in hammasi and "aylanadigan" not in hammasi
+        assert "javoblari yopiq" in hammasi          # test baribir bor — matn bo'lib
+        _m.VIDJET_YOQIQ = True
+        assert "bosib yechiladigan" in cap.model_uchun(False, "chat")
+    finally:
+        _m.VIDJET_YOQIQ = asl_v
+    assert "1 daqiqa" in cap.model_uchun(False, "voice")
+    assert "/start" in cap.model_uchun(False, "guruh")
+    print("[17] vidjet o'chiq — karta/bosiladigan test va'da qilinmaydi; ovoz ~1 daqiqa; guest /start OK")
+
+    print("\ncapabilities: barcha tekshiruvlar o'tdi (17/17).")
 
 
 if __name__ == "__main__":

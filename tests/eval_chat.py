@@ -149,6 +149,11 @@ H = [
      [r"(?i)doesn't|does not"], []),
     ("perfect", "Present Perfect qachon ishlatiladi? 2 ta misol bilan tushuntir", False, set(),
      {QIDIRUV}, [r"(?i)\b(have|has)\s+(been|seen|done|gone|\w+ed|\w+en)\b"], []),
+    # Test — blok bo'lib, ko'rinishini VA'DA QILMASDAN (2026-11-25): vidjet o'chiq
+    # paytida «bosib yeching» degan javob ostida oddiy matn chiqardi.
+    ("test_tuz", "ingliz tili Present Simple bo'yicha 3 ta test tuzib ber", False, set(),
+     {QIDIRUV}, [r"\[test\]", r"\[/test\]"],
+     [r"(?i)\bbos(ib|ing|asiz|ganda)\b|tugma|interaktiv|tappable"]),
     # ── Davom savollari: «ha» / «noto'g'ri» oldingi navbatga qarab ──
     ("ha_davom", ["2x + 5 = 17 tenglamani yech",
                   "x = 6. Yechimini bosqichma-bosqich ko'rsataymi?", "ha"], False, set(),

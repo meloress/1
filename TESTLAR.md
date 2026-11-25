@@ -15,6 +15,10 @@ Some are structural guards rather than feature tests, and they earn their keep o
   of an existing table** — the `biznes_chat` column made `test_biznes_owner.py` fire on a
   query that was fine.
 
+- `test_capabilities.py` — `/help` and `open_capabilities` (one text, `capabilities.SECTIONS`)
+  promise only what the bot does. 17 (2026-11-25): with widgets off (`VIDJET_YOQIQ`) no section
+  promises a card or a tappable quiz — the model read «karta chiqadi» from it while users got
+  plain text; the voice ~1-minute cap and guest mode's `/start` requirement are stated.
 - `test_yangi_suhbat.py` — the bot opens a new conversation (topic), the user cannot. 2:
   after compression a Pro chat is **not** reminded every 20 messages; 7: `/new` opens a
   topic and does **not** clear the old one; 12: startup closes user topic creation and
