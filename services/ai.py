@@ -160,6 +160,9 @@ async def safe_update_history(chat_id: int, content: str, role: str = "user",
         savol = await _mavzu_savoli(chat_id, thread_id)
         if savol:
             asyncio.create_task(nomla_mavzu(chat_id, thread_id, savol))
+    # Suhbatdagi qatorlar soni — «xotira to'ldi» eslatmasi shunga qaraydi
+    # (`messages._maybe_warn_long`); qo'shimcha so'rov yo'q, `jami` tayyor.
+    return jami
 
 
 # --------------------------------------------------

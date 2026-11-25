@@ -64,10 +64,11 @@ def _mavzular_yoqilgan() -> bool:
 
 
 def _mavzular_matni() -> str:
-    return ("🗂 <b>Mavzular</b> — bitta chat ichida bir nechta suhbat "
+    return ("🗂 <b>Suhbatlar</b> — bitta chat ichida bir nechta suhbat "
             "yuritsangiz bo'ladi va <b>har biri o'z xotirasida</b> qoladi. "
-            "Yangi mavzu ochsangiz, birinchi javobdan keyin unga o'zim "
-            "nom qo'yaman.\n\n")
+            "Yangi suhbat: /new — eskisi o'chmaydi, yon panelda qoladi; "
+            "birinchi javobdan keyin unga o'zim nom qo'yaman. Suhbat juda "
+            "uzaysa, o'zim yangisini ochishni taklif qilaman.\n\n")
 
 
 SECTIONS: dict[str, dict] = {
@@ -104,7 +105,7 @@ SECTIONS: dict[str, dict] = {
             + "Siz haqingizdagi muhim narsalarni esa doimiy yodda saqlayman."
         ),
         "example": "Bugun dollar kursi qancha va oxirgi bir oyda qanday o'zgargan?",
-        "note": "🧹 Suhbatni noldan boshlash: /new",
+        "note": "🆕 Yangi suhbat: /new",
     },
     "doc": {
         "button": "Hujjat",
@@ -434,8 +435,11 @@ _TEG_RE = re.compile(r"<[^>]+>")
 # bilan AYNAN bir xil yozilsin — odam ekranda shuni qidiradi.
 _BATAFSIL: dict = {
     "chat": (
-        "Buyruqlar: /new — SHU suhbat (mavzu) xotirasini tozalaydi, boshqa "
-        "mavzularga va doimiy xotiraga tegmaydi; /profile — tarif, muddat va "
+        "Buyruqlar: /new — YANGI suhbat: shaxsiy chatda yangi mavzu ochadi, "
+        "eski suhbat o'chmaydi va yon panelda qoladi (foydalanuvchi o'zi mavzu "
+        "ocha olmaydi — yangi suhbat faqat /new yoki «🆕 Yangi suhbat» tugmasi "
+        "bilan); mavzu rejimi yo'q joyda — shu suhbat xotirasini tozalaydi. "
+        "Doimiy xotiraga tegmaydi; /profile — tarif, muddat va "
         "bugungi limitlar; /pro — tariflar va narxlar; /promo — promokod "
         "kiritish; /gift — do'stga Pro sovg'a qilish; /help — imkoniyatlar "
         "ekrani.\n"

@@ -297,6 +297,8 @@ async def main():
                                lambda q: q.data and q.data.startswith("cap:"))
     dp.callback_query.register(biznes_module.handle_biznes_callback,
                                lambda q: q.data and q.data.startswith("bz:"))
+    dp.callback_query.register(messages_module.handle_yangi_suhbat_callback,
+                               lambda q: q.data == messages_module.YANGI_SUHBAT_CB)
     # Ulashish uchun inline rejim (@BotFather /setinline). Yoqilmagan bo'lsa
     # bu handlerga hech qachon update kelmaydi — zarari yo'q.
     dp.inline_query.register(pro_module.handle_inline_share)
@@ -388,6 +390,27 @@ async def main():
             f"{'YOQILGAN' if messages_module.TOPICS_ENABLED else 'o‘chiq'}; "
             f"foydalanuvchi mavzu ocha oladimi: "
             f"{bool(getattr(me, 'allows_users_to_create_topics', False))}")
+        # ── Mavzuni BOT ochadi, foydalanuvchi emas (Bot API 10.5) ─────────
+        # ⚠️ Jonli (prod, 10-28..11-25): foydalanuvchi mavzudan tashqarida
+        # yozgan HAR xabarga Telegram yangi mavzu ochardi — 64 kishida 608
+        # ta, bittasida 127 ta; har biri xotirasiz «suhbat». Ochish yopilsa
+        # (Tramplin'da sinaldi, 2026-11-25) xabar mavzusiz umumiy oqimga
+        # tushadi, bot ochgan mavzularda yozish ishlaydi, «+» yo'qoladi.
+        # Yangi suhbat — `/new` va «🆕 Yangi suhbat» tugmasi
+        # (`messages.yangi_suhbat_och`). Yon panel — ChatGPT'dagi suhbatlar
+        # ro'yxati. Faqat mavzu rejimi YOQILGAN botda: rejimni o'zi yoqmaydi.
+        if messages_module.TOPICS_ENABLED:
+            kerak = {}
+            if getattr(me, "allows_users_to_create_topics", False):
+                kerak["allows_users_to_create_topics"] = False
+            if not getattr(me, "has_topic_sidebar", False):
+                kerak["has_topic_sidebar"] = True
+            if kerak:
+                try:
+                    await bot.set_my_settings(**kerak)
+                    logger.info(f"Mavzu sozlamalari qo'yildi: {kerak}")
+                except Exception as e:
+                    logger.warning(f"Mavzu sozlamalari qo'yilmadi ({kerak}): {e}")
     except Exception as e:
         logger.warning(f"get_me() muvaffaqiyatsiz — referal havolalari ishlamaydi: {e}")
 

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Hamma uchun — tarifdan qat'i nazar.
 COMMON_COMMANDS = [
     BotCommand(command="help", description="🎯 Nima qila olaman?"),
-    BotCommand(command="new", description="🧹 Suhbatni noldan boshlash"),
+    BotCommand(command="new", description="🆕 Yangi suhbat"),
     BotCommand(command="profile", description="👤 Profilim va limitlarim"),
     BotCommand(command="pro", description="💎 Pro tarif"),
     BotCommand(command="promo", description="🎟 Promokod kiritish"),

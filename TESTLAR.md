@@ -15,6 +15,11 @@ Some are structural guards rather than feature tests, and they earn their keep o
   of an existing table** — the `biznes_chat` column made `test_biznes_owner.py` fire on a
   query that was fine.
 
+- `test_yangi_suhbat.py` — the bot opens a new conversation (topic), the user cannot. 2:
+  after compression a Pro chat is **not** reminded every 20 messages; 7: `/new` opens a
+  topic and does **not** clear the old one; 12: startup closes user topic creation and
+  never touches `has_topics_enabled`; 15-16: a topic is **not** wiped after 24 h idle, the
+  topicless flow is.
 - `test_flood.py` — `core.loader.FloodKutish`: a 429 on a send method waits and re-sends
   (live: 11 answer parts and 2 files lost in one second, 2026-11-20). Sharpest: 3-4 (an edit
   or `getUpdates` is **not** held) and 9 (a timeout is **not** re-sent: it may have arrived).

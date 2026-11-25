@@ -20,7 +20,7 @@ from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 from aiogram.dispatcher.event.bases import SkipHandler
 
 from core.config import (
-    BOT_TOKEN, CONTEXT_WINDOW,
+    BOT_TOKEN, CONTEXT_WINDOW, CONTEXT_WINDOW_PRO,
     TEXT_MERGE_WAIT, TEXT_MERGE_MAX_PARTS,
     TEXT_MERGE_MAX_CHARS, MAX_TEXT_LENGTH, STREAM_IDLE_TIMEOUT,
     DAILY_FREE_LIMIT, MESSAGE_COST_TEXT, MESSAGE_COST_PHOTO,
@@ -85,23 +85,91 @@ def _thread_key(message) -> int:
     return getattr(message, "message_thread_id", None) or 0
 
 
-async def _maybe_warn_long(message, thread_id: int = 0) -> None:
-    """«Bu suhbat uzayib ketdi» — bir marta, javobdan keyin.
+# «Xotira to'ldi» eslatmasi berilgan suhbatlar. ponytail: RAM — deploydan
+# keyin o'chadi, lekin chegara (`xotira_toldimi`) o'zi ham bir martalik.
+_XOTIRA_ESLATILGAN: set = set()
+YANGI_SUHBAT_CB = "mv:yangi"
+YANGI_SUHBAT_NOMI = "💬 Yangi suhbat"
 
-    Bayroqni fon vazifasi (db/history.py::_compress_old) qo'yadi, bu
-    yerda esa faqat RAMdan o'qiladi — javob yo'lida qo'shimcha baza
-    so'rovi bo'lmasligi uchun.
-    """
-    if not take_long_warning(message.chat.id, thread_id):
+
+def xotira_toldimi(jami, oyna: int) -> bool:
+    """Shu javob bilan suhbat model KO'RADIGAN oynadan oshdimi (bepul 30,
+    Pro 80)? Bir juftlik (savol+javob) = 2 qator, shuning uchun chegara
+    aynan shu javobda kesib o'tilgan bo'lsa — True. Siqishdan keyin qator
+    soni oynaga TUSHADI (`_STORE_LIMIT`), keyingi juftlik esa 2 ta yuqori —
+    ya'ni har 20 xabarda qayta chiqmaydi."""
+    return isinstance(jami, int) and jami - 2 < oyna <= jami
+
+
+async def _maybe_warn_long(message, thread_id: int = 0, jami=None,
+                           is_pro: bool = False) -> None:
+    """«Xotira to'ldi — yangi suhbat oching», bir marta, javobdan keyin.
+
+    ⚠️ Ilgari faqat ~200 xabarda (siqilgan 120 + oyna) chiqardi — bepul
+    foydalanuvchi esa 31-xabardan boshlab suhbat boshini ko'rmay qolgan
+    edi (oyna 30, siqish 100 qatordan). Endi oyna to'lgan paytda; eski
+    (siqish) belgisi ham qoldi — juda uzun suhbatga ikkinchi eslatma.
+    Ikkalasi ham RAMdan: javob yo'lida baza so'rovi yo'q."""
+    key = (message.chat.id, thread_id)
+    toldi = (xotira_toldimi(jami, CONTEXT_WINDOW_PRO if is_pro else CONTEXT_WINDOW)
+             and key not in _XOTIRA_ESLATILGAN)
+    uzun = take_long_warning(message.chat.id, thread_id)
+    if not (toldi or uzun):
         return
-    yol = ("yangi mavzu (topic) oching"
-           if TOPICS_ENABLED else "/new yozing")
+    _XOTIRA_ESLATILGAN.add(key)
+    # Mavzuni BOT ochadi (foydalanuvchiga mavzu ochish yopiq, main.py) —
+    # tugma faqat shaxsiy chatda va mavzu rejimi yoqilgan botda.
+    tugma = TOPICS_ENABLED and message.chat.type == "private"
+    yol = "pastdagi tugmani bosing" if tugma else "/new yozing"
     try:
         await message.answer(
-            "💭 <i>Bu suhbat ancha uzayib ketdi — eng eski qismini "
-            f"qisqartirib saqlayapman. Yangi mavzu uchun {yol}, "
-            "shunda javoblarim aniqroq bo'ladi.</i>",
-            parse_mode="HTML")
+            "💭 <i>Suhbat ancha uzaydi — uning eng eski qismi endi menga "
+            f"to'liq ko'rinmaydi. Yangi mavzu uchun {yol}, shunda javoblarim "
+            "aniqroq bo'ladi. Bu suhbat o'z joyida qoladi.</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[pro_module.btn(
+                "🆕 Yangi suhbat", YANGI_SUHBAT_CB, style="primary")]]) if tugma else None)
+    except Exception:
+        pass
+
+
+async def yangi_suhbat_och(chat_id: int) -> int | None:
+    """Shaxsiy chatda YANGI mavzu ochadi (GPT'dagi «New chat»). Eski suhbat
+    o'chirilmaydi — yon panelda qoladi. Nomni birinchi javobdan keyin
+    `nomla_mavzu` qo'yadi (mavzu bo'sh, ya'ni `jami <= 3`). Qaytadi:
+    thread_id yoki None (Telegram rad etsa — chaqiruvchida eski yo'l)."""
+    try:
+        mavzu = await bot.create_forum_topic(chat_id=chat_id, name=YANGI_SUHBAT_NOMI)
+    except Exception as e:
+        logger.info(f"[MAVZU] yangi suhbat ochilmadi chat={chat_id}: {e}")
+        return None
+    tid = mavzu.message_thread_id
+    try:
+        await bot.send_message(chat_id, "🆕 Yangi suhbat. Savolingizni shu yerga yozing 👇",
+                               message_thread_id=tid)
+    except Exception:
+        pass
+    return tid
+
+
+def _suhbat_havolasi(tid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[pro_module.btn(
+        "Yangi suhbatni ochish", "", url=f"https://t.me/{pro_module.BOT_USERNAME or 'vexonai'}/{tid}")]])
+
+
+async def handle_yangi_suhbat_callback(query) -> None:
+    """«🆕 Yangi suhbat» tugmasi (xotira to'ldi eslatmasi ostida)."""
+    msg = query.message
+    if msg is None or getattr(msg, "chat", None) is None or msg.chat.type != "private":
+        await query.answer()
+        return
+    tid = await yangi_suhbat_och(msg.chat.id)
+    if tid is None:
+        await query.answer("Yangi suhbat ochilmadi — /new yozib ko'ring.", show_alert=True)
+        return
+    await query.answer("✅ Yangi suhbat ochildi")
+    try:
+        await msg.edit_reply_markup(reply_markup=_suhbat_havolasi(tid))
     except Exception:
         pass
 
@@ -2028,6 +2096,15 @@ async def check_and_clear_session(chat_id: int, thread_id: int = 0):
     now = time.time()
     last_time = chat_last_interaction.get(key, now)
 
+    # Mavzu (thread_id > 0) 24 soatda TOZALANMAYDI: u yon panelda nomi bilan
+    # turadi (GPT'dagi suhbatlar ro'yxati), ikki kundan keyin qaytgan odam
+    # bot hammasini unutganini ko'rardi. Hajm baribir chegaralangan —
+    # siqish 100 qatorda (db/history.py). Mavzusiz oqim (0) — tezkor
+    # savollar joyi, u har kuni toza boshlanadi: aralashmaydi, token tejaydi.
+    if thread_id and thread_id > 0:
+        chat_last_interaction[key] = now
+        return
+
     if now - last_time > SESSION_TIMEOUT:
         forget_sent_images(chat_id, thread_id)
         forget_location(chat_id, thread_id)
@@ -2305,8 +2382,8 @@ def _greeting_text(*, premium: bool) -> str:
         f"➤ {e('voice', '🎙')} <b>Ovozli xabar</b> yuborsangiz — "
         f"<b>ovozli javob</b> qaytaraman!\n"
         f"➤ {e('tools', '🛠')} <b>Fayl yaratib beraman</b> — PPTX, PDF, Word, Excel\n\n"
-        f"{e('broom', '🧹')} Agar suhbatni noldan boshlamoqchi bo'lsangiz "
-        f"/new buyrug'ini bering.\n\n"
+        f"{e('broom', '🧹')} Yangi suhbat boshlash uchun /new buyrug'ini "
+        f"bering.\n\n"
         f"{e('write', '✍️')} Savolingizni yozing, rasm, hujjat yoki ovoz "
         f"yuboring. Boshladikmi?"
     )
@@ -2618,6 +2695,17 @@ async def handle_text(message: Message, state: FSMContext):
     text_str = message.text.strip()
 
     if text_str.lower() in ["/new", "/clear", "yangi suhbat"]:
+        # Mavzular yoqilgan shaxsiy chatda — GPT'dagi «New chat»: YANGI
+        # mavzu ochiladi, eski suhbat o'chirilmaydi va yon panelda qoladi
+        # (foydalanuvchiga mavzu ochish yopiq — main.py, ya'ni bu yagona yo'l).
+        if TOPICS_ENABLED and message.chat.type == "private":
+            tid = await yangi_suhbat_och(chat_id)
+            if tid is not None:
+                await message.answer(
+                    f"✅ Yangi suhbat ochildi — yon paneldagi «{YANGI_SUHBAT_NOMI}». "
+                    "Bu suhbat o'z joyida qoladi.", reply_markup=_suhbat_havolasi(tid))
+                return
+        # Mavzu ochilmadi (yoki mavzu rejimi yo'q) — eski yo'l.
         # ⚠️ FAQAT SHU MAVZU tozalanadi. Mavzular ayrim suhbat bo'lgani
         # uchun, bittasida /new bosgan odam qolganlarini yo'qotsa, bu
         # ma'lumot yo'qotish bo'lardi va bot buni aytmasdi ham.
@@ -2902,14 +2990,15 @@ async def _process_merged_text(chat_id: int, buf: dict, state: FSMContext):
 
         if full_reply:
             notify_watchers(user_id, last_message.from_user.username, "out", text=full_reply)
+            jami = None
             try:
                 await safe_update_history(chat_id, merged_text, role="user",
                                           thread_id=thread_id)
-                await safe_update_history(chat_id, full_reply, role="assistant",
+                jami = await safe_update_history(chat_id, full_reply, role="assistant",
                                           images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - matn] chat={chat_id}: {e}")
-            await _maybe_warn_long(last_message, thread_id)
+            await _maybe_warn_long(last_message, thread_id, jami, _is_pro(quota))
 
     except Exception as e:
         logger.error(f"[Text Error] {e}")
@@ -3071,14 +3160,15 @@ async def handle_research(message: Message, state: FSMContext,
             tayyor = True
             quota.mark_success()
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
+            jami = None
             try:
                 await safe_update_history(chat_id, f"[Tadqiqot]: {topic}", role="user",
                                           thread_id=thread_id)
-                await safe_update_history(chat_id, full_reply, role="assistant",
+                jami = await safe_update_history(chat_id, full_reply, role="assistant",
                                           images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - tadqiqot] chat={chat_id}: {e}")
-            await _maybe_warn_long(message, thread_id)
+            await _maybe_warn_long(message, thread_id, jami, True)
     except Exception as e:
         logger.error(f"[Research Error] {e}")
         await message.answer(
@@ -3211,15 +3301,16 @@ async def handle_photo(message: Message, state: FSMContext):
 
         if full_reply:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
+            jami = None
             try:
                 await safe_update_history(chat_id, f"[Rasm yuborildi]: {caption}",
                                           role="user", thread_id=thread_id)
                 # `images` — [rasm:N] tarixga tavsif bo'lib yozilsin.
-                await safe_update_history(chat_id, full_reply, role="assistant",
+                jami = await safe_update_history(chat_id, full_reply, role="assistant",
                                           images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - rasm] chat={chat_id}: {e}")
-            await _maybe_warn_long(message, thread_id)
+            await _maybe_warn_long(message, thread_id, jami, _is_pro(quota))
 
     except Exception as e:
         logger.error(f"Rasm xatosi: {str(e)}")
@@ -3379,14 +3470,15 @@ async def handle_document(message: Message, state: FSMContext):
 
         if full_reply:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply)
+            jami = None
             try:
                 await safe_update_history(chat_id, f"[Fayl yuborildi: {file_name}]: {caption}",
                                           role="user", thread_id=thread_id)
-                await safe_update_history(chat_id, full_reply, role="assistant",
+                jami = await safe_update_history(chat_id, full_reply, role="assistant",
                                           images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - hujjat] chat={chat_id}: {e}")
-            await _maybe_warn_long(message, thread_id)
+            await _maybe_warn_long(message, thread_id, jami, _is_pro(quota))
 
     except Exception as e:
         logger.error(f"Hujjat xatosi: {str(e)}")
@@ -3536,14 +3628,15 @@ async def handle_voice(message: Message, state: FSMContext):
 
         if full_reply_text:
             notify_watchers(user_id, message.from_user.username, "out", text=full_reply_text)
+            jami = None
             try:
                 await safe_update_history(chat_id, user_text, role="user",
                                           thread_id=thread_id)
-                await safe_update_history(chat_id, full_reply_text, role="assistant",
+                jami = await safe_update_history(chat_id, full_reply_text, role="assistant",
                                           images=images, thread_id=thread_id)
             except Exception as e:
                 logger.warning(f"[Tarix saqlash xatosi - ovoz] chat={chat_id}: {e}")
-            await _maybe_warn_long(message, thread_id)
+            await _maybe_warn_long(message, thread_id, jami, _is_pro(quota))
 
         try:
             await bot.send_chat_action(chat_id, "record_voice")

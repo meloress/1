@@ -517,7 +517,7 @@ all** — aiogram routes them. The raw `bot.send_*` calls do not, and
 `message_thread_id`, a generated PPTX arrives in the chat's main flow while the
 conversation that asked for it sits in a topic.
 
-`/new` clears **only the topic it was typed in**. `clear_history(thread_id=None)` is the
+`/new`'s fallback (topic could not be opened) clears **only the topic it was typed in**. `clear_history(thread_id=None)` is the
 "all topics" form and is deliberately reserved for wiping a user completely —
 `check_and_clear_session()` does not use it, because expiring one quiet topic must not
 take the others with it. `chat_last_interaction` is keyed by the pair for the same
@@ -557,10 +557,42 @@ is what happens when a BotFather toggle is trusted without a live test. The spec
 thing to verify is that `sendRichMessageDraft` works inside a topic, since the whole
 streaming animation and the stop button are built on it.
 
-Topic creation and deletion are left to Telegram's own UI on purpose. There is
-no `forum_topic_deleted` update, but nothing needs one: nobody can send into a deleted
-topic, so its rows just become unreachable. A `/suhbatlar` list was considered and
-dropped — the native topic tabs already are that list.
+**The bot opens topics, the user does not** (2026-11-25). With
+`allows_users_to_create_topics` on, Telegram opened a **new topic for every message**
+typed outside a topic: in prod 64 users had 608 topics (one had 127), each a fresh
+conversation with no memory of the last message. `main.py` now sets, at startup and only
+when topic mode is already on, `allows_users_to_create_topics=False` and
+`has_topic_sidebar=True` (`setMySettings`, Bot API 10.5). Tested live on Tramplin before
+prod: a message typed outside a topic lands in the topicless main flow (`thread_id` 0,
+no new topic), writing inside a bot-opened topic works, and the user's «+» disappears.
+A new conversation is therefore only `/new` or the «🆕 Yangi suhbat» button, both
+through `messages.yangi_suhbat_och()` (`createForumTopic` + one line inside it). It
+never deletes the old conversation, which stays in the sidebar like a ChatGPT chat
+list. If the topic cannot be opened, `/new` falls back to clearing the current one.
+Deletion stays with Telegram's UI: there is no `forum_topic_deleted` update and none
+is needed, because nobody can send into a deleted topic. The sidebar's side (right in
+the owner's client) is the client's choice; the Bot API has no parameter for it.
+
+**A topic is never wiped after 24 h idle; the topicless flow is** (2026-11-25).
+`check_and_clear_session()` returns early for `thread_id > 0`: a topic sits in the
+sidebar under its name, and someone coming back to it two days later found a bot that
+had forgotten everything. Size stays bounded anyway (compression at 100 rows), and the
+old wipe never freed abandoned topics either, since it only runs when the user writes
+again. The main flow (`thread_id` 0) keeps `SESSION_TIMEOUT`: it is the quick-question
+place, and yesterday's recipe should not leak into today's maths, nor cost tokens.
+`tests/test_yangi_suhbat.py` 15-16.
+
+**«Xotira to'ldi» comes when the window fills**, not at ~200 messages. The model sees
+the last `CONTEXT_WINDOW` (30) / `CONTEXT_WINDOW_PRO` (80) rows, but compression starts at
+`_STORE_LIMIT + HISTORY_SUMMARY_BATCH` (100). A free user's conversation start was
+therefore invisible from row 31 while the old hint (compressed `covered` ≥ 120) waited for
+~200. `safe_update_history()` returns the row count it already had, and
+`xotira_toldimi(jami, oyna)` fires on the reply that crosses the window. After a
+compression the rows fall back to 80 and the next pair lands on 82, so a Pro user is not
+reminded every 20 messages. `_XOTIRA_ESLATILGAN` (RAM) is the second guard. The old
+compression flag still fires once, for a very long conversation. The «🆕 Yangi suhbat»
+button appears only in a private chat with topic mode on; elsewhere the hint says
+`/new`. `tests/test_yangi_suhbat.py`.
 
 **The bot does name a topic, once.** `editForumTopic` is allowed in a private chat (the
 Bot API says so explicitly), so after the first exchange `safe_update_history()` fires a

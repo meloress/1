@@ -329,9 +329,9 @@ async def main():
     asl = _m.TOPICS_ENABLED
     try:
         _m.TOPICS_ENABLED = True
-        assert "Mavzular" in cap._section_text("chat", False)
+        assert "🗂 <b>Suhbatlar</b>" in cap._section_text("chat", False)
         _m.TOPICS_ENABLED = False
-        assert "Mavzular" not in cap._section_text("chat", False)
+        assert "🗂 <b>Suhbatlar</b>" not in cap._section_text("chat", False)
     finally:
         _m.TOPICS_ENABLED = asl
     print("[14] guruh rejimi, joylashuv; mavzular faqat rejim yoqilganda OK")
