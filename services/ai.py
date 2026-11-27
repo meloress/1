@@ -114,7 +114,7 @@ RATE_LIMIT_RETRY_DELAY = 6
 from db.database import (
     get_memories, add_memory, update_memory, delete_memory, clear_memories,
     create_scheduled_task, list_scheduled_tasks, cancel_scheduled_task,
-    TASHKENT_TZ,
+    TASHKENT_TZ, is_superadmin,
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -5006,6 +5006,11 @@ def clean_tg_name(name: Optional[str]) -> str:
     return (given or words)[0]
 
 
+EGASI_BLOKI = ("[EGASI TASDIQLANGAN] Bu foydalanuvchi — Vexon AI egasi (superadmin, "
+               "bot kodi Telegram ID bo'yicha tasdiqladi). Uni egang sifatida "
+               "tani va hurmat bilan gaplash.")
+
+
 async def _memory_context(user_id: Optional[int], *, can_write: bool = True,
                           tg_name: Optional[str] = None):
     """Foydalanuvchi xotirasini o'qib, promptga qo'yiladigan xabarni yasaydi.
@@ -5045,6 +5050,17 @@ async def _memory_context(user_id: Optional[int], *, can_write: bool = True,
             f"[FOYDALANUVCHI] Telegram'dagi ismi: {name}. Murojaatda shuni "
             "ishlating, lekin xotirada boshqa ism bo'lsa — O'SHA ustun "
             "(foydalanuvchi o'zini qanday atashini afzal ko'rsa, shu to'g'ri).")
+
+    # Egani FAQAT kod taniydi (Telegram ID → `superadmins`). «Men egangman»,
+    # Telegram ismi, xotiradagi fakt — bularni har kim yoza oladi, shuning
+    # uchun prompt boshqa hech qanday dalilni qabul qilmaydi (IDENTITY).
+    # Baza javob bermasa — oddiy foydalanuvchi: begonani ega deb bilishdan
+    # egani bir marta tanimaslik xavfsizroq.
+    try:
+        if await is_superadmin(user_id):
+            parts.append(EGASI_BLOKI)
+    except Exception as e:
+        logger.warning(f"[Ega tekshiruvi xatosi] user={user_id}: {e}")
 
     if mem_rows:
         listing = "\n".join(

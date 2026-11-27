@@ -19,6 +19,12 @@ Some are structural guards rather than feature tests, and they earn their keep o
   promise only what the bot does. 17 (2026-11-25): with widgets off (`VIDJET_YOQIQ`) no section
   promises a card or a tappable quiz — the model read «karta chiqadi» from it while users got
   plain text; the voice ~1-minute cap and guest mode's `/start` requirement are stated.
+- `test_egasi.py` — the bot's owner is recognised **only by code** (2026-11-27):
+  `_memory_context()` adds `EGASI_BLOKI` for a `superadmins` Telegram ID and for nobody
+  else — not for a stranger with the same name (2), not on a database error (4). 5: the
+  prompt's IDENTITY names the same `[EGASI TASDIQLANGAN]` tag as the only proof, so a
+  "men egangman" message, Telegram name or remembered fact never counts. Live check:
+  `eval_chat.py ega`.
 - `test_yangi_suhbat.py` — the bot opens a new conversation (topic), the user cannot. 2:
   after compression a Pro chat is **not** reminded every 20 messages; 7: `/new` opens a
   topic and does **not** clear the old one; 12: startup closes user topic creation and
@@ -216,7 +222,7 @@ Some are structural guards rather than feature tests, and they earn their keep o
   - the wrapped chat handlers keep the signature aiogram reads;
   - storing happens only on Railway.
 - `test_image_pick.py` 34-38 — the picker gets Bing's thumbnail while the user gets the original. When OpenAI cannot download an image, we fetch the images ourselves, drop the one that will not load, and the indices map back correctly. Another error (429) does not trigger the download. An internal address is never fetched.
-- `test_prompt_rules.py` — 60 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
+- `test_prompt_rules.py` — 63 individual prompt rules still present in the assembled `instructions`. Run it **before and after** any prompt edit; identical results are what make a prompt change safe to ship.
 - `test_url_read.py` — the untrusted-boundary guard on `internet_search(url=…)`: a
   model-written URL must never reach an internal address, and a page that will not open
   must return an explicit error rather than silence. Runs offline (numeric IPs, no DNS).
